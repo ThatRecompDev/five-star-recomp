@@ -43,6 +43,10 @@ internal static unsafe class PresentSlots
             d3d12x.Pacer.Presented(planes->Token);
         }
 
+        // A memory wait is not kept across a present (as victory-gta6 forces its held work there): the game's own
+        // frame wait (0x142474f80) can stand behind it while the writer is next frame's work (a 5 s stall, then a
+        // removed device, at the first story-load frame).
+        MemoryWaits.ReleaseAll();
         d3d12x.FrameThrottle.Presented();
 
         return d3d12x.Presenter.Present(self->Inner, count, planes, parameters);

@@ -373,8 +373,9 @@ current segment's. `--no-split-at-waits` holds no wait recorded after work inste
 The stall that kept splitting off (boots 9 and 10: every queue held for 5 s at one frame, the next frame's writer
 lists recorded but not submitted) was our present throttle (`GpuFrameThrottle`): at a present it blocked the
 submitting thread until the GPU finished the work of two presents before, and that work stood at a wait whose writer
-the same thread submits after the present. victory-gta6 releases all held waits at a present; the throttle now
-releases them only when it has waited 250 ms. Wait checks read memory without VirtualQuery (victory-gta6 measured
+the same thread submits after the present. victory-gta6 releases all held waits at a present, and so do we now (boot 13,
+with splitting on, stalled 5 s at the first story-load frame with the game's own frame wait, 0x142474f80, behind a
+held queue, and the device was removed); the throttle also releases them when it has waited 250 ms. Wait checks read memory without VirtualQuery (victory-gta6 measured
 about 8 ms per query in the game's 1.1 GB allocation): a page in a mappable reservation must be mapped, other memory
 must be in the address table. The device's Dispose logs the counts.
 

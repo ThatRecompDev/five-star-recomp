@@ -276,9 +276,9 @@ internal static unsafe class MemoryWaits
     }
 
     /// <summary>
-    /// When the CPU has waited a while for the GPU at a present (<see cref="Present.GpuFrameThrottle"/>): every queue's
-    /// pending waits are released, as the writers they need may come from the waiting thread after the present.
-    /// Returns how many were released.
+    /// At every present, and when the present throttle has waited a while (<see cref="Present.GpuFrameThrottle"/>):
+    /// every queue's pending waits are released, as the writers they need may come from the presenting thread after
+    /// the present. Returns how many were released.
     /// </summary>
     public static int ReleaseAll()
     {
