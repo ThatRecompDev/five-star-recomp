@@ -132,6 +132,8 @@ internal static unsafe class ListSplits
             return 0;
         }
 
+        CommandObjectCounts.SplitListMade();
+
         return list;
     }
 

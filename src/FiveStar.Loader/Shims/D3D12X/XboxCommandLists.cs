@@ -41,6 +41,7 @@ internal sealed unsafe class XboxCommandLists
         if (!HResult.Failed(hr) && *list != 0)
         {
             ListSegments.Of((XboxObject*)*list)->Allocator = desktopAllocator;
+            CommandObjectCounts.ListMade();
         }
 
         return hr;
