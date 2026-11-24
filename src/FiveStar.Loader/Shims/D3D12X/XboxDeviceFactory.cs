@@ -70,6 +70,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
 
         Uploads = new UploadArena(Objects, PlacedResources.Addresses, log);
         ConstantCopies = new ConstantCopies(Objects, PlacedResources.Addresses, MemorySource, log);
+
         AddressBuffers = new AddressBufferViews(GameMemory);
         AddressViews = new AddressShaderViews(Textures, AddressBuffers, Warnings, log);
         MemoryViews = new GameMemoryViews(memory, heaps, Warnings, log);
