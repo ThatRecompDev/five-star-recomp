@@ -328,12 +328,33 @@ internal sealed unsafe class XMemPhysicalMemory : IDisposable
     }
 
     /// <summary>
-    /// Calls <paramref name="changed"/> (address, previous frame, new frame; 0 is none) every time the frame at a mapped
-    /// address changes: a remap, an unmap or a first mapping, from the thread that made it.
+    /// Adds <paramref name="changed"/> to the calls made (address, previous frame, new frame; 0 is none) every time the
+    /// frame at a mapped address changes: a remap, an unmap or a first mapping, from the thread that made it.
     /// </summary>
     public void ObservePages(Action<nint, ulong, ulong> changed)
     {
-        Volatile.Write(ref _pageChanged, changed);
+        lock (_placeholders)
+        {
+            Volatile.Write(ref _pageChanged, (Action<nint, ulong, ulong>)Delegate.Combine(_pageChanged, changed));
+        }
+    }
+
+    /// <summary>Calls <paramref name="visit"/> (address, frame) for every page mapped now, in address order per reservation.</summary>
+    public void VisitMapped(Action<nint, ulong> visit)
+    {
+        foreach (var reservation in _reservations.Snapshot())
+        {
+            for (ulong offset = 0; offset < reservation.Size; offset += PageSize)
+            {
+                nint address = reservation.Address + (nint)offset;
+                ulong frame = reservation.FrameAt(address);
+
+                if (frame != 0)
+                {
+                    visit(address, frame);
+                }
+            }
+        }
     }
 
     /// <summary>Whether a page is mapped at <paramref name="address"/> (after <see cref="CpuAddress"/>); false outside every reservation.</summary>
