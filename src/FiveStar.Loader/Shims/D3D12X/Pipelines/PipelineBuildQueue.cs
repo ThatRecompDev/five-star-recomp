@@ -47,7 +47,7 @@ internal sealed class PipelineBuildQueue
     {
         for (int i = 0; i < Workers; i++)
         {
-            var thread = new Thread(Run) { IsBackground = true, Name = "fivestar pipeline build", Priority = ThreadPriority.BelowNormal };
+            var thread = new Thread(Run) { IsBackground = true, Name = "fivestar pipeline build" };
             thread.Start();
         }
     }

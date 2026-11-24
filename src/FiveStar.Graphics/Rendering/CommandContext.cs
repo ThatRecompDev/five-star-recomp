@@ -7,18 +7,21 @@ namespace FiveStar.Graphics.Rendering;
 
 /// <summary>
 /// A direct queue with one command list and a fence. <see cref="ExecuteAndWait"/> submits what the list recorded,
-/// waits for the GPU and opens the list again.
+/// waits for the GPU and opens the list again. The wait is the fence's completion event, not a polling sleep: texture
+/// uploads run here on the game's threads, dozens a frame, and a 1 ms sleep each (at least, at the timer's
+/// resolution) held the frame's submissions.
 /// </summary>
 public sealed class CommandContext : IDisposable
 {
-    // Waits of about 1 ms, up to about a minute.
-    private const int WaitMilliseconds = 1;
-    private const int MaxWaits = 60_000;
+    // Waits of 100 ms between device checks, up to about a minute.
+    private const int WaitMilliseconds = 100;
+    private const int MaxWaits = 600;
 
     private readonly ID3D12Device _device;
     private readonly ID3D12CommandQueue _queue;
     private readonly ID3D12CommandAllocator _allocator;
     private readonly ID3D12Fence _fence;
+    private readonly AutoResetEvent _completed = new(false);
     private ulong _fenceValue;
 
     public CommandContext(ID3D12Device device)
@@ -39,6 +42,7 @@ public sealed class CommandContext : IDisposable
         _queue.ExecuteCommandList(List);
         _fenceValue++;
         _queue.Signal(_fence, _fenceValue).CheckError();
+        _fence.SetEventOnCompletion(_fenceValue, _completed.SafeWaitHandle.DangerousGetHandle()).CheckError();
 
         for (var waited = 0; _fence.CompletedValue < _fenceValue; waited++)
         {
@@ -52,7 +56,7 @@ public sealed class CommandContext : IDisposable
                 throw new TimeoutException("the GPU did not finish the command list");
             }
 
-            Thread.Sleep(WaitMilliseconds);
+            _completed.WaitOne(WaitMilliseconds);
         }
 
         _allocator.Reset();
@@ -63,6 +67,7 @@ public sealed class CommandContext : IDisposable
     {
         List.Dispose();
         _fence.Dispose();
+        _completed.Dispose();
         _allocator.Dispose();
         _queue.Dispose();
     }
