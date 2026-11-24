@@ -161,6 +161,9 @@ internal sealed record HostOptions
     /// <summary>Skip the rest of a recording's compute after a skipped dispatch (<c>--skip-compute-chains</c>).</summary>
     public bool SkipComputeChains { get; set; }
 
+    /// <summary>A recording's ExecuteIndirects after a skipped compute dispatch run nothing (<c>--empty-indirect-after-skip</c>).</summary>
+    public bool EmptyIndirectAfterSkip { get; set; }
+
     /// <summary>A submission holding a retire write waits for every other queue (<c>--retire-waits-all-queues</c>).</summary>
     public bool RetireWaitsAllQueues { get; set; }
 
