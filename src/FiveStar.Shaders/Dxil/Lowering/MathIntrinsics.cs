@@ -44,6 +44,12 @@ public sealed class MathIntrinsics
         ["acos"] = DxOpCode.Acos,
         ["atan"] = DxOpCode.Atan,
         ["saturate"] = DxOpCode.Saturate,
+        ["ddx"] = DxOpCode.DerivCoarseX,
+        ["ddy"] = DxOpCode.DerivCoarseY,
+        ["ddx_coarse"] = DxOpCode.DerivCoarseX,
+        ["ddy_coarse"] = DxOpCode.DerivCoarseY,
+        ["ddx_fine"] = DxOpCode.DerivFineX,
+        ["ddy_fine"] = DxOpCode.DerivFineY,
     };
 
     private static readonly Dictionary<string, DxOpCode> Special = new(StringComparer.Ordinal)

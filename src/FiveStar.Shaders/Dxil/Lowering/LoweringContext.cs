@@ -56,6 +56,12 @@ public sealed class LoweringContext
     /// <summary>User functions by name (overloads in declaration order).</summary>
     public Dictionary<string, List<SyntaxNode>> Functions { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>Struct declarations by name (their fields' semantics and modifiers).</summary>
+    public Dictionary<string, SyntaxNode> StructDeclarations { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>The signatures of a graphics entry point (null for compute).</summary>
+    public GraphicsEntry? Graphics { get; set; }
+
     /// <summary>The block allocas go to.</summary>
     public BasicBlock? EntryBlock { get; set; }
 

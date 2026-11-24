@@ -8,14 +8,21 @@ using FiveStar.Shaders.Dxil.Ir;
 namespace FiveStar.Shaders.Dxil.Lowering;
 
 /// <summary>
-/// Lowers a parsed compute program into a DXIL module: declarations, the entry block (globals, the user-data handle,
-/// the entry parameters), the body with every call inlined, then SSA cleanup and the flags the module needs.
+/// Lowers a parsed program into a DXIL module: declarations, the entry block (globals, the user-data handle, the entry
+/// parameters: thread ids, or the input signature of a graphics stage), the body with every call inlined, the outputs
+/// at the exit, then SSA cleanup and the flags the module needs.
 /// </summary>
 public static class ShaderLowering
 {
     private const string EntryName = "main";
+    private const string HelperLanesAttribute = "WaveOpsIncludeHelperLanes";
 
     public static (DxilModule Module, IrFunction Main, ShaderDescription Description) Compute(IReadOnlyList<SyntaxNode> declarations)
+    {
+        return Lower(declarations, DxilShaderKind.Compute);
+    }
+
+    public static (DxilModule Module, IrFunction Main, ShaderDescription Description) Lower(IReadOnlyList<SyntaxNode> declarations, DxilShaderKind kind)
     {
         var module = new DxilModule();
         var types = module.Types;
@@ -31,27 +38,79 @@ public static class ShaderLowering
 
         var globals = new GlobalDeclarations(context);
         globals.Collect(declarations);
-        var source = Entry(context, declarations);
+        var source = Entry(context);
         globals.Declare(declarations);
-
-        var computeEntry = new ComputeEntry(context);
-        var threads = computeEntry.Threads(source);
-        var waveSize = computeEntry.WaveSize(source);
         context.Scope.Push();
-        computeEntry.BindParameters(source);
-        Body(context, source);
 
+        var description = kind == DxilShaderKind.Compute ? ComputeBody(context, source) : GraphicsBody(context, source, kind);
         context.Scope.Pop();
 
         context.Ssa.Finish();
         main.Blocks.AddRange(context.Ssa.Blocks);
         DeadCode.Remove(main);
-        var flags = context.Flags | FeatureScan.Flags(main);
+        context.Graphics?.RecordUsage(main);
+        var flags = context.Flags | FeatureScan.Flags(main) | SignatureFlags(context.Graphics);
 
-        return (module, main, new ShaderDescription(threads, waveSize, flags, context.UserDataBytes));
+        if (description.IncludeHelperLanes)
+        {
+            main.Attribute = AttributeSet.HelperLanes;
+        }
+
+        return (module, main, description with { Flags = flags });
     }
 
-    private static SyntaxNode Entry(LoweringContext context, IReadOnlyList<SyntaxNode> declarations)
+    private static ShaderDescription ComputeBody(LoweringContext context, SyntaxNode source)
+    {
+        var computeEntry = new ComputeEntry(context);
+        var threads = computeEntry.Threads(source);
+        var waveSize = computeEntry.WaveSize(source);
+        computeEntry.BindParameters(source);
+        Body(context, source);
+
+        return new ShaderDescription(threads, waveSize, ShaderFlagBits.None, context.UserDataBytes);
+    }
+
+    private static ShaderDescription GraphicsBody(LoweringContext context, SyntaxNode source, DxilShaderKind kind)
+    {
+        var graphics = new GraphicsEntry(context, kind);
+        context.Graphics = graphics;
+        graphics.Declare(source);
+        graphics.BindParameters(source);
+        Body(context, source);
+
+        return new ShaderDescription((0, 0, 0), null, ShaderFlagBits.None, context.UserDataBytes)
+        {
+            Kind = kind,
+            Inputs = graphics.Inputs,
+            Outputs = graphics.Outputs,
+            IncludeHelperLanes = source.Attributes.Any(attribute => attribute.Text == HelperLanesAttribute),
+        };
+    }
+
+    /// <summary>Flags the signatures need: barycentrics, stencil export.</summary>
+    private static ShaderFlagBits SignatureFlags(GraphicsEntry? graphics)
+    {
+        var flags = ShaderFlagBits.None;
+
+        if (graphics is null)
+        {
+            return flags;
+        }
+
+        if (graphics.Inputs.Any(element => element.Kind == SemanticKind.Barycentrics))
+        {
+            flags |= ShaderFlagBits.Barycentrics;
+        }
+
+        if (graphics.Outputs.Any(element => element.Kind == SemanticKind.StencilRef))
+        {
+            flags |= ShaderFlagBits.StencilExport;
+        }
+
+        return flags;
+    }
+
+    private static SyntaxNode Entry(LoweringContext context)
     {
         if (!context.Functions.TryGetValue(EntryName, out var overloads))
         {
@@ -61,18 +120,35 @@ public static class ShaderLowering
         return overloads[0];
     }
 
+    /// <summary>The entry's body; its returned value (a graphics stage's outputs) is stored at the exit.</summary>
     private static void Body(LoweringContext context, SyntaxNode main)
     {
         var flow = context.Flow;
         var exit = flow.NewBlock();
         var body = main.Children.Last(child => child.Kind == SyntaxKind.Block);
-        flow.PushFrame(new FunctionFrame(exit, HlslType.Void, []));
+        var returnType = context.Types.Resolve(main.Type!, _ => throw SourceError.At(main, "an array return type is not supported"));
+        var returnSlots = new List<int>();
+
+        if (returnType.Shape != TypeShape.Void)
+        {
+            var variable = context.Variables.DeclareSlots(EntryName + ".return", returnType);
+            returnSlots.AddRange(Enumerable.Range(variable.FirstSlot, returnType.Count));
+        }
+
+        flow.PushFrame(new FunctionFrame(exit, returnType, returnSlots));
         context.Statements.LowerBlockContents(body);
         flow.Jump(exit);
 
         flow.PopFrame();
         flow.Seal(exit);
         flow.Enter(exit);
+
+        if (returnSlots.Count > 0)
+        {
+            var value = returnSlots.Select(slot => context.Ssa.Read(slot, context.Builder.Block)).ToArray();
+            context.Graphics?.StoreOutputs(new RValue(returnType, value));
+        }
+
         context.Builder.Return();
     }
 }

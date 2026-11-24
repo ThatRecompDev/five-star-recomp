@@ -19,7 +19,7 @@ public sealed class IrFunction : Value
 
     public IrType FunctionType { get; }
 
-    public AttributeSet Attribute { get; }
+    public AttributeSet Attribute { get; set; }
 
     public bool HasBody { get; }
 
