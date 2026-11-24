@@ -15,6 +15,8 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// written by something else, most likely the GPU: the page, its old and new header, its first bytes and every
 /// queue's executions retired since the last check (<see cref="QueueProgress.DescribeSince"/>; with
 /// <c>--d3d12-breadcrumbs</c> also their last dispatches) are logged, the first <see cref="DetailedReports"/> in full.
+/// A page whose counter did not move forward was given back by the allocator and reused for other data: it leaves the
+/// watch. The pools themselves are watched too (<see cref="PoolObjectWatch"/>).
 /// The heaps are scanned for pages every <see cref="ScanMilliseconds"/> ms on the same thread; a page found is only
 /// reported on once the allocator was seen at work on it (its counter moved), so GPU data that happens to read as a
 /// header is not taken for one. Reads are plain loads:
@@ -42,7 +44,7 @@ internal static unsafe class PoolPageWatch
     private static int _confirmed;
 
     /// <summary>Pages watched, header checks made and writes found, for the exit summary.</summary>
-    public static string Summary => $"[pool pages] {Volatile.Read(ref _watched)} pages watched ({Volatile.Read(ref _confirmed)} seen in use), {Interlocked.Read(ref _checks)} checks, {Interlocked.Read(ref _reports)} headers written by something other than the CPU's allocator";
+    public static string Summary => $"[pool pages] {Volatile.Read(ref _watched)} pages watched ({Volatile.Read(ref _confirmed)} seen in use), {Interlocked.Read(ref _checks)} checks, {Interlocked.Read(ref _reports)} headers written by something other than the CPU's allocator; {PoolObjectWatch.Summary}";
 
     /// <summary>Whether the watch runs.</summary>
     public static bool Started { get; private set; }
@@ -126,10 +128,19 @@ internal static unsafe class PoolPageWatch
                 continue;
             }
 
+            // A page the allocator gave back is used for other data: watched again only when a scan finds it pooled.
+            if (!before.StillPooled(now))
+            {
+                Pages.Remove(page);
+
+                continue;
+            }
+
             Report(page, before, now);
             Pages[page] = (now, confirmed);
         }
 
+        PoolObjectWatch.Check(Pages, _since, _log);
         _since = QueueProgress.Completed();
         Volatile.Write(ref _watched, Pages.Count);
         Volatile.Write(ref _confirmed, Pages.Values.Count(page => page.Confirmed));

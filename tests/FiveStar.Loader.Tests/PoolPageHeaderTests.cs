@@ -37,6 +37,21 @@ public sealed class PoolPageHeaderTests
     }
 
     [Fact]
+    public void A_given_back_page_and_the_crashs_current_page_are_told_apart()
+    {
+        var before = Header(0x1230, 12, 41, 0x1240);
+
+        // Given back and reused: the counter does not move on.
+        Assert.False(before.StillPooled(Header(0x0560, 549, 0, 0)));
+        Assert.True(before.StillPooled(Header(0x7FFFFFFF, 12, 42, 0)));
+
+        // The story-load crash's pool: current page 0x800000017fffffff.
+        Assert.False(PoolObjectWatch.IsPage(0x8000_0001_7FFF_FFFF));
+        Assert.True(PoolObjectWatch.IsPage(0x2250_28B0_000));
+        Assert.True(PoolObjectWatch.IsPage(0));
+    }
+
+    [Fact]
     public void Zero_pages_and_unlinked_pages_are_not_taken_for_pool_pages()
     {
         Assert.False(new PoolPageHeader(0, 0, 0, 0, 0).Plausible());
