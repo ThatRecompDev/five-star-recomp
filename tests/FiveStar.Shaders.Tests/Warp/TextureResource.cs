@@ -6,15 +6,18 @@ using Vortice.DXGI;
 namespace FiveStar.Shaders.Tests.Warp;
 
 /// <summary>
-/// A texture (one mip) at a <c>ResourceDescriptorHeap</c> slot, texels given as raw 32-bit words, layer after layer.
-/// <see cref="Layers"/> is the array size of an array or cube (6) and the depth of a 3D texture. A writable texture is
-/// bound as a UAV and read back after the run.
+/// A texture at a <c>ResourceDescriptorHeap</c> slot, texels given as raw 32-bit words, layer after layer and in a layer
+/// level after level. <see cref="Layers"/> is the array size of an array or cube (6) and the depth of a 3D texture;
+/// <see cref="Levels"/> (2D textures and arrays) its mip levels. A writable texture is bound as a UAV and read back after
+/// the run.
 /// </summary>
 public sealed record TextureResource(int HeapIndex, Format Format, int Width, int Height, uint[] Words)
 {
     public TextureKind Kind { get; init; } = TextureKind.Texture2D;
 
     public int Layers { get; init; } = 1;
+
+    public int Levels { get; init; } = 1;
 
     public bool Writable { get; init; }
 

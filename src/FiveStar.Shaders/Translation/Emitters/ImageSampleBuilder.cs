@@ -31,6 +31,14 @@ internal sealed class ImageSampleBuilder
         [8] = "Alpha",
     };
 
+    private static readonly IReadOnlyDictionary<string, string> ComponentOf = new Dictionary<string, string>
+    {
+        ["Red"] = "x",
+        ["Green"] = "y",
+        ["Blue"] = "z",
+        ["Alpha"] = "w",
+    };
+
     private readonly TranslationState _state;
     private readonly OperandAccess _operands;
 
@@ -187,10 +195,52 @@ internal sealed class ImageSampleBuilder
             return $"{request.Texture}.GatherCmp{channel}({state}, {location}, asfloat({coordinates[0]}){offsetTail})";
         }
 
-        // gather4_l: HLSL Gather has no LOD operand (always mip 0), an approximation unless the LOD is 0.
+        if (request.Operation == "gather4_l" && request.Dimension is "2D" or "2D_ARRAY")
+        {
+            return GatherAtLevel(request, ComponentOf[channel]);
+        }
+
+        // gather4_l on other dimensions: HLSL Gather has no level operand (it reads level 0).
         var position = request.FloatVector(coordinates.Take(request.Components).ToList());
 
         return $"{request.Texture}.Gather{channel}({request.Sampler}, {position}{offsetTail})";
+    }
+
+    /// <summary>
+    /// gather4_l (and _o) on a 2D texture or array. HLSL Gather has no level operand and reads level 0, so the four texels
+    /// are loaded from the level a gather takes (the LOD rounded, clamped to the view's levels), in gather order (i0, j1)
+    /// (i1, j1) (i1, j0) (i0, j0), each coordinate clamped to the level's edge. Depth-pyramid culling gathers at a level.
+    /// </summary>
+    private string GatherAtLevel(ImageRequest request, string component)
+    {
+        var n = request.Number;
+        var values = request.Coordinates;
+        var texture = request.Texture;
+        var array = request.Dimension == "2D_ARRAY";
+        var (level, size, low, high) = ($"_gm{n}", $"_gd{n}", $"_g0{n}", $"_g1{n}");
+        var slice = string.Empty;
+
+        if (array)
+        {
+            _state.Emit($"  uint _gw{n}, _gh{n}, _gs{n}, _gn{n}; {texture}.GetDimensions(0u, _gw{n}, _gh{n}, _gs{n}, _gn{n});");
+            slice = $", (int)min((uint)max(round(asfloat({values[2]})), 0.0), _gs{n} - 1u)";
+        }
+        else
+        {
+            _state.Emit($"  uint _gw{n}, _gh{n}, _gn{n}; {texture}.GetDimensions(0u, _gw{n}, _gh{n}, _gn{n});");
+        }
+
+        var offset = request.Offsets is null ? string.Empty : $" + {request.Offsets}";
+        _state.Emit($"  uint {level} = min((uint)max(round(asfloat({values[request.Components]})), 0.0), _gn{n} - 1u);");
+        _state.Emit($"  int2 {size} = int2(max(_gw{n} >> {level}, 1u), max(_gh{n} >> {level}, 1u));");
+        _state.Emit($"  int2 {low} = int2(floor(float2(asfloat({values[0]}), asfloat({values[1]})) * float2({size}) - 0.5)){offset};");
+        _state.Emit($"  int2 {high} = clamp({low} + int2(1, 1), int2(0, 0), {size} - int2(1, 1));");
+        _state.Emit($"  {low} = clamp({low}, int2(0, 0), {size} - int2(1, 1));");
+        var vector = array ? "int4" : "int3";
+
+        string Texel(string x, string y) => $"{texture}.Load({vector}({x}, {y}{slice}, (int){level})).{component}";
+
+        return $"float4({Texel($"{low}.x", $"{high}.y")}, {Texel($"{high}.x", $"{high}.y")}, {Texel($"{high}.x", $"{low}.y")}, {Texel($"{low}.x", $"{low}.y")})";
     }
 
     /// <summary>The parts of a sample address in HLSL form.</summary>

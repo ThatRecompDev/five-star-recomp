@@ -59,6 +59,13 @@ metadata operands, the mesh state property, and declaring every output dependent
 instead of tracing dependencies. Register packing, the order of signature rows and names, and the remaining layouts
 were checked against dxc's containers (`fivestar shader dxil --compare`); the code is our own.
 
+## victory-gta6
+
+victory-gta6 (fxceless), GPL-3.0-or-later, a fork of VIctory. Its translator changes were leads for ours
+(docs/shader-translation.md): that `image_gather4_l` must read the named mip level (four loads in gather order), and
+per-stage loop caps against runaway loops. Its `console_insn*.rs` files are GPL-2.0-only XCL code and were not used.
+Our implementation is our own.
+
 ## XCL
 
 https://github.com/xcl-dev/xcl, GPL-2.0-only. Because that licence does not combine with ours, only facts from its

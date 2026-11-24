@@ -174,6 +174,15 @@ Loads use `select`, not `?:`. HLSL 2021 short-circuits `?:`, and the branches ar
 A buffer the program also stores to is loaded through its RW view (`BufLoadRW`). Cube sampling rebuilds a direction
 from (s, t, face) with `cube_dir`.
 
+Every V# is read as a `ByteAddressBuffer`, whether its record came from a fixed table slot or from an index the program
+computed: the shim writes a raw SRV for a CBV in a game heap. victory-gta6's culling read a heap-picked buffer SRV as a
+CBV and every meshlet draw ran empty; the same mix-up cannot arise here.
+
+`image_gather4_l` (and `_o`) on a 2D texture or array: HLSL `Gather` has no level operand and reads level 0, so the
+four texels are `Load`s at the rounded LOD (clamped to the view's levels), in gather order, each coordinate clamped to
+the level's edge (the clamp address mode; the sampler's own mode is not known). Gathering level 0 culled most of the
+world against the wrong depths in victory-gta6's meshlet culling. Other dimensions still gather level 0.
+
 ## Stages
 
 | Stage | Entry | Inputs | Outputs |
