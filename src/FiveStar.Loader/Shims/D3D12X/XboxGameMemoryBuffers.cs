@@ -52,10 +52,6 @@ internal sealed unsafe class XboxGameMemoryBuffers
     }
 
     private readonly HashSet<nint> _readOnly = [];
-    private readonly HashSet<ulong> _triedPages = [];
-
-    /// <summary>The buffers over XMem pages, which cover mapped pages no buffer covers yet; set once both exist.</summary>
-    public XboxPlacedResources? MappedPages { get; set; }
 
     /// <summary>Whether <paramref name="resource"/> is a buffer this class made over memory the GPU may not write.</summary>
     public bool IsReadOnly(nint resource)
@@ -86,26 +82,7 @@ internal sealed unsafe class XboxGameMemoryBuffers
         MemoryBasicInformation info;
         nint device = _objects.DesktopDevice;
 
-        if (device == 0 || Kernel32.VirtualQueryEx(Kernel32.GetCurrentProcess(), (nint)address, &info, (nuint)sizeof(MemoryBasicInformation)) == 0)
-        {
-            return false;
-        }
-
-        if (MappedPages is not null && info.Type != PrivateMemory)
-        {
-            // XMem pages are section views: they get a read-only buffer over their run of pages, once per page.
-            lock (_gate)
-            {
-                if (!_triedPages.Add(address / XMemPhysicalMemory.PageSize))
-                {
-                    return false;
-                }
-            }
-
-            return MappedPages.CoverMappedPages(device, address);
-        }
-
-        if (info.Type != PrivateMemory || info.State != Win32Constants.MemCommit)
+        if (device == 0 || Kernel32.VirtualQueryEx(Kernel32.GetCurrentProcess(), (nint)address, &info, (nuint)sizeof(MemoryBasicInformation)) == 0 || info.Type != PrivateMemory || info.State != Win32Constants.MemCommit)
         {
             return false;
         }

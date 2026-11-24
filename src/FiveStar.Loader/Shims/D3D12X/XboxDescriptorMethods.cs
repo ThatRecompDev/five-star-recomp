@@ -57,10 +57,16 @@ internal static unsafe class XboxDescriptorMethods
     public static void CreateConstantBufferView(XboxObject* self, ConstantBufferViewDescription* description, nint handle)
     {
         nint inner = self->Inner;
+        ulong location = 0;
+
+        if (description != null)
+        {
+            location = ConstantSource(description->Location, description->Size);
+        }
 
         // In the game's own heaps a CBV is a V# the programs read as a ByteAddressBuffer: a raw SRV over the same bytes.
-        if (description != null && description->Location != 0 && D3D12X.DescriptorHeaps.Find(handle, out _) is not null
-            && D3D12X.AddressBuffers.CreateRaw(inner, description->Location, description->Size, D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.ConstantBuffer(description->Size))))
+        if (location != 0 && D3D12X.DescriptorHeaps.Find(handle, out _) is not null
+            && D3D12X.AddressBuffers.CreateRaw(inner, location, description->Size, D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.ConstantBuffer(description->Size))))
         {
             D3D12X.DrawTrace?.ConstantBufferView(D3D12X.DescriptorHeaps.Source(handle), description->Location, description->Size);
 
@@ -74,6 +80,7 @@ internal static unsafe class XboxDescriptorMethods
         if (description != null)
         {
             desktop = *description;
+            desktop.Location = location;
             desktop.Size = (desktop.Size + ConstantBufferViewDescription.Alignment - 1) & ~(ConstantBufferViewDescription.Alignment - 1);
             view = &desktop;
 
@@ -91,6 +98,39 @@ internal static unsafe class XboxDescriptorMethods
         }
 
         ((delegate* unmanaged<nint, ConstantBufferViewDescription*, nint, void>)ComObject.Slot(inner, CreateConstantBufferViewSlot))(inner, view, Destination(handle));
+    }
+
+    /// <summary>
+    /// The address a constant-buffer view reads: the game's own where a desktop buffer covers it; else, for game memory
+    /// the CPU can read (XMem pages of the game's constant pools, which it remaps under any buffer thousands of times
+    /// in the story load), a copy made now in the upload ring (<see cref="UploadArena"/>), which the address table
+    /// covers. The game writes the constants before it creates the view.
+    /// </summary>
+    [HotPath]
+    private static ulong ConstantSource(ulong address, uint size)
+    {
+        if (address == 0 || size == 0 || D3D12X.GameMemory.TryFind(address, out _))
+        {
+            return address;
+        }
+
+        byte* source = D3D12X.MemorySource.Find(address, size);
+        ulong rounded = (size + ConstantBufferViewDescription.Alignment - 1) & ~(ulong)(ConstantBufferViewDescription.Alignment - 1);
+        byte* copy = null;
+
+        if (source != null)
+        {
+            copy = D3D12X.Uploads.Allocate(rounded, ConstantBufferViewDescription.Alignment);
+        }
+
+        if (copy == null)
+        {
+            return address;
+        }
+
+        Buffer.MemoryCopy(source, copy, rounded, size);
+
+        return (ulong)copy;
     }
 
     private static void WarnUnknownConstantBuffer(ulong address, uint size)
