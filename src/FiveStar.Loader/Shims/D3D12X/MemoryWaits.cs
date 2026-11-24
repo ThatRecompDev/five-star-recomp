@@ -514,19 +514,38 @@ internal static unsafe class MemoryWaits
             return ShimContext.Runtime.D3D12X.GameMemory.TryFind(Address, out _);
         }
 
-        public readonly ulong Current()
+        /// <summary>
+        /// The value now, read through the kernel (ReadProcessMemory on this process), which reports a page the game
+        /// unmapped since <see cref="Resolve"/> instead of faulting: a fault in this managed code would reach the fault
+        /// reporter's [UnmanagedCallersOnly] handler on a managed thread and end the process. False when unreadable.
+        /// </summary>
+        public readonly bool TryCurrent(out ulong value)
         {
-            if (Bytes == DwordBytes)
-            {
-                return Volatile.Read(ref *(uint*)Cpu);
-            }
+            ulong read = 0;
+            nuint done = 0;
+            bool ok = Kernel32.ReadProcessMemory(Kernel32.GetCurrentProcess(), Cpu, &read, (nuint)Bytes, &done) != 0 && done == (nuint)Bytes;
+            value = read;
 
-            return Volatile.Read(ref *(ulong*)Cpu);
+            return ok;
         }
 
+        /// <summary>The value now, 0 when unreadable (for reports).</summary>
+        public readonly ulong Current()
+        {
+            _ = TryCurrent(out ulong value);
+
+            return value;
+        }
+
+        /// <summary>Whether memory holds the value; unreadable memory counts as held (its writer is gone).</summary>
         public readonly bool Met()
         {
-            return MemoryComparison.Holds(Comparison, Current(), Value, Mask);
+            if (!TryCurrent(out ulong value))
+            {
+                return true;
+            }
+
+            return MemoryComparison.Holds(Comparison, value, Value, Mask);
         }
     }
 
