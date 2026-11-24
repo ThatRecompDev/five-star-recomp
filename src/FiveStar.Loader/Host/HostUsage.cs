@@ -31,6 +31,9 @@ internal static class HostUsage
           --min-free-memory <GB> with --run: end the process (code 5, after a last memory map) when the machine's
                                  free physical memory drops below this
           --max-commit <GB>      with --run: the same when the machine's commit charge passes this
+          --section-heap-budget <GB>
+                                 at most this much of the game's page sections backed on the GPU (default: what
+                                 the GPU's system-memory budget leaves); the rest opens as it is used, or reads as zeros
           --main <name>          image that plays the process exe for GetModuleHandle(NULL)/GetModuleFileName(NULL)
                                  (default: first mapped exe, else the first --load)
           --patch-peb            also point PEB.ImageBaseAddress at the main image (off by default)

@@ -32,7 +32,10 @@ functions run is not known.
 ## Emulation
 
 `AmdInstructionHandler` (`src/FiveStar.Loader/Cpu`) runs first in the fault reporter's vectored handler, which the
-loader installs with `--run` and keeps in front of the game's own handlers. For 0xC000001D it decodes the bytes at
+loader installs with `--run` and keeps in front of the game's own handlers: when mapped code adds a first handler
+(Bink does at every video), the loader registers its handler again before it removes the old registration, so a
+fault on another thread meanwhile is never without it (it was, briefly, and a CLWB that faulted then ended the
+process with 0xC000001D, issue #13). For 0xC000001D it decodes the bytes at
 RIP and accepts only these encodings; anything else continues to the fault report and the game's handlers.
 
 | Instruction | Emulation |

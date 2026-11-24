@@ -143,6 +143,14 @@ but can give the GPU the same memory:
   (`OpenExistingHeapFromFileMapping` rejects the pagefile sections). The view of a section over 1 GiB is refused
   (E_INVALIDARG for the 6 GiB pool), so such a section takes a heap per 1 GiB window, each through its own view
   (`SectionHeaps`, shared by slot-133 buffers and the address map); a buffer or view stays inside one window.
+- Budget: these heaps live in the GPU's system-memory segment (DXGI non-local), whose budget is about half the
+  machine's RAM whatever the card has: about 8 GB on a 16 GB machine, which the 2.2 GiB game heap and the 6.1 GiB
+  pool exceed (E_OUTOFMEMORY, issue #13). A window opens only while it fits the budget less the process's use and
+  768 MiB of headroom (and `--section-heap-budget <GB>`); the address map's requests leave 1 GiB of that to slot-133
+  buffers. A section that does not fit whole is backed lazily in 64 MiB windows, opened by the first map or buffer
+  request there. Pages without a heap read as zeros and wait: when a window opens (a buffer placed there), the address
+  map points them at it. A buffer without a heap gets a committed buffer that is not shared with the game. Heaps are
+  never released: GPU work in flight and descriptors may still reach them.
 - Translate a game address with `XMemPhysicalMemory.TryLocate` to (section, offset), then to the GPU address of a
   buffer placed over that heap (`CreatePlacedResource`) plus the offset. Contiguity ends at each 64 KiB page unless
   the frames are consecutive in one section.

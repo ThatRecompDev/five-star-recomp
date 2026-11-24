@@ -327,6 +327,7 @@ internal sealed class LoaderHost
         }
 
         StartMemoryWatch();
+        ManagedExceptions.Watch(_log);
 
         GpuBreadcrumbs.Enable(_options.D3D12Breadcrumbs);
         Shims.D3D12X.Binding.CommandListBindingMethods.SkipComputeChains = _options.SkipComputeChains;
@@ -337,6 +338,11 @@ internal sealed class LoaderHost
         if (_options.WatchPoolPages)
         {
             Shims.D3D12X.DebugLayer.PoolPageWatch.Start(_log);
+        }
+
+        if (_options.SectionHeapBudget != 0)
+        {
+            _runtime.D3D12X.SectionHeaps.Cap = _options.SectionHeapBudget;
         }
 
         if (_options.WatchTransient)

@@ -131,6 +131,9 @@ internal sealed record HostOptions
     /// <summary>With --run, end the process above this system commit (<c>--max-commit</c>); 0 for none.</summary>
     public ulong MaximumCommit { get; set; }
 
+    /// <summary>The most bytes of heaps over the game's page sections (<c>--section-heap-budget</c>); 0 for the GPU's budget alone.</summary>
+    public ulong SectionHeapBudget { get; set; }
+
     /// <summary>With --sample-threads, also a profile burst of the running threads per sample (<c>--profile-threads</c>).</summary>
     public bool ProfileThreads { get; set; }
 

@@ -10,13 +10,35 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// The desktop heaps over XMem page sections (ID3D12Device3::OpenExistingHeapFromAddress), so buffers placed on them
 /// read and write the game's physical pages; used by slot-133 buffers and the address map alike. A section of at most
 /// <see cref="WindowBytes"/> is one heap over the store's whole-section view. A larger one (the store makes one section
-/// per contiguous allocation, and the view of a 6 GiB one is refused with E_INVALIDARG) takes a heap per window of
-/// <see cref="WindowBytes"/>, each through its own view of that part of the section. Heaps are opened once.
+/// per contiguous allocation, and the view of a 6 GiB one is refused with E_INVALIDARG) takes a heap per window, each
+/// through its own view of that part of the section, opened on the first request there.
+/// <para>
+/// Such heaps take the GPU's system-memory budget (<see cref="GpuMemoryBudget"/>, about half the machine's RAM), and
+/// past it OpenExistingHeapFromAddress fails with E_OUTOFMEMORY, as do the upload buffers after it. So a window opens
+/// only while it fits the room: the budget less the process's use and <see cref="Headroom"/>, and <see cref="Cap"/>
+/// (<c>--section-heap-budget</c>). The address map's requests also leave <see cref="PlacedReserve"/> to placed buffers.
+/// A section that does not fit whole at its first request is backed lazily, in windows of <see cref="LazyWindowBytes"/>.
+/// A request that does not fit returns no heap and may succeed later; a heap the desktop refuses is never asked again.
+/// </para>
 /// </summary>
 internal sealed unsafe class SectionHeaps
 {
-    /// <summary>Bytes of section one heap opens at most.</summary>
+    /// <summary>Bytes of section one heap opens at most when the whole section fits.</summary>
     public const ulong WindowBytes = 1UL << 30;
+
+    /// <summary>The window of a section backed lazily: a placed buffer opens only the 64 MiB around it.</summary>
+    public const ulong LazyWindowBytes = 64UL << 20;
+
+    /// <summary>System-memory budget left to everything else: texture uploads, the upload ring, readbacks.</summary>
+    public const ulong Headroom = 768UL << 20;
+
+    /// <summary>Room the address map's requests leave to placed buffers.</summary>
+    public const ulong PlacedReserve = 1UL << 30;
+
+    /// <summary>Room checks between two budget reads while no heap opens (DXGI is not read per page).</summary>
+    private const int ReadInterval = 1024;
+
+    private const ulong Mebibyte = 1UL << 20;
 
     /// <summary>ID3D12Device3::OpenExistingHeapFromAddress (d3d12.h).</summary>
     private const int OpenHeapFromAddressSlot = 48;
@@ -25,57 +47,214 @@ internal sealed unsafe class SectionHeaps
     private static readonly Guid HeapIid = new("6b3b2502-6e51-45b3-90ee-9884265e8df3");
 
     private readonly object _gate = new();
-    private readonly Dictionary<(nint Section, ulong Window), nint> _heaps = [];
+    private readonly Dictionary<(nint Section, ulong Start), nint> _heaps = [];
+    private readonly Dictionary<nint, ulong> _windows = [];
+    private readonly HashSet<(nint Section, SectionHeapUse Use)> _refusals = [];
+    private readonly Func<nint, nint, nint> _open;
     private readonly LoaderLog _log;
+    private ulong _opened;
+    private ulong _systemRoom = ulong.MaxValue;
+    private int _sinceRead = ReadInterval;
 
     public SectionHeaps(LoaderLog log)
+        : this(log, null)
+    {
+    }
+
+    /// <param name="log">The loader log.</param>
+    /// <param name="open">Opens a heap over a view (device, view; 0 on failure); null for the desktop call.</param>
+    internal SectionHeaps(LoaderLog log, Func<nint, nint, nint>? open)
     {
         _log = log;
+        _open = open ?? OpenOnDevice;
+    }
+
+    /// <summary>The most bytes of section heaps open at once (<c>--section-heap-budget</c>); unlimited by default.</summary>
+    public ulong Cap { get; set; } = ulong.MaxValue;
+
+    /// <summary>The device's budget, read before windows open; null when there is none.</summary>
+    public GpuMemoryBudget? Budget { get; set; }
+
+    /// <summary>Called (section, window start, bytes) after a window's heap opened, outside the lock.</summary>
+    public Action<nint, ulong, ulong>? WindowOpened { get; set; }
+
+    /// <summary>Bytes of section heaps open.</summary>
+    public ulong Opened
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _opened;
+            }
+        }
     }
 
     /// <summary>
-    /// The heap holding byte <paramref name="offset"/> of <paramref name="chunk"/>'s section: <paramref name="heapOffset"/>
-    /// is that byte's offset in the heap and <paramref name="heapBytes"/> the heap's size. 0 when the desktop refuses it.
+    /// The heap holding byte <paramref name="offset"/> of <paramref name="chunk"/>'s section, opened now if it fits:
+    /// <paramref name="heapOffset"/> is that byte's offset in its window and <paramref name="heapBytes"/> the window's
+    /// size, set either way. 0 when the window does not fit (yet) or the desktop refused it.
     /// </summary>
-    public nint Heap(nint device, XMemPageChunk chunk, ulong offset, out ulong heapOffset, out ulong heapBytes)
+    public nint Heap(nint device, XMemPageChunk chunk, ulong offset, SectionHeapUse use, out ulong heapOffset, out ulong heapBytes)
     {
         ulong sectionBytes = chunk.Pages * XMemPhysicalMemory.PageSize;
-        ulong window = 0;
-        ulong start = 0;
-        heapBytes = sectionBytes;
-
-        if (sectionBytes > WindowBytes)
-        {
-            window = offset / WindowBytes;
-            start = window * WindowBytes;
-            heapBytes = Math.Min(WindowBytes, sectionBytes - start);
-        }
-
-        heapOffset = offset - start;
+        ulong start;
+        nint heap;
 
         lock (_gate)
         {
-            if (_heaps.TryGetValue((chunk.Section, window), out nint existing))
+            ulong window = Window(chunk.Section, sectionBytes);
+            start = offset / window * window;
+            heapOffset = offset - start;
+            heapBytes = Math.Min(window, sectionBytes - start);
+
+            if (_heaps.TryGetValue((chunk.Section, start), out heap))
             {
-                return existing;
+                return heap;
             }
 
-            nint view = chunk.Window;
+            ulong room = Room(use);
 
-            if (sectionBytes > WindowBytes)
+            if (heapBytes > room)
             {
-                view = KernelBase.MapViewOfFile3(chunk.Section, Kernel32.GetCurrentProcess(), 0, start, (nuint)heapBytes, 0, Win32Constants.PageReadWrite, null, 0);
-                _log.Detail($"  [d3d12_xs] heap over section 0x{chunk.Section:x} window {window} (0x{heapBytes:x} bytes at 0x{view:x})");
+                Refuse(chunk.Section, start, use, room);
+
+                return 0;
             }
 
-            nint heap = view == 0 ? 0 : Open(device, view);
-            _heaps[(chunk.Section, window)] = heap;
+            heap = OpenWindow(device, chunk, start, heapBytes, sectionBytes, use);
+            _heaps[(chunk.Section, start)] = heap;
 
-            return heap;
+            if (heap == 0)
+            {
+                return 0;
+            }
+
+            _opened += heapBytes;
+            _sinceRead = ReadInterval;
+        }
+
+        WindowOpened?.Invoke(chunk.Section, start, heapBytes);
+
+        return heap;
+    }
+
+    /// <summary>The section's window size, chosen at its first request: whole windows when all of it fits, lazy ones otherwise.</summary>
+    private ulong Window(nint section, ulong sectionBytes)
+    {
+        if (_windows.TryGetValue(section, out ulong window))
+        {
+            return window;
+        }
+
+        window = sectionBytes;
+        ulong room = Room(SectionHeapUse.Map);
+
+        if (sectionBytes > WindowBytes && sectionBytes <= room)
+        {
+            window = WindowBytes;
+        }
+        else if (sectionBytes > WindowBytes)
+        {
+            window = LazyWindowBytes;
+            _log.Warn($"[d3d12_xs] section 0x{section:x} ({sectionBytes / Mebibyte} MiB) does not fit the {room / Mebibyte} MiB of section-heap room ({Describe()}): backed in {window / Mebibyte} MiB windows as they are used, pages without one read as zeros");
+        }
+
+        _windows[section] = window;
+
+        return window;
+    }
+
+    /// <summary>The bytes a request may open: the cap and the system-memory budget less what is open, used and kept.</summary>
+    private ulong Room(SectionHeapUse use)
+    {
+        ulong room = Math.Min(Cap - Math.Min(Cap, _opened), SystemRoom());
+
+        if (use == SectionHeapUse.Map)
+        {
+            room -= Math.Min(room, PlacedReserve);
+        }
+
+        return room;
+    }
+
+    /// <summary>The system-memory budget less the process's use and <see cref="Headroom"/>, read every <see cref="ReadInterval"/> checks.</summary>
+    private ulong SystemRoom()
+    {
+        if (Budget is null || ++_sinceRead <= ReadInterval)
+        {
+            return _systemRoom;
+        }
+
+        _sinceRead = 0;
+        _systemRoom = ulong.MaxValue;
+
+        if (Budget.TryReadSystem(out ulong budget, out ulong usage))
+        {
+            ulong used = usage + Headroom;
+            _systemRoom = budget - Math.Min(budget, used);
+        }
+
+        return _systemRoom;
+    }
+
+    /// <summary>Logs the first window of each section and use that did not fit.</summary>
+    private void Refuse(nint section, ulong start, SectionHeapUse use, ulong room)
+    {
+        if (_refusals.Add((section, use)))
+        {
+            _log.Warn($"[d3d12_xs] section 0x{section:x}: no heap at +0x{start:x} for {Name(use)}, {room / Mebibyte} MiB of room left ({Describe()}); later windows of it wait the same way");
         }
     }
 
-    private nint Open(nint device, nint view)
+    private nint OpenWindow(nint device, XMemPageChunk chunk, ulong start, ulong bytes, ulong sectionBytes, SectionHeapUse use)
+    {
+        nint view = chunk.Window;
+
+        if (bytes != sectionBytes)
+        {
+            view = KernelBase.MapViewOfFile3(chunk.Section, Kernel32.GetCurrentProcess(), 0, start, (nuint)bytes, 0, Win32Constants.PageReadWrite, null, 0);
+        }
+
+        nint heap = 0;
+
+        if (view != 0)
+        {
+            heap = _open(device, view);
+        }
+
+        if (heap == 0 && view != 0 && view != chunk.Window)
+        {
+            _ = KernelBase.UnmapViewOfFile2(Kernel32.GetCurrentProcess(), view, 0);
+        }
+
+        if (_log.DetailEnabled)
+        {
+            string result = heap == 0 ? "failed" : $"{(_opened + bytes) / Mebibyte} MiB of section heaps open";
+            _log.Detail($"  [d3d12_xs] heap over section 0x{chunk.Section:x} at +0x{start:x} (0x{bytes:x} bytes at 0x{view:x}) for {Name(use)}: {result}; {Describe()}");
+        }
+
+        return heap;
+    }
+
+    private string Describe()
+    {
+        string cap = Cap == ulong.MaxValue ? "no cap" : $"cap {Cap / Mebibyte} MiB";
+
+        return $"{_opened / Mebibyte} MiB open, {cap}, GPU {Budget?.Describe() ?? "budget unknown"}";
+    }
+
+    private static string Name(SectionHeapUse use)
+    {
+        if (use == SectionHeapUse.Map)
+        {
+            return "the address map";
+        }
+
+        return "a placed buffer";
+    }
+
+    private nint OpenOnDevice(nint device, nint view)
     {
         Guid device3Iid = Device3Iid;
         nint device3 = 0;

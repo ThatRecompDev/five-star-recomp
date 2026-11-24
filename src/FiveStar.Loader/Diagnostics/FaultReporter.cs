@@ -52,6 +52,7 @@ internal sealed unsafe class FaultReporter
     private readonly CodeHeap _heap;
     private readonly LoaderLog _log;
     private readonly AmdInstructionHandler _cpu;
+    private readonly object _registration = new();
     private nint _entry;
     private int _reported;
 
@@ -86,7 +87,9 @@ internal sealed unsafe class FaultReporter
 
     /// <summary>
     /// Moves the handler back to the front after mapped code added its own first handler (the game's crash handler
-    /// would otherwise end the process before the fault is reported).
+    /// would otherwise end the process before the fault is reported). The new registration goes in before the old one
+    /// leaves: Bink adds a first handler at every video, and an AMD-only instruction that faulted on another thread in
+    /// between found no emulation and ended the process (0xC000001D at a CLWB the handler had emulated before).
     /// </summary>
     public void KeepFirst()
     {
@@ -95,8 +98,12 @@ internal sealed unsafe class FaultReporter
             return;
         }
 
-        _ = Kernel32.RemoveVectoredExceptionHandler(_handle);
-        _handle = Kernel32.AddVectoredExceptionHandler(CallFirst, _entry);
+        lock (_registration)
+        {
+            nint previous = _handle;
+            _handle = Kernel32.AddVectoredExceptionHandler(CallFirst, _entry);
+            _ = Kernel32.RemoveVectoredExceptionHandler(previous);
+        }
     }
 
     /// <summary>Reports a suspended thread's CONTEXT like a fault: where it is, its stack and the last calls.</summary>
