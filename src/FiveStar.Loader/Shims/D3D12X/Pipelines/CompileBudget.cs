@@ -13,12 +13,22 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// free physical memory and commit cover the reserves, the new estimate and what the running ones are still expected
 /// to take (their estimates less the process's private growth since compiles began). Compiles of less than
 /// <see cref="TinyShaderBytes"/> of DXIL are counted but never wait, so a small compute pipeline made on the game's
-/// thread is not held up; while an urgent compile waits (<see cref="Urgent"/>), no other starts.
+/// thread is not held up; while an urgent compile waits (<see cref="Urgent"/>), no other starts. Two ceilings bound
+/// the loader itself (<see cref="Configure"/>): at most <see cref="MaxCompiles"/> larger compiles at once, and none
+/// starts while the process's private bytes, the running ones' remaining need and its own estimate would pass
+/// <see cref="CeilingBytes"/>; one always may when none runs, so builds go on. A cold boot to 450 s reached 40 GB
+/// private, 8 GB of it in the arenas of the 7 compiles that started at the story load.
 /// </summary>
 internal static unsafe class CompileBudget
 {
     /// <summary>DXIL below which a compile is not held back.</summary>
     public const long TinyShaderBytes = 256L << 10;
+
+    /// <summary>The default of <see cref="MaxCompiles"/> (<c>--max-driver-compiles</c>).</summary>
+    public const int DefaultMaxCompiles = 4;
+
+    /// <summary>The default of <see cref="CeilingBytes"/> (<c>--compile-ceiling</c>, in GB).</summary>
+    public const long DefaultCeilingBytes = 28L << 30;
 
     /// <summary>Driver memory expected per byte of DXIL: 3 MB of mesh-shader DXIL passed 8 GB.</summary>
     private const long BytesPerShaderByte = 4096;
@@ -29,6 +39,7 @@ internal static unsafe class CompileBudget
 
     private static readonly object Gate = new();
     private static int _running;
+    private static int _runningLarge;
     private static long _expected;
     private static long _baseline;
     private static int _waiting;
@@ -45,6 +56,19 @@ internal static unsafe class CompileBudget
     {
         get => _urgentThread;
         set => _urgentThread = value;
+    }
+
+    /// <summary>The most compiles of <see cref="TinyShaderBytes"/> or more running at once.</summary>
+    public static int MaxCompiles { get; private set; } = DefaultMaxCompiles;
+
+    /// <summary>The process private bytes compiles are kept under.</summary>
+    public static long CeilingBytes { get; private set; } = DefaultCeilingBytes;
+
+    /// <summary>Sets the ceilings (<c>--max-driver-compiles</c>, <c>--compile-ceiling</c>); call before the first compile.</summary>
+    public static void Configure(int maxCompiles, long ceilingBytes)
+    {
+        MaxCompiles = Math.Max(1, maxCompiles);
+        CeilingBytes = ceilingBytes;
     }
 
     /// <summary>Compiles running now.</summary>
@@ -100,6 +124,11 @@ internal static unsafe class CompileBudget
         {
             _running--;
             _expected -= Estimate(shaderBytes);
+
+            if (shaderBytes >= TinyShaderBytes)
+            {
+                _runningLarge--;
+            }
         }
     }
 
@@ -109,6 +138,21 @@ internal static unsafe class CompileBudget
         ulong need = (ulong)(estimate + remaining);
 
         return availablePhysical >= WarmMemoryGuard.PhysicalReserveBytes + need && commitHeadroom >= WarmMemoryGuard.ReserveBytes + need;
+    }
+
+    /// <summary>
+    /// Whether the loader's ceilings let one more larger compile start: fewer than <paramref name="maxCompiles"/> run,
+    /// and the private bytes, the running ones' remaining need and <paramref name="estimate"/> stay within
+    /// <paramref name="ceilingBytes"/>; with none running, always.
+    /// </summary>
+    public static bool UnderCeiling(long estimate, int runningLarge, long privateBytes, long remaining, int maxCompiles, long ceilingBytes)
+    {
+        if (runningLarge == 0)
+        {
+            return true;
+        }
+
+        return runningLarge < maxCompiles && privateBytes + remaining + estimate <= ceilingBytes;
     }
 
     private static bool TryEnter(long estimate, bool tiny, bool urgent)
@@ -134,8 +178,18 @@ internal static unsafe class CompileBudget
                 return false;
             }
 
+            if (!tiny && !UnderCeiling(estimate, _runningLarge, privateBytes, remaining, MaxCompiles, CeilingBytes))
+            {
+                return false;
+            }
+
             _running++;
             _expected += estimate;
+
+            if (!tiny)
+            {
+                _runningLarge++;
+            }
 
             return true;
         }

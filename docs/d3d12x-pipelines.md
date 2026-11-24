@@ -113,7 +113,10 @@ its estimate (4096 bytes per byte of DXIL, 2 to 32 GB) and what the running comp
 estimates less the process's private growth since compiles began (`CompileBudget`). Compiles of less than 256 KB of
 DXIL never wait, so a small compute pipeline made on the game's thread is not held up. While an urgent compile (a
 pipeline a command list has set, or one made on a game thread) waits, no other starts, and only half the build threads
-take creations no command list waits for: at a warm boot the journal's creations held the budget (build threads
+take creations no command list waits for. Two ceilings bound the loader itself: at most `--max-driver-compiles`
+(4) compiles of 256 KB of DXIL or more at once, and none starts while private bytes, the running ones' remaining
+estimates and its own would pass `--compile-ceiling` (28 GB); one always may when none runs. A cold boot to 450 s
+reached 40 GB private, 8 GB of it from the 7 compiles that started at the story load. At a warm boot the journal's creations held the budget (build threads
 waited 137 s in it in all) while the game's first uses queued behind them. The sample summary names the
 driver compiles running (pipeline, MB of DXIL, age) and counts those waiting. A pipeline with 4 MiB of DXIL or more goes to a thread of its own
 that also waits for 40 GB of commit, so it never holds up the others; until then its draws stay skipped. The sample summary counts the
