@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Five Star Recomp contributors.
+// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 namespace FiveStar.Loader.Shims.D3D12X.Binding;
@@ -179,6 +179,11 @@ internal sealed unsafe class ShaderVisibleHeap
         uint* record = Record(index);
         new Span<byte>(record, (int)Increment).Clear();
         record[0] = desktop;
+
+        if (buffer.GameAddress != 0)
+        {
+            record[0] = (uint)buffer.GameAddress;
+        }
 
         record[StrideDword] = buffer.Word1;
         record[RecordsDword] = buffer.Records;
