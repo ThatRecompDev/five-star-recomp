@@ -109,7 +109,8 @@ written, collections mark a large live graph, and server GC marks it on every co
 |---|---|---|
 | All 2,689 compute programs | | all compile and pass dxil.dll validation |
 | All 12,067 pixel, 2,192 vertex, 8,765 mesh, 195 geometry programs | | all lower; all pass validation but 46 mesh programs whose outputs exceed 32 KB, which dxc refuses as well |
-| Signatures against dxc, 384 sampled graphics programs (185 ps, 87 vs, 88 ms, 3 gs, 21 others) | | equal in every register and element; in 2 an input dxc's optimizer stops reading is still read |
+| Compile time, every graphics program (4 jobs), median / p90 | | ps 30 / 231 ms, vs 9 / 68 ms, ms 66 / 313 ms, gs 6 / 21 ms; 2,513 s in all (6,378 s before server GC and the allocation work) |
+| Signatures against dxc, every 60th graphics program (384) | | equal in every register and element; in 2 an input dxc's optimizer stops reading is still read |
 | Compute compile time, 54-program sample, 4 jobs, wall | | 7 s (18 s before server GC and the allocation work) |
 | Compute compile time, 54-program sample, one job, sum of steady-state compiles | | 9.7 s (18.1 s before) |
 | Graphics compile time, 84-program sample (41 ps, 8 vs, 35 ms), 4 jobs, total / median | ps 46.2 s / 124 ms, vs 2.7 s / 120 ms, ms 300 s / 1.0 s | ps 5.9 s / 23 ms, vs 0.5 s / 24 ms, ms 12.9 s / 101 ms |
