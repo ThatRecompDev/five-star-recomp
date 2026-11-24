@@ -43,13 +43,14 @@ internal sealed unsafe class GpuTextures : IDisposable
         _source = source;
         _descriptions = descriptions;
         _log = log;
+        Uploader = new GpuTextureUploader(log);
     }
 
     public GpuTextureRegistry Registry { get; } = new();
 
     public GpuResourceCounters Counters { get; } = new();
 
-    public GpuTextureUploader Uploader { get; } = new();
+    public GpuTextureUploader Uploader { get; }
 
     /// <summary>
     /// Slot 133: the desktop texture for <paramref name="address"/> in its home state <paramref name="state"/>
