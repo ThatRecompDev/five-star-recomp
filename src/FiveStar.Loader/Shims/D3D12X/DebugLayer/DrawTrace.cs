@@ -28,7 +28,10 @@ internal sealed unsafe class DrawTrace
     private const int WindowDraws = 32;
 
     /// <summary>Targets read back in one dumped frame at most: each costs a readback buffer of its size.</summary>
-    private const int DumpsPerFrame = 24;
+    private const int DumpsPerFrame = 48;
+
+    /// <summary>Narrower targets are not dumped: the mip chains and probes filled the cap before the G-buffer.</summary>
+    private const int DumpMinimumWidth = 1024;
     private const long ReportDelay = 2;
     private const uint RecordsShown = 8;
     private const uint VerticesShown = 3;
@@ -54,6 +57,7 @@ internal sealed unsafe class DrawTrace
     private readonly ConcurrentDictionary<nint, (nint Resource, int Home)> _targetViews = new();
     private readonly ConcurrentDictionary<nint, string> _targetDescriptions = new();
     private readonly ConcurrentDictionary<nint, byte> _dumped = new();
+    private readonly ConcurrentDictionary<nint, long> _targetWidths = new();
     private long _dumpPresent;
     private int _dumps;
     private readonly ConcurrentDictionary<nint, DrawTraceList> _lists = new();
@@ -134,6 +138,7 @@ internal sealed unsafe class DrawTrace
 
         // Described while alive: the census reports targets the game may have released since.
         _targetDescriptions[desktop] = Describe(desktop);
+        _targetWidths[desktop] = Width(desktop);
     }
 
     /// <summary>
@@ -324,7 +329,7 @@ internal sealed unsafe class DrawTrace
 
         foreach (nint handle in state.Targets.Append(state.DepthStencil))
         {
-            if (handle == 0 || !_targetViews.TryGetValue(handle, out var target) || !_dumped.TryAdd(target.Resource, 0))
+            if (handle == 0 || !_targetViews.TryGetValue(handle, out var target) || _targetWidths.GetValueOrDefault(target.Resource) < DumpMinimumWidth || !_dumped.TryAdd(target.Resource, 0))
             {
                 continue;
             }
@@ -527,6 +532,19 @@ internal sealed unsafe class DrawTrace
         }
 
         return string.Join(' ', Enumerable.Range(0, RectangleInts).Select(i => rect[i]));
+    }
+
+    private static long Width(nint resource)
+    {
+        if (resource == 0)
+        {
+            return 0;
+        }
+
+        Marshal.AddRef(resource);
+        using var desktop = new ID3D12Resource(resource);
+
+        return (long)desktop.Description.Width;
     }
 
     private static string Describe(nint resource)

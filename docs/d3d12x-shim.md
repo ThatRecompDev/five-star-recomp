@@ -732,7 +732,7 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   colour). At each captured present a census (`DrawCensus`) logs every draw, dispatch and ExecuteIndirect since the
   previous one, counted by pipeline and first render target, recorded or skipped (a stand-in's work); for a dispatch
   the target is the list's last one. `--d3d12-dump-targets` adds, in the frame after each captured present, a readback
-  of every render and depth target when a list first leaves it (its first pass done), at most 24, written as
+  of every render and depth target at least 1024 wide when a list first leaves it (its first pass done), at most 48, written as
   `present-N-target-0x<resource>.png` beside the captures (depth and one-channel floats as grey, float colour formats
   clamped to 0..1). The game executes some closed lists again, so a probe's buffer is released only once its list was reset
   (releasing it at the report removed the device, debug-layer error #921).
