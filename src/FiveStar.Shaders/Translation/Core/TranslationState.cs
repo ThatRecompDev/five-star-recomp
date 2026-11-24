@@ -122,6 +122,16 @@ internal sealed class TranslationState
     /// <summary>Wave64: SGPRs holding the high dword of a lane mask.</summary>
     public HashSet<RegisterKey> MaskHighHalves { get; } = [];
 
+    /// <summary>SGPRs used as integers (written, or read while not a mask) somewhere in the program.</summary>
+    public HashSet<RegisterKey> IntegerUses { get; } = [];
+
+    /// <summary>
+    /// SGPRs that are a lane mask on some paths and an integer on others (found by a first translation): their mask
+    /// writes also set the integer variables and every read uses those, so a read is right whichever path ran
+    /// (Stages.ProgramTranslator).
+    /// </summary>
+    public IReadOnlySet<RegisterKey> Coherent { get; init; } = new HashSet<RegisterKey>();
+
     /// <summary>Registers holding a known constant in the current block (for literal descriptors).</summary>
     public Dictionary<RegisterKey, long> Constants { get; } = [];
 

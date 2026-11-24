@@ -46,7 +46,7 @@ internal sealed partial class OperandAccess
             return SnapOne($"{WaveOps.Ballot}(active).{Halves[LowDword]}");
         }
 
-        if (operand.Kind == OperandKind.Scalar && _state.Masks.Contains(operand.At(0)))
+        if (operand.Kind == OperandKind.Scalar && _state.Masks.Contains(operand.At(0)) && !_state.Coherent.Contains(operand.At(0)))
         {
             // A lane mask used as an integer: rebuild it with a ballot in program lane numbers. Ballots are snapped into
             // temporaries so they never run under a per-lane condition (HLSL 2021 short-circuits ?:, && and ||).
@@ -62,8 +62,13 @@ internal sealed partial class OperandAccess
         }
 
         // The high dword of a wave64 lane mask (s11 after v_cmp_e64 s[10:11]) is its integer variable: every mask write
-        // sets it (ShadowHighHalf), so a read sees whichever write ran last on the path taken; the mask tracking is by
+        // sets it (ShadowInteger), so a read sees whichever write ran last on the path taken; the mask tracking is by
         // emission order, which on another path left s43 an integer the culling program adds to (s_add_i32 s32, s43, s32).
+
+        if (key.Kind == RegisterKey.Scalar)
+        {
+            _state.IntegerUses.Add(key);
+        }
 
         if (!_state.Written.Contains(key))
         {
@@ -139,18 +144,25 @@ internal sealed partial class OperandAccess
             return;
         }
 
-        _state.Masks.Remove(key);
-        _state.MaskHighHalves.Remove(key);
         _state.MaskLanes.Remove(key);
 
         if (key.Kind == RegisterKey.Scalar)
         {
             _state.Emit($"  {key.Name} = {value};");
+            WroteInteger(key);
 
             return;
         }
 
         WriteVector(key, value);
+    }
+
+    /// <summary>After an integer write of an SGPR: it no longer holds a mask.</summary>
+    public void WroteInteger(RegisterKey key)
+    {
+        _state.Masks.Remove(key);
+        _state.MaskHighHalves.Remove(key);
+        _state.IntegerUses.Add(key);
     }
 
     /// <summary>Writes the low or high 16 bits of a destination, keeping the other half.</summary>
@@ -192,13 +204,30 @@ internal sealed partial class OperandAccess
 
         MarkMask(key);
         _state.Emit($"  {key.MaskName} = {condition};");
-        ShadowHighHalf(key);
+        ShadowInteger(key);
     }
 
-    /// <summary>On wave64, after a mask write: the integer variable of its high dword gets the mask's high lanes.</summary>
-    public void ShadowHighHalf(RegisterKey key)
+    /// <summary>
+    /// After a mask write: on wave64 the integer variable of its high dword gets the mask's high lanes, and the low
+    /// dword's variable gets its low lanes when the register is an integer on another path
+    /// (<see cref="TranslationState.Coherent"/>). Such a register is then read from its integer variables in either
+    /// form (lane_bit for a mask read), so a read is right whichever path wrote it last.
+    /// </summary>
+    public void ShadowInteger(RegisterKey key)
     {
-        if (!_state.IsWave64 || key.Kind != RegisterKey.Scalar || key == SpecialRegisters.Exec)
+        if (key.Kind != RegisterKey.Scalar || key == SpecialRegisters.Exec)
+        {
+            return;
+        }
+
+        if (_state.Coherent.Contains(key))
+        {
+            var low = SnapOne($"{WaveOps.Ballot}({key.MaskName}).x");
+            _state.Variables.Add(key);
+            _state.Emit($"  {key.Name} = {low};");
+        }
+
+        if (!_state.IsWave64)
         {
             return;
         }
@@ -252,7 +281,7 @@ internal sealed partial class OperandAccess
             return "active";
         }
 
-        if (key is not null && _state.Masks.Contains(key.Value))
+        if (key is not null && _state.Masks.Contains(key.Value) && !_state.Coherent.Contains(key.Value))
         {
             return key.Value.MaskName;
         }
@@ -273,7 +302,7 @@ internal sealed partial class OperandAccess
         var low = Read(OperandParser.Sgpr(operand.Low));
         var high = "0u";
 
-        if (operand.High > operand.Low)
+        if (operand.High > operand.Low || (_state.IsWave64 && key is not null && _state.Coherent.Contains(key.Value)))
         {
             high = Read(OperandParser.Sgpr(operand.Low + 1));
         }

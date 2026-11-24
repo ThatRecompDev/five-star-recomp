@@ -121,7 +121,64 @@ public static class ComputeWaveCases
             .Concat(Variants("cs_waterfall", WaterfallCase))
             .Append(VccHighBranchCase())
             .Append(ExecLowHalfCase())
-            .Append(MaskHighHalfPathCase());
+            .Append(MaskHighHalfPathCase())
+            .Concat(Variants("cs_mask_on_taken_path", MaskOnTakenPathCase))
+            .Concat(Variants("cs_integer_on_taken_path", IntegerOnTakenPathCase));
+    }
+
+    // A loop's back-edge block (s_and exec, s[12:13], s[80:81]) reads the saveexec mask of the loop's end, but the
+    // register's last write in program order is an integer load: the integer read must see the mask's bits. Here the
+    // mask path is taken and the integer path is emitted last; every lane reads the mask of threads 0-3.
+    private static ComputeCase MaskOnTakenPathCase(string name, int wave)
+    {
+        const string Program = """
+            s_cmp_eq_u32 s8, 0
+            s_cbranch_scc1 .Linteger
+            v_cmp_gt_u32_e64 MASK40, 4, v0
+            s_branch .Ljoin
+            .Linteger:
+            s_mov_b32 s40, 7
+            .Ljoin:
+            v_mov_b32 v20, s40
+            """;
+
+        static uint LowThreads(ComputeThread thread)
+        {
+            return (uint)Enumerable.Range(0, Math.Min(thread.WaveThreads.Length, 32))
+                .Where(lane => thread.WaveThreads[lane] < 4).Sum(lane => 1L << lane);
+        }
+
+        return new ComputeCase(name, Pair40(Program, wave), 1, thread => [LowThreads(thread)]) { Wave = wave, User = [1] };
+    }
+
+    // The converse: an integer written on the path taken, a mask on the path emitted last, read as a mask.
+    private static ComputeCase IntegerOnTakenPathCase(string name, int wave)
+    {
+        const string Program = """
+            s_cmp_eq_u32 s8, 0
+            s_cbranch_scc1 .Lmask
+            s_mov_b32 s40, 6
+            s_mov_b32 s41, 0
+            s_branch .Ljoin
+            .Lmask:
+            v_cmp_gt_u32_e64 MASK40, 4, v0
+            .Ljoin:
+            v_cndmask_b32_e64 v20, 0, 1, MASK40
+            """;
+
+        return new ComputeCase(name, Pair40(Program, wave), 1, thread => [Convert.ToUInt32(thread.Lane is 1 or 2)]) { Wave = wave, User = [1] };
+    }
+
+    private static string Pair40(string program, int wave)
+    {
+        var pair = "s40";
+
+        if (wave == 64)
+        {
+            pair = "s[40:41]";
+        }
+
+        return program.Replace("MASK40", pair, StringComparison.Ordinal);
     }
 
     // Wave64 s_cbranch_vccnz / vccz on VCC written as an integer test all 64 bits: only vcc_hi is set, then neither half.
