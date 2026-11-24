@@ -5,6 +5,7 @@ using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Text;
 using FiveStar.Shaders.Containers;
+using FiveStar.Shaders.Dxil.Container;
 using FiveStar.Shaders.Hardware;
 using Xunit;
 
@@ -29,6 +30,26 @@ public sealed class ContainerTests
         Assert.Equal("cs", psv.Stage);
         Assert.Equal(new ThreadGroupSize(8, 8, 1), psv.NumThreads);
         Assert.Equal(program, extracted);
+    }
+
+    [Fact]
+    public void A_mesh_runtime_info_reads_the_topology_after_the_primitive_vector_count()
+    {
+        var bytes = new byte[4 + 48];
+        BinaryPrimitives.WriteInt32LittleEndian(bytes, 48);
+        bytes[4 + 24] = (byte)DxilShaderKind.Mesh;
+
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(4 + 12), 96);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(4 + 14), 64);
+        bytes[4 + 26] = 1; // SigPrimVectors
+        bytes[4 + 27] = 2; // MeshOutputTopology: triangle
+
+        var psv = PipelineStateParser.Parse(bytes);
+
+        Assert.Equal("ms", psv.Stage);
+        Assert.Equal(96, psv.MaxVertices);
+        Assert.Equal(64, psv.MaxPrimitives);
+        Assert.Equal("triangle", psv.Topology);
     }
 
     [Fact]
