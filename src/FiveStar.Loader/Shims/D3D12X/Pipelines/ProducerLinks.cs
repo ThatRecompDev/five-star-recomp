@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using FiveStar.Shaders.Compilation;
 using FiveStar.Shaders.Containers;
 using FiveStar.Shaders.Hardware;
@@ -29,7 +30,7 @@ internal sealed class ProducerLinks
     private readonly ProgramProducer _producer;
     private readonly ProgramWorkers _workers;
     private readonly ConcurrentDictionary<(string Producer, string Pixel), Plan> _plans = new();
-    private readonly ConcurrentDictionary<string, Lazy<Task<bool>>> _jobs = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, ProgramJob> _jobs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, object> _trims = new(StringComparer.Ordinal);
     private int _made;
     private int _failed;
@@ -88,7 +89,7 @@ internal sealed class ProducerLinks
 
         var (producerName, pixelName) = (programs[producer].Name, programs[pixel].Name);
 
-        return urgent => _jobs.GetOrAdd(plan.Producer, _ => new Lazy<Task<bool>>(() => Queue(producerName, pixelName, plan, urgent))).Value;
+        return urgent => Queue(producerName, pixelName, plan, urgent);
     }
 
     private static TranslatedProgram Read(TranslatedProgram program, string path)
@@ -101,12 +102,26 @@ internal sealed class ProducerLinks
         return File.Exists(plan.Producer) && (plan.Pixel is null || File.Exists(plan.Pixel));
     }
 
+    /// <summary>
+    /// Queues the link once, and again as urgent when a command list first waits for it: a link first asked for by
+    /// a journal pipeline at creation would otherwise wait behind every prefetched program.
+    /// </summary>
     private Task<bool> Queue(string producer, string pixel, Plan plan, bool urgent)
     {
-        var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _workers.Queue(() => done.SetResult(Make(producer, pixel, plan)), urgent);
+        var job = _jobs.GetOrAdd(plan.Producer!, static key => new ProgramJob(key, Stopwatch.GetTimestamp()));
 
-        return done.Task;
+        if (job.Queue(urgent))
+        {
+            _workers.Queue(() =>
+            {
+                if (job.Start())
+                {
+                    job.Finish(Make(producer, pixel, plan));
+                }
+            }, urgent);
+        }
+
+        return job.Done;
     }
 
     private bool Make(string producer, string pixel, Plan plan)
