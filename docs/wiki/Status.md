@@ -15,7 +15,10 @@ reacts to what is on screen (story load after about 57 s); later boots read the 
 (story load after about 39 s). The GPU hangs, the game's hang watchdog and the memory
 blow-up of the story load are fixed, and so is the GPU work that corrupted game memory (a translator bug). The story
 load now finishes and the opening cutscene plays its art, credit cards, dialogue and sound at a steady 30 frames a
-second; its 3D world does not draw yet (see [Roadmap](Roadmap.md)).
+second; its 3D world does not draw yet (see [Roadmap](Roadmap.md)). Programs are now compiled by our own DXIL backend in a
+separate compile process: a cold boot has about 385 programs ready 90 s in, against 129 with dxc, and a warm boot skips
+almost no draws. Open: an intermittent overwrite of the game's memory pools in its GPU-writable heap, which can end a
+boot about 100 s in, and the world passes that still run as stand-ins while their pipelines are built.
 
 ![Progress](progress.svg)
 
