@@ -36,6 +36,9 @@ internal static unsafe class PoolStoreTrace
     private const int HighShift = 32;
     private const int OutsideLogged = 64;
     private const int PerProgram = 3;
+
+    /// <summary>Where the descriptor size sits in the key of <see cref="Constants"/>, above the program id.</summary>
+    private const int DescriptorSizeShift = 32;
     private const long GuardHitsLoggedAgain = 1000;
 
     /// <summary>Entry dwords: program id, address low or offset, address high or view | kind, value; a range's size.</summary>
@@ -50,7 +53,7 @@ internal static unsafe class PoolStoreTrace
     private static readonly ConcurrentDictionary<uint, string> Programs = new();
     private static readonly ConcurrentDictionary<uint, int> Outside = new();
     private static readonly ConcurrentDictionary<uint, long> Guards = new();
-    private static readonly ConcurrentDictionary<uint, int> Constants = new();
+    private static readonly ConcurrentDictionary<ulong, int> Constants = new();
     private static readonly uint[] Views = new uint[MaxSlots];
     private static readonly (ulong Start, ulong Bytes)[] Ranges = new (ulong, ulong)[MaxSlots];
     private static int _nextId;
@@ -227,10 +230,10 @@ internal static unsafe class PoolStoreTrace
         }
     }
 
-    /// <summary>An s_buffer_load past its descriptor's range (it reads 0): the first <see cref="PerProgram"/> per program.</summary>
+    /// <summary>An s_buffer_load past its descriptor's range (it reads 0): the first <see cref="PerProgram"/> per program and descriptor size.</summary>
     private static void LogConstant(LoaderLog log, uint* entry)
     {
-        if (Constants.AddOrUpdate(entry[0], 1, static (_, seen) => seen + 1) > PerProgram)
+        if (Constants.AddOrUpdate(((ulong)entry[ValueWord] << DescriptorSizeShift) | entry[0], 1, static (_, seen) => seen + 1) > PerProgram)
         {
             return;
         }

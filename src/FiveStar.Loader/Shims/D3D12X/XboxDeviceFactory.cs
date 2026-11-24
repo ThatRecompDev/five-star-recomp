@@ -62,6 +62,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         PlacedResources = new XboxPlacedResources(memory, Objects, Textures, log);
         GameMemory = new XboxGameMemoryBuffers(Objects, PlacedResources.Addresses, memory.Graphics, log);
         PlacedResources.GameMemory = GameMemory;
+        GameMemory.MappedPages = PlacedResources;
 
         StalePages = new StaleGpuPages(PlacedResources.Addresses, memory, log);
         memory.ObservePages(StalePages.Changed);

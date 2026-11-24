@@ -91,6 +91,20 @@ internal sealed class AddressTable
         return true;
     }
 
+    /// <summary>Whether any range overlaps <paramref name="size"/> bytes at <paramref name="gameAddress"/>.</summary>
+    public bool Overlaps(ulong gameAddress, ulong size)
+    {
+        foreach (var range in Volatile.Read(ref _ranges))
+        {
+            if (range.GameAddress < gameAddress + size && gameAddress < range.GameAddress + range.Size)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>The range holding <paramref name="gameAddress"/>; false outside every known range.</summary>
     [HotPath]
     public bool TryFind(ulong gameAddress, out AddressRange found)
