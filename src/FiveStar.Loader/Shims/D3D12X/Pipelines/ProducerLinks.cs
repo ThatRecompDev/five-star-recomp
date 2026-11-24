@@ -15,7 +15,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// translated on its own does not always export what a pixel shader reads in the register it reads it from (a mesh
 /// program with more than two params exports no f16 halves), and the desktop runtime refuses that pipeline with
 /// E_INVALIDARG. Such a producer is translated again with its outputs laid out for the pixel shader's inputs
-/// (<see cref="StageLinker.Link"/>) and compiled once into <c>&lt;name&gt;.link-&lt;key&gt;.dxil</c> beside the
+/// (<c>StageLinker.Link</c>) and compiled once into <c>&lt;name&gt;.link-&lt;key&gt;.dxil</c> beside the
 /// programs made on demand. For a mesh producer the pixel shader is first compiled without the inputs it never reads
 /// (<c>&lt;name&gt;.trim.dxil</c>, <see cref="StageLinker.TrimInputs"/>): its full layout passes the 32 KB a mesh
 /// program has for the outputs of its 128 vertices.
@@ -23,7 +23,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 internal sealed class ProducerLinks
 {
     private const string LinkInfix = ".link-";
-    private const string TrimSuffix = ".trim";
+    private const string TrimSuffix = ".trim2";
     private const string DxilExtension = ".dxil";
     private const int KeyDigits = 12;
 
@@ -171,7 +171,8 @@ internal sealed class ProducerLinks
             inputs = PsvSignatureParser.OfProgram(File.ReadAllBytes(plan.Pixel)).Inputs;
         }
 
-        return _producer.Link(producer, inputs, plan.Producer!);
+        // A mesh program also drops the outputs the trimmed pixel shader does not read, for its 32 KB of outputs.
+        return _producer.Link(producer, inputs, plan.Producer!, dropUnread: plan.Pixel is not null);
     }
 
     /// <summary>The producer's and the pixel shader's positions and the pair's plan; no plan without both.</summary>

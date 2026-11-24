@@ -133,7 +133,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs":
                 return SetBreadcrumbs();
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-dump-targets":
                 return SetTraceDraws(option);
             case "--capture-dir":
                 return SetCaptureDirectory();
@@ -626,6 +626,11 @@ internal sealed class CommandLineParser
         if (option == "--d3d12-trace-pipeline")
         {
             _options.D3D12TracePipeline = Next();
+        }
+
+        if (option == "--d3d12-dump-targets")
+        {
+            _options.D3D12DumpTargets = true;
         }
 
         return true;
