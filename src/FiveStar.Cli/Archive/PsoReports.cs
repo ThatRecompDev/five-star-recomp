@@ -51,8 +51,11 @@ internal sealed class PsoReports
         }
 
         var document = PsoReader.Load(data);
-        var rootType = document.BlockAt(document.Root!.Value).Type;
-        _output.WriteLine($"{LayoutName(document)} root block {document.Root} (type {Hex8(rootType)}) structs {document.Structs.Count} enums {document.Enums.Count}");
+        var root = document.Root.HasValue
+            ? document.Root.Value.ToString(CultureInfo.InvariantCulture)
+            : "none";
+        var rootType = document.Root.HasValue ? Hex8(document.BlockAt(document.Root.Value).Type) : "none";
+        _output.WriteLine($"{LayoutName(document)} root block {root} (type {rootType}) structs {document.Structs.Count} enums {document.Enums.Count}");
 
         for (var index = 0; index < document.Blocks.Count; index++)
         {
