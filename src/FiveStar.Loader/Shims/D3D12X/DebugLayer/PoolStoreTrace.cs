@@ -33,6 +33,11 @@ internal static unsafe class PoolStoreTrace
     private const uint GuardKind = 0x40000000;
     private const uint ConstantKind = 0x20000000;
     private const uint KindMask = 0xE0000000;
+
+    /// <summary>Loop numbers a program can have, and the sizes an s_buffer_load reads (one to sixteen dwords).</summary>
+    private const uint MaxGuard = 4096;
+    private const uint MinConstantBytes = 4;
+    private const uint MaxConstantBytes = 64;
     private const int HighShift = 32;
     private const int OutsideLogged = 64;
     private const int PerProgram = 3;
@@ -58,6 +63,7 @@ internal static unsafe class PoolStoreTrace
     private static readonly (ulong Start, ulong Bytes)[] Ranges = new (ulong, ulong)[MaxSlots];
     private static int _nextId;
     private static long _outsideSeen;
+    private static long _malformed;
     private static int _outsideLogged;
 
     /// <summary>Whether programs made on demand trace their stores.</summary>
@@ -192,6 +198,13 @@ internal static unsafe class PoolStoreTrace
             ulong address = Address(entry);
             var pool = Ranges[0];
 
+            if (!WellFormed(entry))
+            {
+                LogMalformed(log);
+
+                continue;
+            }
+
             if ((entry[HighWord] & KindMask) == GuardKind)
             {
                 LogGuard(log, entry);
@@ -216,6 +229,41 @@ internal static unsafe class PoolStoreTrace
         }
 
         _outsideSeen = count;
+    }
+
+    /// <summary>
+    /// Whether an entry has the shape its kind's writer gives it (rdna_prelude trace_entry): a guard has no address or
+    /// value and a loop number below <see cref="MaxGuard"/>, a constant load reads 4 to 64 bytes. The ring lies in the
+    /// GPU-memory window, where programs storing through 32-bit pointers also write: such words are skipped, not read
+    /// as loops in the millions or loads of 500 MB.
+    /// </summary>
+    private static bool WellFormed(uint* entry)
+    {
+        uint kind = entry[HighWord] & KindMask;
+        uint field = entry[HighWord] & ~KindMask;
+
+        if (kind == GuardKind)
+        {
+            return entry[LowWord] == 0 && entry[ValueWord] == 0 && field < MaxGuard;
+        }
+
+        if (kind == ConstantKind)
+        {
+            return field is >= MinConstantBytes and <= MaxConstantBytes && (field & (field - 1)) == 0;
+        }
+
+        return true;
+    }
+
+    /// <summary>Counts entries no trace writer made; logged at every power of two.</summary>
+    private static void LogMalformed(LoaderLog log)
+    {
+        long malformed = Interlocked.Increment(ref _malformed);
+
+        if ((malformed & (malformed - 1)) == 0)
+        {
+            log.Warn($"[store trace] {malformed} ring entries no traced program wrote (other stores into the GPU-memory window) skipped");
+        }
     }
 
     /// <summary>A loop that ran into the loop guard (65,536 iterations): logged on the first hit per program, counted after.</summary>
