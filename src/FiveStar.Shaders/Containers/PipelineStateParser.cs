@@ -15,12 +15,15 @@ public static class PipelineStateParser
     private const int MinimumWaveField = 16;
     private const int MaximumWaveField = 20;
 
-    // PSVRuntimeInfo1 (info size >= 36): u8 shader stage @24, u8 uses view id @25, u16 stage-specific @26,
-    // u8 signature input / output / patch-constant-or-primitive element counts @28..30.
+    // PSVRuntimeInfo1 (info size >= 36): u8 shader stage @24, u8 uses view id @25,
+    // then the stage-specific union at @26, then u8 signature input / output /
+    // patch-constant-or-primitive element counts @28..30. A mesh program's
+    // union is {u8 SigPrimVectors @26, u8 MeshOutputTopology @27}.
     private const int Info1Size = 36;
     private const int StageField = 24;
     private const int ViewIdField = 25;
     private const int StageSpecificField = 26;
+    private const int MeshTopologyField = 27;
     private const int SignatureInputField = 28;
     private const int SignatureOutputField = 29;
     private const int SignaturePrimitiveField = 30;
@@ -112,7 +115,7 @@ public static class PipelineStateParser
 
     private static PipelineStateInfo WithMesh(PipelineStateInfo result, ReadOnlySpan<byte> info)
     {
-        var topologyCode = info[StageSpecificField];
+        var topologyCode = info[MeshTopologyField];
         var topology = topologyCode.ToString(CultureInfo.InvariantCulture);
 
         if (Topologies.TryGetValue(topologyCode, out var name))
