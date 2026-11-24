@@ -157,7 +157,9 @@ internal sealed unsafe class AsyncService
             return HResult.InvalidArgument;
         }
 
-        if (wait)
+        // A completed call is done for the waiter: the completion routine itself may wait on its own block (the game
+        // frees the block in its routine after XAsyncGetStatus(block, true)), and Done is set only after the routine.
+        if (wait && state.Status == HResult.Pending)
         {
             state.Done.Wait();
         }
