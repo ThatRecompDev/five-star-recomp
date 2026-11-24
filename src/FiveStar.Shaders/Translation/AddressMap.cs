@@ -25,6 +25,8 @@ public sealed class AddressMap
     private const int EntryBytes = 8;
     private const int SpanEntryBytes = 4;
     private const int ViewOffsetField = 4;
+    /// <summary>The view offset is the entry's high dword.</summary>
+    private const int OffsetShift = 32;
     private const int PagesPerSpan = 1 << (SpanShift - PageShift);
     private const int TableBytes = PagesPerSpan * EntryBytes;
     private const int Level1Bytes = (int)Spans * SpanEntryBytes;
@@ -84,9 +86,10 @@ public sealed class AddressMap
                 continue;
             }
 
+            // One 8-byte store: programs read the map while pages are remapped, and must not see a view with another's offset.
             var entry = map[(table + ((int)(page % PagesPerSpan) * EntryBytes))..];
-            BinaryPrimitives.WriteUInt32LittleEndian(entry, view);
-            BinaryPrimitives.WriteUInt32LittleEndian(entry[ViewOffsetField..], unchecked((uint)((page << PageShift) - viewStart)));
+            ulong offset = unchecked((uint)((page << PageShift) - viewStart));
+            BinaryPrimitives.WriteUInt64LittleEndian(entry, view | (offset << OffsetShift));
         }
 
         return complete;

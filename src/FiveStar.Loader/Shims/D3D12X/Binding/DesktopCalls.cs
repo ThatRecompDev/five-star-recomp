@@ -12,6 +12,7 @@ internal static unsafe class DesktopCalls
     private const int CreateUnorderedAccessViewSlot = 19;
     private const int CreateSamplerSlot = 22;
     private const int CreateCommittedResourceSlot = 27;
+    private const int CreatePlacedResourceSlot = 29;
     private const int MapSlot = 8;
     private const int GpuAddressSlot = 11;
     private const int HeapCpuStartSlot = 9;
@@ -31,6 +32,23 @@ internal static unsafe class DesktopCalls
         nint buffer = 0;
         var create = (delegate* unmanaged<nint, HeapProperties*, int, ResourceDescription*, int, void*, Guid*, nint*, int>)ComObject.Slot(device, CreateCommittedResourceSlot);
         int hr = create(device, &properties, 0, &description, state, null, &iid, &buffer);
+
+        if (HResult.Failed(hr))
+        {
+            return 0;
+        }
+
+        return buffer;
+    }
+
+    /// <summary>A buffer placed at byte <paramref name="offset"/> of <paramref name="heap"/>; 0 when the device refuses it.</summary>
+    public static nint CreatePlacedBuffer(nint device, nint heap, ulong offset, ulong size, int flags, int state)
+    {
+        var description = new ResourceDescription { Dimension = ResourceDescription.BufferDimension, Width = size, Height = 1, DepthOrArraySize = 1, MipLevels = 1, SampleCount = 1, Layout = RowMajor, Flags = flags };
+        Guid iid = ResourceIid;
+        nint buffer = 0;
+        var create = (delegate* unmanaged<nint, nint, ulong, ResourceDescription*, int, void*, Guid*, nint*, int>)ComObject.Slot(device, CreatePlacedResourceSlot);
+        int hr = create(device, heap, offset, &description, state, null, &iid, &buffer);
 
         if (HResult.Failed(hr))
         {

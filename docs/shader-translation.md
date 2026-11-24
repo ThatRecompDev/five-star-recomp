@@ -142,8 +142,11 @@ span of the address space (the address's high dword) naming the span's page tabl
 of a raw SRV over the page (its UAV follows) and the page's byte offset in that view. Every access is looked up at its
 own address, added in 64 bits: base + offset for a V# (`buf_view`), the pointer plus its offsets for `global_*` and
 `s_load`. The hardware translates each page, so the pages after a V#'s base need not continue its view (a neighbouring
-buffer, or frames the game remapped); an access's later dwords stay in the page of its first byte. The D3D12.X shim fills the map from its address table ([d3d12x-shim.md](d3d12x-shim.md#binding));
-an address it does not know names a null view and reads 0.
+buffer, or frames the game remapped); an access's later dwords continue in the view of its first byte's page. The
+D3D12.X shim fills the map from its address table ([d3d12x-shim.md](d3d12x-shim.md#binding)) and from the XMem page
+tables: a mapped XMem page names a view over the section that holds its frame, rewritten on every remap
+([physical-memory.md](physical-memory.md#the-streaming-pool)); an address it does not know names a null view and
+reads 0.
 
 **Range checking.** Buffer accesses keep the RDNA rule: out of range, a load reads 0 and a store or atomic is dropped
 (an atomic returns 0). Console programs rely on it: an argument or append writer runs past its allocation, and a loop
