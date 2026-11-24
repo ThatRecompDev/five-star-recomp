@@ -29,6 +29,14 @@ public sealed class VertexAndGeometryTests : IClassFixture<WarpFixture>
     }
 
     [WarpFact]
+    public void The_dxil_backend_compiles_the_vertex_program_with_its_fetch_inputs()
+    {
+        var mismatches = new VertexStageRunner(_fixture).Run(direct: true);
+
+        Assert.True(mismatches.Count == 0, Report(mismatches));
+    }
+
+    [WarpFact]
     public void A_geometry_program_emits_strips_and_cuts()
     {
         var mismatches = new GeometryStageRunner(_fixture).Run();

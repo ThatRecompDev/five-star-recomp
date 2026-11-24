@@ -21,6 +21,7 @@ public sealed class TextureLowerer
     private const int AfterLocation = 3;
     private const int LoadOffsetArgument = 2;
     private const int LevelsField = 3;
+    private const int CompareAndLevel = 2;
     private const string GatherPrefix = "Gather";
     private const string GatherComparePrefix = "GatherCmp";
 
@@ -67,7 +68,7 @@ public sealed class TextureLowerer
             "SampleGrad" => SampleGrad(texture),
             "SampleCmp" => Sample(texture, DxOpCode.SampleCmp, "sampleCmp", 1),
             "SampleCmpLevelZero" => Sample(texture, DxOpCode.SampleCmpLevelZero, "sampleCmpLevelZero", 1),
-            "SampleCmpLevel" => Sample(texture, DxOpCode.SampleCmpLevel, "sampleCmpLevel", 2),
+            "SampleCmpLevel" => Sample(texture, DxOpCode.SampleCmpLevel, "sampleCmpLevel", CompareAndLevel),
             "CalculateLevelOfDetail" => LevelOfDetail(texture, clamped: true),
             "CalculateLevelOfDetailUnclamped" => LevelOfDetail(texture, clamped: false),
             "GetDimensions" => Dimensions(texture),

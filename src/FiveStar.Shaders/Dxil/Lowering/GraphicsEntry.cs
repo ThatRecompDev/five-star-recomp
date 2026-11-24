@@ -19,6 +19,14 @@ public sealed class GraphicsEntry
     private const string LoadInputClass = "loadInput";
     private const string StoreOutputClass = "storeOutput";
     private const string AttributeAtVertexClass = "attributeAtVertex";
+    private const string Positions = "xyzw";
+    private const string Colors = "rgba";
+    private const int MaxSwizzle = 4;
+    private const int NoId = -1;
+
+    // loadInput and storeOutput: opcode, element id, row, column, then the vertex or the value.
+    private const int IdOperand = 1;
+    private const int ColumnOperand = 3;
 
     private readonly LoweringContext _context;
     private readonly SignaturePoint _inputPoint;
@@ -115,7 +123,13 @@ public sealed class GraphicsEntry
     public RValue AttributeAtVertex(SyntaxNode input, Value vertex)
     {
         var (element, kind, columns) = Find(input);
-        var vertexIndex = vertex is Constant constant ? Module.Int8((byte)constant.Bits) : throw SourceError.At(input, "GetAttributeAtVertex needs a constant vertex");
+
+        if (vertex is not Constant constant)
+        {
+            throw SourceError.At(input, "GetAttributeAtVertex needs a constant vertex");
+        }
+
+        var vertexIndex = Module.Int8((byte)constant.Bits);
         var overload = kind == ScalarKind.Float ? Module.Types.Float : Module.Types.Int32;
         var components = columns.Select(column => _context.Ops.Overloaded(
             DxOpCode.AttributeAtVertex, AttributeAtVertexClass, AttributeSet.ReadNone, overload, overload,
@@ -150,8 +164,8 @@ public sealed class GraphicsEntry
                 continue;
             }
 
-            var id = (int)((Constant)instruction.Operands[1]).Bits;
-            var column = (int)((Constant)instruction.Operands[3]).Bits;
+            var id = (int)((Constant)instruction.Operands[IdOperand]).Bits;
+            var column = (int)((Constant)instruction.Operands[ColumnOperand]).Bits;
             var element = elements.First(candidate => candidate.Id == id);
             element.Usage |= (byte)(1 << column);
         }
@@ -162,11 +176,14 @@ public sealed class GraphicsEntry
         var types = Module.Types;
         var ops = _context.Ops;
 
-        if (element.Kind is SemanticKind.Coverage or SemanticKind.InnerCoverage)
+        if (element.Kind == SemanticKind.Coverage)
         {
-            var code = element.Kind == SemanticKind.Coverage ? DxOpCode.Coverage : DxOpCode.InnerCoverage;
+            return ops.Overloaded(DxOpCode.Coverage, "coverage", AttributeSet.ReadNone, types.Int32, types.Int32);
+        }
 
-            return ops.Overloaded(code, element.Kind == SemanticKind.Coverage ? "coverage" : "innerCoverage", AttributeSet.ReadNone, types.Int32, types.Int32);
+        if (element.Kind == SemanticKind.InnerCoverage)
+        {
+            return ops.Overloaded(DxOpCode.InnerCoverage, "innerCoverage", AttributeSet.ReadNone, types.Int32, types.Int32);
         }
 
         if (element.Kind == SemanticKind.SampleIndex)
@@ -190,7 +207,12 @@ public sealed class GraphicsEntry
     /// <summary>The scalar kind an output is stored as (bool outputs as uint).</summary>
     private static ScalarKind StoredKind(ScalarKind kind)
     {
-        return kind == ScalarKind.Bool ? ScalarKind.Uint : kind;
+        if (kind == ScalarKind.Bool)
+        {
+            return ScalarKind.Uint;
+        }
+
+        return kind;
     }
 
     /// <summary>The elements of a parameter or the return value: itself, or each field of its struct.</summary>
@@ -216,6 +238,7 @@ public sealed class GraphicsEntry
             var semantic = field.Semantic ?? throw SourceError.At(field, $"field {field.Text} has no semantic");
             var modifiers = new HashSet<string>(field.Modifiers, StringComparer.Ordinal);
             modifiers.UnionWith(node.Modifiers);
+
             binding.Elements.Add(Element(field, semantic, fieldType, modifiers, elements, point, first));
             binding.Fields[field.Text] = binding.Elements[^1];
             first += fieldType.Count;
@@ -235,9 +258,16 @@ public sealed class GraphicsEntry
         var (name, index, kind) = Semantics.Parse(semantic);
         var interpretation = Semantics.Interpret(kind, point);
         var isFloat = type.Kind == ScalarKind.Float;
+        var id = NoId;
+
+        if (interpretation != SemanticInterpretation.NotInSignature)
+        {
+            id = elements.Count;
+        }
+
         var element = new DxilSignatureElement
         {
-            Id = interpretation == SemanticInterpretation.NotInSignature ? -1 : elements.Count(candidate => candidate.InSignature),
+            Id = id,
             Name = name,
             Index = index,
             Kind = kind,
@@ -294,21 +324,38 @@ public sealed class GraphicsEntry
             found = parameter.Elements[0];
         }
 
-        if (found is not { } entry || entry.Element.Id < 0)
+        if (found is null || found.Value.Element.Id == NoId)
         {
             throw SourceError.At(input, "GetAttributeAtVertex needs an input element");
         }
 
-        var columns = swizzle is null
-            ? [.. Enumerable.Range(0, entry.Element.Columns)]
-            : swizzle.Select(letter => "xyzw".IndexOf(letter, StringComparison.Ordinal) is var at and >= 0 ? at : "rgba".IndexOf(letter, StringComparison.Ordinal)).ToArray();
+        var entry = found.Value;
+        int[] columns = [.. Enumerable.Range(0, entry.Element.Columns)];
+
+        if (swizzle is not null)
+        {
+            columns = [.. swizzle.Select(SwizzleComponent)];
+        }
 
         return (entry.Element, entry.Kind, columns);
     }
 
     private static bool IsSwizzle(string text)
     {
-        return text.Length is > 0 and <= 4 && (text.All(letter => "xyzw".Contains(letter, StringComparison.Ordinal)) || text.All(letter => "rgba".Contains(letter, StringComparison.Ordinal)));
+        return text.Length is > 0 and <= MaxSwizzle && text.All(letter => SwizzleComponent(letter) >= 0);
+    }
+
+    /// <summary>The component a swizzle letter selects (xyzw or rgba), or -1.</summary>
+    private static int SwizzleComponent(char letter)
+    {
+        var component = Positions.IndexOf(letter, StringComparison.Ordinal);
+
+        if (component < 0)
+        {
+            component = Colors.IndexOf(letter, StringComparison.Ordinal);
+        }
+
+        return component;
     }
 
     /// <summary>A parameter or the return value: its type and its elements with their first flattened component.</summary>

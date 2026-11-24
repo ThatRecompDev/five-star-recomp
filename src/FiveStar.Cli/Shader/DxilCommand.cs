@@ -99,9 +99,14 @@ internal static class DxilCommand
     /// <summary>The profile of a translated program, from its entry point's attributes and semantics.</summary>
     public static string Profile(string hlsl)
     {
+        if (hlsl.Contains("outputtopology", StringComparison.Ordinal))
+        {
+            return "ms";
+        }
+
         if (hlsl.Contains("[numthreads(", StringComparison.Ordinal))
         {
-            return hlsl.Contains("outputtopology", StringComparison.Ordinal) ? "ms" : "cs";
+            return "cs";
         }
 
         if (hlsl.Contains("[maxvertexcount(", StringComparison.Ordinal))
@@ -109,7 +114,12 @@ internal static class DxilCommand
             return "gs";
         }
 
-        return hlsl.Contains(": SV_VertexID", StringComparison.Ordinal) ? "vs" : "ps";
+        if (hlsl.Contains(": SV_VertexID", StringComparison.Ordinal))
+        {
+            return "vs";
+        }
+
+        return "ps";
     }
 
     private static DxilValidator? Validator(CommandArguments arguments)

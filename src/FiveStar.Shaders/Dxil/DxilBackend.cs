@@ -34,7 +34,12 @@ public static class DxilBackend
     /// <summary>The shader kind of a supported profile.</summary>
     public static DxilShaderKind KindOf(string profile)
     {
-        return Profiles.TryGetValue(profile, out var kind) ? kind : throw new DxilBackendException($"profile {profile} is not supported");
+        if (!Profiles.TryGetValue(profile, out var kind))
+        {
+            throw new DxilBackendException($"profile {profile} is not supported");
+        }
+
+        return kind;
     }
 
     /// <summary>The DXIL container of <paramref name="hlsl"/>, compiled for <paramref name="profile"/>.</summary>

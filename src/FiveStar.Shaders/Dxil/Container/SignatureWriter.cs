@@ -16,27 +16,21 @@ public static class SignatureWriter
     private const int ElementBytes = 32;
     private const int FullMask = 0xF;
 
+    // DxilProgramSignatureElement: stream @0, name offset @4, semantic index @8, system value @12, component type @16,
+    // register @20, mask @24, read/write mask @25 (inputs: read; outputs: never written), min precision @28.
+    private const int NameField = 4;
+    private const int IndexField = 8;
+    private const int SystemValueField = 12;
+    private const int ComponentTypeField = 16;
+    private const int RegisterField = 20;
+    private const int MaskField = 24;
+    private const int ReadWriteField = 25;
+
     public static byte[] Write(IReadOnlyList<DxilSignatureElement> elements, bool input)
     {
         var listed = elements.Where(element => element.InSignature).ToList();
-        var names = new Dictionary<string, int>(StringComparer.Ordinal);
-        var text = new List<byte>();
         var nameStart = HeaderBytes + (ElementBytes * listed.Count);
-
-        foreach (var element in listed)
-        {
-            if (!names.ContainsKey(element.Name))
-            {
-                names[element.Name] = nameStart + text.Count;
-                text.AddRange(Encoding.ASCII.GetBytes(element.Name));
-                text.Add(0);
-            }
-        }
-
-        while (text.Count % sizeof(uint) != 0)
-        {
-            text.Add(0);
-        }
+        var (names, text) = Names(listed, nameStart);
 
         var bytes = new byte[nameStart + text.Count];
         BinaryPrimitives.WriteUInt32LittleEndian(bytes, (uint)listed.Count);
@@ -48,19 +42,49 @@ public static class SignatureWriter
             var element = ordered[index];
             var row = bytes.AsSpan(HeaderBytes + (ElementBytes * index), ElementBytes);
             var used = element.Usage << Math.Max(element.StartColumn, 0);
-            var readWrite = input ? used : ~used & FullMask;
+            var readWrite = used;
 
-            BinaryPrimitives.WriteUInt32LittleEndian(row[4..], (uint)names[element.Name]);
-            BinaryPrimitives.WriteUInt32LittleEndian(row[8..], (uint)element.Index);
-            BinaryPrimitives.WriteUInt32LittleEndian(row[12..], element.SystemValue);
-            BinaryPrimitives.WriteUInt32LittleEndian(row[16..], element.RegisterComponentType);
-            BinaryPrimitives.WriteInt32LittleEndian(row[20..], element.StartRow);
-            row[24] = element.Mask;
-            row[25] = (byte)readWrite;
+            if (!input)
+            {
+                readWrite = ~used & FullMask;
+            }
+
+            BinaryPrimitives.WriteUInt32LittleEndian(row[NameField..], (uint)names[element.Name]);
+            BinaryPrimitives.WriteUInt32LittleEndian(row[IndexField..], (uint)element.Index);
+            BinaryPrimitives.WriteUInt32LittleEndian(row[SystemValueField..], (uint)element.SystemValue);
+
+            BinaryPrimitives.WriteUInt32LittleEndian(row[ComponentTypeField..], element.RegisterComponentType);
+            BinaryPrimitives.WriteInt32LittleEndian(row[RegisterField..], element.StartRow);
+            row[MaskField] = element.Mask;
+            row[ReadWriteField] = (byte)readWrite;
         }
 
         text.CopyTo(bytes, nameStart);
 
         return bytes;
+    }
+
+    /// <summary>Each distinct name once, in element order, padded to whole dwords; and where each starts in the part.</summary>
+    private static (Dictionary<string, int> Offsets, List<byte> Text) Names(List<DxilSignatureElement> elements, int start)
+    {
+        var offsets = new Dictionary<string, int>(StringComparer.Ordinal);
+        var text = new List<byte>();
+
+        foreach (var element in elements)
+        {
+            if (!offsets.ContainsKey(element.Name))
+            {
+                offsets[element.Name] = start + text.Count;
+                text.AddRange(Encoding.ASCII.GetBytes(element.Name));
+                text.Add(0);
+            }
+        }
+
+        while (text.Count % sizeof(uint) != 0)
+        {
+            text.Add(0);
+        }
+
+        return (offsets, text);
     }
 }

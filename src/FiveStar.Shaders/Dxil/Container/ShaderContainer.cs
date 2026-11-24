@@ -186,21 +186,7 @@ public static class ShaderContainer
             properties.Add(threads);
         }
 
-        if (description.Mesh is { } mesh)
-        {
-            properties.Add(module.Int32Metadata(MeshTag));
-            properties.Add(module.Node(
-                threads, module.Int32Metadata((uint)mesh.MaxVertices), module.Int32Metadata((uint)mesh.MaxPrimitives),
-                module.Int32Metadata((uint)mesh.Topology), module.Int32Metadata(0)));
-        }
-
-        if (description.Geometry is { } geometry)
-        {
-            properties.Add(module.Int32Metadata(GeometryTag));
-            properties.Add(module.Node(
-                module.Int32Metadata((uint)geometry.InputPrimitive), module.Int32Metadata((uint)geometry.MaxVertexCount),
-                module.Int32Metadata((uint)geometry.StreamMask), module.Int32Metadata((uint)geometry.OutputTopology), module.Int32Metadata(1)));
-        }
+        StageProperties(module, description, threads, properties);
 
         if (description.WaveSize is not null)
         {
@@ -214,6 +200,32 @@ public static class ShaderContainer
         }
 
         return module.Node([.. properties]);
+    }
+
+    /// <summary>
+    /// The mesh state (threads, maximum vertices and primitives, topology, payload bytes) or the geometry state (input
+    /// primitive, maximum vertices, stream mask, topology, instances).
+    /// </summary>
+    private static void StageProperties(DxilModule module, ShaderDescription description, Metadata threads, List<Metadata?> properties)
+    {
+        var mesh = description.Mesh;
+        var geometry = description.Geometry;
+
+        if (mesh is not null)
+        {
+            properties.Add(module.Int32Metadata(MeshTag));
+            properties.Add(module.Node(
+                threads, module.Int32Metadata((uint)mesh.MaxVertices), module.Int32Metadata((uint)mesh.MaxPrimitives),
+                module.Int32Metadata((uint)mesh.Topology), module.Int32Metadata(0)));
+        }
+
+        if (geometry is not null)
+        {
+            properties.Add(module.Int32Metadata(GeometryTag));
+            properties.Add(module.Node(
+                module.Int32Metadata((uint)geometry.InputPrimitive), module.Int32Metadata((uint)geometry.MaxVertexCount),
+                module.Int32Metadata((uint)geometry.StreamMask), module.Int32Metadata((uint)geometry.OutputTopology), module.Int32Metadata(1)));
+        }
     }
 
     /// <summary>The DXIL part: program header (kind, version, size in dwords), bitcode header, bitcode.</summary>

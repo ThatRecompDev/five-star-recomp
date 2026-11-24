@@ -33,6 +33,8 @@ public static class Semantics
         ("SV_Barycentrics", SemanticKind.Barycentrics), ("SV_ShadingRate", SemanticKind.ShadingRate), ("SV_CullPrimitive", SemanticKind.CullPrimitive),
     }.ToDictionary(entry => entry.Item1, entry => (entry.Item1, entry.Item2), StringComparer.OrdinalIgnoreCase);
 
+    private static readonly Dictionary<(SemanticKind Kind, SignaturePoint Point), SemanticInterpretation> Interpretations = Table();
+
     /// <summary>Splits a semantic into its name and index (<c>TEXCOORD11</c>: TEXCOORD, 11) and finds its kind.</summary>
     public static (string Name, int Index, SemanticKind Kind) Parse(string semantic)
     {
@@ -44,7 +46,12 @@ public static class Semantics
         }
 
         var name = semantic[..digits];
-        var index = digits < semantic.Length ? int.Parse(semantic.AsSpan(digits), System.Globalization.CultureInfo.InvariantCulture) : 0;
+        var index = 0;
+
+        if (digits < semantic.Length)
+        {
+            index = int.Parse(semantic.AsSpan(digits), System.Globalization.CultureInfo.InvariantCulture);
+        }
 
         if (!name.StartsWith(SystemPrefix, StringComparison.OrdinalIgnoreCase))
         {
@@ -62,19 +69,12 @@ public static class Semantics
     /// <summary>How <paramref name="point"/> treats <paramref name="kind"/>; a semantic it does not allow throws.</summary>
     public static SemanticInterpretation Interpret(SemanticKind kind, SignaturePoint point)
     {
-        var result = kind switch
+        if (!Interpretations.TryGetValue((kind, point), out var interpretation))
         {
-            SemanticKind.Arbitrary => point == SignaturePoint.PixelOutput ? null : SemanticInterpretation.Arbitrary,
-            SemanticKind.VertexId or SemanticKind.InstanceId => point == SignaturePoint.VertexInput ? SemanticInterpretation.SystemValue : null,
-            SemanticKind.Position => Position(point),
-            SemanticKind.RenderTargetArrayIndex or SemanticKind.ViewportArrayIndex or SemanticKind.ShadingRate => Layer(point),
-            SemanticKind.ClipDistance or SemanticKind.CullDistance => Clip(point),
-            SemanticKind.PrimitiveId => PrimitiveId(point),
-            SemanticKind.IsFrontFace => point is SignaturePoint.PixelInput or SignaturePoint.GeometryOutput ? SemanticInterpretation.SystemGenerated : null,
-            _ => Pixel(kind, point),
-        };
+            throw new DxilBackendException($"semantic kind {kind} is not allowed at {point}");
+        }
 
-        return result ?? throw new DxilBackendException($"semantic kind {kind} is not allowed at {point}");
+        return interpretation;
     }
 
     /// <summary>Whether elements at <paramref name="point"/> carry an interpolation mode.</summary>
@@ -84,8 +84,8 @@ public static class Semantics
     }
 
     /// <summary>
-    /// The interpolation mode of an element: from its modifiers, else linear for floats and constant for the rest; the
-    /// position is never perspective-corrected.
+    /// The interpolation mode of an element: from its modifiers, else linear for floats and constant for the rest (and
+    /// for per-primitive outputs); the position is never perspective-corrected.
     /// </summary>
     public static byte Interpolation(SignaturePoint point, SemanticKind kind, bool isFloat, IReadOnlySet<string> modifiers)
     {
@@ -94,99 +94,77 @@ public static class Semantics
             return 0;
         }
 
-        byte mode;
-
-        if (modifiers.Contains("nointerpolation") || point == SignaturePoint.MeshPrimitiveOutput)
+        if (modifiers.Contains("nointerpolation") || point == SignaturePoint.MeshPrimitiveOutput || (!isFloat && !modifiers.Contains("linear")))
         {
-            mode = Constant;
-        }
-        else if (modifiers.Contains("sample"))
-        {
-            mode = modifiers.Contains("noperspective") ? LinearNoPerspectiveSample : LinearSample;
-        }
-        else if (modifiers.Contains("centroid"))
-        {
-            mode = modifiers.Contains("noperspective") ? LinearNoPerspectiveCentroid : LinearCentroid;
-        }
-        else if (modifiers.Contains("noperspective"))
-        {
-            mode = LinearNoPerspective;
-        }
-        else
-        {
-            mode = isFloat || modifiers.Contains("linear") ? Linear : Constant;
+            return Constant;
         }
 
-        if (kind == SemanticKind.Position)
+        var perspective = !modifiers.Contains("noperspective") && kind != SemanticKind.Position;
+
+        if (modifiers.Contains("sample"))
         {
-            mode = mode switch
+            return Choose(perspective, LinearSample, LinearNoPerspectiveSample);
+        }
+
+        if (modifiers.Contains("centroid"))
+        {
+            return Choose(perspective, LinearCentroid, LinearNoPerspectiveCentroid);
+        }
+
+        return Choose(perspective, Linear, LinearNoPerspective);
+    }
+
+    private static byte Choose(bool perspective, byte withPerspective, byte without)
+    {
+        if (perspective)
+        {
+            return withPerspective;
+        }
+
+        return without;
+    }
+
+    private static Dictionary<(SemanticKind Kind, SignaturePoint Point), SemanticInterpretation> Table()
+    {
+        var table = new Dictionary<(SemanticKind Kind, SignaturePoint Point), SemanticInterpretation>();
+        SignaturePoint[] vertexLike = [SignaturePoint.VertexOutput, SignaturePoint.PixelInput, SignaturePoint.GeometryVertexInput, SignaturePoint.GeometryOutput];
+
+        foreach (var point in Enum.GetValues<SignaturePoint>().Where(point => point != SignaturePoint.PixelOutput))
+        {
+            table[(SemanticKind.Arbitrary, point)] = SemanticInterpretation.Arbitrary;
+        }
+
+        Add(table, [SemanticKind.VertexId, SemanticKind.InstanceId], [SignaturePoint.VertexInput], SemanticInterpretation.SystemValue);
+        Add(table, [SemanticKind.Position], [.. vertexLike, SignaturePoint.MeshVertexOutput], SemanticInterpretation.SystemValue);
+        table[(SemanticKind.Position, SignaturePoint.VertexInput)] = SemanticInterpretation.Arbitrary;
+        SemanticKind[] layers = [SemanticKind.RenderTargetArrayIndex, SemanticKind.ViewportArrayIndex, SemanticKind.ShadingRate];
+        Add(table, layers, [.. vertexLike, SignaturePoint.MeshPrimitiveOutput], SemanticInterpretation.SystemValue);
+        Add(table, [SemanticKind.ClipDistance, SemanticKind.CullDistance], [.. vertexLike, SignaturePoint.MeshVertexOutput], SemanticInterpretation.ClipCull);
+
+        Add(table, [SemanticKind.PrimitiveId], [SignaturePoint.GeometryOutput, SignaturePoint.MeshPrimitiveOutput], SemanticInterpretation.SystemValue);
+        Add(table, [SemanticKind.PrimitiveId, SemanticKind.IsFrontFace], [SignaturePoint.PixelInput], SemanticInterpretation.SystemGenerated);
+        table[(SemanticKind.IsFrontFace, SignaturePoint.GeometryOutput)] = SemanticInterpretation.SystemGenerated;
+        table[(SemanticKind.SampleIndex, SignaturePoint.PixelInput)] = SemanticInterpretation.Shadow;
+        Add(table, [SemanticKind.Coverage, SemanticKind.InnerCoverage], [SignaturePoint.PixelInput], SemanticInterpretation.NotInSignature);
+        table[(SemanticKind.Barycentrics, SignaturePoint.PixelInput)] = SemanticInterpretation.NotPacked;
+
+        table[(SemanticKind.Target, SignaturePoint.PixelOutput)] = SemanticInterpretation.Target;
+        SemanticKind[] pixelOutputs = [SemanticKind.Depth, SemanticKind.DepthLessEqual, SemanticKind.DepthGreaterEqual, SemanticKind.StencilRef, SemanticKind.Coverage];
+        Add(table, pixelOutputs, [SignaturePoint.PixelOutput], SemanticInterpretation.NotPacked);
+        table[(SemanticKind.CullPrimitive, SignaturePoint.MeshPrimitiveOutput)] = SemanticInterpretation.NotPacked;
+
+        return table;
+    }
+
+    private static void Add(
+        Dictionary<(SemanticKind Kind, SignaturePoint Point), SemanticInterpretation> table, SemanticKind[] kinds, SignaturePoint[] points, SemanticInterpretation interpretation)
+    {
+        foreach (var kind in kinds)
+        {
+            foreach (var point in points)
             {
-                Linear => LinearNoPerspective,
-                LinearCentroid => LinearNoPerspectiveCentroid,
-                LinearSample => LinearNoPerspectiveSample,
-                _ => mode,
-            };
+                table[(kind, point)] = interpretation;
+            }
         }
-
-        return mode;
-    }
-
-    private static SemanticInterpretation? Position(SignaturePoint point)
-    {
-        return point switch
-        {
-            SignaturePoint.VertexInput => SemanticInterpretation.Arbitrary,
-            SignaturePoint.PixelOutput or SignaturePoint.MeshPrimitiveOutput => null,
-            _ => SemanticInterpretation.SystemValue,
-        };
-    }
-
-    private static SemanticInterpretation? Layer(SignaturePoint point)
-    {
-        return point is SignaturePoint.VertexOutput or SignaturePoint.PixelInput or SignaturePoint.GeometryVertexInput
-            or SignaturePoint.GeometryOutput or SignaturePoint.MeshPrimitiveOutput ? SemanticInterpretation.SystemValue : null;
-    }
-
-    private static SemanticInterpretation? Clip(SignaturePoint point)
-    {
-        return point is SignaturePoint.VertexOutput or SignaturePoint.PixelInput or SignaturePoint.GeometryVertexInput
-            or SignaturePoint.GeometryOutput or SignaturePoint.MeshVertexOutput ? SemanticInterpretation.ClipCull : null;
-    }
-
-    private static SemanticInterpretation? PrimitiveId(SignaturePoint point)
-    {
-        return point switch
-        {
-            SignaturePoint.PixelInput => SemanticInterpretation.SystemGenerated,
-            SignaturePoint.GeometryOutput or SignaturePoint.MeshPrimitiveOutput => SemanticInterpretation.SystemValue,
-            _ => null,
-        };
-    }
-
-    private static SemanticInterpretation? Pixel(SemanticKind kind, SignaturePoint point)
-    {
-        if (point == SignaturePoint.PixelInput)
-        {
-            return kind switch
-            {
-                SemanticKind.SampleIndex => SemanticInterpretation.Shadow,
-                SemanticKind.Coverage or SemanticKind.InnerCoverage => SemanticInterpretation.NotInSignature,
-                SemanticKind.Barycentrics => SemanticInterpretation.NotPacked,
-                _ => null,
-            };
-        }
-
-        if (point == SignaturePoint.PixelOutput)
-        {
-            return kind switch
-            {
-                SemanticKind.Target => SemanticInterpretation.Target,
-                SemanticKind.Depth or SemanticKind.DepthLessEqual or SemanticKind.DepthGreaterEqual or SemanticKind.StencilRef
-                    or SemanticKind.Coverage => SemanticInterpretation.NotPacked,
-                _ => null,
-            };
-        }
-
-        return kind == SemanticKind.CullPrimitive && point == SignaturePoint.MeshPrimitiveOutput ? SemanticInterpretation.NotPacked : null;
     }
 }

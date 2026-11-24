@@ -106,7 +106,9 @@ public sealed class ModuleWriter
                 record.Add(kind);
             }
 
-            if (AttributeStrings[group] is { } text)
+            var text = AttributeStrings[group];
+
+            if (text is not null)
             {
                 record.Add(StringAttribute);
                 record.AddRange(text.Select(character => (ulong)character));

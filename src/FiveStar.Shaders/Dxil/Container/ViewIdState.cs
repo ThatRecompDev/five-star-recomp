@@ -63,6 +63,11 @@ public static class ViewIdState
     {
         var bits = Math.Clamp(outputs - (word * BitsPerWord), 0, BitsPerWord);
 
-        return bits == BitsPerWord ? uint.MaxValue : (1u << bits) - 1;
+        if (bits == BitsPerWord)
+        {
+            return uint.MaxValue;
+        }
+
+        return (1u << bits) - 1;
     }
 }

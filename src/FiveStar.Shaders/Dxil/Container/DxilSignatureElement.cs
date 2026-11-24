@@ -10,10 +10,38 @@ namespace FiveStar.Shaders.Dxil.Container;
 public sealed class DxilSignatureElement
 {
     /// <summary>DXIL component types (DxilConstants.h ComponentType).</summary>
-    public const byte Bool = 1;
     public const byte Int32 = 4;
     public const byte Uint32 = 5;
     public const byte Float32 = 9;
+
+    /// <summary>D3D_REGISTER_COMPONENT_TYPE: the component types of signature parts and PSV0.</summary>
+    private const byte RegisterUint = 1;
+    private const byte RegisterInt = 2;
+    private const byte RegisterFloat = 3;
+
+    private static readonly Dictionary<SemanticKind, SystemValueName> Names = new()
+    {
+        [SemanticKind.Position] = SystemValueName.Position,
+        [SemanticKind.ClipDistance] = SystemValueName.ClipDistance,
+        [SemanticKind.CullDistance] = SystemValueName.CullDistance,
+        [SemanticKind.RenderTargetArrayIndex] = SystemValueName.RenderTargetArrayIndex,
+        [SemanticKind.ViewportArrayIndex] = SystemValueName.ViewportArrayIndex,
+        [SemanticKind.VertexId] = SystemValueName.VertexId,
+        [SemanticKind.PrimitiveId] = SystemValueName.PrimitiveId,
+        [SemanticKind.InstanceId] = SystemValueName.InstanceId,
+        [SemanticKind.IsFrontFace] = SystemValueName.IsFrontFace,
+        [SemanticKind.SampleIndex] = SystemValueName.SampleIndex,
+        [SemanticKind.Barycentrics] = SystemValueName.Barycentrics,
+        [SemanticKind.ShadingRate] = SystemValueName.ShadingRate,
+        [SemanticKind.CullPrimitive] = SystemValueName.CullPrimitive,
+        [SemanticKind.Target] = SystemValueName.Target,
+        [SemanticKind.Depth] = SystemValueName.Depth,
+        [SemanticKind.Coverage] = SystemValueName.Coverage,
+        [SemanticKind.DepthGreaterEqual] = SystemValueName.DepthGreaterEqual,
+        [SemanticKind.DepthLessEqual] = SystemValueName.DepthLessEqual,
+        [SemanticKind.StencilRef] = SystemValueName.StencilRef,
+        [SemanticKind.InnerCoverage] = SystemValueName.InnerCoverage,
+    };
 
     public required int Id { get; init; }
 
@@ -47,39 +75,26 @@ public sealed class DxilSignatureElement
     /// <summary>The element's columns as a register mask (from column 0 when it has no register).</summary>
     public byte Mask => (byte)(((1 << Columns) - 1) << Math.Max(StartColumn, 0));
 
-    /// <summary>D3D_REGISTER_COMPONENT_TYPE: 1 uint, 2 int, 3 float.</summary>
-    public byte RegisterComponentType => ComponentType switch
+    /// <summary>The component type of signature parts and PSV0.</summary>
+    public byte RegisterComponentType
     {
-        Int32 => 2,
-        Float32 => 3,
-        _ => 1,
-    };
+        get
+        {
+            if (ComponentType == Float32)
+            {
+                return RegisterFloat;
+            }
 
-    /// <summary>D3D_NAME of the semantic (0 for arbitrary ones).</summary>
-    public uint SystemValue => Kind switch
-    {
-        SemanticKind.Position => 1,
-        SemanticKind.ClipDistance => 2,
-        SemanticKind.CullDistance => 3,
-        SemanticKind.RenderTargetArrayIndex => 4,
-        SemanticKind.ViewportArrayIndex => 5,
-        SemanticKind.VertexId => 6,
-        SemanticKind.PrimitiveId => 7,
-        SemanticKind.InstanceId => 8,
-        SemanticKind.IsFrontFace => 9,
-        SemanticKind.SampleIndex => 10,
-        SemanticKind.Barycentrics => 23,
-        SemanticKind.ShadingRate => 24,
-        SemanticKind.CullPrimitive => 25,
-        SemanticKind.Target => 64,
-        SemanticKind.Depth => 65,
-        SemanticKind.Coverage => 66,
-        SemanticKind.DepthGreaterEqual => 67,
-        SemanticKind.DepthLessEqual => 68,
-        SemanticKind.StencilRef => 69,
-        SemanticKind.InnerCoverage => 70,
-        _ => 0,
-    };
+            if (ComponentType == Int32)
+            {
+                return RegisterInt;
+            }
+
+            return RegisterUint;
+        }
+    }
+
+    public SystemValueName SystemValue => Names.GetValueOrDefault(Kind);
 
     /// <summary>Whether the element is listed in the signature (everything but values read through their own operation).</summary>
     public bool InSignature => Interpretation != SemanticInterpretation.NotInSignature;
