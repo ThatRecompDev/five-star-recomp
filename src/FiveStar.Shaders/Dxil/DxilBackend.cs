@@ -18,10 +18,30 @@ public static class DxilBackend
     // Deep chains of joins make deep SSA lookups; a compile runs on a thread with a large stack.
     private const int StackBytes = 256 * 1024 * 1024;
 
+    private static readonly Dictionary<string, DxilShaderKind> Profiles = new(StringComparer.Ordinal)
+    {
+        ["cs"] = DxilShaderKind.Compute,
+        ["ps"] = DxilShaderKind.Pixel,
+        ["vs"] = DxilShaderKind.Vertex,
+        ["ms"] = DxilShaderKind.Mesh,
+        ["gs"] = DxilShaderKind.Geometry,
+    };
+
     /// <summary>Whether the backend compiles programs of this profile (ps, vs, cs, ms, gs).</summary>
     public static bool Supports(string profile)
     {
-        return profile == "cs";
+        return Profiles.ContainsKey(profile);
+    }
+
+    /// <summary>The shader kind of a supported profile.</summary>
+    public static DxilShaderKind KindOf(string profile)
+    {
+        if (!Profiles.TryGetValue(profile, out var kind))
+        {
+            throw new DxilBackendException($"profile {profile} is not supported");
+        }
+
+        return kind;
     }
 
     /// <summary>The DXIL container of <paramref name="hlsl"/>, compiled for <paramref name="profile"/>.</summary>
@@ -45,7 +65,7 @@ public static class DxilBackend
             {
                 try
                 {
-                    result = CompileCompute(hlsl, includes);
+                    result = CompileProgram(hlsl, Profiles[profile], includes);
                 }
                 catch (Exception exception)
                 {
@@ -69,11 +89,11 @@ public static class DxilBackend
         return result!;
     }
 
-    private static byte[] CompileCompute(string hlsl, Func<string, string?> includes)
+    private static byte[] CompileProgram(string hlsl, DxilShaderKind kind, Func<string, string?> includes)
     {
         var tokens = Preprocessor.Run(hlsl, includes);
         var declarations = Parser.Parse(tokens);
-        var (module, main, description) = ShaderLowering.Compute(declarations);
+        var (module, main, description) = ShaderLowering.Lower(declarations, kind);
 
         return ShaderContainer.Write(module, main, description);
     }

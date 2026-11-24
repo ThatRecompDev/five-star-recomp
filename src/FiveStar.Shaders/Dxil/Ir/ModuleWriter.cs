@@ -36,7 +36,11 @@ public sealed class ModuleWriter
     ];
 
     // Attribute kinds: 12 noduplicate, 18 nounwind, 20 readnone, 21 readonly; one group and one list per AttributeSet.
-    private static readonly ulong[][] AttributeGroups = [[18, 20], [18], [18, 21], [12, 18]];
+    private static readonly ulong[][] AttributeGroups = [[18, 20], [18], [18, 21], [12, 18], []];
+
+    // String attributes (key only) per group.
+    private static readonly string?[] AttributeStrings = [null, null, null, null, "waveops-include-helper-lanes"];
+    private const ulong StringAttribute = 3;
 
     private readonly DxilModule _module;
     private readonly BitstreamWriter _out = new();
@@ -100,6 +104,15 @@ public sealed class ModuleWriter
             {
                 record.Add(0);
                 record.Add(kind);
+            }
+
+            var text = AttributeStrings[group];
+
+            if (text is not null)
+            {
+                record.Add(StringAttribute);
+                record.AddRange(text.Select(character => (ulong)character));
+                record.Add(0);
             }
 
             _out.Record((int)AttributeCode.GroupEntry, [.. record]);

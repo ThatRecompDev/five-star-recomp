@@ -13,4 +13,7 @@ public enum AttributeSet
 
     /// <summary>Barriers: nounwind and noduplicate.</summary>
     NoDuplicate = 4,
+
+    /// <summary>A pixel shader entry whose wave operations count helper lanes ("waveops-include-helper-lanes").</summary>
+    HelperLanes = 5,
 }

@@ -3,6 +3,7 @@
 
 using System.Globalization;
 using FiveStar.Shaders.Containers;
+using FiveStar.Shaders.Dxil;
 using FiveStar.Shaders.Hardware;
 using FiveStar.Shaders.Tests.Toolchain;
 using FiveStar.Shaders.Tests.Warp;
@@ -12,7 +13,8 @@ namespace FiveStar.Shaders.Tests.Cases;
 
 /// <summary>
 /// Runs a pixel-shader case: appends the export of v20.. (mrt0.., uint4 SV_Target signature so the targets are
-/// bit-exact), assembles, translates, compiles (ps_6_7), draws on 8x8 and lists every pixel that differs.
+/// bit-exact), assembles, translates, compiles (ps_6_7, with dxc or with the DXIL backend), draws on 8x8 and lists every
+/// pixel that differs.
 /// </summary>
 public sealed class PixelCaseRunner
 {
@@ -26,9 +28,9 @@ public sealed class PixelCaseRunner
         _fixture = fixture;
     }
 
-    public IReadOnlyList<string> Run(PixelCase testCase)
+    public IReadOnlyList<string> Run(PixelCase testCase, bool direct = false)
     {
-        var pixel = Build(testCase);
+        var pixel = Build(testCase, direct);
         var helper = testCase.HalfCoverage ? "half_vs.hlsl" : "fullscreen_vs.hlsl";
         var vertex = _fixture.Helper(helper, "vs");
         var framebuffer = Framebuffer.Fullscreen(testCase.Targets, PixelCase.Size, PixelCase.Size, testCase.FloatTargets);
@@ -55,7 +57,7 @@ public sealed class PixelCaseRunner
         }
     }
 
-    private byte[] Build(PixelCase testCase)
+    private byte[] Build(PixelCase testCase, bool direct)
     {
         var exports = string.Join("\n", ExportLines(testCase.Outputs));
         var source = testCase.Raw ? testCase.Program.Replace("{EXPORT}", exports, StringComparison.Ordinal) : $"{testCase.Program}\n{exports}\ns_endpgm";
@@ -71,7 +73,14 @@ public sealed class PixelCaseRunner
         var config = new ShaderConfig { Stage = HardwareStage.Pixel, WaveSize = WaveSize };
         var program = new ShaderProgram(ShaderStage.Pixel, assembled.Instructions, assembled.Code, signatures, config, null);
 
-        return _fixture.Workbench.Compile(testCase.Name, ShaderWorkbench.Translate(program), "ps");
+        var hlsl = ShaderWorkbench.Translate(program);
+
+        if (direct)
+        {
+            return DxilBackend.Compile(hlsl, "ps");
+        }
+
+        return _fixture.Workbench.Compile(testCase.Name, hlsl, "ps");
     }
 
     private List<string> Compare(PixelCase testCase, WarpResult result)

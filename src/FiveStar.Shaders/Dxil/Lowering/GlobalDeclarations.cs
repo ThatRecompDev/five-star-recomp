@@ -65,6 +65,7 @@ public sealed class GlobalDeclarations
             .Select(field => (field.Text, _context.Types.Resolve(field.Type!, size => (int)_context.Expressions.ConstantInteger(size!))))
             .ToList();
         _context.Types.AddStruct(declaration.Text, HlslType.Struct(declaration.Text, fields));
+        _context.StructDeclarations[declaration.Text] = declaration;
     }
 
     private void Cbuffer(SyntaxNode declaration)

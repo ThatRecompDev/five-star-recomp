@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Shaders.Compilation;
+using FiveStar.Shaders.Dxil;
 using FiveStar.Shaders.Tests.Assembly;
 using FiveStar.Shaders.Tooling;
 using FiveStar.Shaders.Translation;
@@ -55,6 +56,17 @@ public sealed class ShaderWorkbench
         }
 
         return File.ReadAllBytes(Path.ChangeExtension(path, ".dxil"));
+    }
+
+    /// <summary>Compiles with the DXIL backend when <paramref name="direct"/> is set, else with dxc.</summary>
+    public byte[] Compile(string name, string hlsl, string profile, bool direct)
+    {
+        if (direct)
+        {
+            return DxilBackend.Compile(hlsl, profile);
+        }
+
+        return Compile(name, hlsl, profile);
     }
 
     /// <summary>

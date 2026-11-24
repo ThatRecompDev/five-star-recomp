@@ -70,7 +70,7 @@ public sealed class ExpressionLowerer
             case SyntaxKind.Call:
                 return Call(node);
             case SyntaxKind.MethodCall:
-                return _context.Resources.Method(node);
+                return Method(node);
             case SyntaxKind.Cast:
                 return Cast(node);
             case SyntaxKind.InitializerList:
@@ -80,6 +80,19 @@ public sealed class ExpressionLowerer
             default:
                 throw SourceError.At(node, $"{node.Kind} is not an expression");
         }
+    }
+
+    /// <summary>A method call: on a geometry shader's output stream, else on a resource.</summary>
+    private RValue Method(SyntaxNode node)
+    {
+        var geometry = _context.Geometry;
+
+        if (geometry is not null && node[0].Kind == SyntaxKind.Name && geometry.IsStream(node[0].Text))
+        {
+            return geometry.Method(node);
+        }
+
+        return _context.Resources.Method(node);
     }
 
     /// <summary>A scalar condition as an i1.</summary>
@@ -202,9 +215,8 @@ public sealed class ExpressionLowerer
             case SyntaxKind.Name:
                 return NamePlace(node);
             case SyntaxKind.Member:
-                return Nested(node, MemberPlace);
             case SyntaxKind.Index:
-                return Nested(node, ElementPlaceOrNone);
+                return Nested(node);
             default:
                 return null;
         }
@@ -222,7 +234,8 @@ public sealed class ExpressionLowerer
         return Variables.Whole(variable);
     }
 
-    private LValue? Nested(SyntaxNode node, Func<LValue, SyntaxNode, LValue?> part)
+    /// <summary>A member or element of a place (no delegate: this runs for every variable access).</summary>
+    private LValue? Nested(SyntaxNode node)
     {
         var owner = TryPlace(node[0]);
 
@@ -231,10 +244,15 @@ public sealed class ExpressionLowerer
             return null;
         }
 
-        return part(owner, node);
+        if (node.Kind == SyntaxKind.Member)
+        {
+            return MemberPlace(owner, node);
+        }
+
+        return ElementPlaceOrNone(owner, node);
     }
 
-    private LValue MemberPlace(LValue owner, SyntaxNode node)
+    private static LValue MemberPlace(LValue owner, SyntaxNode node)
     {
         var type = owner.Type;
 
@@ -524,6 +542,11 @@ public sealed class ExpressionLowerer
 
         Variables.Write(place, value);
 
+        if (place.Variable.Storage == StorageKind.MeshOutput)
+        {
+            return _context.Convert.Convert(value, place.Type);
+        }
+
         return Variables.Read(place);
     }
 
@@ -648,14 +671,25 @@ public sealed class ExpressionLowerer
 
     private static SyntaxNode Overload(SyntaxNode call, List<SyntaxNode> overloads)
     {
-        var matching = overloads.Where(function => function.Children.Count(child => child.Kind == SyntaxKind.Parameter) == call.Children.Count).ToList();
-
-        if (matching.Count == 0)
+        foreach (var function in overloads)
         {
-            throw SourceError.At(call, $"no overload of {call.Text} takes {call.Children.Count} arguments");
+            var parameters = 0;
+
+            foreach (var child in function.Children)
+            {
+                if (child.Kind == SyntaxKind.Parameter)
+                {
+                    parameters++;
+                }
+            }
+
+            if (parameters == call.Children.Count)
+            {
+                return function;
+            }
         }
 
-        return matching[0];
+        throw SourceError.At(call, $"no overload of {call.Text} takes {call.Children.Count} arguments");
     }
 
     private RValue Construct(SyntaxNode node)

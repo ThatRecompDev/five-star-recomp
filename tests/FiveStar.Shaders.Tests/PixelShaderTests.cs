@@ -30,4 +30,13 @@ public sealed class PixelShaderTests : IClassFixture<WarpFixture>
 
         Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
     }
+
+    [WarpTheory]
+    [MemberData(nameof(Cases))]
+    public void The_dxil_backend_shades_what_the_isa_defines(string name)
+    {
+        var mismatches = new PixelCaseRunner(_fixture).Run(PixelCases.Find(name), direct: true);
+
+        Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
+    }
 }

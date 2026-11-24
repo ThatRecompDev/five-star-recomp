@@ -29,9 +29,35 @@ public sealed class VertexAndGeometryTests : IClassFixture<WarpFixture>
     }
 
     [WarpFact]
+    public void The_dxil_backend_compiles_the_vertex_program_with_its_fetch_inputs()
+    {
+        var mismatches = new VertexStageRunner(_fixture).Run(direct: true);
+
+        Assert.True(mismatches.Count == 0, Report(mismatches));
+    }
+
+    [WarpFact]
     public void A_geometry_program_emits_strips_and_cuts()
     {
         var mismatches = new GeometryStageRunner(_fixture).Run();
+
+        Assert.True(mismatches.Count == 0, Report(mismatches));
+    }
+
+    [WarpFact]
+    public void The_dxil_backend_compiles_the_geometry_program_with_strips_and_cuts()
+    {
+        var mismatches = new GeometryStageRunner(_fixture).Run(direct: true);
+
+        Assert.True(mismatches.Count == 0, Report(mismatches));
+    }
+
+    [RealProgramTheory]
+    [InlineData("b300ca2e")]
+    [InlineData("6be01b34")]
+    public void The_dxil_backend_compiles_a_real_voxelize_program(string hash)
+    {
+        var mismatches = new RealGeometryRunner(_fixture).Run(RealProgramTheoryAttribute.Folder!, hash, direct: true);
 
         Assert.True(mismatches.Count == 0, Report(mismatches));
     }

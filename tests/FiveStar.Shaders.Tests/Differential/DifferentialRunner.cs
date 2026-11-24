@@ -146,18 +146,38 @@ public sealed class DifferentialRunner
         }
     }
 
-    /// <summary>The structured form through dxc and through the DXIL backend.</summary>
+    /// <summary>
+    /// The structured form through dxc and through the DXIL backend: compute programs as they are, pixel shaders in their
+    /// harness (the feeder vertex shader from dxc), vertex shaders through their compute harness.
+    /// </summary>
     private DifferentialOutcome CompareBackend(string name, string stage, ShaderProgram program)
     {
         var structured = HlslTranslator.Translate(program, Dispatch with { StructuredControlFlow = true }).Hlsl;
 
-        if (program.Stage != ShaderStage.Compute || structured.Length > MaxBackendSource)
+        if (program.Stage is not (ShaderStage.Compute or ShaderStage.Pixel or ShaderStage.Vertex) || structured.Length > MaxBackendSource)
         {
             return new DifferentialOutcome(name, stage, DifferentialVerdict.Skipped, $"not compared: {stage}, {structured.Length} characters");
         }
 
-        var first = PrepareStructured(name + ".dxc", structured);
-        var second = PrepareBackend(name + ".dxil", structured);
+        PreparedForm first;
+
+        if (program.Stage == ShaderStage.Compute)
+        {
+            first = PrepareStructured(name + ".dxc", structured);
+        }
+        else
+        {
+            var feeder = string.Empty;
+
+            if (program.Stage == ShaderStage.Pixel)
+            {
+                feeder = StageHarness.PixelFeeder(structured, new SyntheticData(StableSeed(name) + 1));
+            }
+
+            first = Prepare(name + ".dxc", program.Stage, structured, feeder);
+        }
+
+        var second = PrepareBackend(first with { Name = name + ".dxil", Shader = [] });
 
         if (first.Error is not null || second.Error is not null)
         {
@@ -190,10 +210,13 @@ public sealed class DifferentialRunner
         }
     }
 
-    private PreparedForm PrepareBackend(string name, string hlsl)
+    /// <summary>The source of a dxc form (already rewritten and wrapped) compiled by the DXIL backend.</summary>
+    private PreparedForm PrepareBackend(PreparedForm form)
     {
-        var source = LoopBudget.Insert(HeapSlots.Rewrite(hlsl));
-        var form = new PreparedForm(name, ShaderStage.Compute, source, "cs", [], null, 0, 0, null);
+        if (form.Error is not null)
+        {
+            return form;
+        }
 
         try
         {

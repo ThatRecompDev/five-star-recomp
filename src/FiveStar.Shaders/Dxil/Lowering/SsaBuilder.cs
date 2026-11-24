@@ -13,8 +13,9 @@ namespace FiveStar.Shaders.Dxil.Lowering;
 /// operand through the replacements.
 /// <para>
 /// The code is structured, so a join closes a region (if, switch, loop, inlined call) that starts at one block. The
-/// lowering records which slots each region writes (<see cref="BeginRegion"/>, <see cref="EndRegion"/>); a read of any
-/// other slot at the join continues at the region's start instead of visiting every path through it.
+/// lowering marks where each region starts and ends (<see cref="BeginRegion"/>, <see cref="EndRegion"/>) in the
+/// sequence of writes, and every slot keeps the numbers of its writes; a read at the join of a slot with no write in
+/// that span continues at the region's start instead of visiting every path through it.
 /// </para>
 /// </summary>
 public sealed class SsaBuilder
@@ -23,7 +24,9 @@ public sealed class SsaBuilder
     private readonly List<IrType> _slotTypes = [];
     private readonly List<BlockState?> _states = [];
     private readonly List<BasicBlock> _blocks = [];
-    private readonly Stack<HashSet<int>> _regions = new();
+    private readonly Stack<int> _regions = new();
+    private readonly List<List<int>?> _writes = [];
+    private int _writeCount;
 
     public SsaBuilder(DxilModule module)
     {
@@ -68,16 +71,19 @@ public sealed class SsaBuilder
     {
         State(block).Definitions[slot] = value;
 
-        if (_regions.Count > 0)
+        while (_writes.Count <= slot)
         {
-            _regions.Peek().Add(slot);
+            _writes.Add(null);
         }
+
+        (_writes[slot] ??= []).Add(_writeCount);
+        _writeCount++;
     }
 
-    /// <summary>Starts recording the slots a region writes.</summary>
+    /// <summary>Starts a region: its writes are the ones from here to its end.</summary>
     public void BeginRegion()
     {
-        _regions.Push([]);
+        _regions.Push(_writeCount);
     }
 
     /// <summary>
@@ -86,16 +92,9 @@ public sealed class SsaBuilder
     /// </summary>
     public void EndRegion(BasicBlock start, BasicBlock join)
     {
-        var written = _regions.Pop();
-
-        if (_regions.Count > 0)
-        {
-            _regions.Peek().UnionWith(written);
-        }
-
         var state = State(join);
         state.RegionStart = start;
-        state.RegionWrites = written;
+        state.RegionWrites = (_regions.Pop(), _writeCount);
     }
 
     public Value Read(int slot, BasicBlock block)
@@ -186,7 +185,7 @@ public sealed class SsaBuilder
     }
 
     /// <summary>The block a read continues in without a phi: the single predecessor, or the start of a region that leaves the slot alone.</summary>
-    private static BasicBlock? Skip(BlockState state, int slot)
+    private BasicBlock? Skip(BlockState state, int slot)
     {
         if (!state.Sealed)
         {
@@ -198,12 +197,37 @@ public sealed class SsaBuilder
             return state.Predecessors[0];
         }
 
-        if (state.RegionStart is not null && !state.RegionWrites!.Contains(slot))
+        if (state.RegionStart is not null && !Wrote(slot, state.RegionWrites))
         {
             return state.RegionStart;
         }
 
         return null;
+    }
+
+    /// <summary>Whether <paramref name="slot"/> was written in the span of writes [first, end).</summary>
+    private bool Wrote(int slot, (int First, int End) span)
+    {
+        if (slot >= _writes.Count)
+        {
+            return false;
+        }
+
+        var writes = _writes[slot];
+
+        if (writes is null)
+        {
+            return false;
+        }
+
+        var found = writes.BinarySearch(span.First);
+
+        if (found < 0)
+        {
+            found = ~found;
+        }
+
+        return found < writes.Count && writes[found] < span.End;
     }
 
     private static void Rewrite(List<Instruction> instructions)
@@ -388,6 +412,7 @@ public sealed class SsaBuilder
 
         public BasicBlock? RegionStart { get; set; }
 
-        public HashSet<int>? RegionWrites { get; set; }
+        /// <summary>The span of write numbers of the region the block joins.</summary>
+        public (int First, int End) RegionWrites { get; set; }
     }
 }

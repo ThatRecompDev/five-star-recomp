@@ -21,6 +21,7 @@ public sealed class TextureLowerer
     private const int AfterLocation = 3;
     private const int LoadOffsetArgument = 2;
     private const int LevelsField = 3;
+    private const int CompareAndLevel = 2;
     private const string GatherPrefix = "Gather";
     private const string GatherComparePrefix = "GatherCmp";
 
@@ -67,6 +68,9 @@ public sealed class TextureLowerer
             "SampleGrad" => SampleGrad(texture),
             "SampleCmp" => Sample(texture, DxOpCode.SampleCmp, "sampleCmp", 1),
             "SampleCmpLevelZero" => Sample(texture, DxOpCode.SampleCmpLevelZero, "sampleCmpLevelZero", 1),
+            "SampleCmpLevel" => Sample(texture, DxOpCode.SampleCmpLevel, "sampleCmpLevel", CompareAndLevel),
+            "CalculateLevelOfDetail" => LevelOfDetail(texture, clamped: true),
+            "CalculateLevelOfDetailUnclamped" => LevelOfDetail(texture, clamped: false),
             "GetDimensions" => Dimensions(texture),
             _ when name.StartsWith(GatherPrefix, StringComparison.Ordinal) => Gather(texture, name),
             _ => throw SourceError.At(call, $"{target.Type.Name}.{name} is not supported"),
@@ -202,6 +206,22 @@ public sealed class TextureLowerer
         var result = texture.Ops.Overloaded(code, name, AttributeSet.ReadOnly, Module.Types.Float, texture.Ops.FloatResult, [.. arguments]);
 
         return texture.Result(result);
+    }
+
+    /// <summary>CalculateLevelOfDetail(Unclamped)(sampler, location): the mip level a sample there would use.</summary>
+    private RValue LevelOfDetail(TextureCall texture, bool clamped)
+    {
+        var sampler = Sampler(texture.Call[SamplerArgument]);
+
+        // The location without an array index: a cube's direction, else the texture's dimensions.
+        var dimensions = texture.Shape.Offsets > 0 ? texture.Shape.Offsets : MaxOffsets;
+        var location = Expressions.Lower(texture.Call[LocationArgument], HlslType.Vector(ScalarKind.Float, dimensions));
+        var coordinates = Pad(location.Components, Module.Undefined(Module.Types.Float), MaxOffsets);
+        var level = texture.Ops.Call(
+            DxOpCode.CalculateLod, "calculateLOD.f32", AttributeSet.ReadOnly, Module.Types.Float,
+            [texture.Handle, sampler, .. coordinates, Module.Bool(clamped)]);
+
+        return RValue.Of(HlslType.Float, level);
     }
 
     /// <summary>SampleGrad: sampler, location, ddx, ddy, then an optional offset.</summary>

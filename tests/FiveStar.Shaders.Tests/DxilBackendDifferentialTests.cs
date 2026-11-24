@@ -10,8 +10,9 @@ using Xunit;
 namespace FiveStar.Shaders.Tests;
 
 /// <summary>
-/// The DXIL backend against dxc on real compute programs of the user's dump: the same structured translation compiled
-/// both ways runs on WARP with the same synthetic inputs, and every output word must be equal (a difference that goes
+/// The DXIL backend against dxc on real programs of the user's dump: the same structured translation compiled both ways
+/// runs on WARP with the same synthetic inputs (pixel shaders drawn with their feeder, vertex shaders in their compute
+/// harness), and every output word must be equal (a difference that goes
 /// away when dxc compiles with -Gis is dxc's fast-math, since the backend keeps IEEE operations). The variables of
 /// <see cref="ControlFlowDifferentialTests"/> size the sample; FIVESTAR_DIFF_OUT also gets backend.jsonl.
 /// </summary>
@@ -29,8 +30,18 @@ public sealed class DxilBackendDifferentialTests : IClassFixture<WarpFixture>
 
     [RealProgramTheory]
     [InlineData("cs")]
+    [InlineData("ps")]
+    [InlineData("vs")]
     public void The_dxil_backend_and_dxc_give_the_same_outputs_on_real_programs(string stage)
     {
+        var only = Environment.GetEnvironmentVariable(ControlFlowDifferentialTests.StageVariable);
+
+        // One stage per run: a WARP stall stops every later run in the process.
+        if (!string.IsNullOrWhiteSpace(only) && only != stage)
+        {
+            return;
+        }
+
         var count = DefaultPrograms;
 
         if (int.TryParse(Environment.GetEnvironmentVariable(ControlFlowDifferentialTests.ProgramsVariable), out var programs))

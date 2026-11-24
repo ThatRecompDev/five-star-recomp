@@ -61,7 +61,13 @@ public sealed class IntrinsicArguments
 
         for (var index = 0; index < components.Length; index++)
         {
-            var operands = values.Select(value => value.Components[index]).ToArray();
+            var operands = new Value[values.Count];
+
+            for (var argument = 0; argument < operands.Length; argument++)
+            {
+                operands[argument] = values[argument].Components[index];
+            }
+
             components[index] = operation(operands);
         }
 

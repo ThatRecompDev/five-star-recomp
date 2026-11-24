@@ -44,7 +44,7 @@ public static class FeatureScan
 
         flags |= OperationFlags(instruction);
 
-        if (flags.HasFlag(ShaderFlagBits.EnableDoublePrecision) && NeedsExtensions(instruction))
+        if ((flags & ShaderFlagBits.EnableDoublePrecision) != 0 && NeedsExtensions(instruction))
         {
             flags |= ShaderFlagBits.EnableDoubleExtensions;
         }
@@ -90,6 +90,32 @@ public static class FeatureScan
             return ShaderFlagBits.WaveOps;
         }
 
+        return TextureFlags(operation, instruction);
+    }
+
+    /// <summary>SampleCmpLevel, and texel offsets that are not constants (DxilShaderFlags: advanced texture ops).</summary>
+    private static ShaderFlagBits TextureFlags(DxOpCode operation, Instruction instruction)
+    {
+        if (operation == DxOpCode.SampleCmpLevel)
+        {
+            return ShaderFlagBits.AdvancedTextureOps;
+        }
+
+        if (!OffsetOperands.TryGetValue(operation, out var offsets))
+        {
+            return ShaderFlagBits.None;
+        }
+
+        var (first, count) = offsets;
+
+        for (var index = first; index < first + count; index++)
+        {
+            if (instruction.Operands[index] is not Constant)
+            {
+                return ShaderFlagBits.AdvancedTextureOps;
+            }
+        }
+
         return ShaderFlagBits.None;
     }
 
@@ -111,6 +137,20 @@ public static class FeatureScan
 
     private const int BitsPerByte = 8;
     private const int SamplerOperand = 2;
+
+    // The texel offset operands of the texture operations (after the opcode, handle, sampler and coordinates).
+    private static readonly Dictionary<DxOpCode, (int First, int Count)> OffsetOperands = new()
+    {
+        [DxOpCode.Sample] = (7, 3),
+        [DxOpCode.SampleBias] = (7, 3),
+        [DxOpCode.SampleLevel] = (7, 3),
+        [DxOpCode.SampleGrad] = (7, 3),
+        [DxOpCode.SampleCmp] = (7, 3),
+        [DxOpCode.SampleCmpLevelZero] = (7, 3),
+        [DxOpCode.TextureLoad] = (6, 3),
+        [DxOpCode.TextureGather] = (7, 2),
+        [DxOpCode.TextureGatherCmp] = (7, 2),
+    };
 
     private static readonly HashSet<DxOpCode> WaveOperations =
     [

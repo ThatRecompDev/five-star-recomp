@@ -430,7 +430,7 @@ Translates every `*.fssm` (selected in name order; `--step K` takes every K-th, 
 largest file first, so the few programs dxc needs minutes for do not run on alone at the end), writes
 `<out>/<name>.hlsl`, compiles it to `<name>.dxil` and writes `<out>/results.json`. `--cache` keeps translations and
 DXIL between runs (see Cache). `--retry` re-runs only programs whose status in that file is not final and merges the
-results. `--no-compile` skips dxc. `--backend dxil` compiles compute programs with the DXIL backend instead of dxc and the rest with dxc; `dxil-only` uses no dxc (see [dxil-backend.md](dxil-backend.md)). `--dispatch` emits the dispatch form instead of structured control flow (see Control
+results. `--no-compile` skips dxc. `--backend dxil` compiles every program with the DXIL backend instead of dxc, and with dxc what the backend cannot lower; `dxil-only` uses no dxc (see [dxil-backend.md](dxil-backend.md)). `--dispatch` emits the dispatch form instead of structured control flow (see Control
 flow). `--native-waves` turns wave emulation off (see Wave size). A compute program pinned to 64 lanes, and a mesh program
 with a floor above 4 (its superstep form), also gets `<name>.w32.hlsl`/`.dxil` where possible; its reason in
 results.json says so (`wave32 variant ok`). `--mesh-fallbacks` also compiles the mesh fallback of every mesh program

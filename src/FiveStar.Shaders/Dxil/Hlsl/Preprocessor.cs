@@ -13,6 +13,9 @@ public sealed class Preprocessor
     private const int MaxIncludeDepth = 16;
     private const int ParenthesizedName = 2;
 
+    // Room for the runtime headers' tokens, so the output list does not grow through every size.
+    private const int IncludedTokens = 1 << 16;
+
     private readonly Func<string, string?> _includes;
     private readonly Dictionary<string, List<Token>> _macros = new(StringComparer.Ordinal);
     private readonly List<Token> _output = [];
@@ -27,7 +30,9 @@ public sealed class Preprocessor
     public static List<Token> Run(string source, Func<string, string?> includes)
     {
         var preprocessor = new Preprocessor(includes);
-        preprocessor.Process(Lexer.Tokenize(source), 0);
+        var tokens = Lexer.Tokenize(source);
+        preprocessor._output.Capacity = tokens.Count + IncludedTokens;
+        preprocessor.Process(tokens, 0);
 
         return preprocessor._output;
     }
@@ -59,7 +64,7 @@ public sealed class Preprocessor
 
             if (Active)
             {
-                Expand(token, _output, []);
+                Expand(token, _output, null);
             }
 
             index++;
@@ -67,15 +72,16 @@ public sealed class Preprocessor
     }
 
     /// <summary>Appends a token, or the expansion of the macro it names (a macro is not expanded inside itself).</summary>
-    private void Expand(Token token, List<Token> output, HashSet<string> expanding)
+    private void Expand(Token token, List<Token> output, HashSet<string>? expanding)
     {
-        if (token.Kind != TokenKind.Identifier || !_macros.TryGetValue(token.Text, out var body) || expanding.Contains(token.Text))
+        if (token.Kind != TokenKind.Identifier || !_macros.TryGetValue(token.Text, out var body) || (expanding is not null && expanding.Contains(token.Text)))
         {
             output.Add(token);
 
             return;
         }
 
+        expanding ??= new HashSet<string>(StringComparer.Ordinal);
         expanding.Add(token.Text);
 
         foreach (var part in body)
@@ -223,7 +229,7 @@ public sealed class Preprocessor
                 continue;
             }
 
-            Expand(condition[index], expanded, []);
+            Expand(condition[index], expanded, null);
         }
 
         return new ConditionEvaluator(expanded, number).Evaluate();

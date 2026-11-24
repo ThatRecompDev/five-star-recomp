@@ -52,6 +52,13 @@ the last block, `2 × bytes + 1` last), the unabbreviated LLVM 3.7 records DXIL 
 metadata kinds a module declares, the PSV0 runtime-info layout of validator 1.6, and its note that the AMD driver
 wants a loop's exiting block to be its latch (docs/dxil-backend.md lists it as open). The backend's design (a compiler for the translator's HLSL, SSA built while lowering) and its code are
 our own.
+
+For the graphics stages the backend also learned from it: the 32-byte ISG1/OSG1/PSG1 rows with the never-written
+mask of outputs, the 16-byte PSV0 signature elements with the string and semantic index tables, the signature
+metadata operands, the mesh state property, and declaring every output dependent on every input in the view-ID state
+instead of tracing dependencies. Register packing, the order of signature rows and names, and the remaining layouts
+were checked against dxc's containers (`fivestar shader dxil --compare`); the code is our own.
+
 ## GTA6-Asset-Info
 
 https://github.com/TrinitronClient/GTA6-Asset-Info, revision `0f649eba78cdd6e053d7aefd333fb6e3abe9739a`, GPL-3.0.

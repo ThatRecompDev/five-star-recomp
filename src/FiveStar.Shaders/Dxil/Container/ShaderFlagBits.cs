@@ -20,4 +20,7 @@ public enum ShaderFlagBits : ulong
     AtomicInt64OnGroupShared = 1UL << 28,
     ResourceDescriptorHeapIndexing = 1UL << 30,
     SamplerDescriptorHeapIndexing = 1UL << 31,
+
+    /// <summary>Shader model 6.7 texture operations: offsets that are not immediates, SampleCmpLevel.</summary>
+    AdvancedTextureOps = 1UL << 34,
 }

@@ -101,6 +101,7 @@ public sealed class VariableStore
         {
             StorageKind.Slots => new LValue(variable.Type, variable) { Slots = [.. Enumerable.Range(variable.FirstSlot, count)] },
             StorageKind.Cbuffer => new LValue(variable.Type, variable) { Indices = Counting(variable.CbufferOffset / sizeof(uint), count) },
+            StorageKind.MeshOutput or StorageKind.GeometryInput => new LValue(variable.Type, variable) { Indices = Counting(0, count) },
             _ => new LValue(variable.Type, variable) { Indices = Counting(0, count) },
         };
     }
@@ -126,12 +127,17 @@ public sealed class VariableStore
             return new LValue(type, place.Variable) { Slots = [.. components.Select(component => place.Slots[component])] };
         }
 
-        return new LValue(type, place.Variable) { Indices = [.. components.Select(component => place.Indices[component])] };
+        return new LValue(type, place.Variable) { Indices = [.. components.Select(component => place.Indices[component])], ArrayIndex = place.ArrayIndex };
     }
 
     /// <summary>Element <paramref name="index"/> (not a constant) of an array, vector or matrix place.</summary>
     public LValue Element(LValue place, HlslType element, Value index, int length)
     {
+        if (place.Variable.Storage is StorageKind.MeshOutput or StorageKind.GeometryInput)
+        {
+            return new LValue(element, place.Variable) { Indices = Counting(0, element.Count), ArrayIndex = index };
+        }
+
         if (place.Variable.Storage != StorageKind.Slots)
         {
             var scaled = Builder.Binary(BinaryOp.Mul, index, Module.Int32((uint)element.Count));
@@ -160,6 +166,16 @@ public sealed class VariableStore
 
     public RValue Read(LValue place)
     {
+        if (place.Variable.Storage == StorageKind.MeshOutput)
+        {
+            throw new DxilBackendException($"{place.Variable.Name} is a mesh output (write only)");
+        }
+
+        if (place.Variable.Storage == StorageKind.GeometryInput)
+        {
+            return _context.Geometry!.Read(place);
+        }
+
         var components = new Value[place.Type.Count];
 
         for (var index = 0; index < components.Length; index++)
@@ -172,12 +188,19 @@ public sealed class VariableStore
 
     public void Write(LValue place, RValue value)
     {
-        if (place.Variable.IsConstant || place.Variable.Storage == StorageKind.Cbuffer)
+        if (place.Variable.IsConstant || place.Variable.Storage is StorageKind.Cbuffer or StorageKind.GeometryInput)
         {
             throw new DxilBackendException($"{place.Variable.Name} is read-only");
         }
 
         var converted = _context.Convert.Convert(value, place.Type);
+
+        if (place.Variable.Storage == StorageKind.MeshOutput)
+        {
+            _context.Mesh!.Write(place, converted);
+
+            return;
+        }
 
         for (var index = 0; index < place.Type.Count; index++)
         {

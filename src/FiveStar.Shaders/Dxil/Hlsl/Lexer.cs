@@ -12,6 +12,9 @@ public sealed class Lexer
     private const string HexPrefix = "0x";
     private const int ExponentDigit = 2;
 
+    // About one token per few characters of translated HLSL: the list is sized once.
+    private const int CharactersPerToken = 4;
+
     private static readonly string[] ThreeCharacter = [">>=", "<<="];
 
     private static readonly string[] TwoCharacter =
@@ -20,7 +23,7 @@ public sealed class Lexer
     ];
 
     private readonly string _source;
-    private readonly List<Token> _tokens = [];
+    private readonly List<Token> _tokens;
     private readonly Dictionary<string, string> _interned = new(StringComparer.Ordinal);
     private int _position;
     private int _line = 1;
@@ -29,6 +32,7 @@ public sealed class Lexer
 
     private Lexer(string source)
     {
+        _tokens = new List<Token>(source.Length / CharactersPerToken);
         _source = source;
     }
 

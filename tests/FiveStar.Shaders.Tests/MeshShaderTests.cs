@@ -32,6 +32,16 @@ public sealed class MeshShaderTests : IClassFixture<WarpFixture>
         Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
     }
 
+    [WarpTheory]
+    [InlineData(MeshStageRunner.Native)]
+    [InlineData(MeshStageRunner.Supersteps)]
+    public void The_dxil_backend_compiles_the_mesh_program(string variant)
+    {
+        var mismatches = new MeshStageRunner(_fixture).Run(variant, direct: true);
+
+        Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
+    }
+
     [WarpFact]
     public void A_mesh_program_that_skips_regions_draws_the_reference_image_on_narrower_waves()
     {

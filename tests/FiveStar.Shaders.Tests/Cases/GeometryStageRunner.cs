@@ -61,7 +61,8 @@ public sealed class GeometryStageRunner
         new VertexElement("ATTR", 1, Format.R32G32_Float, 16, 0, PerInstance: false),
     ];
 
-    public IReadOnlyList<string> Run()
+    /// <summary>Draws the strips; <paramref name="direct"/> compiles the geometry shader with the DXIL backend.</summary>
+    public IReadOnlyList<string> Run(bool direct = false)
     {
         var hlsl = Translate();
         var (pixelSource, _) = PassThroughPixelShader.Build(hlsl, null, flat: true);
@@ -71,7 +72,7 @@ public sealed class GeometryStageRunner
             Framebuffer.Exact(1, Size, Size),
             new Bindings())
         {
-            GeometryShader = _fixture.Workbench.Compile(Name, hlsl, "gs"),
+            GeometryShader = _fixture.Workbench.Compile(Name, hlsl, "gs", direct),
             InputLayout = InputLayout,
             VertexBuffers = [new VertexBufferData(24, VertexData())],
             VertexCount = 6,

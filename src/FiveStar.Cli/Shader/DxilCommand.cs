@@ -27,15 +27,16 @@ internal static class DxilCommand
     private const int ReasonLength = 160;
     private const string ValidateFlag = "validate";
     private const string PhasesFlag = "phases";
+    private const string CompareFlag = "compare";
     private const string LogName = "dxil-backend.tsv";
 
     public static int Run(IReadOnlyList<string> args)
     {
-        var arguments = new CommandArguments(args, new HashSet<string> { ValidateFlag, PhasesFlag });
+        var arguments = new CommandArguments(args, new HashSet<string> { ValidateFlag, PhasesFlag, CompareFlag });
 
         if (arguments.Positional.Count != OnePath)
         {
-            throw new ArgumentException("dxil <hlsl file or folder> [--out <dir>] [--validate] [--limit N] [--step K] [--jobs N] [--repeat N] [--dxc <path>]");
+            throw new ArgumentException("dxil <hlsl file or folder> [--out <dir>] [--validate] [--compare] [--stages cs,ps,vs] [--limit N] [--step K] [--jobs N] [--repeat N] [--dxc <path>]");
         }
 
         var files = Sources(arguments);
@@ -58,7 +59,14 @@ internal static class DxilCommand
             return Success;
         }
 
-        Parallel.ForEach(files, options, file => results.Add(CompileOne(file, output, validator, repeat)));
+        SignatureCheck? check = null;
+
+        if (arguments.Flag(CompareFlag))
+        {
+            check = new SignatureCheck(ShaderTools.Compiler(arguments, retry: false), Path.Combine(output ?? Path.GetTempPath(), "dxc"));
+        }
+
+        Parallel.ForEach(files, options, file => results.Add(CompileOne(file, output, validator, repeat, check)));
         Report([.. results.OrderBy(result => result.Name, StringComparer.Ordinal)], output);
 
         return Success;
@@ -83,15 +91,35 @@ internal static class DxilCommand
             selected = selected.Take(limit.Value);
         }
 
-        return [.. selected.Where(IsCompute)];
+        var stages = (arguments.Option("stages") ?? "cs,ps,vs").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal);
+
+        return [.. selected.Where(file => stages.Contains(Profile(File.ReadAllText(file))))];
     }
 
-    /// <summary>A compute program: numthreads and no mesh output topology.</summary>
-    private static bool IsCompute(string file)
+    /// <summary>The profile of a translated program, from its entry point's attributes and semantics.</summary>
+    public static string Profile(string hlsl)
     {
-        var text = File.ReadAllText(file);
+        if (hlsl.Contains("outputtopology", StringComparison.Ordinal))
+        {
+            return "ms";
+        }
 
-        return text.Contains("[numthreads(", StringComparison.Ordinal) && !text.Contains("outputtopology", StringComparison.Ordinal);
+        if (hlsl.Contains("[numthreads(", StringComparison.Ordinal))
+        {
+            return "cs";
+        }
+
+        if (hlsl.Contains("[maxvertexcount(", StringComparison.Ordinal))
+        {
+            return "gs";
+        }
+
+        if (hlsl.Contains(": SV_VertexID", StringComparison.Ordinal))
+        {
+            return "vs";
+        }
+
+        return "ps";
     }
 
     private static DxilValidator? Validator(CommandArguments arguments)
@@ -107,10 +135,11 @@ internal static class DxilCommand
     }
 
     /// <summary>Compiles one program <paramref name="repeat"/> times (the last run is timed, after JIT warm-up).</summary>
-    private static Outcome CompileOne(string file, string? output, DxilValidator? validator, int repeat)
+    private static Outcome CompileOne(string file, string? output, DxilValidator? validator, int repeat, SignatureCheck? check)
     {
         var name = Path.GetFileNameWithoutExtension(file);
         var hlsl = File.ReadAllText(file);
+        var profile = Profile(hlsl);
         var clock = Stopwatch.StartNew();
         byte[] dxil = [];
 
@@ -119,7 +148,7 @@ internal static class DxilCommand
             for (var run = 0; run < repeat; run++)
             {
                 clock.Restart();
-                dxil = DxilBackend.Compile(hlsl, "cs");
+                dxil = DxilBackend.Compile(hlsl, profile);
             }
         }
         catch (DxilBackendException exception)
@@ -141,42 +170,62 @@ internal static class DxilCommand
             return new Outcome(name, hlsl.Length, milliseconds, dxil.Length, "invalid", errors.Replace('\n', ' '));
         }
 
+        var difference = check?.Compare(file, hlsl, profile, dxil);
+
+        if (difference is not null)
+        {
+            return new Outcome(name, hlsl.Length, milliseconds, dxil.Length, "signature", difference);
+        }
+
         return new Outcome(name, hlsl.Length, milliseconds, dxil.Length, "ok", string.Empty);
     }
 
-    /// <summary>Times the backend's phases on each program (the last of <paramref name="repeat"/> runs).</summary>
+    /// <summary>Times the backend's phases on each program (the last of <paramref name="repeat"/> runs) and counts what each allocates.</summary>
     private static void Phases(List<string> files, int repeat, string? listing)
     {
         foreach (var file in files)
         {
             var hlsl = File.ReadAllText(file);
-            var times = new double[PhaseCount];
+            var marks = new (double Milliseconds, long Bytes)[PhaseCount];
 
             for (var run = 0; run < repeat; run++)
             {
-                times = TimePhases(hlsl, listing, run == repeat - 1);
+                marks = TimePhases(hlsl, listing, run == repeat - 1);
             }
 
-            var line = $"{Path.GetFileName(file)}: preprocess {times[0]:F1}, parse {times[1] - times[0]:F1}, "
-                + $"lower {times[PhaseLower] - times[1]:F1}, write {times[PhaseWrite] - times[PhaseLower]:F1} ms";
-            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{line}"));
+            var parts = PhaseNames.Select((name, index) =>
+            {
+                var (milliseconds, bytes) = marks[index];
+
+                if (index > 0)
+                {
+                    milliseconds -= marks[index - 1].Milliseconds;
+                    bytes -= marks[index - 1].Bytes;
+                }
+
+                return string.Create(CultureInfo.InvariantCulture, $"{name} {milliseconds:F1} ms {bytes / BytesPerMegabyte} MB");
+            });
+            Console.WriteLine($"{Path.GetFileName(file)}: {string.Join(", ", parts)}");
         }
     }
 
-    /// <summary>One compile, phase by phase: the elapsed milliseconds after each; the last run prints the IR size.</summary>
-    private static double[] TimePhases(string hlsl, string? listing, bool last)
+    /// <summary>One compile, phase by phase: the elapsed milliseconds and allocated bytes after each; the last run prints the IR size.</summary>
+    private static (double Milliseconds, long Bytes)[] TimePhases(string hlsl, string? listing, bool last)
     {
-        var times = new double[PhaseCount];
+        var marks = new (double Milliseconds, long Bytes)[PhaseCount];
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        var paused = GC.GetTotalPauseDuration();
         var clock = Stopwatch.StartNew();
-        var tokens = Preprocessor.Run(hlsl, RuntimeIncludes.Read);
-        times[0] = clock.Elapsed.TotalMilliseconds;
-        var tree = Parser.Parse(tokens);
-        times[1] = clock.Elapsed.TotalMilliseconds;
 
-        var (module, main, description) = ShaderLowering.Compute(tree);
-        times[PhaseLower] = clock.Elapsed.TotalMilliseconds;
+        var tokens = Preprocessor.Run(hlsl, RuntimeIncludes.Read);
+        marks[0] = (clock.Elapsed.TotalMilliseconds, GC.GetAllocatedBytesForCurrentThread() - allocated);
+        var tree = Parser.Parse(tokens);
+        marks[1] = (clock.Elapsed.TotalMilliseconds, GC.GetAllocatedBytesForCurrentThread() - allocated);
+
+        var (module, main, description) = ShaderLowering.Lower(tree, DxilBackend.KindOf(Profile(hlsl)));
+        marks[PhaseLower] = (clock.Elapsed.TotalMilliseconds, GC.GetAllocatedBytesForCurrentThread() - allocated);
         var container = ShaderContainer.Write(module, main, description);
-        times[PhaseWrite] = clock.Elapsed.TotalMilliseconds;
+        marks[PhaseWrite] = (clock.Elapsed.TotalMilliseconds, GC.GetAllocatedBytesForCurrentThread() - allocated);
 
         if (last && listing is not null)
         {
@@ -186,13 +235,16 @@ internal static class DxilCommand
         if (last)
         {
             var instructions = main.Blocks.Sum(block => block.Body.Count);
-            Console.WriteLine($"blocks {main.Blocks.Count}, instructions {instructions}, phis {main.Blocks.Sum(block => block.Phis.Count)}, bytes {container.Length}");
+            var pause = (GC.GetTotalPauseDuration() - paused).TotalMilliseconds;
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"blocks {main.Blocks.Count}, instructions {instructions}, phis {main.Blocks.Sum(block => block.Phis.Count)}, bytes {container.Length}, GC pauses {pause:F0} ms"));
         }
 
-        return times;
+        return marks;
     }
 
     private const int PhaseCount = 4;
+    private const long BytesPerMegabyte = 1 << 20;
+    private static readonly string[] PhaseNames = ["preprocess", "parse", "lower", "write"];
     private const int Half = 2;
     private const int CountWidth = 5;
     private const double MillisecondsPerSecond = 1000;

@@ -10,7 +10,8 @@ namespace FiveStar.Shaders.Dxil.Lowering;
 public sealed class Scope
 {
     private readonly Dictionary<string, Variable> _globals = new(StringComparer.Ordinal);
-    private List<Dictionary<string, Variable>> _blocks = [];
+    // A block's names are made on its first declaration; most blocks declare none.
+    private List<Dictionary<string, Variable>?> _blocks = [];
 
     public void DeclareGlobal(Variable variable)
     {
@@ -26,12 +27,13 @@ public sealed class Scope
             return;
         }
 
-        _blocks[^1][variable.Name] = variable;
+        _blocks[^1] ??= new Dictionary<string, Variable>(StringComparer.Ordinal);
+        _blocks[^1]![variable.Name] = variable;
     }
 
     public void Push()
     {
-        _blocks.Add(new Dictionary<string, Variable>(StringComparer.Ordinal));
+        _blocks.Add(null);
     }
 
     public void Pop()
@@ -43,7 +45,9 @@ public sealed class Scope
     {
         for (var index = _blocks.Count - 1; index >= 0; index--)
         {
-            if (_blocks[index].TryGetValue(name, out var variable))
+            var names = _blocks[index];
+
+            if (names is not null && names.TryGetValue(name, out var variable))
             {
                 return variable;
             }
@@ -53,7 +57,7 @@ public sealed class Scope
     }
 
     /// <summary>Starts an empty chain above the globals; returns the caller's chain for <see cref="Restore"/>.</summary>
-    public List<Dictionary<string, Variable>> Isolate()
+    public List<Dictionary<string, Variable>?> Isolate()
     {
         var saved = _blocks;
         _blocks = [];
@@ -61,7 +65,7 @@ public sealed class Scope
         return saved;
     }
 
-    public void Restore(List<Dictionary<string, Variable>> saved)
+    public void Restore(List<Dictionary<string, Variable>?> saved)
     {
         _blocks = saved;
     }
