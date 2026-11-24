@@ -162,17 +162,7 @@ internal static class TranslateCommand
             return null;
         }
 
-        var dxc = ShaderTools.Compiler(arguments, retry);
-
-        // --backend dxil: compute programs through the DXIL backend, the rest (and what it cannot lower) through dxc;
-        // dxil-only: no dxc at all, for measuring the backend.
-        return arguments.Option("backend") switch
-        {
-            null or "hlsl" => dxc,
-            "dxil" => new DxilBackendCompiler(dxc.Options, dxc),
-            "dxil-only" => new DxilBackendCompiler(dxc.Options, null),
-            var other => throw new ArgumentException($"--backend {other}: expected hlsl, dxil or dxil-only"),
-        };
+        return ShaderTools.Backend(arguments, retry);
     }
 
     /// <summary>The compiler that logs each compile it runs to compile-times.tsv in the output folder.</summary>

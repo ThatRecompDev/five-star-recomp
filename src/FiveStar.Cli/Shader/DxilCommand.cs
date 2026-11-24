@@ -180,39 +180,51 @@ internal static class DxilCommand
         return new Outcome(name, hlsl.Length, milliseconds, dxil.Length, "ok", string.Empty);
     }
 
-    /// <summary>Times the backend's phases on each program (the last of <paramref name="repeat"/> runs).</summary>
+    /// <summary>Times the backend's phases on each program (the last of <paramref name="repeat"/> runs) and counts what each allocates.</summary>
     private static void Phases(List<string> files, int repeat, string? listing)
     {
         foreach (var file in files)
         {
             var hlsl = File.ReadAllText(file);
-            var times = new double[PhaseCount];
+            var marks = new (double Milliseconds, long Bytes)[PhaseCount];
 
             for (var run = 0; run < repeat; run++)
             {
-                times = TimePhases(hlsl, listing, run == repeat - 1);
+                marks = TimePhases(hlsl, listing, run == repeat - 1);
             }
 
-            var line = $"{Path.GetFileName(file)}: preprocess {times[0]:F1}, parse {times[1] - times[0]:F1}, "
-                + $"lower {times[PhaseLower] - times[1]:F1}, write {times[PhaseWrite] - times[PhaseLower]:F1} ms";
-            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{line}"));
+            var parts = PhaseNames.Select((name, index) =>
+            {
+                var (milliseconds, bytes) = marks[index];
+
+                if (index > 0)
+                {
+                    milliseconds -= marks[index - 1].Milliseconds;
+                    bytes -= marks[index - 1].Bytes;
+                }
+
+                return string.Create(CultureInfo.InvariantCulture, $"{name} {milliseconds:F1} ms {bytes / BytesPerMegabyte} MB");
+            });
+            Console.WriteLine($"{Path.GetFileName(file)}: {string.Join(", ", parts)}");
         }
     }
 
-    /// <summary>One compile, phase by phase: the elapsed milliseconds after each; the last run prints the IR size.</summary>
-    private static double[] TimePhases(string hlsl, string? listing, bool last)
+    /// <summary>One compile, phase by phase: the elapsed milliseconds and allocated bytes after each; the last run prints the IR size.</summary>
+    private static (double Milliseconds, long Bytes)[] TimePhases(string hlsl, string? listing, bool last)
     {
-        var times = new double[PhaseCount];
+        var marks = new (double Milliseconds, long Bytes)[PhaseCount];
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
         var clock = Stopwatch.StartNew();
+
         var tokens = Preprocessor.Run(hlsl, RuntimeIncludes.Read);
-        times[0] = clock.Elapsed.TotalMilliseconds;
+        marks[0] = (clock.Elapsed.TotalMilliseconds, GC.GetAllocatedBytesForCurrentThread() - allocated);
         var tree = Parser.Parse(tokens);
-        times[1] = clock.Elapsed.TotalMilliseconds;
+        marks[1] = (clock.Elapsed.TotalMilliseconds, GC.GetAllocatedBytesForCurrentThread() - allocated);
 
         var (module, main, description) = ShaderLowering.Lower(tree, DxilBackend.KindOf(Profile(hlsl)));
-        times[PhaseLower] = clock.Elapsed.TotalMilliseconds;
+        marks[PhaseLower] = (clock.Elapsed.TotalMilliseconds, GC.GetAllocatedBytesForCurrentThread() - allocated);
         var container = ShaderContainer.Write(module, main, description);
-        times[PhaseWrite] = clock.Elapsed.TotalMilliseconds;
+        marks[PhaseWrite] = (clock.Elapsed.TotalMilliseconds, GC.GetAllocatedBytesForCurrentThread() - allocated);
 
         if (last && listing is not null)
         {
@@ -225,10 +237,12 @@ internal static class DxilCommand
             Console.WriteLine($"blocks {main.Blocks.Count}, instructions {instructions}, phis {main.Blocks.Sum(block => block.Phis.Count)}, bytes {container.Length}");
         }
 
-        return times;
+        return marks;
     }
 
     private const int PhaseCount = 4;
+    private const long BytesPerMegabyte = 1 << 20;
+    private static readonly string[] PhaseNames = ["preprocess", "parse", "lower", "write"];
     private const int Half = 2;
     private const int CountWidth = 5;
     private const double MillisecondsPerSecond = 1000;

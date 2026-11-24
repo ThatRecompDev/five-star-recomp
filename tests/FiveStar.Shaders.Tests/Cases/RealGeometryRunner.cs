@@ -38,8 +38,8 @@ public sealed class RealGeometryRunner
         _fixture = fixture;
     }
 
-    /// <summary>Runs the program whose file name in <paramref name="folder"/> contains GS_VoxelizeGeneric_&lt;hash&gt;.</summary>
-    public IReadOnlyList<string> Run(string folder, string hash)
+    /// <summary>Runs the program whose file name in <paramref name="folder"/> contains GS_VoxelizeGeneric_&lt;hash&gt; (<paramref name="direct"/>: compiled by the DXIL backend).</summary>
+    public IReadOnlyList<string> Run(string folder, string hash, bool direct = false)
     {
         var path = Directory.GetFiles(folder, $"*GS_VoxelizeGeneric_{hash}*.fssm").FirstOrDefault();
 
@@ -58,7 +58,7 @@ public sealed class RealGeometryRunner
             Framebuffer.Exact(semantics.Count, Size, Size),
             Bindings())
         {
-            GeometryShader = _fixture.Workbench.Compile($"gs_real_{hash}", hlsl, "gs"),
+            GeometryShader = _fixture.Workbench.Compile($"gs_real_{hash}", hlsl, "gs", direct),
             InputLayout = GeometryStageRunner.InputLayout,
             VertexBuffers = [new VertexBufferData(24, VertexData())],
             VertexCount = 9,

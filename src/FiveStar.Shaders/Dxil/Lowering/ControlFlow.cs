@@ -13,7 +13,7 @@ public sealed class ControlFlow
 {
     private readonly IrBuilder _builder;
     private readonly SsaBuilder _ssa;
-    private readonly Stack<(BasicBlock Break, BasicBlock? Continue)> _loops = new();
+    private Stack<(BasicBlock Break, BasicBlock? Continue)> _loops = new();
     private readonly Stack<FunctionFrame> _frames = new();
 
     public ControlFlow(IrBuilder builder, SsaBuilder ssa)
@@ -137,19 +137,14 @@ public sealed class ControlFlow
     /// <summary>Loops and switches of the caller are not targets inside an inlined function.</summary>
     public Stack<(BasicBlock Break, BasicBlock? Continue)> SaveLoops()
     {
-        var saved = new Stack<(BasicBlock Break, BasicBlock? Continue)>(_loops.Reverse());
-        _loops.Clear();
+        var saved = _loops;
+        _loops = new Stack<(BasicBlock Break, BasicBlock? Continue)>();
 
         return saved;
     }
 
     public void RestoreLoops(Stack<(BasicBlock Break, BasicBlock? Continue)> saved)
     {
-        _loops.Clear();
-
-        foreach (var loop in saved.Reverse())
-        {
-            _loops.Push(loop);
-        }
+        _loops = saved;
     }
 }

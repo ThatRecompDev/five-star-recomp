@@ -129,7 +129,8 @@ public sealed partial class MeshStageRunner
 
     public static IReadOnlyList<string> Variants => [Native, FallbackTable, FallbackRoot, FallbackOverflow, Supersteps, SuperstepFallback];
 
-    public IReadOnlyList<string> Run(string variant)
+    /// <summary>Draws a variant; <paramref name="direct"/> compiles a native mesh shader with the DXIL backend.</summary>
+    public IReadOnlyList<string> Run(string variant, bool direct = false)
     {
         var mesh = Translate(variant);
         var (pixelSource, _) = PassThroughPixelShader.Build(mesh, ["param0"], flat: true);
@@ -140,7 +141,7 @@ public sealed partial class MeshStageRunner
 
         if (variant is Native or Windows or Supersteps)
         {
-            var result = _fixture.Runner.Mesh(new MeshJob(_fixture.Workbench.Compile(variant, mesh, "ms"), pixel, framebuffer, bindings, 1));
+            var result = _fixture.Runner.Mesh(new MeshJob(_fixture.Workbench.Compile(variant, mesh, "ms", direct), pixel, framebuffer, bindings, 1));
 
             return ImageCheck.Compare(result, Size, Size, (x, y, _) => image[y, x]);
         }

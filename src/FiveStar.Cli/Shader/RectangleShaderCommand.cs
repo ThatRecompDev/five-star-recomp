@@ -27,7 +27,7 @@ internal static class RectangleShaderCommand
 
         if (arguments.Positional.Count != OnePath)
         {
-            throw new ArgumentException("rect-gs <translate-out> [--jobs N] [--dxc <path>]");
+            throw new ArgumentException("rect-gs <translate-out> [--jobs N] [--dxc <path>] [--backend hlsl|dxil|dxil-only]");
         }
 
         var folder = arguments.Positional[0];
@@ -39,7 +39,7 @@ internal static class RectangleShaderCommand
 
         var output = Path.Combine(folder, RectangleGeometryShader.Folder);
         Directory.CreateDirectory(output);
-        var failed = Compile(ShaderTools.Compiler(arguments, retry: false), output, sources, arguments.IntegerOption("jobs") ?? 1);
+        var failed = Compile(ShaderTools.Backend(arguments, retry: false), output, sources, arguments.IntegerOption("jobs") ?? 1);
         Console.WriteLine($"{vertexPrograms.Count} vertex programs, {sources.Count} geometry shaders in {output}, {failed} failed, {unsupported} signatures not supported");
 
         if (failed > 0)
@@ -73,7 +73,7 @@ internal static class RectangleShaderCommand
     }
 
     /// <summary>Compiles the sources whose DXIL is not there yet, N at once; returns the number that failed.</summary>
-    private static int Compile(DxcCompiler compiler, string output, IReadOnlyList<string> sources, int jobs)
+    private static int Compile(IShaderCompiler compiler, string output, IReadOnlyList<string> sources, int jobs)
     {
         var failures = new ConcurrentBag<string>();
         var options = new ParallelOptions { MaxDegreeOfParallelism = jobs };
