@@ -170,7 +170,10 @@ internal sealed class OnDemandStart
             return new InProcessBackend(validator);
         }
 
-        return new CompileHost(executable, validator, CompileHost.AnswerLimit);
+        var host = new CompileHost(executable, validator, CompileHost.AnswerLimit);
+        CompileBudget.HelperPrivateBytes = () => host.PrivateBytes;
+
+        return host;
     }
 
     /// <summary>The identity, waiting for it; <paramref name="waited"/> is the time spent waiting.</summary>
@@ -207,7 +210,10 @@ internal sealed class OnDemandStart
         var slow = SlowCompiles.Read(logs, _compiler.Options.CompileTimeout);
         var compiler = new TimedCompiler(_compiler, ownLog, TimeProvider.System);
         var picker = new ProgramVariantPicker(new ShaderManifest([]), adapter, warnings);
-        var workers = new ProgramWorkers(Jobs, WarmMemoryGuard.RoomForBuild, WarmMemoryGuard.RoomForHeavyBuild);
+        var workers = new ProgramWorkers(
+            Jobs,
+            running => WarmMemoryGuard.RoomForBuild(running) && CompileBudget.RoomForPrograms(running),
+            running => WarmMemoryGuard.RoomForHeavyBuild(running) && CompileBudget.RoomForPrograms(running));
         workers.Start();
         log.Detail($"  [d3d12_xs] programs on demand: {folder}, {Jobs} threads and one for heavy compiles, {slow.Count} sources slow at -O3");
 

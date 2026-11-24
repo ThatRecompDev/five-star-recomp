@@ -56,6 +56,22 @@ internal sealed class CompileHost : IBackendRunner
 
     public bool Validates => _validator is not null;
 
+    /// <summary>The private bytes of the running host; 0 without one.</summary>
+    public long PrivateBytes
+    {
+        get
+        {
+            var connection = _connection;
+
+            if (connection is null)
+            {
+                return 0;
+            }
+
+            return connection.PrivateBytes;
+        }
+    }
+
     /// <summary>Hosts started, hosts that ended while running, and the private memory of the current one.</summary>
     public string Summary
     {

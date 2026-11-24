@@ -15,8 +15,9 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// <see cref="TinyShaderBytes"/> of DXIL are counted but never wait, so a small compute pipeline made on the game's
 /// thread is not held up; while an urgent compile waits (<see cref="Urgent"/>), no other starts. Two ceilings bound
 /// the loader itself (<see cref="Configure"/>): at most <see cref="MaxCompiles"/> larger compiles at once, and none
-/// starts while the process's private bytes, the running ones' remaining need and its own estimate would pass
-/// <see cref="CeilingBytes"/>; one always may when none runs, so builds go on. A cold boot to 450 s reached 40 GB
+/// starts while the private bytes of the process and the compile host, the running ones' remaining need and its own
+/// estimate would pass <see cref="CeilingBytes"/>; one always may when none runs, so builds go on. Program work waits
+/// for the same ceiling (<see cref="RoomForPrograms"/>), in a boot and in the warm-up alike. A cold boot to 450 s reached 40 GB
 /// private, 8 GB of it in the arenas of the 7 compiles that started at the story load.
 /// </summary>
 internal static unsafe class CompileBudget
@@ -69,6 +70,24 @@ internal static unsafe class CompileBudget
     {
         MaxCompiles = Math.Max(1, maxCompiles);
         CeilingBytes = ceilingBytes;
+    }
+
+    /// <summary>Private bytes of helper processes that count toward the ceiling: the compile host (<see cref="CompileHost"/>).</summary>
+    public static Func<long> HelperPrivateBytes { get; set; } = static () => 0;
+
+    /// <summary>
+    /// Whether program work may start beside <paramref name="running"/> others (<see cref="ProgramWorkers"/>, the
+    /// warm-up's programs too): the loader's and its helpers' private bytes are under the ceiling, or none runs.
+    /// </summary>
+    public static bool RoomForPrograms(int running)
+    {
+        return ProgramRoom(running, PrivateBytes() + HelperPrivateBytes(), CeilingBytes);
+    }
+
+    /// <summary>The decision of <see cref="RoomForPrograms"/>.</summary>
+    public static bool ProgramRoom(int running, long privateBytes, long ceilingBytes)
+    {
+        return running == 0 || privateBytes <= ceilingBytes;
     }
 
     /// <summary>Compiles running now.</summary>
@@ -178,7 +197,7 @@ internal static unsafe class CompileBudget
                 return false;
             }
 
-            if (!tiny && !UnderCeiling(estimate, _runningLarge, privateBytes, remaining, MaxCompiles, CeilingBytes))
+            if (!tiny && !UnderCeiling(estimate, _runningLarge, privateBytes + HelperPrivateBytes(), remaining, MaxCompiles, CeilingBytes))
             {
                 return false;
             }
