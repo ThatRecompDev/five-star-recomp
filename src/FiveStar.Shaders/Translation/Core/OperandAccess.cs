@@ -46,7 +46,7 @@ internal sealed partial class OperandAccess
             return SnapOne($"{WaveOps.Ballot}(active).{Halves[LowDword]}");
         }
 
-        if (operand.Kind == OperandKind.Scalar && _state.Masks.Contains(operand.At(0)))
+        if (operand.Kind == OperandKind.Scalar && _state.Masks.Contains(operand.At(0)) && !_state.Coherent.Contains(operand.At(0)))
         {
             // A lane mask used as an integer: rebuild it with a ballot in program lane numbers. Ballots are snapped into
             // temporaries so they never run under a per-lane condition (HLSL 2021 short-circuits ?:, && and ||).
@@ -157,34 +157,12 @@ internal sealed partial class OperandAccess
         WriteVector(key, value);
     }
 
-    /// <summary>
-    /// After an integer write of an SGPR: it no longer holds a mask; a register that is a mask on another path
-    /// (<see cref="TranslationState.Coherent"/>) gets its per-lane bool from the new bits, as does the mask whose high
-    /// dword it is.
-    /// </summary>
+    /// <summary>After an integer write of an SGPR: it no longer holds a mask.</summary>
     public void WroteInteger(RegisterKey key)
     {
         _state.Masks.Remove(key);
         _state.MaskHighHalves.Remove(key);
         _state.IntegerUses.Add(key);
-
-        foreach (var mask in new[] { key, key.Plus(-1) })
-        {
-            if (!_state.Coherent.Contains(mask) || (mask != key && !_state.IsWave64))
-            {
-                continue;
-            }
-
-            var high = "0u";
-
-            if (_state.IsWave64)
-            {
-                high = Read(OperandParser.Sgpr(mask.Index + 1));
-            }
-
-            _state.MasksEver.Add(mask);
-            _state.Emit($"  {mask.MaskName} = lane_bit({mask.Name}, {high});");
-        }
     }
 
     /// <summary>Writes the low or high 16 bits of a destination, keeping the other half.</summary>
@@ -231,7 +209,9 @@ internal sealed partial class OperandAccess
 
     /// <summary>
     /// After a mask write: on wave64 the integer variable of its high dword gets the mask's high lanes, and the low
-    /// dword's variable gets its low lanes when the register is an integer on another path (<see cref="TranslationState.Coherent"/>).
+    /// dword's variable gets its low lanes when the register is an integer on another path
+    /// (<see cref="TranslationState.Coherent"/>). Such a register is then read from its integer variables in either
+    /// form (lane_bit for a mask read), so a read is right whichever path wrote it last.
     /// </summary>
     public void ShadowInteger(RegisterKey key)
     {
@@ -301,7 +281,7 @@ internal sealed partial class OperandAccess
             return "active";
         }
 
-        if (key is not null && _state.Masks.Contains(key.Value))
+        if (key is not null && _state.Masks.Contains(key.Value) && !_state.Coherent.Contains(key.Value))
         {
             return key.Value.MaskName;
         }
@@ -322,7 +302,7 @@ internal sealed partial class OperandAccess
         var low = Read(OperandParser.Sgpr(operand.Low));
         var high = "0u";
 
-        if (operand.High > operand.Low)
+        if (operand.High > operand.Low || (_state.IsWave64 && key is not null && _state.Coherent.Contains(key.Value)))
         {
             high = Read(OperandParser.Sgpr(operand.Low + 1));
         }
