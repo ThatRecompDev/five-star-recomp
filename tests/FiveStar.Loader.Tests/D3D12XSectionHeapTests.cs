@@ -1,10 +1,6 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-using System.Runtime.InteropServices;
-using FiveStar.Loader.Diagnostics;
-using FiveStar.Loader.Shims.D3D12X.Resources;
-using FiveStar.Loader.Shims.Xg;
 using FiveStar.Loader.Tests.Support;
 using Xunit;
 
@@ -22,9 +18,6 @@ public sealed unsafe class D3D12XSectionHeapTests
     private const ulong CpuFlags = 0x21;
     private const uint CpuReadWrite = 0x4;
     private const uint Marker = 0x5EC7104E;
-
-    /// <summary>Slots of the stand-in device's vtable: more than ID3D12Device's.</summary>
-    private const int DeviceSlots = 128;
 
     /// <summary>A section larger than one 1 GiB window, as the game's 6.1 GiB one is.</summary>
     private const ulong SectionPages = 20 * 1024;
@@ -69,49 +62,5 @@ public sealed unsafe class D3D12XSectionHeapTests
         device.Copy(second, upload, 0, Page);
 
         Assert.Equal(Marker, *(uint*)(range + 0x10010000));
-    }
-
-    /// <summary>
-    /// The 4b52fcd exit (0xE0434352): with the system-memory budget used up, the texture uploader's first desktop call
-    /// failed and its exception left the slot-70 shim for the game's frames. A device whose every call answers
-    /// E_OUTOFMEMORY stands in for that GPU.
-    /// </summary>
-    [Fact]
-    public void A_texture_upload_on_a_gpu_out_of_memory_fails_without_throwing()
-    {
-        nint* vtable = stackalloc nint[DeviceSlots];
-        delegate* unmanaged<nint, int> outOfMemory = &OutOfMemory;
-        delegate* unmanaged<nint, uint> reference = &Reference;
-
-        for (int slot = 0; slot < DeviceSlots; slot++)
-        {
-            vtable[slot] = (nint)outOfMemory;
-        }
-
-        vtable[1] = (nint)reference;
-        vtable[2] = (nint)reference;
-        nint device = (nint)(&vtable);
-
-        var desc = new XgResourceDesc { Dimension = 3, Width = 256, Height = 1, DepthOrArraySize = 1, MipLevels = 1, Format = 28, SampleCount = 1 };
-        XgLayoutBuilder.Build(desc, out var layout);
-        var texture = new GpuTexture(0, default, 0, 28, 0, false, layout);
-        var uploader = new GpuTextureUploader(new LoaderLog(TextWriter.Null, null, false));
-
-        Assert.False(uploader.Upload(device, texture, null));
-        Assert.False(uploader.Upload(device, texture, null));
-        Assert.Equal(2, uploader.Failures);
-        uploader.Dispose();
-    }
-
-    [UnmanagedCallersOnly]
-    private static int OutOfMemory(nint self)
-    {
-        return unchecked((int)0x8007000E);
-    }
-
-    [UnmanagedCallersOnly]
-    private static uint Reference(nint self)
-    {
-        return 1;
     }
 }

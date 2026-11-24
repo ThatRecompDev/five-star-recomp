@@ -3,9 +3,7 @@
 
 using System.Runtime.InteropServices;
 using FiveStar.Graphics.Rendering;
-using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Shims.Xg;
-using SharpGen.Runtime;
 using Vortice.Direct3D12;
 
 namespace FiveStar.Loader.Shims.D3D12X.Resources;
@@ -28,41 +26,46 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
     private readonly PlacedSubresourceFootPrint[] _footprints = new PlacedSubresourceFootPrint[MaxSubresources];
     private readonly uint[] _rows = new uint[MaxSubresources];
     private readonly ulong[] _rowSizes = new ulong[MaxSubresources];
-    private readonly LoaderLog _log;
     private ID3D12Device? _device;
     private CommandContext? _context;
     private ID3D12Resource? _staging;
     private byte* _stagingData;
     private ulong _stagingSize;
-    private long _failures;
 
-    public GpuTextureUploader(LoaderLog log)
-    {
-        _log = log;
-    }
-
-    /// <summary>Uploads that failed on a desktop call (the device out of memory or removed).</summary>
-    public long Failures => Interlocked.Read(ref _failures);
-
-    /// <summary>
-    /// Copies <paramref name="source"/> (the texture's console bytes) into <paramref name="texture"/>; false when it
-    /// cannot. Never throws: it runs on the game's threads, where an exception ends the process. A failed desktop call
-    /// drops the queue and the upload buffer, so the next upload starts over.
-    /// </summary>
+    /// <summary>Copies <paramref name="source"/> (the texture's console bytes) into <paramref name="texture"/>; false when it cannot.</summary>
     public bool Upload(nint device, GpuTexture texture, byte* source)
     {
         lock (_gate)
         {
-            try
-            {
-                return TryUpload(device, texture, source);
-            }
-            catch (Exception exception) when (exception is SharpGenException or InvalidOperationException or TimeoutException)
-            {
-                Fail(exception);
+            var context = Context(device);
+            Marshal.AddRef(texture.Desktop);
+            using var resource = new ID3D12Resource(texture.Desktop);
+            var description = resource.Description;
+            int count = description.MipLevels;
 
+            if (description.Dimension != ResourceDimension.Texture3D)
+            {
+                count *= description.DepthOrArraySize;
+            }
+
+            if (count > MaxSubresources || count > texture.Layout.Planes[0].MipCount * texture.Layout.Planes[0].Slices)
+            {
                 return false;
             }
+
+            _device!.GetCopyableFootprints(description, 0, (uint)count, 0, _footprints, _rows, _rowSizes, out ulong total);
+
+            if (!Fits(texture, count))
+            {
+                return false;
+            }
+
+            EnsureStaging(total);
+            Detile(texture, source, count);
+            Record(context.List, resource, texture.State, count);
+            context.ExecuteAndWait();
+
+            return true;
         }
     }
 
@@ -73,53 +76,6 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         _device?.Dispose();
     }
 
-    private void Fail(Exception exception)
-    {
-        if (Interlocked.Increment(ref _failures) == 1)
-        {
-            _log.Warn($"[d3d12_xs] texture upload failed, textures keep their old contents: {exception.Message}");
-        }
-
-        _staging?.Dispose();
-        _staging = null;
-        _stagingSize = 0;
-        _context?.Dispose();
-        _context = null;
-    }
-
-    private bool TryUpload(nint device, GpuTexture texture, byte* source)
-    {
-        var context = Context(device);
-        Marshal.AddRef(texture.Desktop);
-        using var resource = new ID3D12Resource(texture.Desktop);
-        var description = resource.Description;
-        int count = description.MipLevels;
-
-        if (description.Dimension != ResourceDimension.Texture3D)
-        {
-            count *= description.DepthOrArraySize;
-        }
-
-        if (count > MaxSubresources || count > texture.Layout.Planes[0].MipCount * texture.Layout.Planes[0].Slices)
-        {
-            return false;
-        }
-
-        _device!.GetCopyableFootprints(description, 0, (uint)count, 0, _footprints, _rows, _rowSizes, out ulong total);
-
-        if (!Fits(texture, count))
-        {
-            return false;
-        }
-
-        EnsureStaging(total);
-        Detile(texture, source, count);
-        Record(context.List, resource, texture.State, count);
-        context.ExecuteAndWait();
-
-        return true;
-    }
-
     private CommandContext Context(nint device)
     {
         if (_context is not null)
@@ -127,12 +83,8 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
             return _context;
         }
 
-        if (_device is null)
-        {
-            Marshal.AddRef(device);
-            _device = new ID3D12Device(device);
-        }
-
+        Marshal.AddRef(device);
+        _device = new ID3D12Device(device);
         _context = new CommandContext(_device);
 
         return _context;
@@ -146,9 +98,6 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         }
 
         _staging?.Dispose();
-        _staging = null;
-        _stagingSize = 0;
-
         _staging = _device!.CreateCommittedResource(new HeapProperties(HeapType.Upload), HeapFlags.None, Vortice.Direct3D12.ResourceDescription.Buffer(size), ResourceStates.GenericRead);
         void* data;
         _staging.Map(0, null, &data).CheckError();
