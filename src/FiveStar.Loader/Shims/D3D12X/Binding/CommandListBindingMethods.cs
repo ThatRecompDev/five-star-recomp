@@ -389,9 +389,10 @@ internal static unsafe class CommandListBindingMethods
 
         ListSegments.Of(self)->Reset(ShimContext.Runtime.D3D12X.Objects.Unwrap(allocator));
         ListReplayState.Of(self)->Set = 0;
+        ListReplayState.Of(self)->VertexMask = 0;
+
         ListIndirectScratch.Of(self)->Used = 0;
         ListIndirectScratch.Of(self)->Budget = 0;
-        ListReplayState.Of(self)->VertexMask = 0;
         ListActivity.Reset(self);
         ShimContext.Runtime.D3D12X.DrawTrace?.Reset(self);
 

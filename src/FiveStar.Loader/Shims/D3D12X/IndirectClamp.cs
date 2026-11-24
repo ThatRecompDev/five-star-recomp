@@ -161,15 +161,7 @@ internal static unsafe class IndirectClamp
             return false;
         }
 
-        var state = ListIndirectScratch.Of(self);
-        bool zero = state->Budget == 0;
-
-        if (zero)
-        {
-            state->Budget = scratchOffset + 1;
-        }
-
-        ulong budget = DesktopCalls.GpuAddress(scratch) + state->Budget - 1;
+        ulong budget = BudgetAddress(self, scratch, scratchOffset, out bool zero);
         scratchOffset += Alignment;
         ulong destination = DesktopCalls.GpuAddress(scratch) + scratchOffset;
         uint counted = 0;
@@ -202,6 +194,23 @@ internal static unsafe class IndirectClamp
         Interlocked.Increment(ref _clamped);
 
         return true;
+    }
+
+    /// <summary>
+    /// The address of the recording's budget counter; a recording without one in this buffer takes the room in front of
+    /// <paramref name="piece"/> and must zero it (<paramref name="zero"/>).
+    /// </summary>
+    private static ulong BudgetAddress(XboxObject* self, nint scratch, ulong piece, out bool zero)
+    {
+        var state = ListIndirectScratch.Of(self);
+        zero = state->Budget == 0;
+
+        if (zero)
+        {
+            state->Budget = piece + 1;
+        }
+
+        return DesktopCalls.GpuAddress(scratch) + state->Budget - 1;
     }
 
     /// <summary>The list's first clamp in this buffer zeroes the budget counter, then waits for the store (UAV barrier).</summary>
