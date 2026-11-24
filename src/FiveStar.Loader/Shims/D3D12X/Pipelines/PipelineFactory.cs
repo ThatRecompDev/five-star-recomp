@@ -98,14 +98,28 @@ internal sealed unsafe class PipelineFactory
     /// </summary>
     public OnDemandPrograms? OnDemand { get; init; }
 
+    /// <summary>
+    /// Whether <see cref="PrepareGraphics"/> makes a missing linked producer on the calling thread (the warm-up) instead
+    /// of leaving it to the program workers (<see cref="ProducerLinks"/>).
+    /// </summary>
+    public bool LinkInline { get; init; }
+
     public int Graphics(GraphicsPipelineDescription description, Guid* iid, nint* result)
     {
         var deferral = Deferral(Journal?.Contains(description) ?? false, () => Journal?.Record(description));
         var lacking = Lacking(description.Shaders);
 
-        if (lacking is not null)
+        if (lacking is not null || PendingLink(description) is not null)
         {
-            var waiting = Later(lacking, () => PrepareGraphics(description), iid, result, deferral);
+            // Programs first, then the producer linked to the pixel shader when the pair needs it (ProducerLinks).
+            lacking ??= [];
+            var onDemand = OnDemand!;
+            Func<bool, Task> work = urgent => Task.WhenAll(lacking.Select(names => onDemand.Request(names, urgent)))
+                .ContinueWith(_ => PendingLink(description)?.Invoke(urgent) ?? Task.CompletedTask, TaskScheduler.Default).Unwrap();
+
+            var wanted = *iid;
+            var what = string.Join(" + ", lacking.Select(names => names[0]).DefaultIfEmpty("a linked producer"));
+            var waiting = StandIns.Waiting(work, () => Prepared(PrepareGraphics(description), wanted), result, deferral, what);
 
             return Remember(description, waiting, result, "programs made on demand");
         }
@@ -173,6 +187,11 @@ internal sealed unsafe class PipelineFactory
             }
 
             programs.Add(program);
+        }
+
+        if (OnDemand is not null)
+        {
+            programs = OnDemand.Links.Apply(programs, LinkInline);
         }
 
         var desktop = description;
@@ -336,6 +355,43 @@ internal sealed unsafe class PipelineFactory
         }
 
         return lacking;
+    }
+
+    /// <summary>
+    /// The work that makes the linked producer of a description whose programs are all loadable, when the pair needs one
+    /// that is not made yet; else null.
+    /// </summary>
+    private Func<bool, Task>? PendingLink(GraphicsPipelineDescription description)
+    {
+        if (OnDemand is null)
+        {
+            return null;
+        }
+
+        var programs = new List<TranslatedProgram>();
+
+        foreach (var source in description.Shaders)
+        {
+            TranslatedProgram? program;
+
+            try
+            {
+                program = _programs.Find(ProgramKeys.Prefix(source));
+            }
+            catch (InvalidDataException)
+            {
+                return null;
+            }
+
+            if (program is null)
+            {
+                return null;
+            }
+
+            programs.Add(program);
+        }
+
+        return OnDemand.Links.Pending(programs);
     }
 
     /// <summary>

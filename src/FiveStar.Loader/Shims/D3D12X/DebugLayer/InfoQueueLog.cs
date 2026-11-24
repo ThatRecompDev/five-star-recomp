@@ -21,6 +21,7 @@ internal sealed unsafe class InfoQueueLog
     private const int GetNumStoredMessagesSlot = 8;
     private const int AddStorageFilterEntriesSlot = 12;
     private const int RegisterMessageCallbackSlot = 38;
+    private const int UnregisterMessageCallbackSlot = 39;
 
     /// <summary>D3D12_MESSAGE_CALLBACK_FLAG_NONE: the storage filter applies to the callback too.</summary>
     private const int CallbackFlags = 0;
@@ -55,6 +56,8 @@ internal sealed unsafe class InfoQueueLog
     private readonly LoaderLog _log;
     private nint _queue;
     private bool _callback;
+    private GCHandle _self;
+    private uint _cookie;
 
     public InfoQueueLog(ImageTable images, LoaderLog log)
     {
@@ -77,10 +80,14 @@ internal sealed unsafe class InfoQueueLog
         if (HResult.Ok == QueryInterface(device, &iid1, &queue1))
         {
             delegate* unmanaged<int, int, int, byte*, void*, void> callback = &OnMessage;
-            uint cookie = 0;
+            uint cookie;
             var register = (delegate* unmanaged<nint, nint, int, void*, uint*, int>)ComObject.Slot(queue1, RegisterMessageCallbackSlot);
-            int hr = register(queue1, (nint)callback, CallbackFlags, null, &cookie);
 
+            // The context is this log (kept alive by the handle), so the warm-up, which has no runtime, logs too.
+            _self = GCHandle.Alloc(this);
+            int hr = register(queue1, (nint)callback, CallbackFlags, (void*)GCHandle.ToIntPtr(_self), &cookie);
+
+            _cookie = cookie;
             _callback = !HResult.Failed(hr);
             _queue = queue1;
             _log.Info($"  [d3d12-debug] info-queue messages through RegisterMessageCallback -> {HResult.Format(hr)}");
@@ -96,6 +103,18 @@ internal sealed unsafe class InfoQueueLog
         int found = QueryInterface(device, &iid, &queue);
         _queue = queue;
         _log.Info($"  [d3d12-debug] no message callback: stored messages drained after failures (ID3D12InfoQueue {HResult.Format(found)})");
+    }
+
+    /// <summary>Stops the callback, so the runtime does not call into a process whose runtime is shutting down.</summary>
+    public void Detach()
+    {
+        if (!_callback)
+        {
+            return;
+        }
+
+        _callback = false;
+        ((delegate* unmanaged<nint, uint, int>)ComObject.Slot(_queue, UnregisterMessageCallbackSlot))(_queue, _cookie);
     }
 
     /// <summary>Logs and clears the stored messages, when there is no callback.</summary>
@@ -147,7 +166,7 @@ internal sealed unsafe class InfoQueueLog
     private static void OnMessage(int category, int severity, int id, byte* description, void* context)
     {
         string text = description == null ? string.Empty : Marshal.PtrToStringAnsi((nint)description) ?? string.Empty;
-        ShimContext.Runtime.D3D12X.Debugging.Messages.Write(severity, id, text);
+        ((InfoQueueLog)GCHandle.FromIntPtr((nint)context).Target!).Write(severity, id, text);
     }
 
     /// <summary>Keeps the messages that describe intended behaviour out of storage, and so out of the callback.</summary>

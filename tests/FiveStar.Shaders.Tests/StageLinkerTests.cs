@@ -66,6 +66,51 @@ public sealed class StageLinkerTests
         Assert.Equal(Expected, result.Pixel(0, Size / 2, Size / 2).Select(BitConverter.UInt32BitsToSingle));
     }
 
+    [Fact]
+    public void A_pixel_input_the_producer_lacks_or_moves_needs_a_link()
+    {
+        PsvElement[] inputs = [Element("TEXCOORD", 0, row: 0), Element("ATTRLO", 3, row: 1)];
+        PsvElement[] outputs = [Element("TEXCOORD", 0, row: 0), Element("COLOR", 0, row: 1)];
+
+        Assert.False(StageLinker.Links(outputs, inputs));
+        Assert.True(StageLinker.Links([.. outputs, Element("ATTRLO", 3, row: 1)], inputs));
+        Assert.False(StageLinker.Links([Element("TEXCOORD", 0, row: 2), Element("ATTRLO", 3, row: 1)], inputs));
+    }
+
+    [Fact]
+    public void Trimming_keeps_only_the_inputs_the_pixel_shader_reads()
+    {
+        const string pixel = """
+            struct PSIn {
+              float4 a0_xyzw : TEXCOORD0;
+              float3 unused1_xyz : TEXCOORD1;
+              float4 attrlo0 : ATTRLO0;
+              float4 attrhi0 : ATTRHI0;
+              float4 attrlo1 : ATTRLO1;
+              bool front : SV_IsFrontFace;
+            };
+            float4 main(PSIn pin) : SV_Target0 {
+              float4 attr0 = pin.a0_xyzw;
+              float4 attrlo1 = pin.attrlo1;
+              return attr0 + attrlo1;
+            }
+            """;
+
+        var trimmed = StageLinker.TrimInputs(pixel);
+
+        Assert.Contains("a0_xyzw : TEXCOORD0", trimmed, StringComparison.Ordinal);
+        Assert.Contains("attrlo1 : ATTRLO1", trimmed, StringComparison.Ordinal);
+        Assert.Contains("front : SV_IsFrontFace", trimmed, StringComparison.Ordinal);
+        Assert.DoesNotContain("unused1_xyz", trimmed, StringComparison.Ordinal);
+        Assert.DoesNotContain("ATTRLO0", trimmed, StringComparison.Ordinal);
+        Assert.DoesNotContain("ATTRHI0", trimmed, StringComparison.Ordinal);
+    }
+
+    private static PsvElement Element(string name, int index, int row)
+    {
+        return new PsvElement(name, index, 1, row, 4, 0, true, PsvSemanticKind.Arbitrary, 3, 2);
+    }
+
     private static GraphicsJob Job(byte[] vertex, byte[] pixel)
     {
         return new GraphicsJob(vertex, pixel, Framebuffer.Fullscreen(1, Size, Size, isFloat: false), new Bindings());
