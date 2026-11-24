@@ -110,7 +110,7 @@ written, collections mark a large live graph, and server GC marks it on every co
 
 | | dxc -O3 | backend |
 |---|---|---|
-| All 2,689 compute programs | | all compile and pass dxil.dll validation |
+| All 2,689 compute programs | | all compile and pass dxil.dll validation (22 needed gathers with computed offsets to drop the advanced-texture-ops flag) |
 | All 12,067 pixel, 2,192 vertex, 8,765 mesh, 195 geometry programs | | all lower; all pass validation but 46 mesh programs whose outputs exceed 32 KB, which dxc refuses as well |
 | Compile time, every graphics program (4 jobs), median / p90 | | ps 30 / 231 ms, vs 9 / 68 ms, ms 66 / 313 ms, gs 6 / 21 ms; 2,513 s in all (6,378 s before server GC and the allocation work) |
 | Signatures against dxc, every 60th graphics program (384) | | equal in every register and element; in 2 an input dxc's optimizer stops reading is still read |
@@ -120,6 +120,8 @@ written, collections mark a large live graph, and server GC marks it on every co
 | DXIL bytes, the same sample | 12.8 MB | 17.9 MB |
 | DXIL bytes, 54 compute programs | | 26.1 MB (34.8 MB with unabbreviated records) |
 | RTX 4090 pipeline creation, 58 graphics programs (30 ps, 4 vs, 24 ms) | | all accepted |
+| Loader, cold boot to 90 s, programs made on demand (compile host) | 129 made, 1,440 queued, 231k draws skipped | 385 made, 650 queued, 1,423 draws skipped |
+| Loader, GC pauses in the logged slow frames of a cold boot | 1.5 s | 81 s in the loader process, 0.9 s with the compile host |
 | Outputs on WARP against dxc -O3, real pixel programs | | 19 of 24 equal in every word; 1 differs between runs of the same form, 2 too large for the harness, 2 still in WARP's compiler after 30 minutes |
 | Outputs on WARP against dxc -O3, real vertex programs (compute harness) | | 20 of 24 equal in every word, 3 equal to dxc -Gis (dxc's fast-math), 1 skipped |
 
