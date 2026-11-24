@@ -165,13 +165,18 @@ internal sealed unsafe class GpuTextures : IDisposable
         _log.Detail($"  [d3d12_xs] texture at 0x{address:x} mapped by the CPU: checked for new bytes every frame ({_watched.Length} such)");
     }
 
-    /// <summary>Refreshes the watched textures still registered, once per <paramref name="frame"/> (the present count).</summary>
+    /// <summary>
+    /// Once per <paramref name="frame"/> (the present count): releases retired textures past their grace period and
+    /// refreshes the watched textures still registered.
+    /// </summary>
     public void RefreshWatched(nint device, long frame)
     {
         if (Volatile.Read(ref _checkedFrame) == frame || Interlocked.Exchange(ref _checkedFrame, frame) == frame)
         {
             return;
         }
+
+        Registry.Advance(frame);
 
         foreach (var texture in Volatile.Read(ref _watched))
         {

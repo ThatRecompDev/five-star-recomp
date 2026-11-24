@@ -279,6 +279,13 @@ SGPR count. The vertex and pixel shader of a pipeline therefore read the same pa
 of graphics stages never hold a root parameter (vertex shaders: s[0:1] vertex-buffer table, s2 base vertex, s[4:5]
 fetch-shader address; mesh shaders: system values).
 
+Leonida's notes (GitHub issue #11) say the console compiler puts compute root parameters inline from s4 while each
+fits whole, and the first that does not, with every later one, in a packed array behind a 40-bit pointer at s[0:1].
+None of the game's 2,689 compute programs reads s0 to s3 before writing them, and their user SGPR counts run from 4
+to 14 (12 in 1,029), so no program uses such an array and the shim provides none. Graphics stages reach 20 user
+SGPRs (vertex and pixel), 17 (mesh) and 17 (geometry), below the 32 they have; whether they have a like rule is
+unknown. `RootLayouts` counts the root signatures whose parameters would not fit (logged at exit).
+
 A table entry's offset is in dwords. In the FSSM programs, of 235,182 entries whose table SGPR is the base of an SMEM
 load, offset × 4 is the immediate of such a load for 190,094, the offset itself for 21,605; over all SMEM loads,
 offset × 4 matches for 355,947 of 364,024 entries (cache code: 344,063). Pipeline 0 of the reference dump

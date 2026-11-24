@@ -117,6 +117,7 @@ public sealed unsafe class D3D12XBindingTests
         Assert.Equal(4, layout.Count);
         Assert.Equal(new byte[] { 0, 1, 4, 6 }, new[] { layout.Offsets[0], layout.Offsets[1], layout.Offsets[2], layout.Offsets[3] });
         Assert.Equal(new byte[] { 1, 3, 2, 1 }, new[] { layout.Sizes[0], layout.Sizes[1], layout.Sizes[2], layout.Sizes[3] });
+        Assert.Equal(7, layout.Sgprs());
     }
 
     [Fact]
