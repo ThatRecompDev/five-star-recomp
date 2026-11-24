@@ -13,6 +13,9 @@ fivestar shader dxil <hlsl file or folder> [--out <dir>] [--validate] [--compare
                      [--jobs N] [--step K] [--limit N] [--repeat N] [--phases] [--ir <file>]
 ```
 
+The loader compiles the programs it makes on demand with the backend by default, validated by dxil.dll, with dxc for
+the rest ([programs on demand](d3d12x-pipelines.md#programs-on-demand)); `--backend dxil` validates the same way.
+
 `dxil` compiles already translated HLSL (the stage is read from the entry point), checks each container with dxil.dll's
 validator (`--validate`), and writes `<out>/dxil-backend.tsv` (name, characters, milliseconds, bytes, status, reason).
 `--compare` also compiles each program with dxc and checks that the signatures are dxc's: ISG1, OSG1 and PSG1 byte for
