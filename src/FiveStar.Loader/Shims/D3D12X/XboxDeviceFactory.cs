@@ -67,6 +67,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         memory.ObservePages(StalePages.Changed);
 
         Uploads = new UploadArena(Objects, PlacedResources.Addresses, log);
+        ConstantCopies = new ConstantCopies(Objects, PlacedResources.Addresses, MemorySource, log);
         AddressBuffers = new AddressBufferViews(GameMemory);
         AddressViews = new AddressShaderViews(Textures, AddressBuffers, Warnings, log);
         MemoryViews = new GameMemoryViews(Warnings, log);
@@ -137,6 +138,9 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
 
     /// <summary>The memory of list slot 148.</summary>
     public UploadArena Uploads { get; }
+
+    /// <summary>Copies the constant-buffer views over game memory no buffer covers read, refreshed at every submission.</summary>
+    public ConstantCopies ConstantCopies { get; }
 
     /// <summary>Queue slot 32 on a swap chain on the game's window.</summary>
     public Presenter Presenter { get; }

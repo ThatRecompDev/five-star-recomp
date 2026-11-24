@@ -59,6 +59,13 @@ metadata operands, the mesh state property, and declaring every output dependent
 instead of tracing dependencies. Register packing, the order of signature rows and names, and the remaining layouts
 were checked against dxc's containers (`fivestar shader dxil --compare`); the code is our own.
 
+## victory-gta6
+
+A fork of VIctory by fxceless, GPL-3.0-or-later (revision `7b0f736`). Its rule that shaders read title memory
+through copies refreshed when each submission is sent (`crates/victory-gpu/src/shadow.rs`, `descriptor/host.rs`) is the
+mechanism of `ConstantCopies`: constant-buffer views over the game's remappable XMem pages read a copy refreshed at
+every ExecuteCommandLists. The design and code are our own; no code was copied.
+
 ## XCL
 
 https://github.com/xcl-dev/xcl, GPL-2.0-only. Because that licence does not combine with ours, only facts from its
