@@ -106,6 +106,32 @@ public sealed class StageLinkerTests
         Assert.DoesNotContain("ATTRHI0", trimmed, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Outputs_the_pixel_shader_does_not_read_can_leave_the_out_struct()
+    {
+        const string producer = """
+            struct Out {
+              float4 p0_xyzw : TEXCOORD0;
+              float4 p1_xyzw : TEXCOORD1;
+              float4 pos0 : SV_Position;
+            };
+            Out main() {
+              Out o;
+              o.p0_xyzw = 1;
+              o.p1_xyzw = 2;
+              o.pos0 = 0;
+              return o;
+            }
+            """;
+
+        var linked = StageLinker.Link(producer, [Element("TEXCOORD", 0, row: 0)], dropUnread: true);
+
+        Assert.DoesNotContain("p1_xyzw : TEXCOORD1", linked, StringComparison.Ordinal);
+        Assert.Contains("static float4 unread_p1_xyzw;", linked, StringComparison.Ordinal);
+        Assert.Contains("unread_p1_xyzw = 2;", linked, StringComparison.Ordinal);
+        Assert.Contains("pos0 : SV_Position", linked, StringComparison.Ordinal);
+    }
+
     private static PsvElement Element(string name, int index, int row)
     {
         return new PsvElement(name, index, 1, row, 4, 0, true, PsvSemanticKind.Arbitrary, 3, 2);
