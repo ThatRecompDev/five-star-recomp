@@ -115,7 +115,9 @@ DXIL never wait, so a small compute pipeline made on the game's thread is not he
 pipeline a command list has set, or one made on a game thread) waits, no other starts, and only half the build threads
 take creations no command list waits for. Two ceilings bound the loader itself: at most `--max-driver-compiles`
 (4) compiles of 256 KB of DXIL or more at once, and none starts while private bytes, the running ones' remaining
-estimates and its own would pass `--compile-ceiling` (28 GB); one always may when none runs. A cold boot to 450 s
+estimates and its own would pass `--compile-ceiling` (28 GB); one always may when none runs. Private bytes count the
+compile host's, and program work waits for the same ceiling, so `--warm-pipelines` runs bounded too (a 4-job warm-up
+took free memory from 43 to 7 GB in 2 minutes). A cold boot to 450 s
 reached 40 GB private, 8 GB of it from the 7 compiles that started at the story load. At a warm boot the journal's creations held the budget (build threads
 waited 137 s in it in all) while the game's first uses queued behind them. The sample summary names the
 driver compiles running (pipeline, MB of DXIL, age) and counts those waiting. A pipeline with 4 MiB of DXIL or more goes to a thread of its own
