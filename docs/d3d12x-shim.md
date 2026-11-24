@@ -733,6 +733,9 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   previous one, counted by pipeline and first render target, recorded or skipped (a stand-in's work); for a dispatch
   the target is the list's last one. The game executes some closed lists again, so a probe's buffer is released only once its list was reset
   (releasing it at the report removed the device, debug-layer error #921).
+- `--d3d12-trace-pipeline <text>` (implies the draw trace) also logs, in the frame after each captured present, up to
+  64 draws whose pipeline name holds the text, without probes: a frame's UI draws (`sgd2_` Scaleform programs such as
+  `FVertexCxform`) come long after its first 32.
 - `--capture-presents 60,300` reads the presented plane back at those present numbers once the presenting queue is
   idle and logs the same summary; `--capture-dir <dir>` also writes `present-N.png` there. Only the plane is read,
   never the window or the desktop.

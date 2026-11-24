@@ -76,6 +76,8 @@ internal static class HostUsage
                                  stack while the heartbeat its hang watchdog checks stands still
           --d3d12-trace-draws    log what the first draws bind (pipeline, targets, vertex buffers, tables) and read
                                  their render targets back
+          --d3d12-trace-pipeline <text>  with the draw trace, also log the draws of pipelines named with <text> in
+                                 the frame after each captured present
           --capture-dir <dir>    write read-back planes and render targets there as PNG
           --capture-presents <n,...> present numbers whose plane is read back (default 60,300,900,1500)
           --present-test         present moving color bars instead of the game's frame (checks the swap chain)

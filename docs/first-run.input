@@ -8,10 +8,16 @@
 # know yet: press F8 when that screen shows, and the loader learns it and goes on. Presses are held 0.3 s: while
 # pipelines compile the game can miss 0.2 s presses, and from about 0.5 s a held arrow repeats.
 #
-# Black "press a button" screen, logos, intro art and the option screens (minimap, text size, the Off option,
-# brightness, controls notice): a Space tap every 1.5 s until the legal screen shows. A tap does nothing on the legal
-# screen while its Copyright item has the focus.
+# Black "press a button" screen, logos, intro art and the first option screens (minimap, text size): a Space tap
+# every 1.5 s until the subtitles screen shows.
 0 Space hold 0.3 repeat 800 every 1.5
+
+# Subtitles, Off by default: Right turns them on. Then the remaining option screens (brightness, controls notice): a
+# Space tap every 1.5 s until the legal screen shows. A tap does nothing on the legal screen while its Copyright item
+# has the focus.
+screen subtitles
+1 Right hold 0.3
++1 Space hold 0.3 repeat 800 every 1.5
 
 # Legal notices, focus on Copyright: Down to the photosensitivity warning, which keeps the focus for 4 s, then
 # Down every 1.5 s until Next has the focus.

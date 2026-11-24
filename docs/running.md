@@ -87,18 +87,18 @@ flowchart LR
 ## First run in the game
 
 With an empty save folder the game shows a black screen that waits for a press (with a warm pipeline cache 45 to
-220 s after start), the logos and the intro art, then: a minimap choice, a text-size choice, a third option screen
-(default Off), brightness calibration, a controls notice, the legal and photosensitivity screens, and a privacy
-policy and terms of service screen, before it loads story mode (a spinner on dark blue). Keys of the
+220 s after start), the logos and the intro art, then: a minimap choice, a text-size choice, subtitles
+(Off by default, Left and Right change it), brightness calibration, a controls notice, the legal and photosensitivity
+screens, and a privacy policy and terms of service screen, before it loads story mode (a spinner on dark blue). Keys of the
 keyboard-and-mouse gamepad: A (Space) confirms, a short press too; arrows move the focus. The photosensitivity item
 keeps the focus for 4 s. The two terms items are check boxes that A toggles (scrolling their text with the right
 stick, the mouse, is not required); with both checked Confirm is enabled. The first press after Next gets the focus on the legal screen can be dropped. While pipelines compile the game can miss a
 0.2 s press, and an arrow held 0.5 s or longer repeats. With the input script followed while
 running ([loader.md](loader.md#running-the-executable)) these can be answered from a second shell;
-`-- --input-script docs/first-run.input` answers them unattended: it taps Space until the legal screen shows, then
-waits for each screen it needs rather than for a time. It recognises screens it learned from your own frames
-(`%LOCALAPPDATA%\FiveStar\screens.txt`); the first time, press F8 when the legal screen, the terms screen and the story
-load show (and the legal screen once Next has the focus), and later runs need no help. Only the first run shows these
+`-- --input-script docs/first-run.input` answers them unattended: it taps Space until the subtitles screen shows, turns
+subtitles on, taps Space until the legal screen shows, then waits for each screen it needs rather than for a time. It
+recognises screens it learned from your own frames (`%LOCALAPPDATA%\FiveStar\screens.txt`); the first time, press F8
+when the subtitles screen, the legal screen, the terms screen and the story load show (and the legal screen once Next has the focus), and later runs need no help. Only the first run shows these
 screens (below). B
 (C) goes back to the previous screen. The screens' text, headings and logos render in full; the brightness-calibration
 symbol is still missing (every pixel right of the panel is 0 at level 15). It is not the frame's first draw: that is

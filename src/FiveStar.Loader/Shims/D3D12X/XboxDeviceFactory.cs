@@ -377,14 +377,14 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
     }
 
     /// <summary>Reads back the presents <paramref name="capture"/> names; with <paramref name="traceDraws"/> also traces draws.</summary>
-    public void EnableCapture(FrameCapture capture, bool traceDraws)
+    public void EnableCapture(FrameCapture capture, bool traceDraws, string? tracedPipelines = null)
     {
         Capture = capture;
         Presenter.Capture = capture;
 
         if (traceDraws)
         {
-            DrawTrace = new DrawTrace(capture, MemorySource, this, _log);
+            DrawTrace = new DrawTrace(capture, MemorySource, this, _log) { PipelineFilter = tracedPipelines };
             Presenter.Trace = DrawTrace;
         }
     }
