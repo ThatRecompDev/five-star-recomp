@@ -233,7 +233,7 @@ internal static unsafe class CommandListBindingMethods
     [UnmanagedCallersOnly]
     public static void Dispatch(XboxObject* self, uint x, uint y, uint z)
     {
-        if (ComputeChainBroken(self))
+        if (ComputeChainBroken(self, producer: true))
         {
             return;
         }
@@ -250,8 +250,18 @@ internal static unsafe class CommandListBindingMethods
     [UnmanagedCallersOnly]
     public static void ExecuteIndirect(XboxObject* self, nint signature, uint maxCount, nint arguments, ulong argumentOffset, nint count, ulong countOffset)
     {
-        if (ComputeChainBroken(self))
+        bool consumer = EmptyIndirectAfterSkip && CommandListBindings.Of(self)->ProducerSkipped != 0;
+
+        if (ComputeChainBroken(self, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind))
         {
+            return;
+        }
+
+        // Its arguments, counts and offsets may come from the skipped pass: stale, so it runs nothing.
+        if (consumer)
+        {
+            ShimContext.Runtime.D3D12X.Pipelines?.StandIns.SkippedAfterChain();
+
             return;
         }
 
@@ -351,13 +361,21 @@ internal static unsafe class CommandListBindingMethods
     public static bool SkipComputeChains { get; set; }
 
     /// <summary>
+    /// With <c>--empty-indirect-after-skip</c>: once a compute dispatch of a recording is skipped for a stand-in, the
+    /// recording's later ExecuteIndirects run nothing (off by default). Unlike <see cref="SkipComputeChains"/> direct
+    /// dispatches and draws still run: only work whose size comes from GPU-written arguments, which the skipped pass
+    /// may have been meant to write (culling, argument building), is dropped.
+    /// </summary>
+    public static bool EmptyIndirectAfterSkip { get; set; }
+
+    /// <summary>
     /// Whether a dispatch or ExecuteIndirect is skipped: its pipeline is a stand-in, or, with
     /// <see cref="SkipComputeChains"/>, an earlier one of the recording was. The game's compute chains (culling, argument building) prepare counters and arguments for the passes after
     /// them, and the whole 174 MB transient pool is one raw UAV, so a pass that runs after a skipped initialiser can
     /// write records anywhere in it; skipping the rest of the chain for a frame is harmless.
     /// </summary>
     [HotPath]
-    private static bool ComputeChainBroken(XboxObject* self)
+    private static bool ComputeChainBroken(XboxObject* self, bool producer)
     {
         var bindings = CommandListBindings.Of(self);
 
@@ -376,6 +394,11 @@ internal static unsafe class CommandListBindingMethods
         if (SkipComputeChains)
         {
             bindings->ComputeSkipped = 1;
+        }
+
+        if (producer)
+        {
+            bindings->ProducerSkipped = 1;
         }
 
         return true;

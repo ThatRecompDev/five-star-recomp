@@ -330,6 +330,7 @@ internal sealed class LoaderHost
 
         GpuBreadcrumbs.Enable(_options.D3D12Breadcrumbs);
         Shims.D3D12X.Binding.CommandListBindingMethods.SkipComputeChains = _options.SkipComputeChains;
+        Shims.D3D12X.Binding.CommandListBindingMethods.EmptyIndirectAfterSkip = _options.EmptyIndirectAfterSkip;
         Shims.D3D12X.RetireWaits.Enable(_options.RetireWaitsAllQueues, _log);
         Shims.D3D12X.ListSplits.Enabled = _options.SplitAtWaits;
 

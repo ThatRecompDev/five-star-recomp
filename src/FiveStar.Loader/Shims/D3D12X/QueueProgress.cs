@@ -24,8 +24,11 @@ internal static unsafe class QueueProgress
     /// <summary>Queues followed; the game makes a handful.</summary>
     private const int MaxQueues = 32;
 
-    /// <summary>Calls kept per queue.</summary>
-    private const int History = 64;
+    /// <summary>
+    /// Calls kept per queue: enough that the oldest unfinished execution is still there in a hang (the graphics queue
+    /// had 60 executions and their Signals in flight when the w3 boot lost the device, past the 64 kept before).
+    /// </summary>
+    private const int History = 1024;
 
     /// <summary>Calls printed per queue in a report.</summary>
     private const int Printed = 16;
@@ -244,18 +247,15 @@ internal static unsafe class QueueProgress
         long next = Volatile.Read(ref queue.Next);
         long first = Math.Max(0, next - History);
         long start = Math.Max(first, next - Printed);
+        long oldest = OldestUnfinished(queue, first, next);
 
-        // Show from the first call after the last finished execution when it is further back than the default window.
-        for (long i = next - 1; i >= first; i--)
+        // The oldest unfinished execution is the one the queue waits on: named even when it is before the window.
+        if (oldest >= 0 && oldest < start)
         {
-            var entry = queue.Events[i % History];
-
-            if (entry.Kind == QueueEventKind.Execute && entry.Value <= queue.Seen)
-            {
-                start = Math.Min(start, i);
-
-                break;
-            }
+            var entry = queue.Events[oldest % History];
+            text.Append("\n      oldest unfinished: ").Append(Format(entry, queue.Seen, now));
+            GpuBreadcrumbs.Describe(text, Volatile.Read(ref wrapper->Fence), entry.Value, PipelineName);
+            text.Append(CultureInfo.InvariantCulture, $"\n      ({start - oldest - 1} calls after it not shown)");
         }
 
         for (long i = start; i < next; i++)
@@ -271,6 +271,31 @@ internal static unsafe class QueueProgress
         }
 
         return text.ToString();
+    }
+
+    /// <summary>The position of the first execution after the last finished one in the kept calls; -1 for none.</summary>
+    private static long OldestUnfinished(Queue queue, long first, long next)
+    {
+        long oldest = -1;
+
+        for (long i = next - 1; i >= first; i--)
+        {
+            var entry = queue.Events[i % History];
+
+            if (entry.Kind != QueueEventKind.Execute)
+            {
+                continue;
+            }
+
+            if (entry.Value <= queue.Seen)
+            {
+                break;
+            }
+
+            oldest = i;
+        }
+
+        return oldest;
     }
 
     private static string Format(QueueEvent entry, ulong seen, long now)
