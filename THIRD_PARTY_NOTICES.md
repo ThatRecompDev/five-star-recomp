@@ -62,8 +62,8 @@ were checked against dxc's containers (`fivestar shader dxil --compare`); the co
 ## victory-gta6
 
 victory-gta6 (fxceless), GPL-3.0-or-later, a fork of VIctory. Its translator changes were leads for ours
-(docs/shader-translation.md): that `image_gather4_l` must read the named mip level (four loads in gather order), and
-per-stage loop caps against runaway loops. Its `console_insn*.rs` files are GPL-2.0-only XCL code and were not used.
+(docs/shader-translation.md): that `image_gather4_l` must read the named mip level (four loads in gather order), that an
+f16 operation reads an inline float constant as its f16 value, and per-stage loop caps against runaway loops. Its `console_insn*.rs` files are GPL-2.0-only XCL code and were not used.
 Our implementation is our own.
 
 ## XCL

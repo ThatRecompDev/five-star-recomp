@@ -207,7 +207,7 @@ public static class PixelLaneCases
 
         return new PixelCase("mask_as_int_partial_exec", Program, 1, pixel =>
         {
-            var even = Enumerable.Range(0, pixel.WaveSize).Select(lane => pixel.WavePixel(lane) is { } other && other.X % 2 == 0).ToArray();
+            var even = Enumerable.Range(0, pixel.WaveSize).Select(lane => pixel.WavePixel(lane)?.X % 2 == 0).ToArray();
             var mask = (pixel.X & 1) != 0 ? CrossLane.Ballot(even).Low : 0;
 
             return [mask];
@@ -227,7 +227,7 @@ public static class PixelLaneCases
         return new PixelCase("dpp_row_shr", Program, 1, pixel =>
         {
             var lanes = Enumerable.Range(0, pixel.WaveSize).Select(pixel.WavePixel).ToArray();
-            var values = lanes.Select(other => other is { } live ? Value(live) + 1 : 0).ToArray();
+            var values = lanes.Select(other => (other?.X + (16 * other?.Y) + 1) ?? 0).Select(value => (uint)value).ToArray();
             var moved = new Dpp { RowControl = "row_shr", Shift = 1, BoundControl = true }.Move(values, old: 0);
             var source = pixel.Lane - 1;
 

@@ -103,10 +103,11 @@ internal sealed partial class OperandAccess
     public string ReadHalf(Operand operand, bool high)
     {
         var value = Read(operand);
+        var constant = OperandParser.HalfConstant(operand);
 
-        if (OperandParser.HalfConstant(operand) is { } bits)
+        if (constant is not null)
         {
-            value = Hlsl.HexUint(bits);
+            value = Hlsl.HexUint(constant.Value);
         }
 
         var half = high ? $"f16tof32({value} >> 16)" : $"f16tof32({value})";

@@ -265,6 +265,7 @@ strip. The record size `GS_VTX_DW` is derived from the LDS write offsets between
 | HLSL over 2,500,000 characters | compiled with `-Od` (dxc's optimizer needs minutes on the largest programs) |
 | Wave size | AMD lane numbers are kept. Pixel, vertex and mesh programs emulate the console wave on any hardware wave size (see Wave size). A compute program that reads other lanes by number gets `[WaveSize(32 or 64)]` (`TranslationOptions.PinWaveSize`, on in `fivestar shader translate`), so it fails to load on a GPU without that wave size instead of computing wrong results |
 | f32 → f16 | `f32tof16_rne` (round to nearest even, as AMD) |
+| f16 inline constants | an f16 operation reads an inline float constant as its f16 value in the low half (1.0 is 0x3C00; before, it read the f32 constant's low half, 0). Packed operations keep the 32-bit pattern (unverified on hardware) |
 | FMA | `mad` (the prelude's exact `fma32` exists but is slow) |
 
 **Mesh fallback contract** (register space 9, bound through a descriptor table):
