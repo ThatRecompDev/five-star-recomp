@@ -46,6 +46,9 @@ internal static class HostUsage
           --dxc <path>           dxcompiler.dll (or dxc.exe, or their folder) for programs made on first use;
                                  default: FIVESTAR_DXC, beside the loader, then the Windows SDK
           --shader-jobs <n>      threads that make programs on first use (default: a quarter of the processors)
+          --max-driver-compiles <n>  driver pipeline compiles of 256 KB of DXIL or more at once (default 4)
+          --compile-ceiling <GB> no such compile starts while private bytes and the running ones' expected arenas
+                                 would pass this (default 28); one always may when none runs
           --shader-backend <b>   dxil (default): programs made on first use compile with the DXIL backend, dxc
                                  for those it cannot lower or dxil.dll rejects; dxc: dxc for all
           --pipeline-cache <dir> disk cache of built pipelines (default: <work-dir>\pipeline-cache)

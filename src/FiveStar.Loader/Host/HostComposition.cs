@@ -46,6 +46,7 @@ internal static class HostComposition
 
     public static PipelineFolders CreatePipelineFolders(HostOptions options)
     {
+        CompileBudget.Configure(options.MaxDriverCompiles, options.CompileCeilingBytes);
         string? cache = null;
 
         if (!options.NoPipelineCache)
