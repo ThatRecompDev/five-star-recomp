@@ -14,8 +14,8 @@ the game first uses them, so no preparation step is needed, and the first-run sc
 reacts to what is on screen (story load after about 57 s); later boots read the saved settings and skip those screens
 (story load after about 39 s). The GPU hangs, the game's hang watchdog and the memory
 blow-up of the story load are fixed, and so is the GPU work that corrupted game memory (a translator bug). The story
-load now finishes and the opening cutscene starts, with its art, credit cards and sound, at under 2 frames a second for
-now (see [Roadmap](Roadmap.md)).
+load now finishes and the opening cutscene plays its art, credit cards, dialogue and sound at a steady 30 frames a
+second; its 3D world does not draw yet (see [Roadmap](Roadmap.md)).
 
 ![Progress](progress.svg)
 

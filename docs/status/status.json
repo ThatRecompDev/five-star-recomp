@@ -81,7 +81,7 @@
           "done": 0,
           "partial": 1,
           "todo": 0,
-          "note": "art, credit cards and sound; below 2 fps"
+          "note": "30 fps; art, cards, dialogue, sound; no 3D world yet"
         },
         {
           "name": "In game",
@@ -217,7 +217,7 @@
       "items": [
         {
           "name": "Story load",
-          "note": "the opening cutscene runs below 2 fps"
+          "note": "the cutscene\u0027s 3D world does not draw yet"
         },
         {
           "name": "Brightness symbol",
