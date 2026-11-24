@@ -666,13 +666,14 @@ flags), queue Signal and Wait and CPU fence signals, numbering queues and fences
 
 ### Queue progress
 
-Always on (`QueueProgress`): each queue keeps its last 64 calls, ExecuteCommandLists with the draws, dispatches and
+Always on (`QueueProgress`): each queue keeps its last 1,024 calls, ExecuteCommandLists with the draws, dispatches and
 indirect executions its lists recorded and the last pipeline set (named by its translated programs), and Signal and
 Wait (queue slot 17, a handler for this) on game fences. A watch thread reads every queue's shim fence
 ([Resubmitted lists](#boot)) four times a second. A queue whose submitted work has not advanced for 1.5 s is logged
-once per stall as `[gpu] queue #n: executions done up to v of w, no progress for t s`, with its calls since the last
-finished execution (`NOT DONE` marks the ones the GPU has not finished; a Wait shows the fence's value then) and the
-memory line of the thread sampler. A removed device sets every fence to UINT64_MAX; the watch then logs every queue
+once per stall as `[gpu] queue #n: executions done up to v of w, no progress for t s`, with the oldest unfinished
+execution (the one the queue waits on, with its breadcrumbs) when it is older than the last 16 calls, then those 16
+calls (`NOT DONE` marks the ones the GPU has not finished; a Wait shows the fence's value then) and the memory line of
+the thread sampler. With 64 calls kept, the w3 boot's hang showed only executions queued behind the stuck one. A removed device sets every fence to UINT64_MAX; the watch then logs every queue
 as last seen, without the debug layer as well.
 
 `--d3d12-breadcrumbs` (`GpuBreadcrumbs`) adds where each list of an unfinished execution stopped: before every draw,
