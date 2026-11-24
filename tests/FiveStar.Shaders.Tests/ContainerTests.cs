@@ -33,6 +33,42 @@ public sealed class ContainerTests
     }
 
     [Fact]
+    public void A_truncated_or_inconsistent_dxbc_header_is_refused()
+    {
+        var magic = Encoding.ASCII.GetBytes(DxbcContainer.Magic);
+
+        Assert.Throws<InvalidDataException>(() => DxbcContainer.Parse(magic));
+
+        var count = new byte[DxbcContainer.HeaderSize];
+
+        magic.CopyTo(count, 0);
+        BinaryPrimitives.WriteInt32LittleEndian(count.AsSpan(DxbcContainer.TotalSizeOffset), count.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(count.AsSpan(0x1C), 2);
+        Assert.Throws<InvalidDataException>(() => DxbcContainer.Parse(count));
+    }
+
+    [Fact]
+    public void A_dxbc_chunk_inside_the_header_or_with_a_negative_size_is_refused()
+    {
+        var inside = new byte[DxbcContainer.HeaderSize + 16];
+
+        Encoding.ASCII.GetBytes(DxbcContainer.Magic).CopyTo(inside, 0);
+        BinaryPrimitives.WriteInt32LittleEndian(inside.AsSpan(DxbcContainer.TotalSizeOffset), inside.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(inside.AsSpan(0x1C), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(inside.AsSpan(0x20), 0x10);
+        Assert.Throws<InvalidDataException>(() => DxbcContainer.Parse(inside));
+
+        var negative = new byte[DxbcContainer.HeaderSize + 16];
+
+        Encoding.ASCII.GetBytes(DxbcContainer.Magic).CopyTo(negative, 0);
+        BinaryPrimitives.WriteInt32LittleEndian(negative.AsSpan(DxbcContainer.TotalSizeOffset), negative.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(negative.AsSpan(0x1C), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(negative.AsSpan(0x20), DxbcContainer.HeaderSize);
+        BinaryPrimitives.WriteInt32LittleEndian(negative.AsSpan(DxbcContainer.HeaderSize + 4), -1);
+        Assert.Throws<InvalidDataException>(() => DxbcContainer.Parse(negative));
+    }
+
+    [Fact]
     public void A_mesh_runtime_info_reads_the_topology_after_the_primitive_vector_count()
     {
         var bytes = new byte[4 + 48];
