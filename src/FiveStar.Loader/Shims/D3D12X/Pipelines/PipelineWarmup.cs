@@ -62,7 +62,7 @@ internal sealed unsafe class PipelineWarmup
         var options = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, jobs) };
         var partitions = Partitioner.Create(targets, EnumerablePartitionerOptions.NoBuffering);
         using var progress = new Timer(_ => Report(targets.Count, clock), null, ProgressInterval, ProgressInterval);
-        var heavy = new Thread(BuildHeavy) { IsBackground = true, Name = "fivestar warm-up heavy" };
+        var heavy = new Thread(BuildHeavy) { IsBackground = true, Name = "fivestar warm-up heavy", Priority = ThreadPriority.BelowNormal };
         heavy.Start();
 
         Parallel.ForEach(partitions, options, (target, loop) =>

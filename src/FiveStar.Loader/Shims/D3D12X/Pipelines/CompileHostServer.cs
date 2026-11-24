@@ -7,7 +7,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 
 /// <summary>
 /// <c>fivestar-loader --compile-host [dxil.dll]</c>: compiles the loader's requests with the DXIL backend
-/// (<see cref="InProcessBackend"/>), each on a thread of its own, and answers in the order they finish. It ends when
+/// (<see cref="InProcessBackend"/>), each on a thread of its own at the asking thread's priority, and answers in the order they finish. It ends when
 /// its input ends, which is when the loader ends.
 /// </summary>
 internal static class CompileHostServer
@@ -32,11 +32,12 @@ internal static class CompileHostServer
         while (true)
         {
             int id;
+            ThreadPriority priority;
             CompileRequest request;
 
             try
             {
-                (id, request) = CompileHostProtocol.ReadRequest(input);
+                (id, priority, request) = CompileHostProtocol.ReadRequest(input);
             }
             catch (EndOfStreamException)
             {
@@ -55,6 +56,7 @@ internal static class CompileHostServer
             {
                 IsBackground = true,
                 Name = "fivestar compile host",
+                Priority = priority,
             };
             thread.Start();
         }

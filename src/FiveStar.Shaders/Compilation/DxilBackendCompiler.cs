@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Shaders.Dxil;
-using FiveStar.Shaders.Translation;
 
 namespace FiveStar.Shaders.Compilation;
 

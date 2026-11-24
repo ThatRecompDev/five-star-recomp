@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using System.Runtime;
+using System.Runtime.InteropServices;
 using FiveStar.Loader.Loading;
 using FiveStar.Loader.Native;
 
@@ -10,9 +11,11 @@ namespace FiveStar.Loader.Diagnostics;
 
 /// <summary>
 /// <c>--profile-threads</c>: with each thread sample, a burst of stack captures of every thread; the threads that are
-/// running (innermost frame outside ntdll, where waits sit) count towards the functions of the main image on their
+/// running (innermost frame not in a waiting system call) count towards the functions of the main image on their
 /// stack. The busiest functions, inclusive and innermost, show what the game does each frame while it waits for
-/// something.
+/// something. Each running sample is also placed by module: the innermost frame's module, and on game threads (a stack
+/// that reaches the main image in some round) whether the game is in its own code or inside ours (the walk ended at JIT
+/// code, which is only ever entered through the loader's shims). The busiest threads list how full they are.
 /// </summary>
 internal sealed unsafe class ThreadProfiler
 {
@@ -20,12 +23,24 @@ internal sealed unsafe class ThreadProfiler
     private const int GapMilliseconds = 2;
     private const int MaxFrames = 48;
     private const int Top = 40;
+    private const int TopThreads = 16;
+    private const int TopModules = 6;
     private const long NoGcBudget = 16L << 20;
-    private const string WaitModule = "ntdll.dll";
+    /// <summary>A system-call stub: mov r10, rcx; mov eax, n; test; jne; syscall; ret; int 2e; ret.</summary>
+    private const ulong StubBytes = 0x20;
+    private const string Managed = "managed";
+    private const double Percent = 100.0;
     private const string Prefix = "  [profile] ";
+
+    private static readonly (string Module, string[] Calls)[] WaitCalls =
+    [
+        ("ntdll.dll", ["NtWaitForSingleObject", "NtWaitForMultipleObjects", "NtWaitForAlertByThreadId", "NtDelayExecution", "NtRemoveIoCompletion", "NtRemoveIoCompletionEx", "NtWaitForWorkViaWorkerFactory", "NtSignalAndWaitForSingleObject", "NtWaitForKeyedEvent", "NtReplyWaitReceivePort", "NtAlpcSendWaitReceivePort"]),
+        ("win32u.dll", ["NtUserMsgWaitForMultipleObjectsEx", "NtUserGetMessage", "NtUserWaitMessage", "NtGdiDdDDIWaitForSynchronizationObjectFromCpu", "NtGdiDdDDIWaitForVerticalBlankEvent2"]),
+    ];
 
     private readonly ImageTable _images;
     private readonly LoaderLog _log;
+    private readonly Dictionary<string, string> _ours = new(StringComparer.Ordinal);
 
     public ThreadProfiler(ImageTable images, LoaderLog log)
     {
@@ -42,7 +57,8 @@ internal sealed unsafe class ThreadProfiler
             return;
         }
 
-        var wait = WaitRange();
+        var waits = WaitStubs();
+        var names = ModuleNames();
         var inclusive = new Dictionary<uint, int>();
         var innermost = new Dictionary<uint, int>();
         int running = 0;
@@ -51,6 +67,13 @@ internal sealed unsafe class ThreadProfiler
         uint[] threads = [.. Process.GetCurrentProcess().Threads.Cast<ProcessThread>().Select(t => (uint)t.Id).Where(id => id != self)];
         var frames = new ulong[threads.Length * MaxFrames];
         var counts = new int[threads.Length];
+        var tallies = new ThreadTally[threads.Length];
+        var clock = Stopwatch.StartNew();
+
+        for (int i = 0; i < tallies.Length; i++)
+        {
+            tallies[i] = new ThreadTally();
+        }
 
         try
         {
@@ -60,10 +83,14 @@ internal sealed unsafe class ThreadProfiler
 
                 for (int i = 0; i < threads.Length; i++)
                 {
-                    if (counts[i] > 0 && !wait.Contains(frames[i * MaxFrames]))
+                    var stack = frames.AsSpan(i * MaxFrames, counts[i]);
+                    tallies[i].Game |= Reaches(main, stack);
+
+                    if (counts[i] > 0 && !InRanges(stack[0], waits))
                     {
                         running++;
-                        Count(main, frames.AsSpan(i * MaxFrames, counts[i]), inclusive, innermost);
+                        Count(main, stack, inclusive, innermost);
+                        tallies[i].Add(Place(main, stack, modules, names));
                     }
                 }
 
@@ -75,9 +102,191 @@ internal sealed unsafe class ThreadProfiler
             EndNoGcRegion();
         }
 
-        _log.Info($"{Prefix}{running} running-thread samples over {Rounds} rounds of {threads.Length} threads");
+        _log.Info($"{Prefix}{running} running-thread samples over {Rounds} rounds of {threads.Length} threads in {clock.ElapsedMilliseconds} ms");
         _log.Info($"{Prefix}inclusive: {Format(inclusive)}");
         _log.Info($"{Prefix}innermost: {Format(innermost)}");
+        LogPlaces(threads, tallies);
+    }
+
+    /// <summary>
+    /// Totals by place over all threads and over game threads, then the busiest threads with how many rounds found
+    /// them running and their places.
+    /// </summary>
+    private void LogPlaces(uint[] threads, ThreadTally[] tallies)
+    {
+        var all = new Dictionary<string, int>(StringComparer.Ordinal);
+        var game = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var tally in tallies)
+        {
+            foreach (var (place, count) in tally.Places)
+            {
+                all[place] = all.GetValueOrDefault(place) + count;
+
+                if (tally.Game)
+                {
+                    game[place] = game.GetValueOrDefault(place) + count;
+                }
+            }
+        }
+
+        _log.Info($"{Prefix}all threads by place: {Shares(all, Top)}");
+        _log.Info($"{Prefix}game threads by place: {Shares(game, Top)}");
+
+        foreach (int i in Enumerable.Range(0, threads.Length).OrderByDescending(i => tallies[i].Running).Take(TopThreads))
+        {
+            var tally = tallies[i];
+
+            if (tally.Running == 0)
+            {
+                break;
+            }
+
+            string name = ThreadStacks.Name(threads[i]);
+            string kind = Kind(tally.Game, name);
+            _log.Info($"{Prefix}thread {threads[i]} ({kind}) running {Percent * tally.Running / Rounds:F0} % of rounds: {Shares(tally.Places, TopModules)}");
+        }
+    }
+
+    /// <summary>
+    /// Where a running stack is: "game" in the main image; "ours: managed" in JIT or loader code; "ours: m" in module m
+    /// called from the loader's code; otherwise the innermost module (called by the game or the OS).
+    /// </summary>
+    private string Place(LoadedImage main, ReadOnlySpan<ulong> stack, CodeRange[] modules, (CodeRange Range, string Name)[] names)
+    {
+        string inner = NameOf(stack[0], names);
+
+        if (main.Contains((nint)stack[0]))
+        {
+            return "game";
+        }
+
+        if (inner == Managed)
+        {
+            return Ours(Managed);
+        }
+
+        foreach (ulong pc in stack)
+        {
+            if (!InRanges(pc, modules) || NameOf(pc, names) == Managed)
+            {
+                return Ours(inner);
+            }
+
+            if (main.Contains((nint)pc))
+            {
+                break;
+            }
+        }
+
+        return inner;
+    }
+
+    /// <summary>"ours: m", made once per module: the burst allocates as little as it can inside its no-GC region.</summary>
+    private string Ours(string module)
+    {
+        if (!_ours.TryGetValue(module, out var place))
+        {
+            place = $"ours: {module}";
+            _ours[module] = place;
+        }
+
+        return place;
+    }
+
+    private static string Kind(bool game, string name)
+    {
+        if (game)
+        {
+            return "game";
+        }
+
+        if (name.Length == 0)
+        {
+            return "other";
+        }
+
+        return $"\"{name}\"";
+    }
+
+    private static bool Reaches(LoadedImage main, ReadOnlySpan<ulong> stack)
+    {
+        foreach (ulong pc in stack)
+        {
+            if (main.Contains((nint)pc))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool InRanges(ulong pc, CodeRange[] ranges)
+    {
+        foreach (var range in ranges)
+        {
+            if (range.Contains(pc))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The module's file name; <see cref="Managed"/> for JIT code and the runtime's precompiled assemblies.</summary>
+    private static string NameOf(ulong pc, (CodeRange Range, string Name)[] names)
+    {
+        foreach (var (range, name) in names)
+        {
+            if (range.Contains(pc))
+            {
+                return name;
+            }
+        }
+
+        return Managed;
+    }
+
+    private (CodeRange Range, string Name)[] ModuleNames()
+    {
+        var names = _images.All.Select(i => (new CodeRange((ulong)i.Base, (ulong)i.Base + i.Size), i.Name)).ToList();
+
+        foreach (ProcessModule module in Process.GetCurrentProcess().Modules)
+        {
+            string name = module.ModuleName;
+
+            if (IsAssembly(name))
+            {
+                name = Managed;
+            }
+
+            names.Add((new CodeRange((ulong)module.BaseAddress, (ulong)module.BaseAddress + (ulong)module.ModuleMemorySize), name));
+        }
+
+        return [.. names];
+    }
+
+    /// <summary>Precompiled managed code: the loader's and the framework's assemblies.</summary>
+    private static bool IsAssembly(string module)
+    {
+        return module.StartsWith("FiveStar.", StringComparison.OrdinalIgnoreCase)
+            || module.StartsWith("System.", StringComparison.OrdinalIgnoreCase)
+            || module.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase)
+            || module.StartsWith("fivestar-", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string Shares(Dictionary<string, int> counts, int top)
+    {
+        int total = counts.Values.Sum();
+
+        if (total == 0)
+        {
+            return "none";
+        }
+
+        return string.Join(", ", counts.OrderByDescending(p => p.Value).Take(top).Select(p => $"{p.Key} {Percent * p.Value / total:F1} %"));
     }
 
     /// <summary>
@@ -89,6 +298,8 @@ internal sealed unsafe class ThreadProfiler
     {
         if (GCSettings.LatencyMode != GCLatencyMode.NoGCRegion)
         {
+            // A region whose budget ran out has left the latency mode but is still open until it is ended.
+            EndNoGcRegion();
             _ = GC.TryStartNoGCRegion(NoGcBudget);
         }
 
@@ -100,9 +311,13 @@ internal sealed unsafe class ThreadProfiler
 
     private static void EndNoGcRegion()
     {
-        if (GCSettings.LatencyMode == GCLatencyMode.NoGCRegion)
+        try
         {
             GC.EndNoGCRegion();
+        }
+        catch (InvalidOperationException)
+        {
+            // No region open, or it ended by a collection: either way none is open now.
         }
     }
 
@@ -147,21 +362,51 @@ internal sealed unsafe class ThreadProfiler
         return *(uint*)function;
     }
 
-    private static CodeRange WaitRange()
+    /// <summary>
+    /// The system-call stubs a blocked thread sits in. Any other innermost frame runs, in user mode or in the kernel
+    /// (VirtualQuery's walk, for one, is inside ntdll's ZwQueryVirtualMemory).
+    /// </summary>
+    private static CodeRange[] WaitStubs()
     {
-        foreach (ProcessModule module in Process.GetCurrentProcess().Modules)
+        var stubs = new List<CodeRange>();
+
+        foreach (var (module, calls) in WaitCalls)
         {
-            if (string.Equals(module.ModuleName, WaitModule, StringComparison.OrdinalIgnoreCase))
+            if (!NativeLibrary.TryLoad(module, out nint handle))
             {
-                return new CodeRange((ulong)module.BaseAddress, (ulong)module.BaseAddress + (ulong)module.ModuleMemorySize);
+                continue;
+            }
+
+            foreach (string call in calls)
+            {
+                if (NativeLibrary.TryGetExport(handle, call, out nint stub))
+                {
+                    stubs.Add(new CodeRange((ulong)stub, (ulong)stub + StubBytes));
+                }
             }
         }
 
-        return default;
+        return [.. stubs];
     }
 
     private static string Format(Dictionary<uint, int> counts)
     {
         return string.Join(", ", counts.OrderByDescending(p => p.Value).Take(Top).Select(p => $"0x{p.Key:x} x{p.Value}"));
+    }
+
+    /// <summary>One thread's running samples by place, and whether any of its stacks reached the main image.</summary>
+    private sealed class ThreadTally
+    {
+        public Dictionary<string, int> Places { get; } = new(StringComparer.Ordinal);
+
+        public int Running { get; private set; }
+
+        public bool Game { get; set; }
+
+        public void Add(string place)
+        {
+            Running++;
+            Places[place] = Places.GetValueOrDefault(place) + 1;
+        }
     }
 }

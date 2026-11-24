@@ -20,6 +20,9 @@ internal sealed class PipelineBuild
 
     public Func<PipelineResult> Create { get; }
 
+    /// <summary>Whether a command list waits for it (queued urgent or promoted since).</summary>
+    public bool Urgent => Volatile.Read(ref _urgent) == 1;
+
     public TaskCompletionSource<PipelineResult> Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>True for the one caller that runs the build.</summary>

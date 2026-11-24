@@ -13,7 +13,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// free physical memory and commit cover the reserves, the new estimate and what the running ones are still expected
 /// to take (their estimates less the process's private growth since compiles began). Compiles of less than
 /// <see cref="TinyShaderBytes"/> of DXIL are counted but never wait, so a small compute pipeline made on the game's
-/// thread is not held up.
+/// thread is not held up; while an urgent compile waits (<see cref="Urgent"/>), no other starts.
 /// </summary>
 internal static unsafe class CompileBudget
 {
@@ -32,6 +32,20 @@ internal static unsafe class CompileBudget
     private static long _expected;
     private static long _baseline;
     private static int _waiting;
+    private static int _urgentWaiting;
+
+    [ThreadStatic]
+    private static bool _urgentThread;
+
+    /// <summary>
+    /// Whether this thread's compiles are urgent (a command list or a game thread waits for them): while one waits, no
+    /// other compile is admitted (<see cref="PipelineBuildQueue"/> sets it around each creation).
+    /// </summary>
+    public static bool Urgent
+    {
+        get => _urgentThread;
+        set => _urgentThread = value;
+    }
 
     /// <summary>Compiles running now.</summary>
     public static int Running => Volatile.Read(ref _running);
@@ -49,14 +63,15 @@ internal static unsafe class CompileBudget
     public static void Enter(long shaderBytes)
     {
         long estimate = Estimate(shaderBytes);
+        bool urgent = _urgentThread;
         bool counted = false;
         using var wait = BlockingWaits.Enter("driver compile memory budget");
 
-        while (!TryEnter(estimate, shaderBytes < TinyShaderBytes))
+        while (!TryEnter(estimate, shaderBytes < TinyShaderBytes, urgent))
         {
             if (!counted)
             {
-                Interlocked.Increment(ref _waiting);
+                Count(urgent, 1);
                 counted = true;
             }
 
@@ -65,7 +80,17 @@ internal static unsafe class CompileBudget
 
         if (counted)
         {
-            Interlocked.Decrement(ref _waiting);
+            Count(urgent, -1);
+        }
+    }
+
+    private static void Count(bool urgent, int change)
+    {
+        Interlocked.Add(ref _waiting, change);
+
+        if (urgent)
+        {
+            Interlocked.Add(ref _urgentWaiting, change);
         }
     }
 
@@ -86,10 +111,15 @@ internal static unsafe class CompileBudget
         return availablePhysical >= WarmMemoryGuard.PhysicalReserveBytes + need && commitHeadroom >= WarmMemoryGuard.ReserveBytes + need;
     }
 
-    private static bool TryEnter(long estimate, bool tiny)
+    private static bool TryEnter(long estimate, bool tiny, bool urgent)
     {
         lock (Gate)
         {
+            if (!tiny && !urgent && Volatile.Read(ref _urgentWaiting) > 0)
+            {
+                return false;
+            }
+
             long privateBytes = PrivateBytes();
 
             if (_running == 0)

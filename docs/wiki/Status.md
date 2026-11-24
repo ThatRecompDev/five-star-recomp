@@ -13,9 +13,9 @@ mode and has shown the story intro's title card ("Vice City, two years ago"). Sh
 the game first uses them, so no preparation step is needed, and the first-run screens are answered by a script that
 reacts to what is on screen (story load after about 57 s); later boots read the saved settings and skip those screens
 (story load after about 39 s). The GPU hangs, the game's hang watchdog and the memory
-blow-up of the story load are fixed, and so is the GPU work that corrupted game memory (a translator bug); the latest
-boots stay on the story loading screen for the full 300 s run without a fault, and the load not finishing is the
-current blocker (see [Roadmap](Roadmap.md)).
+blow-up of the story load are fixed, and so is the GPU work that corrupted game memory (a translator bug). The story
+load now finishes and the opening cutscene plays its art, credit cards, dialogue and sound at a steady 30 frames a
+second; its 3D world does not draw yet (see [Roadmap](Roadmap.md)).
 
 ![Progress](progress.svg)
 

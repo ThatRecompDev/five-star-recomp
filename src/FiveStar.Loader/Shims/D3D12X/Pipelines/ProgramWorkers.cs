@@ -10,11 +10,16 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// game's threads. Work a command list waits for goes before prefetched work, and only half the threads take prefetched
 /// work at all; compiles of huge sources run on a thread
 /// of their own, so one compile that takes minutes holds up nothing else. Like pipeline builds, work starts only while
-/// the machine has the memory for it (<see cref="WarmMemoryGuard"/>).
+/// the machine has the memory for it (<see cref="WarmMemoryGuard"/>). The threads run below normal priority, as do the
+/// pipeline builds: the game's threads, and the programs they make inline, come first (a Subrender worker that waited
+/// 8 s for a small inline compile among 30 busy compile threads stalled a frame for 22 s).
 /// </summary>
 internal sealed class ProgramWorkers
 {
     private const int PauseMilliseconds = 2000;
+
+    // One thread in this many also takes prefetched work.
+    private const int PrefetchShare = 2;
 
     private readonly BlockingCollection<Action> _urgent = [];
     private readonly BlockingCollection<Action> _prefetch = [];
@@ -41,7 +46,7 @@ internal sealed class ProgramWorkers
     /// The threads that also take prefetched work, half of them (at least one): at a warm boot the journal queues a
     /// thousand programs or more at once, and the others stay free for the work the game waits for.
     /// </summary>
-    public int PrefetchWorkers => Math.Max(1, Workers / 2);
+    public int PrefetchWorkers => Math.Max(1, Workers / PrefetchShare);
 
     /// <summary>Work queued and not started.</summary>
     public int Backlog => _urgent.Count + _prefetch.Count + _heavy.Count;
@@ -67,10 +72,10 @@ internal sealed class ProgramWorkers
                 queues = both;
             }
 
-            new Thread(() => RunOrdinary(queues)) { IsBackground = true, Name = "fivestar program compile" }.Start();
+            new Thread(() => RunOrdinary(queues)) { IsBackground = true, Name = "fivestar program compile", Priority = ThreadPriority.BelowNormal }.Start();
         }
 
-        new Thread(RunHeavy) { IsBackground = true, Name = "fivestar heavy program compile" }.Start();
+        new Thread(RunHeavy) { IsBackground = true, Name = "fivestar heavy program compile", Priority = ThreadPriority.BelowNormal }.Start();
     }
 
     /// <summary>Queues ordinary work; <paramref name="urgent"/> for work a command list waits for.</summary>

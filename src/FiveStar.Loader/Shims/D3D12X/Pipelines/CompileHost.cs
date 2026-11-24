@@ -104,24 +104,34 @@ internal sealed class CompileHost : IBackendRunner
     internal int? ProcessId => _connection?.ProcessId;
 
     /// <summary>Whether a host is running; for tests.</summary>
-    internal bool Running => _connection is { Alive: true };
+    internal bool Running
+    {
+        get
+        {
+            var connection = _connection;
+
+            return connection is not null && connection.Alive;
+        }
+    }
 
     /// <summary>The running host, started when there is none; null when none starts.</summary>
     private Connection? Connect()
     {
         lock (_gate)
         {
-            if (_connection is { Alive: true })
+            var current = _connection;
+
+            if (current is not null && current.Alive)
             {
-                return _connection;
+                return current;
             }
 
             // A host that ended before it answered anything did not start.
-            if (_connection is { Answered: true })
+            if (current is not null && current.Answered)
             {
                 _ends++;
             }
-            else if (_connection is not null)
+            else if (current is not null)
             {
                 _failedStarts++;
             }
@@ -152,7 +162,6 @@ internal sealed class CompileHost : IBackendRunner
     private sealed class Connection
     {
         private readonly Process _process;
-        private readonly BinaryWriter _writer;
         private readonly Lock _writing = new();
         private readonly ConcurrentDictionary<int, TaskCompletionSource<BackendResult?>> _pending = new();
         private volatile bool _alive = true;
@@ -161,7 +170,6 @@ internal sealed class CompileHost : IBackendRunner
         private Connection(Process process)
         {
             _process = process;
-            _writer = new BinaryWriter(process.StandardInput.BaseStream);
             var reader = new Thread(Read) { IsBackground = true, Name = "fivestar compile host reader" };
             reader.Start();
         }
@@ -240,7 +248,8 @@ internal sealed class CompileHost : IBackendRunner
             {
                 lock (_writing)
                 {
-                    CompileHostProtocol.WriteRequest(_writer, id, request);
+                    using var writer = new BinaryWriter(_process.StandardInput.BaseStream, System.Text.Encoding.UTF8, leaveOpen: true);
+                    CompileHostProtocol.WriteRequest(writer, id, Thread.CurrentThread.Priority, request);
                 }
             }
             catch (IOException)
