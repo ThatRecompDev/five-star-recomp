@@ -46,6 +46,8 @@ internal static class HostUsage
           --dxc <path>           dxcompiler.dll (or dxc.exe, or their folder) for programs made on first use;
                                  default: FIVESTAR_DXC, beside the loader, then the Windows SDK
           --shader-jobs <n>      threads that make programs on first use (default: a quarter of the processors)
+          --normal-priority-builds  speculative pipeline builds at normal priority (default: below normal, so the
+                                 driver's compiles use the processors the game leaves idle)
           --shader-backend <b>   dxil (default): programs made on first use compile with the DXIL backend, dxc
                                  for those it cannot lower or dxil.dll rejects; dxc: dxc for all
           --pipeline-cache <dir> disk cache of built pipelines (default: <work-dir>\pipeline-cache)

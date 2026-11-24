@@ -119,6 +119,24 @@ driver compiles running (pipeline, MB of DXIL, age) and counts those waiting. A 
 that also waits for 40 GB of commit, so it never holds up the others; until then its draws stay skipped. The sample summary counts the
 queued builds and the threads waiting for memory.
 
+### Thread priority
+
+The driver's compiles run on the build threads (half the logical processors, plus the heavy one) beside the game's
+threads, and the slow frames of a boot were the game's threads standing Ready while the driver compiled
+(d3d12x-shim.md). A build thread runs a creation below normal priority unless something waits for it, so the game's
+threads go first (`WorkerPriority`):
+
+| Creation | Priority |
+|---|---|
+| a pipeline a command list has set (urgent), or one a game thread still waits for (its budget, before the stand-in) | normal |
+| the journal's creations, creations after their stand-in, deferred creations not set yet | below normal |
+
+A creation promoted while it runs has its thread raised to normal priority, and a creation a game thread runs itself
+(`RunNow`) keeps that thread's priority. Program compiles are not lowered: lowering the in-process dxc threads let one
+holding the heap's lock starve an urgent compile on a game thread (8 s became 17.7 s, and the story transition stalled
+25 s); they now run in the compile host at the asking thread's priority. `--normal-priority-builds` runs every build
+at normal priority, for comparison.
+
 ### Programs on demand
 
 As console emulators do, the loader translates and compiles a program when a pipeline first needs it, so a boot needs

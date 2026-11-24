@@ -96,7 +96,7 @@ internal sealed unsafe class StandInPipelines
         }
 
         long started = Stopwatch.GetTimestamp();
-        var queued = queue.Queue(create, urgent: false);
+        var queued = queue.Queue(create, urgent: false, awaited: budget > TimeSpan.Zero);
         var build = queued.Done.Task;
         bool done;
 
@@ -116,6 +116,8 @@ internal sealed unsafe class StandInPipelines
 
             return build.Result.Hr;
         }
+
+        queued.StopAwaiting();
 
         nint standIn = NewStandIn(what, small);
         Track(standIn, new StandInWork { Creation = (queued, queue) });

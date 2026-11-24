@@ -12,7 +12,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// 64 GB machine to its commit limit, which ended the process (docs/d3d12x-pipelines.md#stand-ins). Urgent creations,
 /// those of pipelines a command list has set, start before all others; a queued creation can be made urgent later.
 /// Only half the threads take the others, and those wait in the driver compile budget while an urgent one does: at a
-/// warm boot the journal's creations held the budget the game's first uses needed.
+/// warm boot the journal's creations held the budget the game's first uses needed. The threads run creations nothing
+/// waits for below normal priority (<see cref="WorkerPriority"/>).
 /// </summary>
 internal sealed class PipelineBuildQueue
 {
@@ -79,10 +80,13 @@ internal sealed class PipelineBuildQueue
         return Queue(create, urgent: false).Done.Task;
     }
 
-    /// <summary>Queues <paramref name="create"/>, before every creation that is not urgent when <paramref name="urgent"/>.</summary>
-    public PipelineBuild Queue(Func<PipelineResult> create, bool urgent)
+    /// <summary>
+    /// Queues <paramref name="create"/>, before every creation that is not urgent when <paramref name="urgent"/>.
+    /// <paramref name="awaited"/> when a game thread waits for it (until <see cref="PipelineBuild.StopAwaiting"/>).
+    /// </summary>
+    public PipelineBuild Queue(Func<PipelineResult> create, bool urgent, bool awaited = false)
     {
-        var build = new PipelineBuild(create, urgent);
+        var build = new PipelineBuild(create, urgent, awaited);
 
         if (urgent)
         {
@@ -102,7 +106,11 @@ internal sealed class PipelineBuildQueue
         if (build.MakeUrgent())
         {
             _urgent.Add(build);
+
+            return;
         }
+
+        build.Priority.Raise();
     }
 
     private void Run(BlockingCollection<PipelineBuild>[] queues)
@@ -116,7 +124,9 @@ internal sealed class PipelineBuildQueue
 
             if (build!.Claim())
             {
+                build.Priority.Begin(build.Pressing);
                 Execute(build, build.Urgent);
+                build.Priority.End();
             }
         }
     }

@@ -95,6 +95,9 @@ internal sealed record HostOptions
     /// <summary><c>--no-on-demand</c>: only the ahead-of-time translation provides programs.</summary>
     public bool NoOnDemand { get; set; }
 
+    /// <summary><c>--normal-priority-builds</c>: speculative pipeline builds run at normal priority.</summary>
+    public bool NormalPriorityBuilds { get; set; }
+
     /// <summary>dxc.exe, dxcompiler.dll or their folder (<c>--dxc</c>); null finds one.</summary>
     public string? Dxc { get; set; }
 

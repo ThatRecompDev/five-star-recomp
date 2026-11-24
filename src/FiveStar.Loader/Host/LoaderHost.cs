@@ -336,6 +336,8 @@ internal sealed class LoaderHost
         Shims.D3D12X.ListSplits.Enabled = _options.SplitAtWaits;
         Diagnostics.UnmanagedGuard.LogTo(_log.Error);
 
+        Shims.D3D12X.Pipelines.WorkerPriority.Lowered = !_options.NormalPriorityBuilds;
+
         if (_options.WatchPoolPages)
         {
             Shims.D3D12X.DebugLayer.PoolPageWatch.Start(_log);
