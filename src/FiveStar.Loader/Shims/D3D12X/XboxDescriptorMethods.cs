@@ -79,7 +79,7 @@ internal static unsafe class XboxDescriptorMethods
 
             if (desktop.Location != 0 && !D3D12X.GameMemory.TryTranslate(desktop.Location, out desktop.Location))
             {
-                D3D12X.Warnings.Warn("cbv", "[d3d12_xs] CreateConstantBufferView: a GPU address outside known game memory, null view written");
+                WarnUnknownConstantBuffer(description->Location, description->Size);
                 view = null;
             }
             else if ((desktop.Location & (ConstantBufferViewDescription.Alignment - 1)) != 0)
@@ -91,6 +91,11 @@ internal static unsafe class XboxDescriptorMethods
         }
 
         ((delegate* unmanaged<nint, ConstantBufferViewDescription*, nint, void>)ComObject.Slot(inner, CreateConstantBufferViewSlot))(inner, view, Destination(handle));
+    }
+
+    private static void WarnUnknownConstantBuffer(ulong address, uint size)
+    {
+        D3D12X.Warnings.Warn("cbv", $"[d3d12_xs] CreateConstantBufferView: GPU address 0x{address:x} ({size} bytes) outside known game memory, null view written");
     }
 
     [HotPath]
