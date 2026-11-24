@@ -632,7 +632,9 @@ VoxelizeGeneric GS programs and the executable's real `VS_Clear`, which draws fr
 Run `dotnet test tests/FiveStar.Shaders.Tests`. `FIVESTAR_LLVM` (LLVM bin folder) and `FIVESTAR_DXC` (dxc path) override
 the default tool locations; the decoder comparison on real programs needs LLVM; the real-GS tests and it need `FIVESTAR_DUMP` and
 `FIVESTAR_SHADER_DIR` (folder of extracted `.fssm`, containers in `../dxbc`). A test skips with the reason when a tool
-or WARP is missing. WARP runs 4-lane waves only (a pipeline with any other `[WaveSize]` fails to create), so cases
+or WARP is missing. `FIVESTAR_TEST_ADAPTER=hardware` runs the cases on the first hardware adapter instead of WARP;
+cases whose expected values assume WARP's waves say so and fail there.
+WARP runs 4-lane waves only (a pipeline with any other `[WaveSize]` fails to create), so cases
 that need a full 32/64-lane wave are skipped, and `v_fma_f32` is compared unfused (see FMA above). The wave emulation
 is checked there with test-sized program waves of 2, 4, 16 and 64 lanes (wider, equal and narrower hardware waves), by
 the mesh program, which reads lanes by console number, and by running every wave64 compute case as its group-wave
