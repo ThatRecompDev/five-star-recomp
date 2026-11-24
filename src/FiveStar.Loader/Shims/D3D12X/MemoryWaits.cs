@@ -58,10 +58,11 @@ internal static unsafe class MemoryWaits
     private static long _dropped;
     private static long _notKept;
     private static long _writerReports;
+    private static long _releasedForCpu;
 
-    /// <summary>Waits recorded, met at submission, waited for on the GPU, released by the timeout, and not kept.</summary>
-    public static (long Recorded, long Held, long Deferred, long TimedOut, long Dropped) Counts =>
-        (Interlocked.Read(ref _recorded), Interlocked.Read(ref _held), Interlocked.Read(ref _deferred), Interlocked.Read(ref _timedOut), Interlocked.Read(ref _dropped));
+    /// <summary>Waits recorded, met at submission, waited for on the GPU, released by the timeout, released for a CPU wait, and not kept.</summary>
+    public static (long Recorded, long Held, long Deferred, long TimedOut, long ReleasedForCpu, long Dropped) Counts =>
+        (Interlocked.Read(ref _recorded), Interlocked.Read(ref _held), Interlocked.Read(ref _deferred), Interlocked.Read(ref _timedOut), Interlocked.Read(ref _releasedForCpu), Interlocked.Read(ref _dropped));
 
     /// <summary>Binds the slots for a new device: its waits start over on a fence of that device.</summary>
     public static void Bind(XboxObjects objects, LoaderLog log)
@@ -234,6 +235,38 @@ internal static unsafe class MemoryWaits
         Wake.Set();
     }
 
+    /// <summary>
+    /// Before the CPU blocks on the queue whose shim fence is <paramref name="fence"/> (<see cref="ListSubmissions"/>):
+    /// that queue's pending waits are released at once. The console never blocks there, and the writer such a wait
+    /// needs may come from the blocked thread (a cycle the console does not have); returns how many were released.
+    /// </summary>
+    public static int ReleaseBehind(nint fence)
+    {
+        int released = 0;
+
+        lock (Gate)
+        {
+            foreach (var (queue, state) in Queues)
+            {
+                if (((XboxQueueObject*)queue)->Fence != fence || state.Pending.Count == 0)
+                {
+                    continue;
+                }
+
+                released = state.Pending.Count;
+                state.ReleaseNow = true;
+            }
+        }
+
+        if (released != 0)
+        {
+            Interlocked.Add(ref _releasedForCpu, released);
+            Wake.Set();
+        }
+
+        return released;
+    }
+
     /// <summary>Reports a submitted list whose recorded writes a queue is waiting for (the first <see cref="DetailedEvents"/>).</summary>
     public static void WriterSubmitted(nint list, int queue)
     {
@@ -349,14 +382,14 @@ internal static unsafe class MemoryWaits
         {
             bool met = front.Met();
 
-            if (!met && Environment.TickCount64 < front.Deadline)
+            if (!met && !state.ReleaseNow && Environment.TickCount64 < front.Deadline)
             {
                 waiting = true;
 
                 break;
             }
 
-            if (!met)
+            if (!met && !state.ReleaseNow)
             {
                 TimedOut(front);
             }
@@ -369,6 +402,8 @@ internal static unsafe class MemoryWaits
                 _ = ((delegate* unmanaged<nint, ulong, int>)ComObject.Slot(state.Fence, FenceSignalSlot))(state.Fence, front.Ticket);
             }
         }
+
+        state.ReleaseNow = false;
 
         return released;
     }
@@ -431,5 +466,8 @@ internal static unsafe class MemoryWaits
         public ulong Tickets { get; set; }
 
         public Queue<PendingWait> Pending { get; } = new();
+
+        /// <summary>Set by <see cref="ReleaseBehind"/>: the pending waits go at the next watch.</summary>
+        public bool ReleaseNow { get; set; }
     }
 }

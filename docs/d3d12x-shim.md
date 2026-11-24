@@ -351,11 +351,25 @@ of them feeds the transient pool's retire tokens, which complete through the que
 **Memory waits (list slots 73, 74; `MemoryWaits`).** The queue does not go on until `(memory & mask) op value` holds
 (op a D3D12_COMPARISON_FUNC; slot 74 compares all 64 bits, and its fourth argument is flags, not a mask). Slot 74
 was taken for a qword write until XCL's notes and the call arguments showed it is a wait: it wrote the value the
-queue should wait for. The desktop has no memory wait. A list records its waits (`ListMemoryWaits`; a wait on an
-address the same list wrote before is met in order and dropped, as are NEVER and ALWAYS). At submission the batch is
-split before such a list; when a wait does not hold yet, the desktop queue waits on a fence that a watcher thread
-signals once memory holds, or after 2 s (logged with the value found). The whole list waits, not only the commands
-after the wait. The device's Dispose logs how many waits were met at once, waited for and timed out.
+queue should wait for. The game's waits are on frame cells: a record's +0x50 cell must reach the frame number
+(0x144e39e60), which other queues write there with Write64BitValueBottomOfPipeX (0x1406c6630, 0x1407d2150). The
+desktop has no memory wait. A list records its waits (`ListMemoryWaits`; a wait on an address the same list wrote
+before is met in order and dropped, as are NEVER and ALWAYS). At submission a list with waits goes alone after the
+lists before it; when a wait does not hold yet, the desktop queue waits on that queue's own fence, which a watcher
+thread signals once memory holds, or after 5 s (logged with the writer list and where it was submitted); an address
+that timed out is not waited for again. Before the shim blocks the CPU on a queue (a list submitted again while its
+last run is unfinished, `ListSubmissions`), that queue's waits are released, since the writer may come from the
+blocked thread. One fence for all queues held a writer behind an unrelated wait on another queue: per-queue fences
+took the story-load timeouts from 17 to 0 (the first frame's waits take longer than 0.5 s but under 5 s).
+
+A wait recorded after work in its list is not kept by default: the desktop can only hold a whole list.
+`--split-at-waits` splits the list there instead (`ListSplits`): the desktop list so far is closed as a segment, and
+recording goes on in another desktop list on the same allocator with the state set again (`ListReplayState`: heaps,
+bindless roots, pipeline, topology, vertex and index buffers, targets, viewports, scissors, blend factor, stencil
+reference, depth bounds; not open queries or predication). Segments run in queue order, each after its waits. It
+works (a unit test checks that work before a wait runs and work after it is held), but in the story load the
+split lists' frame-cell waits stalled every queue at one frame until the timeout (16 timeouts, the writers' lists
+not submitted for 5 s), so it stays off until that cycle is understood. The device's Dispose logs the counts.
 A compute list names only compute states (VERTEX_AND_CONSTANT_BUFFER, UNORDERED_ACCESS, NON_PIXEL_SHADER_RESOURCE,
 INDIRECT_ARGUMENT, COPY_DEST, COPY_SOURCE, acceleration structure) and a copy list only the copy ones
 (`ResourceStates.Legal`): any other bit fails the desktop Close. Render targets rest in RENDER_TARGET, so a compute

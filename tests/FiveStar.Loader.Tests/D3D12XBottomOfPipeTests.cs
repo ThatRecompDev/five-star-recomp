@@ -84,6 +84,7 @@ public sealed unsafe class D3D12XBottomOfPipeTests
         const uint GreaterEqual = 7;
 
         using var test = TestRuntime.Create();
+        ListSplits.Enabled = true;
         var virtualAlloc = (delegate* unmanaged<nint, nuint, uint, ulong, uint, nint>)test.Shim("xmem.dll", "XMemVirtualAlloc");
         ulong* cells = (ulong*)virtualAlloc(0, Bytes, ReserveCommitLargePages, Flags, GpuReadWrite);
 
@@ -108,6 +109,7 @@ public sealed unsafe class D3D12XBottomOfPipeTests
         Volatile.Write(ref cells[1], Frame);
         Wait(fence, 1);
         Assert.Equal(After, cells[2]);
+        ListSplits.Enabled = false;
     }
 
     private static void Run(nint queue, nint list, nint fence, ulong value)
