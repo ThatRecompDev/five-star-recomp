@@ -3,6 +3,9 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>fivestar</AssemblyName>
+    <!-- The DXIL backend's IR survives until a program is written, so collections mark a large live graph: server GC
+         marks it on every core and halves shader compile times (docs/dxil-backend.md). -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>
