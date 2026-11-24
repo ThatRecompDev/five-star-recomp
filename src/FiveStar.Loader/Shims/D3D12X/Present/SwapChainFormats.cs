@@ -58,6 +58,22 @@ internal static class SwapChainFormats
         }
     }
 
+    /// <summary>The format a shader view of a plane in <paramref name="format"/> takes: its own, the back-buffer one when typeless.</summary>
+    [HotPath]
+    public static int ViewFormat(int format)
+    {
+        switch (format)
+        {
+            case Rgba16Typeless:
+            case Rgb10A2Typeless:
+            case Rgba8Typeless:
+            case Bgra8Typeless:
+                return ForPlane(format);
+            default:
+                return format;
+        }
+    }
+
     /// <summary>
     /// The swap chain's color space: scRGB for FP16, HDR10 for 10-bit with the plane's dword equal to the HDR10
     /// value (*inferred*: the dword read as a DXGI_COLOR_SPACE_TYPE), else sRGB.

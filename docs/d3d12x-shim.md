@@ -553,14 +553,24 @@ nothing. Boot presents one plane: the 3840x2160 render target from slot 127 (R8G
 - Slot 32 (`Presenter`) creates at the first present a flip-model swap chain (FLIP_DISCARD, 3 buffers, frame-latency
   waitable object, latency 2, SCALING_STRETCH, Alt+Enter off) on the presenting desktop queue and the game's window:
   the largest visible top-level window of the process that is not the console (the game's own, titled by the game).
-  The buffers take the plane's source-rect size and the flip-model format of its typeless family (R8G8B8A8,
-  B8G8R8A8, R10G10B10A2, R16G16B16A16); DXGI stretches them to the window, so window resizes need nothing, and a new
-  plane size or format resizes the buffers after the GPU is idle. A minimized window skips the present.
-- Each present waits for the latency object, copies the source rect of plane 0 into the back buffer
-  (CopyTextureRegion, the plane RENDER_TARGET to COPY_SOURCE and back, which is the state the debug layer tracks
-  for it at present; the back buffer PRESENT to COPY_DEST and back), runs the list on the presenting queue and
-  presents with sync interval 1. One allocator per back buffer, retired by a fence; nothing is allocated per frame.
-  A second plane is not composed.
+  The buffers take the window's client size and the flip-model format of its typeless family (R8G8B8A8, B8G8R8A8,
+  R10G10B10A2, R16G16B16A16); a new client size or plane format resizes them after the GPU is idle. A minimized
+  window skips the present.
+- **Window and scaling.** The game creates its window itself (0x142478440: `sgaWindowClass`, WS_OVERLAPPEDWINDOW at
+  CW_USEDEFAULT, sized to the render size, frame included: 3840x2160) and leaves its messages to DefWindowProcA.
+  Before, the buffers had the plane's size with SCALING_STRETCH and the process was not DPI aware: Windows scaled the
+  window by the display's scale factor (5760x3240 for 3840x2160 at 150%), so only its top-left part was on screen
+  and the frame looked zoomed in; any client area not 16:9 also stretched the frame. Now the loader is per-monitor
+  DPI aware (v2) from the start of a run, a window larger than its monitor's work area is fitted there at the first
+  present (the largest 16:9 client area, centered; `GameWindowFit`), and the frame is scaled to the client area with
+  its aspect ratio (`PresentScaler`, black bars).
+- Each present waits for the latency object and puts the source rect of plane 0 into the back buffer: a copy when the
+  client area has the plane's size (CopyTextureRegion, the plane RENDER_TARGET to COPY_SOURCE and back, which is the
+  state the debug layer tracks for it at present; the back buffer PRESENT to COPY_DEST and back), else a full-screen
+  triangle that samples it bilinearly into the largest rectangle of its aspect ratio over black (programs compiled by
+  d3dcompiler_47; the plane in PIXEL_SHADER_RESOURCE meanwhile). Then it runs the list on the presenting queue and
+  presents with sync interval 1. One allocator and one shader view per back buffer, retired by a fence; nothing is
+  allocated per frame. A second plane is not composed.
 - Color space: FP16 gets scRGB, R10G10B10A2 with dword 12 (HDR10 as a DXGI_COLOR_SPACE_TYPE) gets HDR10, otherwise
   sRGB; set with SetColorSpace1 when the display path supports it.
 - `--present-test` draws eight color bars and a block that moves one step per present instead of the plane (also

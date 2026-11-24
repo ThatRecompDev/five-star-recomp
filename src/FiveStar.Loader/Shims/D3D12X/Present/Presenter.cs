@@ -12,10 +12,12 @@ using FiveStar.Loader.Shims.D3D12X.Pipelines;
 namespace FiveStar.Loader.Shims.D3D12X.Present;
 
 /// <summary>
-/// Queue slot 32 (PresentX, *inferred*) on a flip-model swap chain on the game's window. The first plane is copied
-/// into the back buffer (same typeless family; otherwise, and with <see cref="ShowTestPattern"/> on, the test pattern is
-/// drawn instead) on the presenting queue, then shown with vsync. Created lazily at the first present. The plane is
-/// taken to be a render target at present time: the state the debug layer tracks for the game's plane then.
+/// Queue slot 32 (PresentX, *inferred*) on a flip-model swap chain on the game's window, its buffers the size of the
+/// window's client area. The first plane is copied into the back buffer when the sizes match, else scaled into it with
+/// its aspect ratio (<see cref="PresentScaler"/>; same typeless family; otherwise, and with <see cref="ShowTestPattern"/>
+/// on, the test pattern is drawn instead) on the presenting queue, then shown with vsync. Created lazily at the first
+/// present, which also fits an oversized window to its monitor (<see cref="GameWindowFit"/>). The plane is taken to be a
+/// render target at present time: the state the debug layer tracks for the game's plane then.
 /// </summary>
 internal sealed unsafe class Presenter : IDisposable
 {
@@ -36,6 +38,9 @@ internal sealed unsafe class Presenter : IDisposable
     /// <summary>Vertical sync on: DXGI presents at most once per refresh.</summary>
     private const uint SyncInterval = 1;
 
+    /// <summary>Back-buffer resizes logged; dragging a window edge makes one per present.</summary>
+    private const long LoggedResizes = 16;
+
     private readonly XboxObjects _objects;
     private readonly OnceLog _warnings;
     private readonly LoaderLog _log;
@@ -44,6 +49,8 @@ internal sealed unsafe class Presenter : IDisposable
     private nint _queue;
     private DxgiSwapChain? _swapChain;
     private PresentRecorder? _recorder;
+    private PresentScaler? _scaler;
+    private long _resizes;
     private long _presents;
     private long _skipped;
     private long _nextAttempt;
@@ -134,6 +141,7 @@ internal sealed unsafe class Presenter : IDisposable
 
         LogSummary();
         _swapChain?.Dispose();
+        _scaler?.Dispose();
         _recorder?.Dispose();
     }
 
@@ -142,10 +150,11 @@ internal sealed unsafe class Presenter : IDisposable
     {
         var swapChain = _swapChain!;
         var recorder = _recorder!;
+        var (width, height) = TargetSize(source);
 
-        if (source.Width != swapChain.Width || source.Height != swapChain.Height || source.Format != swapChain.Format)
+        if (width != swapChain.Width || height != swapChain.Height || source.Format != swapChain.Format)
         {
-            Resize(source);
+            Resize(width, height, source.Format);
         }
 
         if (source.ColorSpace != swapChain.ColorSpace)
@@ -162,16 +171,13 @@ internal sealed unsafe class Presenter : IDisposable
         recorder.Begin(index);
         _timeline.Mark(PresentTimeline.RetireWait);
 
-        if (source.Copyable)
+        bool sameSize = swapChain.Width == source.Width && swapChain.Height == source.Height;
+
+        if (source.Copyable && sameSize)
         {
-            var box = source.Box;
-            recorder.Transition(back, TransitionBarrier.PresentState, TransitionBarrier.CopyDestState);
-            recorder.Transition(source.Resource, source.State, TransitionBarrier.CopySourceState);
-            recorder.Copy(back, source.Resource, &box);
-            recorder.Transition(source.Resource, TransitionBarrier.CopySourceState, source.State);
-            recorder.Transition(back, TransitionBarrier.CopyDestState, TransitionBarrier.PresentState);
+            CopyPlane(recorder, back, source);
         }
-        else
+        else if (!source.Copyable || !Scale(recorder, index, back, source))
         {
             recorder.Transition(back, TransitionBarrier.PresentState, TransitionBarrier.RenderTargetState);
             TestPattern.Record(recorder.List, recorder.View((int)index), swapChain.Width, swapChain.Height, _presents);
@@ -194,6 +200,18 @@ internal sealed unsafe class Presenter : IDisposable
         {
             SampleScreen(source);
         }
+    }
+
+    /// <summary>The plane's source rect copied into a back buffer of its size.</summary>
+    [HotPath]
+    private static void CopyPlane(PresentRecorder recorder, nint back, PlaneSource source)
+    {
+        var box = source.Box;
+        recorder.Transition(back, TransitionBarrier.PresentState, TransitionBarrier.CopyDestState);
+        recorder.Transition(source.Resource, source.State, TransitionBarrier.CopySourceState);
+        recorder.Copy(back, source.Resource, &box);
+        recorder.Transition(source.Resource, TransitionBarrier.CopySourceState, source.State);
+        recorder.Transition(back, TransitionBarrier.CopyDestState, TransitionBarrier.PresentState);
     }
 
     /// <summary>A screen signature after a present, once the presenting queue is idle.</summary>
@@ -300,10 +318,13 @@ internal sealed unsafe class Presenter : IDisposable
 
         var recorder = new PresentRecorder(_objects.DesktopDevice);
         int hr = recorder.Create();
+        FitWindow(source);
+        _scaler ??= CreateScaler();
+        var (width, height) = TargetSize(source);
 
         if (!HResult.Failed(hr))
         {
-            hr = DxgiSwapChain.Create(queue, _window, source.Width, source.Height, source.Format, out _swapChain);
+            hr = DxgiSwapChain.Create(queue, _window, width, height, source.Format, out _swapChain);
         }
 
         if (HResult.Failed(hr) || _swapChain is null)
@@ -318,25 +339,95 @@ internal sealed unsafe class Presenter : IDisposable
         _recorder = recorder;
         recorder.SetTargets(_swapChain.Buffers);
         string content = ShowTestPattern ? "test pattern" : "game plane";
-        _log.Info($"  [present] flip-model swap chain on window 0x{_window:x}: {source.Width}x{source.Height}, format {source.Format}, {DxgiSwapChain.BufferCount} buffers, {content}");
+        _log.Info($"  [present] flip-model swap chain on window 0x{_window:x}: {width}x{height} (plane {source.Width}x{source.Height}), format {source.Format}, {DxgiSwapChain.BufferCount} buffers, {content}");
 
         return true;
     }
 
-    private void Resize(PlaneSource source)
+    /// <summary>The back-buffer size: the window's client area, or the plane's without one or without the scaler.</summary>
+    [HotPath]
+    private (uint Width, uint Height) TargetSize(PlaneSource source)
+    {
+        PlaneRect client;
+
+        if (_scaler is null || PresentNative.GetClientRect(_window, &client) == 0 || client.Right <= client.Left || client.Bottom <= client.Top)
+        {
+            return (source.Width, source.Height);
+        }
+
+        return ((uint)(client.Right - client.Left), (uint)(client.Bottom - client.Top));
+    }
+
+    /// <summary>Scales the plane into a back buffer of another size; false when no pipeline takes the format (the scaler is dropped).</summary>
+    [HotPath]
+    private bool Scale(PresentRecorder recorder, uint index, nint back, PlaneSource source)
+    {
+        var swapChain = _swapChain!;
+
+        if (_scaler is not null && _scaler.Record(recorder.List, index, back, recorder.View((int)index), swapChain.Width, swapChain.Height, swapChain.Format, source))
+        {
+            return true;
+        }
+
+        if (_scaler is not null)
+        {
+            DropScaler(swapChain.Format);
+        }
+
+        return false;
+    }
+
+    private void DropScaler(int format)
+    {
+        _warnings.Warn("present-scale", $"[present] no scaling pipeline for format {format}; back buffers take the plane's size");
+        _scaler = null;
+    }
+
+    private PresentScaler? CreateScaler()
+    {
+        var scaler = new PresentScaler(_objects.DesktopDevice);
+
+        if (scaler.Create(out string failure))
+        {
+            return scaler;
+        }
+
+        scaler.Dispose();
+        _warnings.Warn("present-scaler", $"[present] no scaler ({failure}); back buffers take the plane's size");
+
+        return null;
+    }
+
+    private void FitWindow(PlaneSource source)
+    {
+        var placed = GameWindowFit.Fit(_window, source.Width, source.Height);
+
+        if (placed.HasValue)
+        {
+            var (x, y, width, height) = placed.Value;
+            _log.Info($"  [present] window larger than its monitor's work area: now {width}x{height} at ({x}, {y})");
+        }
+    }
+
+    private void Resize(uint width, uint height, int format)
     {
         _recorder!.WaitIdle(_queue);
-        int hr = _swapChain!.Resize(source.Width, source.Height, source.Format);
+        int hr = _swapChain!.Resize(width, height, format);
 
         if (HResult.Failed(hr))
         {
-            _warnings.Warn("present-resize", $"[present] ResizeBuffers({source.Width}x{source.Height}, format {source.Format}) failed: {HResult.Format(hr)}");
+            _warnings.Warn("present-resize", $"[present] ResizeBuffers({width}x{height}, format {format}) failed: {HResult.Format(hr)}");
 
             return;
         }
 
         _recorder.SetTargets(_swapChain.Buffers);
-        _log.Info($"  [present] back buffers now {source.Width}x{source.Height}, format {source.Format}");
+        _resizes++;
+
+        if (_resizes <= LoggedResizes)
+        {
+            _log.Info($"  [present] back buffers now {width}x{height}, format {format}");
+        }
     }
 
     private void ChangeColorSpace(uint colorSpace)
