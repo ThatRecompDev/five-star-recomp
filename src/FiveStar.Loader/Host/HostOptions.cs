@@ -158,6 +158,9 @@ internal sealed record HostOptions
     /// <summary>Check the game's transient-memory pool for corrupted nodes (<c>--watch-transient</c>).</summary>
     public bool WatchTransient { get; set; }
 
+    /// <summary>Check the game's small-block pool pages for headers the CPU did not write (<c>--watch-pool-pages</c>).</summary>
+    public bool WatchPoolPages { get; set; }
+
     /// <summary>Follow the game's hang watchdog, main state and loading-screen flags (<c>--watch-hang</c>).</summary>
     public bool WatchHang { get; set; }
 

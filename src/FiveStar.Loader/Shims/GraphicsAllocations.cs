@@ -23,6 +23,7 @@ internal sealed class GraphicsAllocations
     private const uint GraphicsExecuteReadWrite = 0x10000;
 
     private readonly ConcurrentDictionary<nint, (GraphicsAccess Access, uint Type, uint Protect)> _bases = new();
+    private readonly ConcurrentDictionary<nint, ulong> _sizes = new();
 
     /// <summary>The GPU access an allocation type and protection give.</summary>
     public static GraphicsAccess Classify(uint allocationType, uint protect)
@@ -45,12 +46,21 @@ internal sealed class GraphicsAllocations
         return GraphicsAccess.None;
     }
 
-    public void Add(nint allocationBase, uint allocationType, uint protect)
+    public void Add(nint allocationBase, ulong size, uint allocationType, uint protect)
     {
         if (allocationBase != 0)
         {
             _bases[allocationBase] = (Classify(allocationType, protect), allocationType, protect);
+            _sizes[allocationBase] = size;
         }
+    }
+
+    /// <summary>The allocations (base, bytes) whose protection has all of <paramref name="protectBits"/>.</summary>
+    public IReadOnlyList<(nint Base, ulong Bytes)> Matching(uint protectBits)
+    {
+        return _bases.Where(entry => (entry.Value.Protect & protectBits) == protectBits)
+            .Select(entry => (entry.Key, _sizes.GetValueOrDefault(entry.Key)))
+            .ToList();
     }
 
     /// <summary>The access of the allocation at <paramref name="allocationBase"/>; false for memory not allocated here.</summary>

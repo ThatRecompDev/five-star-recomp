@@ -334,6 +334,11 @@ internal sealed class LoaderHost
         Shims.D3D12X.RetireWaits.Enable(_options.RetireWaitsAllQueues, _log);
         Shims.D3D12X.ListSplits.Enabled = _options.SplitAtWaits;
 
+        if (_options.WatchPoolPages)
+        {
+            Shims.D3D12X.DebugLayer.PoolPageWatch.Start(_log);
+        }
+
         if (_options.WatchTransient)
         {
             TransientPoolWatch.Start(_log);

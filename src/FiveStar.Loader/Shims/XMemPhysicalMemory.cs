@@ -69,7 +69,7 @@ internal sealed unsafe class XMemPhysicalMemory : IDisposable
         {
             result = Allocate(address, size, allocationType, protect);
             PlainAllocations.Add(result);
-            Graphics.Add(result, allocationType, protect);
+            Graphics.Add(result, size, allocationType, protect);
         }
 
         if (_log.DetailEnabled)
