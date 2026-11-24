@@ -5,6 +5,7 @@ using System.Text;
 using FiveStar.Graphics.Programs;
 using FiveStar.Shaders.Analysis;
 using FiveStar.Shaders.Compilation;
+using FiveStar.Shaders.Containers;
 using FiveStar.Shaders.Disassembly;
 using FiveStar.Shaders.Translation;
 
@@ -152,6 +153,85 @@ internal sealed class ProgramProducer
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Compiles the program's form with its outputs laid out for a pixel shader's <paramref name="inputs"/>
+    /// (<see cref="StageLinker.Link"/>) into <paramref name="dxilPath"/>; null when it did, else why not (kept beside it).
+    /// </summary>
+    public string? Link(string name, IReadOnlyList<PsvElement> inputs, string dxilPath)
+    {
+        return Remake(name, hlsl => StageLinker.Link(hlsl, inputs), dxilPath);
+    }
+
+    /// <summary>Compiles a pixel shader without the inputs it never reads (<see cref="StageLinker.TrimInputs"/>), as <see cref="Link"/>.</summary>
+    public string? Trim(string name, string dxilPath)
+    {
+        return Remake(name, StageLinker.TrimInputs, dxilPath);
+    }
+
+    private string? Remake(string name, Func<string, string> rewrite, string dxilPath)
+    {
+        var failurePath = Path.ChangeExtension(dxilPath, FailExtension);
+
+        if (File.Exists(failurePath))
+        {
+            return File.ReadAllText(failurePath);
+        }
+
+        var path = Path.Combine(_programs, name + ProgramExtension);
+
+        if (!File.Exists(path))
+        {
+            return NoProgram;
+        }
+
+        var form = Prepare(name);
+        string? failure;
+
+        if (form.Request is null)
+        {
+            failure = form.Failure;
+        }
+        else
+        {
+            failure = CompileRewritten(form.Request, rewrite, dxilPath);
+        }
+
+        if (failure is not null)
+        {
+            File.WriteAllText(failurePath, failure, Encoding.UTF8);
+        }
+
+        return failure;
+    }
+
+    private string? CompileRewritten(CompileRequest request, Func<string, string> rewrite, string dxilPath)
+    {
+        string linked;
+
+        try
+        {
+            linked = rewrite(request.Hlsl);
+        }
+        catch (UnsupportedProgramException exception)
+        {
+            return $"link: {exception.Message}";
+        }
+
+        var linkedRequest = request with { HlslPath = Path.ChangeExtension(dxilPath, HlslExtension), Hlsl = linked };
+        var outcome = _compiler.Compile(linkedRequest, _compiler.Options.CompileTimeout);
+
+        if (outcome.Succeeded)
+        {
+            return null;
+        }
+
+        // The source and the compiler's whole report stay beside the failure, for a look at why.
+        File.WriteAllText(linkedRequest.HlslPath, linked, Encoding.UTF8);
+        File.WriteAllText(Path.ChangeExtension(dxilPath, ".log"), outcome.Error, Encoding.UTF8);
+
+        return $"link {ProgramStatus.CompileFailure}: {DxcCompiler.FirstError(outcome.Error)}";
     }
 
     private string DxilPath(string name)
