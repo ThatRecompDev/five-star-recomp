@@ -56,8 +56,11 @@ internal sealed unsafe class TextureProbe : IDisposable
     /// <summary>The shader-visible heap whose first descriptor the probe reads.</summary>
     public ID3D12DescriptorHeap Heap { get; }
 
-    /// <summary>The packed texels of <paramref name="mip"/> (width x height).</summary>
-    public uint[] Read(uint width, uint height, uint mip)
+    /// <summary>
+    /// The packed texels of <paramref name="mip"/> (width x height); <paramref name="order"/> gets the probe's desktop
+    /// queue before its list runs, as the shims order a game submission after the texture uploads.
+    /// </summary>
+    public uint[] Read(uint width, uint height, uint mip, Action<nint>? order = null)
     {
         ulong bytes = width * height * sizeof(uint);
         using var output = _device.CreateCommittedResource(new HeapProperties(HeapType.Default), HeapFlags.None, ResourceDescription.Buffer(bytes, ResourceFlags.AllowUnorderedAccess), ResourceStates.Common);
@@ -78,6 +81,7 @@ internal sealed unsafe class TextureProbe : IDisposable
 
         list.ResourceBarrierTransition(output, ResourceStates.UnorderedAccess, ResourceStates.CopySource);
         list.CopyResource(readback, output);
+        order?.Invoke(context.Queue.NativePointer);
         context.ExecuteAndWait();
 
         return MemoryMarshal.Cast<byte, uint>(ResourceArena.Read(readback, (int)bytes)).ToArray();

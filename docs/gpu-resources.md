@@ -74,13 +74,18 @@ flowchart LR
   without a desc on one gets the UNORM whole-resource desc.
 - **Upload** (`GpuTextureUploader`): every subresource detiled by `XgCopier.From` into an upload buffer at the
   desktop's copyable footprint, copied on a private direct queue between transitions out of and back into the
-  texture's state, waited for. The upload buffer is system memory, the GPU's non-local segment, whose budget is half
-  the machine's physical memory (16.3 GB on a 32 GB machine), and the heaps over the game's XMem sections take from the same
-  budget: the address map opens one over every mapped page's section ([d3d12x-shim.md](d3d12x-shim.md)), about
-  6.2 GiB for the game's largest. On a 16 GB machine that left no room for the upload buffer, whose creation then
-  threw on the game's thread and ended the process (0xE0434352, issue #13). A fill the desktop refuses, or whose copy
-  does not finish, now fails without an exception: the texture keeps what it held (zeros when new) until its next refresh point, the
-  counters count `UploadFailed` and the first eight are logged with the reason. The next fill makes a new upload buffer and queue.
+  texture's state. The CPU does not wait: an upload takes one of 16 slots (list, allocator, upload buffer, a reference
+  to the texture) and waits only for that slot's previous upload, and every game ExecuteCommandLists first has its
+  queue wait on the GPU for the uploads before it. A slot keeps its texture alive until its copy is done, so a texture
+  retired and released right after a fill is not freed under the copy. Waiting for each upload on the game's threads
+  cost a fifth of a frame after the story load. The upload buffer is system memory, the GPU's non-local segment, whose
+  budget is half the machine's physical memory (16.3 GB on a 32 GB machine), and the heaps over the game's XMem
+  sections take from the same budget: the address map opens one over every mapped page's section
+  ([d3d12x-shim.md](d3d12x-shim.md)), about 6.2 GiB for the game's largest. On a 16 GB machine that left no room for
+  the upload buffer, whose creation then threw on the game's thread and ended the process (0xE0434352, issue #13). A
+  fill the desktop refuses, or whose slot does not come free, now fails without an exception: the texture keeps what
+  it held (zeros when new) until its next refresh point, the counters count `UploadFailed` and the first eight are
+  logged with the reason. The failed slot is dropped and the next fill on it makes a new one.
 - **Refresh points**: creation, and every slot-70 view of the texture. The game creates a texture's view once its
   data has arrived, so a view is where new bytes are taken. A 64-bit hash of the bytes skips unchanged memory.
 - **CPU-mapped textures** (`GpuTextures.Watch`): a slot-133 texture the game maps (resource Map returns its memory)
@@ -97,15 +102,16 @@ flowchart LR
   first element moved by the address's offset in that buffer; an address outside known memory, off the element size
   or past the buffer's end gets a null view.
 - **Readability** (`GameMemorySource`): in an XMem reservation every 64 KiB page of the span must be mapped; elsewhere
-  every byte must be committed and readable. Anything else gets no texture.
+  every byte must be committed and readable: an allocation committed in full answers at once (no VirtualQuery,
+  which takes 4 ms in the game's heap). Anything else gets no texture.
 
 ### Trade-offs and limits
 
 - Change detection is explicit (creation, slot 70, a frame check of mapped textures), not watched: `MEM_WRITE_WATCH` does not apply to mapped
   views, and guard-page tracking would fault on every streamed page. CPU writes after the last view of a texture
   are not seen.
-- Uploads are synchronous on their own queue and do not wait for the game's queues: a texture the GPU is reading in
-  flight is overwritten without ordering.
+- Uploads run on their own queue and do not wait for the game's queues: a texture the GPU is reading in flight is
+  overwritten without ordering.
 - A descriptor that still names a released texture after its grace period, and is sampled, reads a released resource;
   the game rewrites its views when it reuses memory, so none has been seen.
 - A texture the game mapped once stays checked every frame (a hash of its bytes); 12 in the intro video.

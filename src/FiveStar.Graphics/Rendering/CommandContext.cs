@@ -35,6 +35,9 @@ public sealed class CommandContext : IDisposable
 
     public ID3D12GraphicsCommandList List { get; }
 
+    /// <summary>The queue the list runs on.</summary>
+    public ID3D12CommandQueue Queue => _queue;
+
     /// <summary>Executes the recorded commands, waits until the GPU finished them and resets the list.</summary>
     public void ExecuteAndWait()
     {
