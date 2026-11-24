@@ -62,7 +62,7 @@ internal sealed partial class OperandAccess
         }
 
         // The high dword of a wave64 lane mask (s11 after v_cmp_e64 s[10:11]) is its integer variable: every mask write
-        // sets it (ShadowHighHalf), so a read sees whichever write ran last on the path taken; the mask tracking is by
+        // sets it (ShadowInteger), so a read sees whichever write ran last on the path taken; the mask tracking is by
         // emission order, which on another path left s43 an integer the culling program adds to (s_add_i32 s32, s43, s32).
 
         if (key.Kind == RegisterKey.Scalar)

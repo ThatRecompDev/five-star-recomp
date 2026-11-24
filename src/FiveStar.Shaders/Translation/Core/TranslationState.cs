@@ -126,8 +126,9 @@ internal sealed class TranslationState
     public HashSet<RegisterKey> IntegerUses { get; } = [];
 
     /// <summary>
-    /// SGPRs that are a lane mask on some paths and an integer on others (found by a first translation): every write
-    /// of one form also writes the other, so a read is right whichever path ran (Stages.ProgramTranslator).
+    /// SGPRs that are a lane mask on some paths and an integer on others (found by a first translation): their mask
+    /// writes also set the integer variables and every read uses those, so a read is right whichever path ran
+    /// (Stages.ProgramTranslator).
     /// </summary>
     public IReadOnlySet<RegisterKey> Coherent { get; init; } = new HashSet<RegisterKey>();
 

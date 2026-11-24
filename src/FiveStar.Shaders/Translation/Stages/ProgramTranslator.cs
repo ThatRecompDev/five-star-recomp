@@ -38,7 +38,7 @@ internal static class ProgramTranslator
     {
         // Mask tracking follows emission order, not paths: a register that is a lane mask on one path and an integer on
         // another is read in whichever form the last emitted write left. A first translation finds those registers; the
-        // second keeps both forms of them current (OperandAccess.Write, WriteMask).
+        // second keeps them in their integer variables, which every mask write also sets (OperandAccess.ShadowInteger).
         var state = create(new HashSet<RegisterKey>());
         Run(state);
         var mixed = state.MasksEver
