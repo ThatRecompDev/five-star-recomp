@@ -54,8 +54,8 @@ public unsafe class D3D12XCallBenchmarks : IDisposable
         *(nint*)(_wrapper + D3D12XLayout.InnerOffset) = _desktop;
 
         int vtableBytes = WrapperSlots * sizeof(nint);
-        _wrapperVtable[ThunkSlot] = ForwardingThunk.Emit(heap, new ForwardedSlot(ThunkSlot, DesktopSlot, false, ArgumentRegisters.None), (nint)_wrapperVtable, vtableBytes);
-        _wrapperVtable[UnwrapSlot] = ForwardingThunk.Emit(heap, new ForwardedSlot(UnwrapSlot, DesktopSlot, false, ArgumentRegisters.Rdx), (nint)_wrapperVtable, vtableBytes);
+        _wrapperVtable[ThunkSlot] = ForwardingThunk.Emit(heap, new ForwardedSlot(ThunkSlot, DesktopSlot, false, ArgumentRegisters.None), (nint)_wrapperVtable, vtableBytes, 0);
+        _wrapperVtable[UnwrapSlot] = ForwardingThunk.Emit(heap, new ForwardedSlot(UnwrapSlot, DesktopSlot, false, ArgumentRegisters.Rdx), (nint)_wrapperVtable, vtableBytes, 0);
         delegate* unmanaged<nint, nint, uint> managed = &ManagedForward;
         _wrapperVtable[ManagedSlot] = (nint)managed;
         heap.Seal();
