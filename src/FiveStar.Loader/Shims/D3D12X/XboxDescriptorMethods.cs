@@ -61,7 +61,7 @@ internal static unsafe class XboxDescriptorMethods
 
         if (description != null)
         {
-            location = ConstantSource(handle, description->Location, description->Size);
+            location = ConstantSource(description->Location, description->Size);
         }
 
         // In the game's own heaps a CBV is a V# the programs read as a ByteAddressBuffer: a raw SRV over the same bytes.
@@ -101,34 +101,36 @@ internal static unsafe class XboxDescriptorMethods
     }
 
     /// <summary>
-    /// The address the constant-buffer view written at <paramref name="handle"/> reads: the game's own in memory a
-    /// desktop buffer covers that the game does not remap; else (its constant pools in XMem pages, remapped thousands of
-    /// times in the story load, or memory no buffer covers) a copy refreshed at every submission (<see cref="ConstantCopies"/>).
+    /// The address a constant-buffer view reads: the game's own where a desktop buffer covers it; else, for game memory
+    /// the CPU can read (XMem pages of the game's constant pools, which it remaps under any buffer thousands of times
+    /// in the story load), a copy made now in the upload ring (<see cref="UploadArena"/>), which the address table
+    /// covers. The game writes the constants before it creates the view.
     /// </summary>
     [HotPath]
-    private static ulong ConstantSource(nint handle, ulong address, uint size)
+    private static ulong ConstantSource(ulong address, uint size)
     {
-        if (address == 0 || size == 0)
+        if (address == 0 || size == 0 || D3D12X.GameMemory.TryFind(address, out _))
         {
             return address;
         }
 
-        var memory = ShimContext.Runtime.XMemPhysical;
-        bool remappable = memory.IsReserved(memory.CpuAddress((nint)address));
+        byte* source = D3D12X.MemorySource.Find(address, size);
+        ulong rounded = (size + ConstantBufferViewDescription.Alignment - 1) & ~(ulong)(ConstantBufferViewDescription.Alignment - 1);
+        byte* copy = null;
 
-        if (!remappable && D3D12X.GameMemory.TryFind(address, out _))
+        if (source != null)
+        {
+            copy = D3D12X.Uploads.Allocate(rounded, ConstantBufferViewDescription.Alignment);
+        }
+
+        if (copy == null)
         {
             return address;
         }
 
-        ulong copy = D3D12X.ConstantCopies.CopyFor(handle, address, size);
+        Buffer.MemoryCopy(source, copy, rounded, size);
 
-        if (copy == 0)
-        {
-            return address;
-        }
-
-        return copy;
+        return (ulong)copy;
     }
 
     private static void WarnUnknownConstantBuffer(ulong address, uint size)
