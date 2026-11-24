@@ -17,7 +17,7 @@
         { "name": "Next stage streaming", "done": 1, "partial": 0, "todo": 0, "note": "three-minute boots run without a crash" },
         { "name": "First image", "done": 1, "partial": 0, "todo": 0, "note": "the intro video" },
         { "name": "First-run screens", "done": 1, "partial": 0, "todo": 0, "note": "options, legal, privacy; UI text complete" },
-        { "name": "Story load", "done": 0, "partial": 1, "todo": 0, "note": "corruption fixed; the GPU frame is too slow (loops at the guard)" },
+        { "name": "Story load", "done": 0, "partial": 1, "todo": 0, "note": "runs 300 s without a fault; the load does not finish yet" },
         { "name": "In game", "done": 0, "partial": 0, "todo": 1 }
       ]
     },
@@ -74,7 +74,7 @@
     {
       "area": "Running the game",
       "items": [
-        { "name": "Story load", "note": "the GPU frame is too slow about 200 s in" },
+        { "name": "Story load", "note": "the story load does not finish within 300 s" },
         { "name": "Brightness symbol", "note": "still black on the calibration screen" },
         { "name": "Runaway loops", "note": "three compute programs hit the loop guard; wrong inputs" },
         { "name": "In-game audio", "note": "menus and intro play; XMA voices not yet heard" },

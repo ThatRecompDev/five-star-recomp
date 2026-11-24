@@ -74,7 +74,7 @@
           "done": 0,
           "partial": 1,
           "todo": 0,
-          "note": "corruption fixed; the GPU frame is too slow (loops at the guard)"
+          "note": "runs 300 s without a fault; the load does not finish yet"
         },
         {
           "name": "In game",
@@ -210,7 +210,7 @@
       "items": [
         {
           "name": "Story load",
-          "note": "the GPU frame is too slow about 200 s in"
+          "note": "the story load does not finish within 300 s"
         },
         {
           "name": "Brightness symbol",
