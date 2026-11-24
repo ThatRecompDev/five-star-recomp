@@ -123,6 +123,7 @@ internal sealed unsafe class D3D12Debugging : IDisposable
 
     public void Dispose()
     {
+        Messages.Detach();
         _watch.Dispose();
     }
 

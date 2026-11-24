@@ -49,7 +49,12 @@ internal sealed class OnDemandPrograms : IProgramLibrary
         _workers = workers;
         _warnings = warnings;
         _compilerCounts = compilerCounts;
+
+        Links = new ProducerLinks(producer, workers);
     }
+
+    /// <summary>Producers linked to the pixel shaders they run with.</summary>
+    public ProducerLinks Links { get; }
 
     public long HeldBytes => (_translated?.HeldBytes ?? 0) + _compiled.HeldBytes;
 
@@ -64,8 +69,15 @@ internal sealed class OnDemandPrograms : IProgramLibrary
             var failed = _failures.Values.Sum();
             var causes = string.Join("; ", _failures.OrderByDescending(entry => entry.Value).Take(CausesShown).Select(entry => $"{entry.Value} {entry.Key}"));
 
-            return $"programs on demand: {_jobs.Count} asked for, {Volatile.Read(ref _made)} translated and compiled, {Volatile.Read(ref _found)} found compiled{_compilerCounts?.Invoke()}, ready after {average:F1} s on average and {slowest:F0} s at most, {failed} failed ({causes}), {_workers.Backlog} queued, {_workers.Running} running, {_workers.WaitingForMemory} waiting for memory";
+            return $"programs on demand: {_jobs.Count} asked for, {Volatile.Read(ref _made)} translated and compiled, {Volatile.Read(ref _found)} found compiled{_compilerCounts?.Invoke()}, ready after {average:F1} s on average and {slowest:F0} s at most, {failed} failed ({causes}), {_workers.Backlog} queued, {_workers.Running} running, {_workers.WaitingForMemory} waiting for memory, {Links.Summary}";
         }
+    }
+
+    /// <summary>Drops the DXIL read so far; programs in use stay with their users.</summary>
+    public void Forget()
+    {
+        _translated?.Forget();
+        _compiled.Forget();
     }
 
     public TranslatedProgram? Find(ReadOnlySpan<byte> prefix)

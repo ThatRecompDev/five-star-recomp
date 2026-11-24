@@ -3,9 +3,11 @@
 
 using System.Diagnostics;
 using FiveStar.Loader.Diagnostics;
+using FiveStar.Loader.Loading;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims;
 using FiveStar.Loader.Shims.D3D12X;
+using FiveStar.Loader.Shims.D3D12X.DebugLayer;
 using FiveStar.Loader.Shims.D3D12X.Pipelines;
 using FiveStar.Shaders.Cache;
 
@@ -28,9 +30,9 @@ internal static unsafe class WarmPipelinesCommand
     {
         var folders = HostComposition.CreatePipelineFolders(options);
 
-        if (folders.Programs is null || folders.Translated is null || folders.Cache is null)
+        if (folders.Programs is null || (folders.Translated is null && folders.OnDemand is null) || folders.Cache is null)
         {
-            log.Error("--warm-pipelines needs --shader-dir, --translated-dir and a pipeline cache (not --no-pipeline-cache)");
+            log.Error("--warm-pipelines needs --shader-dir, --translated-dir or a compiler for programs on demand, and a pipeline cache (not --no-pipeline-cache)");
 
             return LoaderHost.UsageError;
         }
@@ -40,6 +42,16 @@ internal static unsafe class WarmPipelinesCommand
         nint device2;
         nint root;
 
+        // --d3d12-debug: the runtime's reason for a refused pipeline (E_INVALIDARG) goes to the log.
+        using var debugging = new D3D12Debugging(device, new ImageTable(), log);
+
+        if (options.D3D12Debug)
+        {
+            debugging.Enable(options.D3D12GpuValidation);
+        }
+
+        debugging.BeforeDevice();
+
         if (HResult.Failed(device.CreateDevice(D3D12XLayout.MinimumFeatureLevel, &iid, &device2)) || HResult.Failed(BindlessRoot.Create(device2, &root)))
         {
             log.Error("no D3D12 device or root signature on the default adapter");
@@ -47,6 +59,7 @@ internal static unsafe class WarmPipelinesCommand
             return LoaderHost.Failure;
         }
 
+        debugging.AttachDevice(device2);
         var cache = PipelineLibraryCache.Open(folders.Cache, device2, log);
 
         if (cache is null)
@@ -66,11 +79,11 @@ internal static unsafe class WarmPipelinesCommand
     {
         var warnings = new OnceLog(log);
         var index = ProgramIndex.Load(folders.Programs!);
-        var library = TranslatedProgramLibrary.Open(index, folders.Translated!, device2, warnings, log);
+        var (library, onDemand, forget) = Library(folders, index, device2, warnings, log);
 
         var builds = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
         var standIns = new StandInPipelines(PipelineSlots.CreationBudget, builds, builds, warnings);
-        var factory = new PipelineFactory(device2, root, library, new ProgramSignatures(folders.Programs!), warnings, null, standIns, cache);
+        var factory = new PipelineFactory(device2, root, library, new ProgramSignatures(folders.Programs!), warnings, null, standIns, cache) { OnDemand = onDemand, LinkInline = true };
         var warmup = new PipelineWarmup(factory, cache, folders.Cache!, log);
 
         // The pipelines earlier boots asked for, in first-use order, then (unless --warm-used-only) the console cache's.
@@ -97,7 +110,7 @@ internal static unsafe class WarmPipelinesCommand
 
         try
         {
-            if (!warmup.Run(targets, jobs, library.Forget))
+            if (!warmup.Run(targets, jobs, forget))
             {
                 log.Info($"warm-up stopped after {clock.Elapsed:hh\\:mm\\:ss}: {warmup.Tally.Summary}; run again to resume");
 
@@ -112,6 +125,24 @@ internal static unsafe class WarmPipelinesCommand
         {
             Console.CancelKeyPress -= stop;
         }
+    }
+
+    /// <summary>
+    /// The translation, through the program cache too when there is a compiler: producers that need linking to their
+    /// pixel shader are then linked on the warm-up's threads (<see cref="ProducerLinks"/>). With how to drop read DXIL.
+    /// </summary>
+    private static (IProgramLibrary Library, OnDemandPrograms? OnDemand, Action Forget) Library(PipelineFolders folders, ProgramIndex index, nint device2, OnceLog warnings, LoaderLog log)
+    {
+        var onDemand = folders.OnDemand?.Open(index, folders.Programs!, folders.Translated, device2, warnings, log);
+
+        if (onDemand is not null)
+        {
+            return (onDemand, onDemand, onDemand.Forget);
+        }
+
+        var translated = TranslatedProgramLibrary.Open(index, folders.Translated!, device2, warnings, log);
+
+        return (translated, null, translated.Forget);
     }
 
     /// <summary>The targets with a shader whose extracted program name contains one of <paramref name="matches"/>; all without.</summary>

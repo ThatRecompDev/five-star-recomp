@@ -33,6 +33,14 @@ public static class PsvSignatureParser
     private const int StartColumnMask = 0x3;
     private const int AllocatedBit = 6;
 
+    /// <summary>The signatures of a compiled program's PSV0 chunk (a DXBC container as dxc writes it).</summary>
+    public static PsvSignatures OfProgram(byte[] program)
+    {
+        var chunk = DxbcContainer.Parse(program).Find(ChunkCode) ?? throw new InvalidDataException("no PSV0 chunk");
+
+        return Parse(chunk.Data.Span);
+    }
+
     public static PsvSignatures Parse(ReadOnlySpan<byte> chunk)
     {
         var info = PipelineStateParser.Parse(chunk);

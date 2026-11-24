@@ -438,7 +438,8 @@ internal sealed unsafe class StandInPipelines
         return $"{total} lists ran work after a skipped one ({top})";
     }
 
-    private string Name(nint standIn)
+    /// <summary>The programs of a stand-in, or "unnamed".</summary>
+    public string Name(nint standIn)
     {
         return _names.GetValueOrDefault(standIn, "unnamed");
     }

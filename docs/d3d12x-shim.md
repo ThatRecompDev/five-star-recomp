@@ -711,7 +711,9 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   each names, the game's own record and a buffer's first values, and every root CBV, SRV or UAV with its address and
   the first 16 dwords there. After each traced draw the first render target is
   copied inside the game's list (`DrawProbes`) and summarized two presents later (non-black pixels, their box, mean
-  colour). The game executes some closed lists again, so a probe's buffer is released only once its list was reset
+  colour). At each captured present a census (`DrawCensus`) logs every draw, dispatch and ExecuteIndirect since the
+  previous one, counted by pipeline and first render target, recorded or skipped (a stand-in's work); for a dispatch
+  the target is the list's last one. The game executes some closed lists again, so a probe's buffer is released only once its list was reset
   (releasing it at the report removed the device, debug-layer error #921).
 - `--capture-presents 60,300` reads the presented plane back at those present numbers once the presenting queue is
   idle and logs the same summary; `--capture-dir <dir>` also writes `present-N.png` there. Only the plane is read,

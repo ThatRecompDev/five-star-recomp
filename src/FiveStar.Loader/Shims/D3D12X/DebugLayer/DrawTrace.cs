@@ -45,9 +45,11 @@ internal sealed unsafe class DrawTrace
     private readonly ConcurrentDictionary<nint, string> _views = new();
     private readonly ConcurrentDictionary<nint, ulong> _constantBuffers = new();
     private readonly ConcurrentDictionary<nint, (nint Resource, int Home)> _targetViews = new();
+    private readonly ConcurrentDictionary<nint, string> _targetDescriptions = new();
     private readonly ConcurrentDictionary<nint, DrawTraceList> _lists = new();
     private readonly FrameCapture _capture;
     private readonly DrawProbes _probes;
+    private readonly DrawCensus _census;
     private readonly GameMemorySource _memory;
     private readonly XboxDeviceFactory _d3d12;
     private readonly LoaderLog _log;
@@ -60,6 +62,7 @@ internal sealed unsafe class DrawTrace
     {
         _capture = capture;
         _probes = new DrawProbes(log);
+        _census = new DrawCensus(log);
         _memory = memory;
         _d3d12 = d3d12;
         _log = log;
@@ -111,7 +114,11 @@ internal sealed unsafe class DrawTrace
     {
         var wrapper = _d3d12.Objects.AsResource(resource);
         int home = wrapper == null ? States.ResourceStates.RenderTarget : wrapper->HomeState;
-        _targetViews[handle] = (_d3d12.Objects.Unwrap(resource), home);
+        nint desktop = _d3d12.Objects.Unwrap(resource);
+        _targetViews[handle] = (desktop, home);
+
+        // Described while alive: the census reports targets the game may have released since.
+        _targetDescriptions[desktop] = Describe(desktop);
     }
 
     /// <summary>List slot 50 (<paramref name="single"/> ranges are not followed).</summary>
@@ -207,12 +214,27 @@ internal sealed unsafe class DrawTrace
         }
     }
 
+    /// <summary>A draw, dispatch or ExecuteIndirect of <paramref name="pipeline"/> (a stand-in when skipped), for the census.</summary>
+    [HotPath]
+    public void Census(XboxObject* list, nint pipeline, bool skipped)
+    {
+        nint target = 0;
+
+        if (_lists.TryGetValue((nint)list, out var state) && state.Targets.Length > 0 && _targetViews.TryGetValue(state.Targets[0], out var view))
+        {
+            target = view.Resource;
+        }
+
+        _census.Add(pipeline, target, skipped);
+    }
+
     /// <summary>Called after every present; true when probes are due (the caller then waits for the GPU and calls <see cref="Report"/>).</summary>
     public bool ReportDue(long present)
     {
         if (_capture.Wants(present))
         {
             Volatile.Write(ref _windowEnd, Interlocked.Read(ref _draws) + WindowDraws);
+            _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"));
         }
 
         Volatile.Write(ref _lastPresent, present);
@@ -235,6 +257,16 @@ internal sealed unsafe class DrawTrace
         }
 
         return 0;
+    }
+
+    private string PipelineName(nint pipeline, bool standIn)
+    {
+        if (standIn)
+        {
+            return _d3d12.Pipelines?.StandIns.Name(pipeline) ?? "unnamed";
+        }
+
+        return QueueProgress.PipelineName(pipeline);
     }
 
     private DrawTraceList List(XboxObject* list)

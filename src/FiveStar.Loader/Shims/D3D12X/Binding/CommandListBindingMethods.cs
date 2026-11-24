@@ -329,15 +329,18 @@ internal static unsafe class CommandListBindingMethods
     {
         var standIns = ShimContext.Runtime.D3D12X.Pipelines?.StandIns;
         var activity = ListActivity.Of(self);
+        var trace = ShimContext.Runtime.D3D12X.DrawTrace;
 
         if (CommandListBindings.Of(self)->PipelinePending == 0)
         {
             standIns?.Recorded(activity->Skipped);
             activity->Skipped = 0;
+            trace?.Census(self, RectangleListState.Of(self)->Pipeline, skipped: false);
 
             return false;
         }
 
+        trace?.Census(self, activity->StandIn, skipped: true);
         standIns?.Skipped(activity->StandIn);
         activity->Skipped = activity->StandIn;
 

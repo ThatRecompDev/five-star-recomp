@@ -155,6 +155,19 @@ programs made on demand`.
 dxc compiles inside the loader, so a dxc crash ends the game; `fivestar shader translate` keeps dxc.exe (one
 process per compile, killed at its time limit) for the full run.
 
+### Linked producers
+
+A producer translated on its own does not always link with its pixel shader: in the opening cutscene the runtime
+refused the G-buffer pipelines `PS_DeferredTextured*` + `MS_VS_Transform*` with E_INVALIDARG (debug layer error 666:
+the PS reads `ATTRLO3`/`ATTRHI3`, f16 halves a mesh program with more than two params does not export), so the world
+geometry they draw stayed skipped. `ProducerLinks` checks each pair's PSV0 signatures (`StageLinker.Links`: every
+PS input has a producer output of the same semantic in the same register). A pair that fails gets a stand-in, and a
+program worker makes the linked forms ([shader-translation.md](shader-translation.md#stages), Linkage): for a mesh
+producer the PS without the inputs it never reads (`<ps>.trim.dxil`), then the producer linked to that PS
+(`<producer>.link-<key>.dxil`), both in the program cache. The pipeline is then built from them. The warm-up links on its
+own threads. The summary of programs on demand counts the pairs that needed a link, the links made and those that failed
+(a failure is kept as `.fail` with the source and the compiler's report beside it).
+
 ### Disk cache
 
 The driver's own shader cache stores a compile only once it finishes, so a boot that ends before the largest
@@ -192,8 +205,11 @@ loads the driver refused.
 
 ### Warm-up
 
-`fivestar-loader --warm-pipelines <shaders.rpf | cache blob> --shader-dir <fssm> --translated-dir <dxil>
-[--pipeline-cache <dir>] [--warm-jobs N] [--warm-step K] [--warm-match text] [--warm-used-only]` runs no game. On the
+`fivestar-loader --warm-pipelines <shaders.rpf | cache blob> --shader-dir <fssm> [--translated-dir <dxil>]
+[--program-cache <dir>] [--pipeline-cache <dir>] [--warm-jobs N] [--warm-step K] [--warm-match text] [--warm-used-only]`
+runs no game. Programs come from the translation and the program cache, and those both lack are made on demand
+first, as in the game ([Programs on demand](#programs-on-demand)), so the game's next boot finds programs and
+pipelines ready. On the
 default adapter it first takes the pipelines earlier boots asked for (the journal, below) in the order the game first
 asked, then (unless `--warm-used-only`) reads the console pipeline cache ([pipeline-cache.md](pipeline-cache.md)) and
 turns every compute and graphics record into the description slots 67 and 57 would get, and builds each through the same factory as the game, on
@@ -202,7 +218,7 @@ largest code first. A pipeline whose key is cached is skipped, so a stopped run 
 and writes the cache) resumes; pipelines the driver refuses are listed in `warm-failures.txt` in the cache folder
 and not retried while their key stays the same. Builds over 20 s are named in the log; every 30 s it prints the
 counts. `--warm-step K` takes every K-th record, `--warm-match` only records with a program whose name contains the
-text. `fivestar setup` runs it as the `pipeline-warm` step ([setup.md](setup.md)).
+text. With `--d3d12-debug` the runtime's reason for each refused pipeline goes to the log. `fivestar setup` runs it as the `pipeline-warm` step ([setup.md](setup.md)).
 
 Slot 86 streams and slot 55 derives are not in the console cache; the journal brings them to the warm-up.
 
@@ -392,9 +408,8 @@ unwrapped, so slot 55 receives the desktop pointer it registered.
   console's code or an island target off by one instruction (0x11fd4 holds the loop's `s_cbranch_execz`). The
   structurizer refuses it ("loop without exit"), so these programs translate to the dispatch-loop form (3,700 cases,
   10 MB of DXIL), which the driver compiles for minutes with tens of gigabytes.
-- The other graphics pipelines the desktop runtime refuses with E_INVALIDARG: the debug layer reports stage
-  linkage (errors 660, 662: an output in another register or with fewer components than the pixel shader reads;
-  666: a mesh shader without the pixel shader's `TEXCOORD22`), so the translated signatures differ between stages.
+- Whether pipelines the runtime refuses remain after linked producers ([Linked producers](#linked-producers)); the
+  debug layer reported stage linkage (errors 660, 662, 666) for them.
 - Override kind 5, and whether kinds 3 and 4 exist.
 - The meaning of the shader flags beyond the mesh bits, and of the second stored bytecode (+0x10, size +0x2C) that
   0x14086f8e0 reads when its last argument is set (the pipeline paths pass 0).
