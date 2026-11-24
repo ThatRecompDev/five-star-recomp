@@ -1,7 +1,8 @@
-﻿// Copyright (c) 2026 Five Star Recomp contributors.
+// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Formats.Images;
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Shims.D3D12X.Resources;
 using Vortice.Direct3D12;
@@ -19,7 +20,7 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 internal sealed unsafe class DrawProbes
 {
     private readonly object _gate = new();
-    private readonly List<(string Label, ID3D12Resource Buffer, PlacedSubresourceFootPrint Footprint, uint Rows, ulong RowBytes, int Width, int Format, nint List, long Generation)> _pending = [];
+    private readonly List<(string Label, ID3D12Resource Buffer, PlacedSubresourceFootPrint Footprint, uint Rows, ulong RowBytes, int Width, int Format, nint List, long Generation, string? Png)> _pending = [];
     private readonly List<(ID3D12Resource Buffer, nint List, long Generation)> _reported = [];
     private readonly LoaderLog _log;
 
@@ -29,14 +30,23 @@ internal sealed unsafe class DrawProbes
     }
 
     /// <summary>Records the copy of <paramref name="target"/> (in <paramref name="state"/> on the list) into the desktop list <paramref name="list"/>.</summary>
-    /// <paramref name="key"/> and <paramref name="generation"/> name the game's list and how often it was reset.
-    public void Record(nint device, nint list, nint target, int state, string label, nint key, long generation)
+    /// <paramref name="key"/> and <paramref name="generation"/> name the game's list and how often it was reset; with
+    /// <paramref name="png"/> the report also writes the image there.
+    public void Record(nint device, nint list, nint target, int state, string label, nint key, long generation, string? png = null)
     {
         Marshal.AddRef(device);
         using var desktop = new ID3D12Device(device);
         Marshal.AddRef(target);
         var texture = new ID3D12Resource(target);
         var description = texture.Description;
+
+        // A multisampled or non-2D target cannot be copied to a buffer this way.
+        if (description.Dimension != ResourceDimension.Texture2D || description.SampleDescription.Count > 1)
+        {
+            texture.Dispose();
+
+            return;
+        }
 
         var footprints = new PlacedSubresourceFootPrint[1];
         var rows = new uint[1];
@@ -55,7 +65,7 @@ internal sealed unsafe class DrawProbes
 
         lock (_gate)
         {
-            _pending.Add((label, buffer, footprints[0], rows[0], rowBytes[0], (int)description.Width, (int)description.Format, key, generation));
+            _pending.Add((label, buffer, footprints[0], rows[0], rowBytes[0], (int)description.Width, (int)description.Format, key, generation, png));
         }
     }
 
@@ -78,7 +88,7 @@ internal sealed unsafe class DrawProbes
 
             foreach (var probe in _pending)
             {
-                _log.Info($"  [draws] after {probe.Label}: {Summary(probe.Buffer, probe.Footprint, probe.Rows, probe.RowBytes, probe.Width, probe.Format)}");
+                _log.Info($"  [draws] after {probe.Label}: {Summary(probe.Buffer, probe.Footprint, probe.Rows, probe.RowBytes, probe.Width, probe.Format, probe.Png)}");
                 _reported.Add((probe.Buffer, probe.List, probe.Generation));
             }
 
@@ -86,7 +96,7 @@ internal sealed unsafe class DrawProbes
         }
     }
 
-    private static string Summary(ID3D12Resource buffer, PlacedSubresourceFootPrint footprint, uint rows, ulong rowBytes, int width, int format)
+    private static string Summary(ID3D12Resource buffer, PlacedSubresourceFootPrint footprint, uint rows, ulong rowBytes, int width, int format, string? png)
     {
         var pixels = new byte[(int)rowBytes * (int)rows];
         void* data;
@@ -103,6 +113,11 @@ internal sealed unsafe class DrawProbes
         if (rgba is null)
         {
             return $"format {format} not converted";
+        }
+
+        if (png is not null)
+        {
+            PngWriter.Write(png, width, (int)rows, rgba);
         }
 
         return ReadbackPixels.Summarize(rgba, width, (int)rows);

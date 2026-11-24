@@ -26,6 +26,9 @@ internal sealed unsafe class DrawTrace
 {
     private const int FirstDraws = 24;
     private const int WindowDraws = 32;
+
+    /// <summary>Targets read back in one dumped frame at most: each costs a readback buffer of its size.</summary>
+    private const int DumpsPerFrame = 24;
     private const long ReportDelay = 2;
     private const uint RecordsShown = 8;
     private const uint VerticesShown = 3;
@@ -50,6 +53,9 @@ internal sealed unsafe class DrawTrace
     private readonly ConcurrentDictionary<nint, ulong> _constantBuffers = new();
     private readonly ConcurrentDictionary<nint, (nint Resource, int Home)> _targetViews = new();
     private readonly ConcurrentDictionary<nint, string> _targetDescriptions = new();
+    private readonly ConcurrentDictionary<nint, byte> _dumped = new();
+    private long _dumpPresent;
+    private int _dumps;
     private readonly ConcurrentDictionary<nint, DrawTraceList> _lists = new();
     private readonly FrameCapture _capture;
     private readonly DrawProbes _probes;
@@ -130,6 +136,12 @@ internal sealed unsafe class DrawTrace
         _targetDescriptions[desktop] = Describe(desktop);
     }
 
+    /// <summary>
+    /// With <c>--d3d12-dump-targets</c>: in the frame after each captured present, every render and depth target is
+    /// read back when a list first leaves it (its first pass done) and written as a PNG beside the captures.
+    /// </summary>
+    public static bool DumpTargets { get; set; }
+
     /// <summary>List slot 50 (<paramref name="single"/> ranges are not followed).</summary>
     public void RenderTargets(XboxObject* list, uint count, nint* handles, bool single, nint depthStencil)
     {
@@ -142,6 +154,12 @@ internal sealed unsafe class DrawTrace
         }
 
         var state = List(list);
+
+        if (Volatile.Read(ref _dumpPresent) != 0)
+        {
+            Dump(list, state);
+        }
+
         state.Targets = targets;
         state.DepthStencil = depthStencil;
     }
@@ -250,6 +268,17 @@ internal sealed unsafe class DrawTrace
             _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"));
         }
 
+        // Targets are dumped during the one frame after a captured present.
+        _dumped.Clear();
+        Volatile.Write(ref _dumps, 0);
+        long dumping = 0;
+
+        if (wanted && DumpTargets)
+        {
+            dumping = present;
+        }
+
+        Volatile.Write(ref _dumpPresent, dumping);
         Volatile.Write(ref _lastPresent, present);
 
         return present == Volatile.Read(ref _reportAt);
@@ -286,6 +315,37 @@ internal sealed unsafe class DrawTrace
         }
 
         return 0;
+    }
+
+    /// <summary>The list leaves its targets: each one not read back yet this frame is copied now, in the list.</summary>
+    private void Dump(XboxObject* list, DrawTraceList state)
+    {
+        long present = Volatile.Read(ref _dumpPresent);
+
+        foreach (nint handle in state.Targets.Append(state.DepthStencil))
+        {
+            if (handle == 0 || !_targetViews.TryGetValue(handle, out var target) || !_dumped.TryAdd(target.Resource, 0))
+            {
+                continue;
+            }
+
+            if (Interlocked.Increment(ref _dumps) > DumpsPerFrame)
+            {
+                return;
+            }
+
+            int current = _d3d12.ListStates.Find(list)?.Current(target.Resource, target.Home) ?? target.Home;
+            string? png = null;
+
+            if (_capture.Directory is not null)
+            {
+                png = Path.Combine(_capture.Directory, $"present-{present}-target-0x{target.Resource:x}.png");
+            }
+
+            string label = $"present {present} target 0x{target.Resource:x} {_targetDescriptions.GetValueOrDefault(target.Resource, "?")}";
+            _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, target.Resource, current, label, (nint)list, state.Resets, png);
+            Interlocked.CompareExchange(ref _reportAt, Volatile.Read(ref _lastPresent) + ReportDelay, 0);
+        }
     }
 
     private string PipelineName(nint pipeline, bool standIn)

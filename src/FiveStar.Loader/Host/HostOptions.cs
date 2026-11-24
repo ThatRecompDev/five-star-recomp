@@ -188,6 +188,9 @@ internal sealed record HostOptions
     /// <summary>What draws bind and what their targets hold, in the log (<c>--d3d12-trace-draws</c>).</summary>
     public bool D3D12TraceDraws { get; set; }
 
+    /// <summary>With the draw trace, every target of the frame after a captured present as a PNG (<c>--d3d12-dump-targets</c>).</summary>
+    public bool D3D12DumpTargets { get; set; }
+
     /// <summary>Pipelines whose draws the trace also logs after each captured present (<c>--d3d12-trace-pipeline</c>).</summary>
     public string? D3D12TracePipeline { get; set; }
 
