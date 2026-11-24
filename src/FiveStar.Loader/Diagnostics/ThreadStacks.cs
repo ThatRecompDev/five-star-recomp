@@ -137,7 +137,7 @@ internal sealed unsafe class ThreadStacks
     }
 
     /// <summary>The thread's description (the game's thread names, .NET's Thread.Name), or empty.</summary>
-    private static string Name(uint id)
+    public static string Name(uint id)
     {
         nint thread = Kernel32.OpenThread(QueryLimited, 0, id);
 
