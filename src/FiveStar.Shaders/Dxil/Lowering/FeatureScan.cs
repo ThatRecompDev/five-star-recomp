@@ -44,7 +44,7 @@ public static class FeatureScan
 
         flags |= OperationFlags(instruction);
 
-        if (flags.HasFlag(ShaderFlagBits.EnableDoublePrecision) && NeedsExtensions(instruction))
+        if ((flags & ShaderFlagBits.EnableDoublePrecision) != 0 && NeedsExtensions(instruction))
         {
             flags |= ShaderFlagBits.EnableDoubleExtensions;
         }

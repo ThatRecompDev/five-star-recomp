@@ -11,7 +11,12 @@ public readonly record struct Token(TokenKind Kind, string Text, int Line, bool 
 {
     public ulong Integer { get; init; }
 
-    public double Real { get; init; }
+    /// <summary>A real literal's value, kept in the bits of <see cref="Integer"/> (a token is one or the other).</summary>
+    public double Real
+    {
+        get => BitConverter.UInt64BitsToDouble(Integer);
+        init => Integer = BitConverter.DoubleToUInt64Bits(value);
+    }
 
     public char Suffix { get; init; }
 

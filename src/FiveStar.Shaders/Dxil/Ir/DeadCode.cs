@@ -161,10 +161,15 @@ public static class DeadCode
 
         foreach (var block in function.Blocks)
         {
-            foreach (var instruction in block.Body.Where(instruction => instruction.HasEffect).Append(block.Terminator!))
+            foreach (var instruction in block.Body)
             {
-                Mark(instruction, work);
+                if (instruction.HasEffect)
+                {
+                    Mark(instruction, work);
+                }
             }
+
+            Mark(block.Terminator!, work);
         }
 
         while (work.Count > 0)

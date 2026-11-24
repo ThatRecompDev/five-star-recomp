@@ -9,7 +9,11 @@ namespace FiveStar.Shaders.Dxil.Lowering;
 /// </summary>
 public sealed class HlslType
 {
-    private static readonly Dictionary<(ScalarKind, int), HlslType> Vectors = [];
+    private const int MinColumns = 2;
+    private const int MaxColumns = 4;
+
+    // Every vector type made once up front, so lookups need no lock while programs compile in parallel.
+    private static readonly HlslType[,] Vectors = MakeVectors();
 
     private HlslType(TypeShape shape)
     {
@@ -77,16 +81,28 @@ public sealed class HlslType
             return ScalarOf(kind);
         }
 
-        lock (Vectors)
+        if (size > MaxColumns)
         {
-            if (!Vectors.TryGetValue((kind, size), out var vector))
-            {
-                vector = new HlslType(TypeShape.Vector) { Kind = kind, Columns = size, Count = size };
-                Vectors[(kind, size)] = vector;
-            }
-
-            return vector;
+            return new HlslType(TypeShape.Vector) { Kind = kind, Columns = size, Count = size };
         }
+
+        return Vectors[(int)kind, size];
+    }
+
+    private static HlslType[,] MakeVectors()
+    {
+        var kinds = Enum.GetValues<ScalarKind>();
+        var vectors = new HlslType[kinds.Length, MaxColumns + 1];
+
+        foreach (var kind in kinds)
+        {
+            for (var size = MinColumns; size <= MaxColumns; size++)
+            {
+                vectors[(int)kind, size] = new HlslType(TypeShape.Vector) { Kind = kind, Columns = size, Count = size };
+            }
+        }
+
+        return vectors;
     }
 
     public static HlslType Matrix(ScalarKind kind, int rows, int columns)

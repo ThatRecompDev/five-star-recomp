@@ -16,6 +16,9 @@ internal sealed class FunctionBodyWriter
     private const int VbrWidth = 6;
     private const int OperatorWidth = 4;
 
+    // A call record's attribute list, flags, function type and callee before the arguments.
+    private const int CallFields = 4;
+
     private readonly BitstreamWriter _out;
     private readonly IrFunction _function;
     private readonly TypeTable _types;
@@ -105,16 +108,8 @@ internal sealed class FunctionBodyWriter
 
         foreach (var block in _layout)
         {
-            foreach (var instruction in Instructions(block))
-            {
-                WriteInstruction(instruction);
-
-                if (!instruction.Type.IsVoid)
-                {
-                    _next++;
-                }
-            }
-
+            WriteLive(block.Phis);
+            WriteLive(block.Body);
             WriteInstruction(block.Terminator!);
         }
 
@@ -164,10 +159,23 @@ internal sealed class FunctionBodyWriter
         _out.Record((int)code, operands);
     }
 
-    /// <summary>The live phis and body instructions of a block, in order.</summary>
-    private static IEnumerable<Instruction> Instructions(BasicBlock block)
+    /// <summary>Writes the live instructions of a list in order, numbering their results.</summary>
+    private void WriteLive(List<Instruction> instructions)
     {
-        return block.Phis.Concat(block.Body).Where(instruction => instruction.Live);
+        foreach (var instruction in instructions)
+        {
+            if (!instruction.Live)
+            {
+                continue;
+            }
+
+            WriteInstruction(instruction);
+
+            if (!instruction.Type.IsVoid)
+            {
+                _next++;
+            }
+        }
     }
 
     private static List<BasicBlock> ReversePostorder(BasicBlock entry)
@@ -208,9 +216,12 @@ internal sealed class FunctionBodyWriter
 
         foreach (var block in _layout)
         {
-            foreach (var instruction in block.Body.Where(instruction => instruction.HasEffect))
+            foreach (var instruction in block.Body)
             {
-                Mark(instruction, work);
+                if (instruction.HasEffect)
+                {
+                    Mark(instruction, work);
+                }
             }
 
             foreach (var operand in block.Terminator!.Operands)
@@ -321,7 +332,20 @@ internal sealed class FunctionBodyWriter
     private void WriteCall(Instruction call)
     {
         var callee = call.Callee!;
-        Record(FunctionCode.Call, [0, ModuleWriter.Records.ExplicitType, (ulong)callee.FunctionType.Id, Relative(callee), .. call.Operands.Select(Relative)]);
+        var operands = call.Operands;
+        Span<ulong> record = stackalloc ulong[CallFields + operands.Count];
+
+        record[0] = 0;
+        record[1] = ModuleWriter.Records.ExplicitType;
+        record[ThirdOperand] = (ulong)callee.FunctionType.Id;
+        record[ThirdOperand + 1] = Relative(callee);
+
+        for (var index = 0; index < operands.Count; index++)
+        {
+            record[CallFields + index] = Relative(operands[index]);
+        }
+
+        Record(FunctionCode.Call, record);
     }
 
     private void WritePhi(Instruction phi)

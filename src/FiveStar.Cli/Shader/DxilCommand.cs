@@ -214,6 +214,7 @@ internal static class DxilCommand
     {
         var marks = new (double Milliseconds, long Bytes)[PhaseCount];
         var allocated = GC.GetAllocatedBytesForCurrentThread();
+        var paused = GC.GetTotalPauseDuration();
         var clock = Stopwatch.StartNew();
 
         var tokens = Preprocessor.Run(hlsl, RuntimeIncludes.Read);
@@ -234,7 +235,8 @@ internal static class DxilCommand
         if (last)
         {
             var instructions = main.Blocks.Sum(block => block.Body.Count);
-            Console.WriteLine($"blocks {main.Blocks.Count}, instructions {instructions}, phis {main.Blocks.Sum(block => block.Phis.Count)}, bytes {container.Length}");
+            var pause = (GC.GetTotalPauseDuration() - paused).TotalMilliseconds;
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"blocks {main.Blocks.Count}, instructions {instructions}, phis {main.Blocks.Sum(block => block.Phis.Count)}, bytes {container.Length}, GC pauses {pause:F0} ms"));
         }
 
         return marks;
