@@ -42,6 +42,9 @@ internal static unsafe class MemoryWaits
     private const long DetailedEvents = 16;
     private const int YieldPolls = 2000;
     private const int IdleMilliseconds = 100;
+    private const long StallMilliseconds = 1500;
+    private const int StallDumps = 3;
+    private const int StallFrames = 24;
 
     private static readonly Guid FenceIid = new("0a753dcf-c4d8-4b91-adf6-be5a60d95a76");
     private static readonly object Gate = new();
@@ -59,6 +62,10 @@ internal static unsafe class MemoryWaits
     private static long _notKept;
     private static long _writerReports;
     private static long _releasedForCpu;
+    private static ulong _lastStallTicket;
+    private static ulong _stallToDump;
+    private static int _stallDumps;
+    private static Diagnostics.ThreadStacks? _stacks;
 
     /// <summary>Waits recorded, met at submission, waited for on the GPU, released by the timeout, released for a CPU wait, and not kept.</summary>
     public static (long Recorded, long Held, long Deferred, long TimedOut, long ReleasedForCpu, long Dropped) Counts =>
@@ -345,6 +352,11 @@ internal static unsafe class MemoryWaits
                 }
             }
 
+            if (_stallToDump != 0)
+            {
+                DumpStall();
+            }
+
             if (!waiting)
             {
                 Wake.WaitOne(IdleMilliseconds);
@@ -385,6 +397,7 @@ internal static unsafe class MemoryWaits
             if (!met && !state.ReleaseNow && Environment.TickCount64 < front.Deadline)
             {
                 waiting = true;
+                NoteStall(front);
 
                 break;
             }
@@ -406,6 +419,32 @@ internal static unsafe class MemoryWaits
         state.ReleaseNow = false;
 
         return released;
+    }
+
+    /// <summary>A wait pending for <see cref="StallMilliseconds"/>: the first <see cref="StallDumps"/> such tickets dump every thread's stack.</summary>
+    private static void NoteStall(in PendingWait wait)
+    {
+        long pending = Environment.TickCount64 - (wait.Deadline - TimeoutMilliseconds);
+
+        if (pending >= StallMilliseconds && wait.Ticket != _lastStallTicket && _stallDumps < StallDumps)
+        {
+            _lastStallTicket = wait.Ticket;
+            _stallToDump = wait.Address;
+        }
+    }
+
+    private static void DumpStall()
+    {
+        ulong address = _stallToDump;
+        _stallToDump = 0;
+        _stallDumps++;
+        _stacks ??= new Diagnostics.ThreadStacks(ShimContext.Runtime.Images, StallFrames);
+        _log?.Warn($"[memory wait] 0x{address:x} still waited for after {StallMilliseconds} ms; writer: {MemoryWaitWriters.Describe(address)}; every thread:");
+
+        if (_log is not null)
+        {
+            _stacks.Log(_log, "  [memory wait stall] ");
+        }
     }
 
     /// <summary>A timed-out address is not waited for again, so a missing writer costs one timeout.</summary>
