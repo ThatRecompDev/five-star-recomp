@@ -597,6 +597,12 @@ in the first 10 to 20 s after the first present are the game's own time while th
 frame-end wait (0x142474740 keeps two frames in flight and spins at 0x144fb0ad0) is short: under 1 % of
 running-thread samples. Stalls of 15 to 40 s came from `--profile-threads` (below and [loader.md](loader.md)).
 
+**After the story load.** The opening cutscene ran at 1 to 2 fps (600 to 870 ms of game time a frame, GPU idle at
+every present) while game threads sat in VirtualQuery called from the shims. In the game's 2.2 GiB heap one call
+walks the page tables for about 4 ms, and the shims asked per Map and Unmap, per CPU-mapped texture each frame, and
+per address-table miss. Allocations are now found with QueryVirtualMemoryInformation (about 1 µs), and XMem pages
+are skipped first. The cutscene then runs at the game's 30 fps (warm caches, RTX 4090, 7950X3D).
+
 ### Rectangle lists
 
 Topology 17 is the AMD rectangle list (hardware type 0x11): three vertices per rectangle, the fourth corner made by
