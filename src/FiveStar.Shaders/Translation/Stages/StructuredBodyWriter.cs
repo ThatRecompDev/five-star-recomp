@@ -39,7 +39,7 @@ internal sealed class StructuredBodyWriter
             return [];
         }
 
-        return new RegionEmitter(graph, entry.Value, _ => true).Emit(0);
+        return new RegionEmitter(graph, entry.Value, _ => true, LoopGuard.Hex(_state.Stage)).Emit(0);
     }
 
     /// <summary>One mesh phase: a switch over the regions; phase 1 (<paramref name="dropOutputs"/>) writes no outputs.</summary>
@@ -53,7 +53,7 @@ internal sealed class StructuredBodyWriter
         {
             lines.Add($"    case {Hlsl.Hex(graph.Blocks[entry].Address)}: {{");
             lines.Add("      pc = PC_END;");
-            lines.AddRange(new RegionEmitter(graph, entry, keep).Emit(CaseDepth));
+            lines.AddRange(new RegionEmitter(graph, entry, keep, LoopGuard.Hex(_state.Stage)).Emit(CaseDepth));
             lines.Add("    } break;");
         }
 

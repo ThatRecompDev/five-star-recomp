@@ -61,14 +61,21 @@ were checked against dxc's containers (`fivestar shader dxil --compare`); the co
 
 ## victory-gta6
 
-A GPL-3.0-or-later fork of VIctory (fxceless) that reaches the prologue's gameplay. Its queue synchronisation was a
-source of mechanisms, written anew in our design (docs/d3d12x-shim.md, Memory waits): command lists cut at the
-Wait32/Wait64 slots and the parts run in order once the value is in memory (list.rs::cut,
-queue.rs::submit_cut / elease_held), held waits released at a present, and memory values read without
-VirtualQuery (its measurement of about 8 ms per query in the game's 1.1 GB allocation). Its console_insn*.rs files
-are GPL-2.0-only code from XCL and were not used. No code was copied.
+https://github.com/fxceless/victory-gta6, GPL-3.0-or-later, a fork of VIctory that reaches the prologue's gameplay. Its
+changes were a source of mechanisms, each written anew in our design:
+
+- Queue synchronisation (docs/d3d12x-shim.md, Memory waits): command lists cut at the Wait32/Wait64 slots and the
+  parts run in order once the value is in memory (list.rs::cut, queue.rs::submit_cut / release_held), held waits
+  released at a present, and memory values read without VirtualQuery (its measurement of about 8 ms per query in the
+  game's 1.1 GB allocation).
+- Shader translation (docs/shader-translation.md): that `image_gather4_l` must read the named mip level (four loads in
+  gather order), that an f16 operation reads an inline float constant as its f16 value, and per-stage loop caps
+  against runaway loops.
+
+Its `console_insn*.rs` files are GPL-2.0-only code from XCL and were not used. No code was copied.
 
 ## XCL
+
 https://github.com/xcl-dev/xcl, GPL-2.0-only. Because that licence does not combine with ours, only facts from its
 notes were used, never its code, structure or tables: that the newer D3D12.X list layout puts
 Write32/64BitValueBottomOfPipeX at slots 71 and 72 and Wait32/64BitValueX at 73 and 74, that Wait64BitValueX's

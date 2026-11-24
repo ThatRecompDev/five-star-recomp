@@ -218,7 +218,10 @@ internal static unsafe class PoolStoreTrace
         _outsideSeen = count;
     }
 
-    /// <summary>A loop that ran into the loop guard (65,536 iterations): logged on the first hit per program, counted after.</summary>
+    /// <summary>
+    /// A loop that spent its invocation's loop cap (the stage's, in the value word; LoopGuard): logged on the first hit
+    /// per program, counted after.
+    /// </summary>
     private static void LogGuard(LoaderLog log, uint* entry)
     {
         long hits = Guards.AddOrUpdate(entry[0], 1, static (_, seen) => seen + 1);
@@ -226,7 +229,7 @@ internal static unsafe class PoolStoreTrace
         if (hits == 1 || hits == GuardHitsLoggedAgain)
         {
             string program = Programs.GetValueOrDefault(entry[0], $"program {entry[0]}");
-            log.Warn($"[store trace] loop {entry[HighWord] & ~KindMask} reached the loop guard in {program} ({hits} hits)");
+            log.Warn($"[store trace] loop {entry[HighWord] & ~KindMask} reached the loop cap of {entry[ValueWord]} iterations in {program} ({hits} hits)");
         }
     }
 

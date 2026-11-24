@@ -82,9 +82,9 @@ void TRACE_VSTORE(uint d0, uint d1, uint off, uint v) {   // a buffer store thro
 #ifdef FIVESTAR_STORE_TRACE
     if (off + bytes > limit && WaveIsFirstLane()) trace_entry(off, 0x20000000u | bytes, limit);
 #endif
-}void TRACE_GUARD(uint guard) {   // a structured loop that reached the loop guard
+}void TRACE_GUARD(uint guard, uint cap) {   // structured loop number guard spent the invocation's loop cap
 #ifdef FIVESTAR_STORE_TRACE
-    trace_entry(0u, 0x40000000u | guard, 0u);
+    trace_entry(0u, 0x40000000u | guard, cap);
 #endif
 }void TRACE_VIEW(uint heap_index, uint off, uint v) {
 #ifdef FIVESTAR_STORE_TRACE

@@ -88,7 +88,9 @@ public sealed class PixelCaseRunner
         var mismatches = new List<string>();
         var clear = testCase.FloatTargets ? Framebuffer.ClearFloatBits : Framebuffer.ClearUint;
 
-        foreach (var pixel in _fixture.PixelLanes)
+        var pixels = testCase.HalfCoverage ? _fixture.HalfCoverageLanes : _fixture.PixelLanes;
+
+        foreach (var pixel in pixels)
         {
             var expected = testCase.Expect(pixel);
             var actual = Enumerable.Range(0, testCase.Targets).SelectMany(target => result.Pixel(target, pixel.X, pixel.Y)).Take(testCase.Outputs).ToArray();

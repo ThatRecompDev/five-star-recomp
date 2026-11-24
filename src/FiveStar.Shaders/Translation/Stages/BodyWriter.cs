@@ -138,6 +138,7 @@ internal sealed class BodyWriter
     private void WriteStructured(List<string> lines)
     {
         List<string> body;
+        lines.Add("  uint loop_budget = 0;");
 
         try
         {

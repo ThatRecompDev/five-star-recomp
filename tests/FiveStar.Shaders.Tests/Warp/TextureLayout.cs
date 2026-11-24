@@ -7,7 +7,7 @@ namespace FiveStar.Shaders.Tests.Warp;
 
 /// <summary>
 /// How a <see cref="TextureResource"/> becomes a D3D12 texture: its resource and view descriptions and the staging
-/// layout of its subresources in a buffer (256-byte row pitch, 512-byte aligned subresources).
+/// layout of its subresources in a buffer (256-byte row pitch, 512-byte aligned subresources of level 0's size).
 /// </summary>
 public sealed class TextureLayout
 {
@@ -21,7 +21,7 @@ public sealed class TextureLayout
         _texture = texture;
         RowPitch = Align(texture.Width * texture.TexelBytes, RowAlignment);
         Depth = 1;
-        Subresources = texture.Layers;
+        Subresources = texture.Layers * texture.Levels;
 
         if (texture.Kind == TextureKind.Texture3D)
         {
@@ -61,13 +61,14 @@ public sealed class TextureLayout
             case TextureKind.Texture3D:
                 return ResourceDescription.Texture3D(_texture.Format, width, height, layers, 1, flags);
             default:
-                return ResourceDescription.Texture2D(_texture.Format, width, height, layers, 1, 1, 0, flags);
+                return ResourceDescription.Texture2D(_texture.Format, width, height, layers, (ushort)_texture.Levels, 1, 0, flags);
         }
     }
 
     public PlacedSubresourceFootPrint Footprint(int subresource)
     {
-        var footprint = new SubresourceFootPrint(_texture.Format, (uint)_texture.Width, (uint)_texture.Height, (uint)Depth, (uint)RowPitch);
+        var level = subresource % _texture.Levels;
+        var footprint = new SubresourceFootPrint(_texture.Format, (uint)Extent(_texture.Width, level), (uint)Extent(_texture.Height, level), (uint)Depth, (uint)RowPitch);
 
         return new PlacedSubresourceFootPrint { Offset = (ulong)(subresource * SubresourceBytes), Footprint = footprint };
     }
@@ -111,7 +112,7 @@ public sealed class TextureLayout
                 break;
             case TextureKind.Texture2DArray:
                 description.ViewDimension = ShaderResourceViewDimension.Texture2DArray;
-                description.Texture2DArray = new Texture2DArrayShaderResourceView { MipLevels = 1, ArraySize = layers };
+                description.Texture2DArray = new Texture2DArrayShaderResourceView { MipLevels = (uint)_texture.Levels, ArraySize = layers };
                 break;
             case TextureKind.TextureCube:
                 description.ViewDimension = ShaderResourceViewDimension.TextureCube;
@@ -119,7 +120,7 @@ public sealed class TextureLayout
                 break;
             default:
                 description.ViewDimension = ShaderResourceViewDimension.Texture2D;
-                description.Texture2D = new Texture2DShaderResourceView { MipLevels = 1 };
+                description.Texture2D = new Texture2DShaderResourceView { MipLevels = (uint)_texture.Levels };
                 break;
         }
 
@@ -159,13 +160,15 @@ public sealed class TextureLayout
 
     private void Copy(uint[] source, uint[] destination, bool toStaging)
     {
-        var rowWords = _texture.Width * _texture.TexelBytes / 4;
+        var packed = 0;
 
         for (var subresource = 0; subresource < Subresources; subresource++)
         {
-            for (var row = 0; row < _texture.Height * Depth; row++)
+            var level = subresource % _texture.Levels;
+            var rowWords = Extent(_texture.Width, level) * _texture.TexelBytes / 4;
+
+            for (var row = 0; row < Extent(_texture.Height, level) * Depth; row++, packed += rowWords)
             {
-                var packed = ((subresource * Depth * _texture.Height) + row) * rowWords;
                 var staged = ((subresource * SubresourceBytes) + (row * RowPitch)) / 4;
 
                 if (toStaging)
@@ -178,6 +181,11 @@ public sealed class TextureLayout
                 }
             }
         }
+    }
+
+    private static int Extent(int size, int level)
+    {
+        return Math.Max(size >> level, 1);
     }
 
     private static int Align(int value, int alignment)

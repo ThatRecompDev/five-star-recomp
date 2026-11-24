@@ -100,10 +100,25 @@ side: their outputs are equal apart from fast-math rounding in dxc.
 
 ### Loop guard
 
-Every loop is bounded (`LoopGuard`): a structured loop counts its iterations in `uint loop_guardN` and leaves after
-65,536 through `break` (a loop with several exits then takes the one numbered 0), and the dispatch `while` stops after
-2^24 blocks. A console program's loops end on the data the console gives it; on the PC one wrong input keeps a loop
-going until the driver removes the device. In the story load, `InstanceCulling~CS_Prop_BatchCull` (counted loops that
+Every loop is bounded (`LoopGuard`): every iteration of a structured loop spends one of the invocation's
+`loop_budget`, and once the stage's cap is spent each loop leaves at its next iteration through `break` (a loop with
+several exits then takes the one numbered 0). The dispatch `while` stops after 2^24 blocks. A console program's loops end
+on the data the console gives it; on the PC one wrong input keeps a loop going until the driver removes the device.
+
+The console has no cap, so a cap is only a safety net against our own wrong inputs and must not bind for a correct
+program. The caps count all loops of one invocation together (a cap per loop let nested loops multiply it, 65,536² in
+`CS_InitDepthPyramidWithCpuOcclusion3x3`):
+
+| Stage | Cap | Why |
+|---|---|---|
+| pixel, vertex, geometry, mesh | 4,096 | invocations come by the million a draw. A Series X frame at 30 fps is about 2·10^11 lane instructions; a full-screen pass of 3.7 M pixels at 4,096 iterations of a 4-instruction loop would take a third of it, so a correct program stays far below. A runaway draw stops after about 1.5·10^10 iterations, well under the driver's 2 s timeout on a 4090 |
+| compute | 65,536 | a thread is one of fewer, and single-thread passes walk whole lists |
+
+victory-gta6 caps each loop at 128 (pixel), 256 (vertex, mesh) and 4,096 (compute) and kills the lane at the cap. Those
+values can cut real loops (light lists, blur kernels); ours trade a little more GPU time for not doing so.
+`--trace-pool-stores` logs the first hit per program with the loop's number and the cap. The previous lanes' boot logs
+show hits only in programs reading wrong data (`CS_InitDepthPyramidWithCpuOcclusion3x3`, below). The caps are literals
+in the HLSL, so every cache keyed on the text or on the translator keys on them. In the story load, `InstanceCulling~CS_Prop_BatchCull` (counted loops that
 end when a counter equals a bound read from a buffer) and then `scattering_transmittance_system~CS_DensityShadowMapCheckerboard`
 (a ray march whose float step counter, incremented by 1.0, must reach a step count converted from a float) never
 finished. The guard turns such a hang into wrong output for that dispatch. In CS_DensityShadowMapCheckerboard and
@@ -179,6 +194,15 @@ Loads use `select`, not `?:`. HLSL 2021 short-circuits `?:`, and the branches ar
 A buffer the program also stores to is loaded through its RW view (`BufLoadRW`). Cube sampling rebuilds a direction
 from (s, t, face) with `cube_dir`.
 
+Every V# is read as a `ByteAddressBuffer`, whether its record came from a fixed table slot or from an index the program
+computed: the shim writes a raw SRV for a CBV in a game heap. victory-gta6's culling read a heap-picked buffer SRV as a
+CBV and every meshlet draw ran empty; the same mix-up cannot arise here.
+
+`image_gather4_l` (and `_o`) on a 2D texture or array: HLSL `Gather` has no level operand and reads level 0, so the
+four texels are `Load`s at the rounded LOD (clamped to the view's levels), in gather order, each coordinate clamped to
+the level's edge (the clamp address mode; the sampler's own mode is not known). Gathering level 0 culled most of the
+world against the wrong depths in victory-gta6's meshlet culling. Other dimensions still gather level 0.
+
 ## Stages
 
 | Stage | Entry | Inputs | Outputs |
@@ -241,6 +265,7 @@ strip. The record size `GS_VTX_DW` is derived from the LDS write offsets between
 | HLSL over 2,500,000 characters | compiled with `-Od` (dxc's optimizer needs minutes on the largest programs) |
 | Wave size | AMD lane numbers are kept. Pixel, vertex and mesh programs emulate the console wave on any hardware wave size (see Wave size). A compute program that reads other lanes by number gets `[WaveSize(32 or 64)]` (`TranslationOptions.PinWaveSize`, on in `fivestar shader translate`), so it fails to load on a GPU without that wave size instead of computing wrong results |
 | f32 → f16 | `f32tof16_rne` (round to nearest even, as AMD) |
+| f16 inline constants | an f16 operation reads an inline float constant as its f16 value in the low half (1.0 is 0x3C00; before, it read the f32 constant's low half, 0). Packed operations keep the 32-bit pattern (unverified on hardware) |
 | FMA | `mad` (the prelude's exact `fma32` exists but is slow) |
 
 **Mesh fallback contract** (register space 9, bound through a descriptor table):

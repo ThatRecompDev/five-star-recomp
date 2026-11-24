@@ -34,6 +34,7 @@ public static class PixelMemoryCases
             ImageLoadSample(),
             ImageLoadInteger(),
             ImageSampleLinear(),
+            ImageGatherAtLevel(),
             FloatExport(),
             CompressedExport(),
         ];
@@ -278,6 +279,57 @@ public static class PixelMemoryCases
             var (left, right) = (Texel(1, pixel.Y & 3), Texel(2, pixel.Y & 3));
 
             return [.. Enumerable.Range(0, 4).Select(index => Expected.Near((FloatBits.Value(left[index]) + FloatBits.Value(right[index])) / 2, 1e-3))];
+        })
+        {
+            Bindings = bindings,
+        };
+    }
+
+    // image_gather4_l at level 1 of an 8x8 R32_FLOAT texture (level 0 holds 1000 + i + 8j, level 1 i + 4j), plain and with
+    // the texel offset (-1, +1): the gather takes the level's 2x2 block, clamped at the edge. Gathering level 0 instead
+    // culled most of the world against the wrong depths in victory-gta6's meshlet culling.
+    private static PixelCase ImageGatherAtLevel()
+    {
+        const string Program = """
+            v_cvt_u32_f32_e32 v10, v2
+            v_cvt_u32_f32_e32 v11, v3
+            v_and_b32_e32 v10, 3, v10
+            v_and_b32_e32 v11, 3, v11
+            v_add_nc_u32_e32 v12, 1, v10
+            v_add_nc_u32_e32 v13, 1, v11
+            v_cvt_f32_u32_e32 v12, v12
+            v_cvt_f32_u32_e32 v13, v13
+            v_mul_f32_e32 v12, 0x3e800000, v12
+            v_mul_f32_e32 v13, 0x3e800000, v13
+            v_mov_b32 v14, 1.0
+            image_gather4_l v[20:23], v[12:14], s[0:7], s[8:11] dmask:0x1 dim:SQ_RSRC_IMG_2D
+            v_mov_b32 v16, 0x13f
+            v_mov_b32 v17, v12
+            v_mov_b32 v18, v13
+            v_mov_b32 v19, 1.0
+            image_gather4_l_o v[24:27], v[16:19], s[0:7], s[8:11] dmask:0x1 dim:SQ_RSRC_IMG_2D
+            s_waitcnt vmcnt(0)
+            """;
+        uint[] texels = [.. Enumerable.Range(0, 64).Select(index => F(1000 + index)), .. Enumerable.Range(0, 16).Select(index => F(index))];
+        var bindings = new Bindings
+        {
+            UserSgprs = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            Textures = [new TextureResource(2, Format.R32_Float, 8, 8, texels) { Levels = 2 }],
+            Samplers = [new SamplerResource(0, Linear: false)],
+        };
+
+        static Expected[] Block(int i0, int j0)
+        {
+            var (x0, y0, x1, y1) = (Math.Clamp(i0, 0, 3), Math.Clamp(j0, 0, 3), Math.Clamp(i0 + 1, 0, 3), Math.Clamp(j0 + 1, 0, 3));
+
+            return [F(x0 + (4 * y1)), F(x1 + (4 * y1)), F(x1 + (4 * y0)), F(x0 + (4 * y0))];
+        }
+
+        return new PixelCase("image_gather4_l", Program, 8, pixel =>
+        {
+            var (i, j) = (pixel.X & 3, pixel.Y & 3);
+
+            return [.. Block(i, j), .. Block(i - 1, j + 1)];
         })
         {
             Bindings = bindings,
