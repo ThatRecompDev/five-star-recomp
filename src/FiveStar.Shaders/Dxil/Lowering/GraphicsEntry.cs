@@ -22,23 +22,20 @@ public sealed class GraphicsEntry
     private const string Positions = "xyzw";
     private const string Colors = "rgba";
     private const int MaxSwizzle = 4;
-    private const int NoId = -1;
-
-    // loadInput and storeOutput: opcode, element id, row, column, then the vertex or the value.
-    private const int IdOperand = 1;
-    private const int ColumnOperand = 3;
 
     private readonly LoweringContext _context;
+    private readonly SignatureBinder _binder;
     private readonly SignaturePoint _inputPoint;
     private readonly SignaturePoint _outputPoint;
     private readonly List<DxilSignatureElement> _inputs = [];
     private readonly List<DxilSignatureElement> _outputs = [];
-    private readonly Dictionary<string, Binding> _parameters = new(StringComparer.Ordinal);
-    private Binding? _result;
+    private readonly Dictionary<string, EntryBinding> _parameters = new(StringComparer.Ordinal);
+    private EntryBinding? _result;
 
     public GraphicsEntry(LoweringContext context, DxilShaderKind kind)
     {
         _context = context;
+        _binder = new SignatureBinder(context);
         (_inputPoint, _outputPoint) = kind switch
         {
             DxilShaderKind.Pixel => (SignaturePoint.PixelInput, SignaturePoint.PixelOutput),
@@ -59,14 +56,14 @@ public sealed class GraphicsEntry
         foreach (var parameter in main.Children.Where(child => child.Kind == SyntaxKind.Parameter))
         {
             var type = Resolve(parameter.Type!, parameter);
-            _parameters[parameter.Text] = Bind(parameter, type, _inputs, _inputPoint);
+            _parameters[parameter.Text] = _binder.Bind(parameter, type, _inputs, _inputPoint);
         }
 
         var returnType = Resolve(main.Type!, main);
 
         if (returnType.Shape != TypeShape.Void)
         {
-            _result = Bind(main, returnType, _outputs, _outputPoint);
+            _result = _binder.Bind(main, returnType, _outputs, _outputPoint);
         }
 
         SignaturePacker.Pack(_inputs, _inputPoint);
@@ -107,8 +104,7 @@ public sealed class GraphicsEntry
         {
             for (var column = 0; column < element.Columns; column++)
             {
-                var source = RValue.Of(HlslType.ScalarOf(value.Type.ComponentKind(first + column)), value.Components[first + column]);
-                var component = _context.Convert.Convert(source, HlslType.ScalarOf(StoredKind(kind))).Scalar;
+                var component = SignatureBinder.Stored(_context, value, first + column, kind);
                 _context.Ops.Overloaded(
                     DxOpCode.StoreOutput, StoreOutputClass, AttributeSet.NoUnwind, component.Type, Module.Types.Void,
                     Module.Int32((uint)element.Id), Module.Int32(0), Module.Int8((byte)column), component);
@@ -142,33 +138,11 @@ public sealed class GraphicsEntry
     /// <summary>Sets each element's usage from the loads and stores left after dead-code removal.</summary>
     public void RecordUsage(IrFunction main)
     {
-        foreach (var instruction in main.Blocks.SelectMany(block => block.Body))
+        SignatureBinder.RecordUsage(main, new Dictionary<DxOpCode, IReadOnlyList<DxilSignatureElement>>
         {
-            var name = instruction.Callee?.Name;
-
-            if (name is null || !name.StartsWith("dx.op.", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var code = (DxOpCode)((Constant)instruction.Operands[0]).Bits;
-            var elements = code switch
-            {
-                DxOpCode.LoadInput => _inputs,
-                DxOpCode.StoreOutput => _outputs,
-                _ => null,
-            };
-
-            if (elements is null)
-            {
-                continue;
-            }
-
-            var id = (int)((Constant)instruction.Operands[IdOperand]).Bits;
-            var column = (int)((Constant)instruction.Operands[ColumnOperand]).Bits;
-            var element = elements.First(candidate => candidate.Id == id);
-            element.Usage |= (byte)(1 << column);
-        }
+            [DxOpCode.LoadInput] = _inputs,
+            [DxOpCode.StoreOutput] = _outputs,
+        });
     }
 
     private Value Load(DxilSignatureElement element, int column, ScalarKind kind)
@@ -204,98 +178,6 @@ public sealed class GraphicsEntry
         return value;
     }
 
-    /// <summary>The scalar kind an output is stored as (bool outputs as uint).</summary>
-    private static ScalarKind StoredKind(ScalarKind kind)
-    {
-        if (kind == ScalarKind.Bool)
-        {
-            return ScalarKind.Uint;
-        }
-
-        return kind;
-    }
-
-    /// <summary>The elements of a parameter or the return value: itself, or each field of its struct.</summary>
-    private Binding Bind(SyntaxNode node, HlslType type, List<DxilSignatureElement> elements, SignaturePoint point)
-    {
-        var binding = new Binding(type);
-
-        if (type.Shape != TypeShape.Struct)
-        {
-            var semantic = node.Semantic ?? throw SourceError.At(node, $"{node.Text} has no semantic");
-            binding.Elements.Add(Element(node, semantic, type, node.Modifiers, elements, point, 0));
-
-            return binding;
-        }
-
-        var declaration = _context.StructDeclarations[type.Name];
-        var first = 0;
-
-        for (var index = 0; index < type.Fields.Count; index++)
-        {
-            var field = declaration.Children[index];
-            var fieldType = type.Fields[index].Type;
-            var semantic = field.Semantic ?? throw SourceError.At(field, $"field {field.Text} has no semantic");
-            var modifiers = new HashSet<string>(field.Modifiers, StringComparer.Ordinal);
-            modifiers.UnionWith(node.Modifiers);
-
-            binding.Elements.Add(Element(field, semantic, fieldType, modifiers, elements, point, first));
-            binding.Fields[field.Text] = binding.Elements[^1];
-            first += fieldType.Count;
-        }
-
-        return binding;
-    }
-
-    private static (DxilSignatureElement Element, int First, ScalarKind Kind) Element(
-        SyntaxNode node, string semantic, HlslType type, IReadOnlySet<string> modifiers, List<DxilSignatureElement> elements, SignaturePoint point, int first)
-    {
-        if (type.Shape is not (TypeShape.Scalar or TypeShape.Vector))
-        {
-            throw SourceError.At(node, $"signature element {semantic} of type {type} is not supported");
-        }
-
-        var (name, index, kind) = Semantics.Parse(semantic);
-        var interpretation = Semantics.Interpret(kind, point);
-        var isFloat = type.Kind == ScalarKind.Float;
-        var id = NoId;
-
-        if (interpretation != SemanticInterpretation.NotInSignature)
-        {
-            id = elements.Count;
-        }
-
-        var element = new DxilSignatureElement
-        {
-            Id = id,
-            Name = name,
-            Index = index,
-            Kind = kind,
-            Interpretation = interpretation,
-            ComponentType = ComponentType(type.Kind, node),
-            Interpolation = Semantics.Interpolation(point, kind, isFloat, modifiers),
-            Columns = type.Count,
-        };
-
-        if (element.InSignature)
-        {
-            elements.Add(element);
-        }
-
-        return (element, first, type.Kind);
-    }
-
-    private static byte ComponentType(ScalarKind kind, SyntaxNode node)
-    {
-        return kind switch
-        {
-            ScalarKind.Float => DxilSignatureElement.Float32,
-            ScalarKind.Int => DxilSignatureElement.Int32,
-            ScalarKind.Uint or ScalarKind.Bool => DxilSignatureElement.Uint32,
-            _ => throw SourceError.At(node, $"signature element of {kind} is not supported"),
-        };
-    }
-
     private HlslType Resolve(TypeSyntax syntax, SyntaxNode node)
     {
         return _context.Types.Resolve(syntax, _ => throw SourceError.At(node, "array signature elements are not supported"));
@@ -313,18 +195,19 @@ public sealed class GraphicsEntry
             node = node[0];
         }
 
-        (DxilSignatureElement Element, int First, ScalarKind Kind)? found = null;
+        ElementSlot? found = null;
 
-        if (node.Kind == SyntaxKind.Member && node[0].Kind == SyntaxKind.Name && _parameters.TryGetValue(node[0].Text, out var owner))
+        if (node.Kind == SyntaxKind.Member && node[0].Kind == SyntaxKind.Name && _parameters.TryGetValue(node[0].Text, out var owner)
+            && owner.Fields.TryGetValue(node.Text, out var field))
         {
-            found = owner.Fields.TryGetValue(node.Text, out var field) ? field : null;
+            found = field;
         }
         else if (node.Kind == SyntaxKind.Name && _parameters.TryGetValue(node.Text, out var parameter) && parameter.Elements.Count == 1)
         {
             found = parameter.Elements[0];
         }
 
-        if (found is null || found.Value.Element.Id == NoId)
+        if (found is null || found.Value.Element.Id == SignatureBinder.NoId)
         {
             throw SourceError.At(input, "GetAttributeAtVertex needs an input element");
         }
@@ -356,15 +239,5 @@ public sealed class GraphicsEntry
         }
 
         return component;
-    }
-
-    /// <summary>A parameter or the return value: its type and its elements with their first flattened component.</summary>
-    private sealed class Binding(HlslType type)
-    {
-        public HlslType Type { get; } = type;
-
-        public List<(DxilSignatureElement Element, int First, ScalarKind Kind)> Elements { get; } = [];
-
-        public Dictionary<string, (DxilSignatureElement Element, int First, ScalarKind Kind)> Fields { get; } = new(StringComparer.Ordinal);
     }
 }

@@ -3,7 +3,7 @@
 
 namespace FiveStar.Shaders.Dxil.Container;
 
-/// <summary>The signatures a graphics stage has (DxilSigPoint: VSIn, VSOut, PSIn, PSOut, MSOut, MSPOut, GSVIn, GSOut).</summary>
+/// <summary>The signatures a graphics stage has (DxilSigPoint: VSIn, VSOut, PSIn, PSOut, MSOut, MSPOut, GSVIn, GSIn, GSOut).</summary>
 public enum SignaturePoint
 {
     VertexInput,
@@ -13,5 +13,8 @@ public enum SignaturePoint
     MeshVertexOutput,
     MeshPrimitiveOutput,
     GeometryVertexInput,
+
+    /// <summary>A geometry shader's inputs that are not per vertex (the primitive id).</summary>
+    GeometryInput,
     GeometryOutput,
 }

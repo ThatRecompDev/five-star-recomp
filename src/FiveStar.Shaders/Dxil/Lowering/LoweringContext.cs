@@ -62,6 +62,12 @@ public sealed class LoweringContext
     /// <summary>The signatures of a graphics entry point (null for compute).</summary>
     public GraphicsEntry? Graphics { get; set; }
 
+    /// <summary>The outputs of a mesh entry point (null for other stages).</summary>
+    public MeshEntry? Mesh { get; set; }
+
+    /// <summary>The inputs and output stream of a geometry entry point (null for other stages).</summary>
+    public GeometryEntry? Geometry { get; set; }
+
     /// <summary>The block allocas go to.</summary>
     public BasicBlock? EntryBlock { get; set; }
 

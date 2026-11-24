@@ -80,7 +80,7 @@ public static class Semantics
     /// <summary>Whether elements at <paramref name="point"/> carry an interpolation mode.</summary>
     public static bool HasInterpolation(SignaturePoint point)
     {
-        return point is not (SignaturePoint.VertexInput or SignaturePoint.PixelOutput);
+        return point is not (SignaturePoint.VertexInput or SignaturePoint.PixelOutput or SignaturePoint.GeometryInput);
     }
 
     /// <summary>
@@ -144,7 +144,10 @@ public static class Semantics
         Add(table, [SemanticKind.PrimitiveId], [SignaturePoint.GeometryOutput, SignaturePoint.MeshPrimitiveOutput], SemanticInterpretation.SystemValue);
         Add(table, [SemanticKind.PrimitiveId, SemanticKind.IsFrontFace], [SignaturePoint.PixelInput], SemanticInterpretation.SystemGenerated);
         table[(SemanticKind.IsFrontFace, SignaturePoint.GeometryOutput)] = SemanticInterpretation.SystemGenerated;
+
         table[(SemanticKind.SampleIndex, SignaturePoint.PixelInput)] = SemanticInterpretation.Shadow;
+        table[(SemanticKind.PrimitiveId, SignaturePoint.GeometryInput)] = SemanticInterpretation.Shadow;
+        table[(SemanticKind.GsInstanceId, SignaturePoint.GeometryInput)] = SemanticInterpretation.NotInSignature;
         Add(table, [SemanticKind.Coverage, SemanticKind.InnerCoverage], [SignaturePoint.PixelInput], SemanticInterpretation.NotInSignature);
         table[(SemanticKind.Barycentrics, SignaturePoint.PixelInput)] = SemanticInterpretation.NotPacked;
 

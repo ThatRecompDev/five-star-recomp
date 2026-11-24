@@ -11,7 +11,13 @@ public sealed class StatementParser
     {
         "static", "const", "groupshared", "uniform", "extern", "precise", "volatile", "inline", "nointerpolation", "linear",
         "centroid", "noperspective", "sample", "in", "out", "inout", "row_major", "column_major", "globallycoherent",
-        "snorm", "unorm", "export", "shared",
+        "snorm", "unorm", "export", "shared", "vertices", "indices", "primitives", "payload",
+    };
+
+    /// <summary>The input primitive of a geometry shader's vertex array parameter.</summary>
+    public static readonly HashSet<string> PrimitiveModifiers = new(StringComparer.Ordinal)
+    {
+        "point", "line", "triangle", "lineadj", "triangleadj",
     };
 
     private readonly TokenCursor _tokens;
@@ -70,7 +76,7 @@ public sealed class StatementParser
             {
                 do
                 {
-                    attribute.Children.Add(_expressions.Assignment());
+                    attribute.Children.Add(AttributeArgument());
                 }
                 while (_tokens.Accept(","));
 
@@ -82,6 +88,19 @@ public sealed class StatementParser
         }
 
         return attributes;
+    }
+
+    /// <summary>An attribute argument: an expression, or a quoted name (<c>[outputtopology("triangle")]</c>).</summary>
+    private SyntaxNode AttributeArgument()
+    {
+        if (_tokens.Current.Kind != TokenKind.Text)
+        {
+            return _expressions.Assignment();
+        }
+
+        var token = _tokens.Next();
+
+        return new SyntaxNode(SyntaxKind.Name, token.Line) { Text = token.Text };
     }
 
     /// <summary>Whether a declaration starts here: a modifier, or a type name followed by a name.</summary>

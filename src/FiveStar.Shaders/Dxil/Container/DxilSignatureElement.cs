@@ -10,6 +10,7 @@ namespace FiveStar.Shaders.Dxil.Container;
 public sealed class DxilSignatureElement
 {
     /// <summary>DXIL component types (DxilConstants.h ComponentType).</summary>
+    public const byte Bool = 1;
     public const byte Int32 = 4;
     public const byte Uint32 = 5;
     public const byte Float32 = 9;

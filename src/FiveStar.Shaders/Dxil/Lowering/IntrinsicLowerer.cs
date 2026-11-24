@@ -29,6 +29,7 @@ public sealed class IntrinsicLowerer
 
         _handlers["discard"] = _ => Discard();
         _handlers["GetAttributeAtVertex"] = AttributeAtVertex;
+        _handlers["SetMeshOutputCounts"] = call => (_context.Mesh ?? throw SourceError.At(call, "SetMeshOutputCounts outside a mesh shader")).SetOutputCounts(call);
     }
 
     public RValue Call(SyntaxNode call)

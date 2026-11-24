@@ -23,6 +23,8 @@ public static class DxilBackend
         ["cs"] = DxilShaderKind.Compute,
         ["ps"] = DxilShaderKind.Pixel,
         ["vs"] = DxilShaderKind.Vertex,
+        ["ms"] = DxilShaderKind.Mesh,
+        ["gs"] = DxilShaderKind.Geometry,
     };
 
     /// <summary>Whether the backend compiles programs of this profile (ps, vs, cs, ms, gs).</summary>

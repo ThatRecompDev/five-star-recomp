@@ -12,7 +12,9 @@ namespace FiveStar.Shaders.Dxil.Lowering;
 /// <item>memory: <see cref="Indices"/> holds each component's element index in the array <see cref="Variable"/> points to;</item>
 /// <item>a dynamically indexed element of slots: <see cref="Choices"/> are the slots of every candidate element and
 /// <see cref="Selector"/> picks one;</item>
-/// <item>cbuffer: <see cref="Indices"/> holds each component's dword index in the buffer.</item>
+/// <item>cbuffer: <see cref="Indices"/> holds each component's dword index in the buffer;</item>
+/// <item>mesh output: <see cref="Indices"/> holds each component's index in the array (in one element when
+/// <see cref="ArrayIndex"/> is the element's index).</item>
 /// </list>
 /// </summary>
 public sealed class LValue
@@ -34,6 +36,9 @@ public sealed class LValue
     public IReadOnlyList<IReadOnlyList<int>> Choices { get; init; } = [];
 
     public Value? Selector { get; init; }
+
+    /// <summary>The element of a mesh output array, when it is not a constant.</summary>
+    public Value? ArrayIndex { get; init; }
 
     public bool IsDynamic => Selector is not null;
 }

@@ -42,13 +42,22 @@ public static class ShaderLowering
         globals.Declare(declarations);
         context.Scope.Push();
 
-        var description = kind == DxilShaderKind.Compute ? ComputeBody(context, source) : GraphicsBody(context, source, kind);
+        var description = kind switch
+        {
+            DxilShaderKind.Compute => ComputeBody(context, source),
+            DxilShaderKind.Mesh => MeshBody(context, source),
+            DxilShaderKind.Geometry => GeometryBody(context, source),
+            _ => GraphicsBody(context, source, kind),
+        };
         context.Scope.Pop();
 
         context.Ssa.Finish();
         main.Blocks.AddRange(context.Ssa.Blocks);
         DeadCode.Remove(main);
+
         context.Graphics?.RecordUsage(main);
+        context.Mesh?.RecordUsage(main);
+        context.Geometry?.RecordUsage(main);
         var flags = context.Flags | FeatureScan.Flags(main) | SignatureFlags(context.Graphics);
 
         if (description.IncludeHelperLanes)
@@ -68,6 +77,44 @@ public static class ShaderLowering
         Body(context, source);
 
         return new ShaderDescription(threads, waveSize, ShaderFlagBits.None, context.UserDataBytes);
+    }
+
+    private static ShaderDescription MeshBody(LoweringContext context, SyntaxNode source)
+    {
+        var computeEntry = new ComputeEntry(context);
+        var threads = computeEntry.Threads(source);
+        var waveSize = computeEntry.WaveSize(source);
+        var mesh = new MeshEntry(context);
+        context.Mesh = mesh;
+        mesh.Declare(source);
+
+        mesh.BindParameters(source);
+        Body(context, source);
+
+        return new ShaderDescription(threads, waveSize, ShaderFlagBits.None, context.UserDataBytes)
+        {
+            Kind = DxilShaderKind.Mesh,
+            Outputs = mesh.Outputs,
+            Primitives = mesh.Primitives,
+            Mesh = new MeshState(mesh.MaxVertices, mesh.MaxPrimitives, mesh.Topology, context.SharedBytes),
+        };
+    }
+
+    private static ShaderDescription GeometryBody(LoweringContext context, SyntaxNode source)
+    {
+        var geometry = new GeometryEntry(context);
+        context.Geometry = geometry;
+        geometry.Declare(source);
+        geometry.BindParameters(source);
+        Body(context, source);
+
+        return new ShaderDescription((0, 0, 0), null, ShaderFlagBits.None, context.UserDataBytes)
+        {
+            Kind = DxilShaderKind.Geometry,
+            Inputs = geometry.Inputs,
+            Outputs = geometry.Outputs,
+            Geometry = geometry.State,
+        };
     }
 
     private static ShaderDescription GraphicsBody(LoweringContext context, SyntaxNode source, DxilShaderKind kind)

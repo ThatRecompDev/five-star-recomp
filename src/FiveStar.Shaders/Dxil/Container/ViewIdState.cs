@@ -28,23 +28,36 @@ public static class ViewIdState
         return elements.Where(element => element.IsAllocated).Select(element => element.StartRow + element.Rows).DefaultIfEmpty(0).Max();
     }
 
-    /// <summary>The serialized state: input scalars, output scalars per stream, primitive scalars (mesh), the table.</summary>
+    /// <summary>
+    /// The serialized state (DxilViewIdState::Serialize): the input scalars, then per output stream its scalars and its
+    /// table (four streams for a geometry shader, only the first used), then a mesh shader's primitive scalars and table.
+    /// </summary>
     public static uint[] Serialize(ShaderDescription description)
     {
         var inputs = Scalars(description.Inputs);
-        var outputs = Scalars(description.Outputs);
-        var words = new List<uint> { (uint)inputs, (uint)outputs };
+        var words = new List<uint> { (uint)inputs };
+        Table(words, inputs, Scalars(description.Outputs));
 
         if (description.Kind == DxilShaderKind.Geometry)
         {
-            words.AddRange(Enumerable.Repeat(0u, Streams - 1));
+            for (var stream = 1; stream < Streams; stream++)
+            {
+                Table(words, inputs, 0);
+            }
         }
 
         if (description.Kind == DxilShaderKind.Mesh)
         {
-            words.Add((uint)Scalars(description.Primitives));
+            Table(words, inputs, Scalars(description.Primitives));
         }
 
+        return [.. words];
+    }
+
+    /// <summary>An output count and the words of every input's dependencies on those outputs.</summary>
+    private static void Table(List<uint> words, int inputs, int outputs)
+    {
+        words.Add((uint)outputs);
         var stride = (outputs + BitsPerWord - 1) / BitsPerWord;
 
         for (var input = 0; input < inputs; input++)
@@ -54,8 +67,6 @@ public static class ViewIdState
                 words.Add(Dependencies(word, outputs));
             }
         }
-
-        return [.. words];
     }
 
     /// <summary>The bits of dependency word <paramref name="word"/>: every output below <paramref name="outputs"/>.</summary>

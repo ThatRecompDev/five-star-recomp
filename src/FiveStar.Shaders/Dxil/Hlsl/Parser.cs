@@ -159,6 +159,12 @@ public sealed class Parser
     private SyntaxNode Parameter()
     {
         var modifiers = _statements.Modifiers();
+
+        if (StatementParser.PrimitiveModifiers.Contains(_tokens.Current.Text))
+        {
+            modifiers.Add(_tokens.Next().Text);
+        }
+
         var line = _tokens.Line;
         var type = _expressions.ParseType();
         var name = _tokens.Identifier();

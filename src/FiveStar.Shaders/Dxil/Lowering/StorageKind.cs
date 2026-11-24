@@ -14,4 +14,10 @@ public enum StorageKind
 
     /// <summary>A member of the user-data constant buffer, read through cbufferLoadLegacy.</summary>
     Cbuffer,
+
+    /// <summary>A mesh shader's vertex, index or primitive output array (write only).</summary>
+    MeshOutput,
+
+    /// <summary>A geometry shader's input vertex array (read only).</summary>
+    GeometryInput,
 }

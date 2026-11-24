@@ -67,7 +67,8 @@ public sealed class ComputeEntry
         }
     }
 
-    private RValue SystemValue(SyntaxNode parameter, HlslType type)
+    /// <summary>The thread or group id a parameter's semantic names, as the parameter's type.</summary>
+    public RValue SystemValue(SyntaxNode parameter, HlslType type)
     {
         var semantic = parameter.Semantic ?? throw SourceError.At(parameter, $"entry parameter {parameter.Text} has no semantic");
 
