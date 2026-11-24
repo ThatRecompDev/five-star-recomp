@@ -33,6 +33,9 @@ public static class PixelValuCases
 
     private static double V(uint bits) => FloatBits.Value(bits);
 
+    // A v_fma_f32 result, through mad(): fused as on AMD, or unfused where the device does not fuse (WARP).
+    private static Expected Fused(double a, double b, double c) => Expected.Either(IsaFloat.Fma(a, b, c), IsaFloat.Mad(a, b, c));
+
     // 0 * inf = 0 and 0 * NaN = 0 under the DX9 legacy rules; plain v_mul_f32 gives NaN.
     private static PixelCase MulLegacy()
     {
@@ -58,9 +61,9 @@ public static class PixelValuCases
             F(0), FloatBits.Infinity, FloatBits.QuietNan, F(3));
     }
 
-    // (1 + 2^-23)(1 - 2^-23) - 1 is -2^-46 fused and 0 unfused. v_fma_f32 / v_fmac_f32 are fused on AMD, but the
-    // translator emits mad() (docs/shader-translation.md, FMA), which WARP evaluates unfused, so v20 / v21 are an
-    // expected difference compared with the unfused result; v22 / v23 (v_mad / v_mac) are unfused on AMD too.
+    // (1 + 2^-23)(1 - 2^-23) - 1 is -2^-46 fused and 0 unfused. v_fma_f32 / v_fmac_f32 are fused on AMD; the translator
+    // emits mad() (docs/shader-translation.md, FMA), which NVIDIA fuses and WARP does not, so v20 / v21 may be either.
+    // v22 / v23 (v_mad / v_mac) are unfused on AMD and must stay so on every device.
     private static PixelCase FmaMac()
     {
         const string Program = """
@@ -81,7 +84,7 @@ public static class PixelValuCases
         return PixelCase.Uniform(
             "fma_mac",
             Program,
-            [IsaFloat.Mad(a, b, -1), IsaFloat.Mad(a, b, -1), IsaFloat.Mad(a, b, -1), IsaFloat.Mad(a, b, -1), IsaFloat.Fma(2, 3, 1),
+            [Fused(a, b, -1), Fused(a, b, -1), IsaFloat.Mad(a, b, -1), IsaFloat.Mad(a, b, -1), IsaFloat.Fma(2, 3, 1),
              IsaFloat.Fma(2, 3, 0.25), IsaFloat.Fma(2, 0.25, 3)],
             0x3F800001, 0x3F7FFFFE, F(2), F(3));
     }
