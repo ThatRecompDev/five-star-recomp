@@ -239,7 +239,13 @@ its modes, then the producer's other outputs. dxc packs a prefix the same way in
 the PS's register; the PS's own layout stays as described above. A PS input the producer lacks is added: an
 `ATTRLO<k>`/`ATTRHI<k>` half is computed from the members of param k (where the producer fills `o`, or at each export
 of a mesh shader that writes its outputs directly), anything else is 0. `fivestar shader link` applies it to the pairs
-of the console pipeline cache (see Commands).
+of the console pipeline cache (see Commands), and the loader to every pair the runtime would refuse
+([d3d12x-pipelines.md](d3d12x-pipelines.md#linked-producers)).
+
+A mesh producer linked to a PS's full layout can pass the 32 KB a mesh shader has for the outputs of its 128 vertices
+(`PS_DeferredTextured` + `MS_VS_TransformD`: 9 registers, 8 halves and the position, 18 rows of 16 bytes per vertex).
+`StageLinker.TrimInputs(psHlsl)` drops the `PSIn` members the PS never reads (registers kept only for the layout,
+halves below the ones it reads); the producer is then linked to the trimmed PS.
 
 **Mesh shaders (NGG).** `s_sendmsg(MSG_GS_ALLOC_REQ)` (M0 = primitives << 12 | vertices) records the output counts.
 When every export follows a barrier that follows the allocation, the program runs in two phases: phase 1 without

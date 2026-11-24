@@ -56,6 +56,72 @@ public static partial class StageLinker
         return linked;
     }
 
+    /// <summary>
+    /// Whether the desktop runtime links the stages as compiled: every allocated interpolated or position input of the
+    /// consumer is an output of the producer with the same semantic, in the same register, covering its components.
+    /// The runtime compares no interpolation modes (docs/shader-translation.md, Linkage).
+    /// </summary>
+    public static bool Links(IReadOnlyList<PsvElement> producerOutputs, IReadOnlyList<PsvElement> consumerInputs)
+    {
+        foreach (var input in consumerInputs)
+        {
+            if (!input.Allocated || input.SemanticKind is not (PsvSemanticKind.Arbitrary or PsvSemanticKind.Position))
+            {
+                continue;
+            }
+
+            var covered = producerOutputs.Any(output => output.Allocated
+                && output.SemanticKind == input.SemanticKind
+                && string.Equals(output.Name, input.Name, StringComparison.OrdinalIgnoreCase)
+                && output.SemanticIndex == input.SemanticIndex
+                && output.StartRow == input.StartRow
+                && output.Rows >= input.Rows
+                && output.StartColumn <= input.StartColumn
+                && output.StartColumn + output.Columns >= input.StartColumn + input.Columns);
+
+            if (!covered)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// The pixel shader HLSL without the <c>PSIn</c> members it never reads (signature registers declared only for the
+    /// layout, f16 halves below the ones it reads): a producer linked to it then exports only what it reads. A mesh
+    /// program has 32 KB for the outputs of its 128 vertices, which the full layout passes.
+    /// </summary>
+    public static string TrimInputs(string pixelHlsl)
+    {
+        var match = PixelInputPattern().Match(pixelHlsl);
+
+        if (!match.Success)
+        {
+            throw new UnsupportedProgramException("no PSIn struct");
+        }
+
+        var group = match.Groups["members"];
+        var kept = group.Value.Split('\n').Where(line =>
+        {
+            var member = MemberPattern().Match(line);
+
+            return !member.Success
+                || member.Groups["semantic"].Value.StartsWith("SV_", StringComparison.OrdinalIgnoreCase)
+                || pixelHlsl.Contains($"pin.{member.Groups["name"].Value}", StringComparison.Ordinal);
+        });
+
+        return pixelHlsl[..group.Index] + string.Join("\n", kept) + pixelHlsl[(group.Index + group.Length)..];
+    }
+
+    /// <summary>A key for the consumer inputs a link depends on: producers linked to equal inputs are the same.</summary>
+    public static string InputsKey(IReadOnlyList<PsvElement> consumerInputs)
+    {
+        return string.Join(";", consumerInputs.Select(input =>
+            $"{input.Name}{input.SemanticIndex}:{(int)input.SemanticKind}:{input.StartRow}:{input.Rows}:{input.StartColumn}:{input.Columns}:{input.ComponentType}:{input.InterpolationMode}:{input.Allocated}"));
+    }
+
     private static OutStructMember Parse(string line)
     {
         var member = MemberPattern().Match(line);
@@ -152,6 +218,9 @@ public static partial class StageLinker
 
     [GeneratedRegex(@"^struct Out \{\n(?<members>.*?)\n\};", RegexOptions.Singleline | RegexOptions.Multiline)]
     private static partial Regex OutStructPattern();
+
+    [GeneratedRegex(@"^struct PSIn \{\n(?<members>.*?)\n\};", RegexOptions.Singleline | RegexOptions.Multiline)]
+    private static partial Regex PixelInputPattern();
 
     [GeneratedRegex(@"^\s*(?:(?:nointerpolation|linear|noperspective|centroid|sample)\s+)*(?<declaration>\w+\s+(?<name>\w+)(?:\[\d+\])?\s*:\s*(?<semantic>[A-Za-z_]\w*?)(?<index>\d*)\s*;)\s*$")]
     private static partial Regex MemberPattern();

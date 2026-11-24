@@ -5,6 +5,12 @@
     <IsAotCompatible>true</IsAotCompatible>
     <!-- DxcLibraryCompiler and the DXIL validator wrapper call DXC and dxil.dll through COM vtables. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!--
+      The loader's program cache is keyed by a hash of this assembly's bytes (docs/d3d12x-pipelines.md). With the
+      commit id in the informational version and in the source link (whose hash the PDB id carries) every commit
+      started an empty cache, so the build asks source control nothing and programs stay keyed by code only.
+    -->
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
   </PropertyGroup>
 
   <ItemGroup>
