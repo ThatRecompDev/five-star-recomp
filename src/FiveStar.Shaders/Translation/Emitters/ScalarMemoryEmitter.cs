@@ -45,8 +45,8 @@ internal sealed class ScalarMemoryEmitter
 
         if (op.StartsWith("s_buffer_load", StringComparison.Ordinal))
         {
-            var view = BufferAddress.View(_operands, pointer, false);
-            var start = _operands.SnapOne($"{view}.y + {offsetValue}");
+            var view = BufferAddress.View(_operands, pointer, false, offsetValue);
+            var start = $"{view}.y";
             var checkedOffset = _operands.SnapOne(offsetValue);
             var limit = _operands.SnapOne($"sbuf_limit({_operands.Read(pointer, StrideDword)}, {_operands.Read(pointer, RecordsDword)})");
 

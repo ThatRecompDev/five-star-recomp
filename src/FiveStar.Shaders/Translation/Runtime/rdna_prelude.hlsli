@@ -111,12 +111,15 @@ uint2 gpu_rw(uint lo, uint hi) {   // (RW heap index, byte address) of a pointer
     if (hi == 0u) return uint2(GPU_MEM_HEAP + 1u, lo);
     uint2 p = gpu_page(lo, hi);
     return uint2(p.x + 1u, p.y);
-}// A V#'s view: (heap index, byte offset of the base in it); rw takes the UAV of a game-memory base. Dword1 holds
-// base_hi in bits 0-15 and the stride in bits 16-29.
-uint2 buf_view(uint d0, uint d1, bool rw) {
+}// An access's view: (heap index, byte offset of base + off in it); rw takes the UAV of a game-memory base. Dword1
+// holds base_hi in bits 0-15 and the stride in bits 16-29. A game-memory access is looked up at its own address, as
+// the hardware translates each page: the pages after the base's need not continue its view (another buffer, or
+// frames the game remapped). The access's later dwords continue in the view of its first byte's page.
+uint2 buf_view(uint d0, uint d1, bool rw, uint off) {
     uint hi = d1 & 0xffffu;
-    if (hi == 0u) return uint2(d0, 0u);
-    uint2 p = gpu_page(d0, hi);
+    if (hi == 0u) return uint2(d0, off);
+    uint2 a = ptr_add(d0, hi, off, 0);
+    uint2 p = gpu_page(a.x, a.y);
     return uint2(p.x + (rw ? 1u : 0u), p.y);
 }
 uint buf_stride(uint d1) { return (d1 >> 16) & 0x3fffu; }
