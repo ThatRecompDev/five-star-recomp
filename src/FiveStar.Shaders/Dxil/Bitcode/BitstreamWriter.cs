@@ -5,7 +5,8 @@ namespace FiveStar.Shaders.Dxil.Bitcode;
 
 /// <summary>
 /// The LLVM bitstream: little-endian 32-bit words filled from bit 0, blocks with a length word, and unabbreviated
-/// records only (code, operand count and operands as 6-bit VBR). DXIL fixes the LLVM 3.7 dialect of this format.
+/// records (code, operand count and operands as 6-bit VBR) or records in a block's own abbreviations. DXIL fixes the
+/// LLVM 3.7 dialect of this format.
 /// </summary>
 public sealed class BitstreamWriter
 {
@@ -16,10 +17,17 @@ public sealed class BitstreamWriter
     private const int RecordWidth = 6;
     private const ulong EndBlock = 0;
     private const ulong EnterSubblock = 1;
+    private const ulong DefineAbbreviationId = 2;
     private const ulong UnabbreviatedRecord = 3;
+    private const int FirstAbbreviation = 4;
+    private const int AbbreviationCountWidth = 5;
+    private const int LiteralWidth = 8;
+    private const int EncodingWidth = 3;
+    private const int EncodingValueWidth = 5;
+    private const int ArrayLengthWidth = 6;
 
     private readonly List<uint> _words = [];
-    private readonly Stack<(int Width, int Start)> _blocks = new();
+    private readonly Stack<(int Width, int Start, List<AbbreviationOperand[]> Abbreviations)> _blocks = new();
     private ulong _current;
     private int _bits;
 
@@ -53,7 +61,7 @@ public sealed class BitstreamWriter
         Vbr((ulong)width, BlockWidthWidth);
         Align();
         _words.Add(0);
-        _blocks.Push((width, _words.Count));
+        _blocks.Push((width, _words.Count, []));
     }
 
     /// <summary>Closes the innermost block and fills in its length.</summary>
@@ -61,7 +69,7 @@ public sealed class BitstreamWriter
     {
         Emit(EndBlock, Width);
         Align();
-        var (_, start) = _blocks.Pop();
+        var (_, start, _) = _blocks.Pop();
         _words[start - 1] = (uint)(_words.Count - start);
     }
 
@@ -75,6 +83,73 @@ public sealed class BitstreamWriter
         foreach (var operand in operands)
         {
             Vbr(operand, RecordWidth);
+        }
+    }
+
+    /// <summary>
+    /// Defines an abbreviation in the current block (its first operand is the record code, a literal); returns its id.
+    /// </summary>
+    public int DefineAbbreviation(params AbbreviationOperand[] operands)
+    {
+        Emit(DefineAbbreviationId, Width);
+        Vbr((ulong)operands.Length, AbbreviationCountWidth);
+
+        foreach (var operand in operands)
+        {
+            if (operand.Kind == AbbreviationKind.Literal)
+            {
+                Emit(1, 1);
+                Vbr(operand.Value, LiteralWidth);
+
+                continue;
+            }
+
+            Emit(0, 1);
+            Emit((ulong)operand.Kind, EncodingWidth);
+
+            if (operand.Kind != AbbreviationKind.Array)
+            {
+                Vbr(operand.Value, EncodingValueWidth);
+            }
+        }
+
+        var abbreviations = _blocks.Peek().Abbreviations;
+        abbreviations.Add(operands);
+
+        return FirstAbbreviation + abbreviations.Count - 1;
+    }
+
+    /// <summary>A record in abbreviation <paramref name="id"/>: the operands after its literal code, in its fields.</summary>
+    public void Abbreviated(int id, ReadOnlySpan<ulong> operands)
+    {
+        var abbreviation = _blocks.Peek().Abbreviations[id - FirstAbbreviation];
+        Emit((ulong)id, Width);
+        var next = 0;
+
+        for (var index = 1; index < abbreviation.Length; index++)
+        {
+            var operand = abbreviation[index];
+
+            switch (operand.Kind)
+            {
+                case AbbreviationKind.Literal:
+                    next++;
+                    break;
+                case AbbreviationKind.Array:
+                    var element = abbreviation[index + 1];
+                    Vbr((ulong)(operands.Length - next), ArrayLengthWidth);
+
+                    for (; next < operands.Length; next++)
+                    {
+                        Field(element, operands[next]);
+                    }
+
+                    return;
+                default:
+                    Field(operand, operands[next]);
+                    next++;
+                    break;
+            }
         }
     }
 
@@ -130,6 +205,18 @@ public sealed class BitstreamWriter
             _current >>= WordBits;
             _bits -= WordBits;
         }
+    }
+
+    private void Field(AbbreviationOperand operand, ulong value)
+    {
+        if (operand.Kind == AbbreviationKind.Fixed)
+        {
+            Emit(value, (int)operand.Value);
+
+            return;
+        }
+
+        Vbr(value, (int)operand.Value);
     }
 
     private void Vbr(ulong value, int width)

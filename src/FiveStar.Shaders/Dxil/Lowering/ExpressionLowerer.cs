@@ -666,14 +666,25 @@ public sealed class ExpressionLowerer
 
     private static SyntaxNode Overload(SyntaxNode call, List<SyntaxNode> overloads)
     {
-        var matching = overloads.Where(function => function.Children.Count(child => child.Kind == SyntaxKind.Parameter) == call.Children.Count).ToList();
-
-        if (matching.Count == 0)
+        foreach (var function in overloads)
         {
-            throw SourceError.At(call, $"no overload of {call.Text} takes {call.Children.Count} arguments");
+            var parameters = 0;
+
+            foreach (var child in function.Children)
+            {
+                if (child.Kind == SyntaxKind.Parameter)
+                {
+                    parameters++;
+                }
+            }
+
+            if (parameters == call.Children.Count)
+            {
+                return function;
+            }
         }
 
-        return matching[0];
+        throw SourceError.At(call, $"no overload of {call.Text} takes {call.Children.Count} arguments");
     }
 
     private RValue Construct(SyntaxNode node)

@@ -13,11 +13,14 @@ internal sealed class FunctionBodyWriter
 {
     private const int Width = 4;
     private const int ThirdOperand = 2;
+    private const int VbrWidth = 6;
+    private const int OperatorWidth = 4;
 
     private readonly BitstreamWriter _out;
     private readonly IrFunction _function;
     private readonly TypeTable _types;
     private readonly List<Instruction> _live = [];
+    private readonly Dictionary<FunctionCode, int> _abbreviations = [];
     private List<BasicBlock> _layout = [];
     private int _base;
     private int _next;
@@ -96,7 +99,8 @@ internal sealed class FunctionBodyWriter
     public void Write()
     {
         _out.Enter(BlockId.Function, Width);
-        _out.Record((int)FunctionCode.DeclareBlocks, [(ulong)_layout.Count]);
+        DefineAbbreviations();
+        Record(FunctionCode.DeclareBlocks, [(ulong)_layout.Count]);
         _next = _base;
 
         foreach (var block in _layout)
@@ -115,6 +119,49 @@ internal sealed class FunctionBodyWriter
         }
 
         _out.Exit();
+    }
+
+    /// <summary>
+    /// The abbreviations of the frequent records: every field a VBR of 6 bits, an operator or alignment in 4, the
+    /// call's attribute list and explicit-type flag as literals, and the variable operand lists as arrays.
+    /// </summary>
+    private void DefineAbbreviations()
+    {
+        var vbr = AbbreviationOperand.Vbr(VbrWidth);
+        var small = AbbreviationOperand.Fixed(OperatorWidth);
+        var flag = AbbreviationOperand.Fixed(1);
+        var array = AbbreviationOperand.Array();
+        Define(FunctionCode.Call, AbbreviationOperand.Literal(0), AbbreviationOperand.Literal(ModuleWriter.Records.ExplicitType), vbr, array, vbr);
+        Define(FunctionCode.Binary, vbr, vbr, small);
+
+        Define(FunctionCode.Cast, vbr, vbr, small);
+        Define(FunctionCode.Compare, vbr, vbr, vbr);
+        Define(FunctionCode.Select, vbr, vbr, vbr);
+        Define(FunctionCode.ExtractValue, vbr, vbr);
+        Define(FunctionCode.Phi, array, vbr);
+        Define(FunctionCode.Load, vbr, vbr, small, flag);
+
+        Define(FunctionCode.Store, vbr, vbr, small, flag);
+        Define(FunctionCode.Branch, array, vbr);
+        Define(FunctionCode.GetElementPtr, array, vbr);
+    }
+
+    private void Define(FunctionCode code, params AbbreviationOperand[] fields)
+    {
+        _abbreviations[code] = _out.DefineAbbreviation([AbbreviationOperand.Literal((ulong)code), .. fields]);
+    }
+
+    /// <summary>A record in its abbreviation when it has one.</summary>
+    private void Record(FunctionCode code, ReadOnlySpan<ulong> operands)
+    {
+        if (_abbreviations.TryGetValue(code, out var abbreviation))
+        {
+            _out.Abbreviated(abbreviation, operands);
+
+            return;
+        }
+
+        _out.Record((int)code, operands);
     }
 
     /// <summary>The live phis and body instructions of a block, in order.</summary>
@@ -215,19 +262,19 @@ internal sealed class FunctionBodyWriter
         switch (instruction.Opcode)
         {
             case Opcode.Binary:
-                _out.Record((int)FunctionCode.Binary, [Relative(operands[0]), Relative(operands[1]), (ulong)instruction.Code]);
+                Record(FunctionCode.Binary, [Relative(operands[0]), Relative(operands[1]), (ulong)instruction.Code]);
                 break;
             case Opcode.Cast:
-                _out.Record((int)FunctionCode.Cast, [Relative(operands[0]), (ulong)instruction.Type.Id, (ulong)instruction.Code]);
+                Record(FunctionCode.Cast, [Relative(operands[0]), (ulong)instruction.Type.Id, (ulong)instruction.Code]);
                 break;
             case Opcode.Compare:
-                _out.Record((int)FunctionCode.Compare, [Relative(operands[0]), Relative(operands[1]), (ulong)instruction.Code]);
+                Record(FunctionCode.Compare, [Relative(operands[0]), Relative(operands[1]), (ulong)instruction.Code]);
                 break;
             case Opcode.Select:
-                _out.Record((int)FunctionCode.Select, [Relative(operands[1]), Relative(operands[ThirdOperand]), Relative(operands[0])]);
+                Record(FunctionCode.Select, [Relative(operands[1]), Relative(operands[ThirdOperand]), Relative(operands[0])]);
                 break;
             case Opcode.ExtractValue:
-                _out.Record((int)FunctionCode.ExtractValue, [Relative(operands[0]), (ulong)instruction.Code]);
+                Record(FunctionCode.ExtractValue, [Relative(operands[0]), (ulong)instruction.Code]);
                 break;
             default:
                 WriteMemoryOrControl(instruction);
@@ -242,22 +289,22 @@ internal sealed class FunctionBodyWriter
         switch (instruction.Opcode)
         {
             case Opcode.Load:
-                _out.Record((int)FunctionCode.Load, [Relative(operands[0]), (ulong)instruction.Type.Id, ModuleWriter.Records.Alignment, 0]);
+                Record(FunctionCode.Load, [Relative(operands[0]), (ulong)instruction.Type.Id, ModuleWriter.Records.Alignment, 0]);
                 break;
             case Opcode.Store:
-                _out.Record((int)FunctionCode.Store, [Relative(operands[0]), Relative(operands[1]), ModuleWriter.Records.Alignment, 0]);
+                Record(FunctionCode.Store, [Relative(operands[0]), Relative(operands[1]), ModuleWriter.Records.Alignment, 0]);
                 break;
             case Opcode.AtomicRmw:
-                _out.Record((int)FunctionCode.AtomicRmw, [Relative(operands[0]), Relative(operands[1]), (ulong)instruction.Code, 0, ModuleWriter.Records.Ordering, ModuleWriter.Records.Scope]);
+                Record(FunctionCode.AtomicRmw, [Relative(operands[0]), Relative(operands[1]), (ulong)instruction.Code, 0, ModuleWriter.Records.Ordering, ModuleWriter.Records.Scope]);
                 break;
             case Opcode.CompareExchange:
-                _out.Record((int)FunctionCode.CompareExchange, [Relative(operands[0]), Relative(operands[1]), Relative(operands[ThirdOperand]), 0, ModuleWriter.Records.Ordering, ModuleWriter.Records.Scope, ModuleWriter.Records.Ordering, 0]);
+                Record(FunctionCode.CompareExchange, [Relative(operands[0]), Relative(operands[1]), Relative(operands[ThirdOperand]), 0, ModuleWriter.Records.Ordering, ModuleWriter.Records.Scope, ModuleWriter.Records.Ordering, 0]);
                 break;
             case Opcode.GetElementPtr:
-                _out.Record((int)FunctionCode.GetElementPtr, [1, (ulong)instruction.SourceType!.Id, .. operands.Select(Relative)]);
+                Record(FunctionCode.GetElementPtr, [1, (ulong)instruction.SourceType!.Id, .. operands.Select(Relative)]);
                 break;
             case Opcode.Alloca:
-                _out.Record((int)FunctionCode.Alloca, [(ulong)instruction.SourceType!.Id, (ulong)_types.Int32.Id, (ulong)operands[0].Id, ModuleWriter.Records.Alignment | ModuleWriter.Records.AllocaFlags]);
+                Record(FunctionCode.Alloca, [(ulong)instruction.SourceType!.Id, (ulong)_types.Int32.Id, (ulong)operands[0].Id, ModuleWriter.Records.Alignment | ModuleWriter.Records.AllocaFlags]);
                 break;
             case Opcode.Call:
                 WriteCall(instruction);
@@ -274,7 +321,7 @@ internal sealed class FunctionBodyWriter
     private void WriteCall(Instruction call)
     {
         var callee = call.Callee!;
-        _out.Record((int)FunctionCode.Call, [0, ModuleWriter.Records.ExplicitType, (ulong)callee.FunctionType.Id, Relative(callee), .. call.Operands.Select(Relative)]);
+        Record(FunctionCode.Call, [0, ModuleWriter.Records.ExplicitType, (ulong)callee.FunctionType.Id, Relative(callee), .. call.Operands.Select(Relative)]);
     }
 
     private void WritePhi(Instruction phi)
@@ -299,7 +346,7 @@ internal sealed class FunctionBodyWriter
             record.Add((ulong)position);
         }
 
-        _out.Record((int)FunctionCode.Phi, [.. record]);
+        Record(FunctionCode.Phi, [.. record]);
     }
 
     private void WriteTerminator(Instruction terminator)
@@ -309,13 +356,13 @@ internal sealed class FunctionBodyWriter
         switch (terminator.Opcode)
         {
             case Opcode.Return:
-                _out.Record((int)FunctionCode.Return, []);
+                Record(FunctionCode.Return, []);
                 break;
             case Opcode.Branch:
-                _out.Record((int)FunctionCode.Branch, [targets[0]]);
+                Record(FunctionCode.Branch, [targets[0]]);
                 break;
             case Opcode.ConditionalBranch:
-                _out.Record((int)FunctionCode.Branch, [targets[0], targets[1], Relative(terminator.Operands[0])]);
+                Record(FunctionCode.Branch, [targets[0], targets[1], Relative(terminator.Operands[0])]);
                 break;
             default:
                 WriteSwitch(terminator, targets);
@@ -334,7 +381,7 @@ internal sealed class FunctionBodyWriter
             record.Add(targets[index + 1]);
         }
 
-        _out.Record((int)FunctionCode.Switch, [.. record]);
+        Record(FunctionCode.Switch, [.. record]);
     }
 
     private enum FunctionCode
