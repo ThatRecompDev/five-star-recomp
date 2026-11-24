@@ -76,27 +76,45 @@ internal sealed unsafe class XboxGameMemoryBuffers
         return _addresses.TryFind(address, out range) || (TryCover(address) && _addresses.TryFind(address, out range));
     }
 
-    /// <summary>Covers the allocation holding <paramref name="address"/> with a buffer, once per allocation.</summary>
+    /// <summary>
+    /// Covers the allocation holding <paramref name="address"/> with a buffer, once per allocation. Every miss asks, so
+    /// the allocation is found without VirtualQuery (<see cref="MemoryRegionInformation"/>): XMem pages are mapped views,
+    /// not private memory, and an allocation tried before is not walked again.
+    /// </summary>
     private bool TryCover(ulong address)
     {
-        MemoryBasicInformation info;
         nint device = _objects.DesktopDevice;
 
-        if (device == 0 || Kernel32.VirtualQueryEx(Kernel32.GetCurrentProcess(), (nint)address, &info, (nuint)sizeof(MemoryBasicInformation)) == 0 || info.Type != PrivateMemory || info.State != Win32Constants.MemCommit)
+        if (device == 0 || !MemoryRegionInformation.Query((nint)address, out var region) || (region.Flags & MemoryRegionInformation.PrivateFlag) == 0)
+        {
+            return false;
+        }
+
+        nint allocation = region.AllocationBase;
+
+        lock (_gate)
+        {
+            if (_tried.Contains(allocation))
+            {
+                return false;
+            }
+        }
+
+        if (!region.FullyCommittedPrivate && !CommittedPage((nint)address))
         {
             return false;
         }
 
         lock (_gate)
         {
-            if (!_tried.Add(info.AllocationBase))
+            if (!_tried.Add(allocation))
             {
                 return false;
             }
 
-            ulong size = AllocationSize(info.AllocationBase);
-            bool writable = GpuWritable(info.AllocationBase, size);
-            nint buffer = CreateBuffer(device, info.AllocationBase, size, writable);
+            ulong size = AllocationSize(allocation);
+            bool writable = GpuWritable(allocation, size);
+            nint buffer = CreateBuffer(device, allocation, size, writable);
 
             if (buffer == 0)
             {
@@ -109,12 +127,21 @@ internal sealed unsafe class XboxGameMemoryBuffers
             }
 
             ulong gpu = ((delegate* unmanaged<nint, ulong>)ComObject.Slot(buffer, GetGpuAddressSlot))(buffer);
-            _addresses.Add(new AddressRange((ulong)info.AllocationBase, size, gpu, buffer));
+            _addresses.Add(new AddressRange((ulong)allocation, size, gpu, buffer));
             string access = writable ? string.Empty : ", read-only";
-            _log.Detail($"  [d3d12_xs] game memory 0x{info.AllocationBase:x} (0x{size:x} bytes) on the GPU at 0x{gpu:x}{access}");
+            _log.Detail($"  [d3d12_xs] game memory 0x{allocation:x} (0x{size:x} bytes) on the GPU at 0x{gpu:x}{access}");
 
             return true;
         }
+    }
+
+    /// <summary>Whether the page at <paramref name="address"/> in an allocation committed in part is committed.</summary>
+    private static bool CommittedPage(nint address)
+    {
+        MemoryBasicInformation info;
+
+        return Kernel32.VirtualQueryEx(Kernel32.GetCurrentProcess(), address, &info, (nuint)sizeof(MemoryBasicInformation)) != 0
+            && info.Type == PrivateMemory && info.State == Win32Constants.MemCommit;
     }
 
     /// <summary>Whether the game allocated <paramref name="allocation"/> as GPU-writable memory; logs the ones that are not.</summary>

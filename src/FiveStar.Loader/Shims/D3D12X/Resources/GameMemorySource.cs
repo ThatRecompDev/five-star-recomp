@@ -59,8 +59,20 @@ internal sealed unsafe class GameMemorySource
         return true;
     }
 
+    /// <summary>
+    /// Whether every byte is committed and readable. An allocation committed in full with a readable protection answers
+    /// at once (the game's heaps; it does not change protections inside them); anything else is walked with VirtualQuery,
+    /// which costs milliseconds in a large allocation, and the game asks here per Map and per watched texture a frame.
+    /// </summary>
+    [HotPath]
     private static bool AllCommitted(nint start, ulong size)
     {
+        if (MemoryRegionInformation.Query(start, out var region) && region.FullyCommittedPrivate && region.Holds(start, size)
+            && region.AllocationProtect != 0 && (region.AllocationProtect & UnreadableProtection) == 0)
+        {
+            return true;
+        }
+
         nint process = Kernel32.GetCurrentProcess();
         nint end = start + (nint)size;
         nint next = start;

@@ -29,4 +29,11 @@ internal static unsafe class KernelBase
 
     [DllImport(Library, SetLastError = true)]
     public static extern int GlobalMemoryStatusEx(MemoryStatusEx* status);
+
+    /// <summary>
+    /// QueryVirtualMemoryInformation (memoryapi.h, Windows 10 1803+); here with MemoryRegionInfo (0), which reads the
+    /// allocation's own counters instead of walking its page tables as VirtualQuery does.
+    /// </summary>
+    [DllImport(Library)]
+    public static extern int QueryVirtualMemoryInformation(nint process, nint address, int informationClass, MemoryRegionInformation* information, nuint size, nuint* returned);
 }
