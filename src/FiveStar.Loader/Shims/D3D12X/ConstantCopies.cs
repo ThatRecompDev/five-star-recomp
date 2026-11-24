@@ -9,12 +9,12 @@ using FiveStar.Loader.Shims.D3D12X.Resources;
 namespace FiveStar.Loader.Shims.D3D12X;
 
 /// <summary>
-/// Constant-buffer views the address map cannot serve: views outside the game's own heaps over its remappable XMem
-/// pages, and views over memory no desktop buffer covers (in the game's heaps a view over XMem pages is a V# at the
-/// game address, read live through the map, XboxDescriptorMethods.GameAddressView). Each such view reads a copy of its
-/// own in one upload buffer, kept per descriptor, and every ExecuteCommandLists copies the game's bytes into all of them
-/// first (<see cref="Refresh"/>): a submission sees the constants as the game left them when it submitted. A source
-/// the CPU cannot read (an unmapped page) copies as zeros. The mechanism, copies of title memory refreshed at
+/// Constant-buffer views over game memory that no desktop buffer covers: the game's constant pools in XMem pages,
+/// which it remaps thousands of times in the story load, so neither a buffer placed over the pages nor a copy made
+/// when the view is created stays right. Each such view reads a copy of its own in one upload buffer, kept per
+/// descriptor, and every ExecuteCommandLists copies the game's bytes into all of them first (<see cref="Refresh"/>):
+/// a submission sees the constants as the game left them when it submitted, as the console's GPU reads them live. A
+/// source the CPU cannot read (an unmapped page) copies as zeros. The mechanism, copies of title memory refreshed at
 /// submission, follows victory-gta6 (fxceless, GPL-3.0-or-later), a fork of VIctory.
 /// </summary>
 internal sealed unsafe class ConstantCopies

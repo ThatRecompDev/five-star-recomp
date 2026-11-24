@@ -57,12 +57,6 @@ internal static unsafe class XboxDescriptorMethods
     public static void CreateConstantBufferView(XboxObject* self, ConstantBufferViewDescription* description, nint handle)
     {
         nint inner = self->Inner;
-
-        if (GameAddressView(inner, description, handle))
-        {
-            return;
-        }
-
         ulong location = 0;
 
         if (description != null)
@@ -119,7 +113,10 @@ internal static unsafe class XboxDescriptorMethods
             return address;
         }
 
-        if (!IsRemappable(address) && D3D12X.GameMemory.TryFind(address, out _))
+        var memory = ShimContext.Runtime.XMemPhysical;
+        bool remappable = memory.IsReserved(memory.CpuAddress((nint)address));
+
+        if (!remappable && D3D12X.GameMemory.TryFind(address, out _))
         {
             return address;
         }
@@ -132,37 +129,6 @@ internal static unsafe class XboxDescriptorMethods
         }
 
         return copy;
-    }
-
-    /// <summary>
-    /// In the game's own heaps a view over its remappable pages is a V# at the game address: programs read it through
-    /// the address map, which follows every remap, live as on the console. False for any other view.
-    /// </summary>
-    [HotPath]
-    private static bool GameAddressView(nint inner, ConstantBufferViewDescription* description, nint handle)
-    {
-        if (description == null || description->Location == 0 || !IsRemappable(description->Location) || D3D12X.DescriptorHeaps.Find(handle, out _) is null)
-        {
-            return false;
-        }
-
-        var record = BufferRecords.ConstantBuffer(description->Size) with { GameAddress = description->Location };
-        nint destination = D3D12X.DescriptorHeaps.Destination(handle, record);
-
-        if (destination != 0)
-        {
-            ((delegate* unmanaged<nint, ConstantBufferViewDescription*, nint, void>)ComObject.Slot(inner, CreateConstantBufferViewSlot))(inner, null, destination);
-        }
-
-        return true;
-    }
-
-    /// <summary>Whether <paramref name="address"/> lies in an XMem reservation: pages the game maps and remaps.</summary>    [HotPath]
-    private static bool IsRemappable(ulong address)
-    {
-        var memory = ShimContext.Runtime.XMemPhysical;
-
-        return memory.IsReserved(memory.CpuAddress((nint)address));
     }
 
     private static void WarnUnknownConstantBuffer(ulong address, uint size)
