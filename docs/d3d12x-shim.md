@@ -362,15 +362,21 @@ last run is unfinished, `ListSubmissions`), that queue's waits are released, sin
 blocked thread. One fence for all queues held a writer behind an unrelated wait on another queue: per-queue fences
 took the story-load timeouts from 17 to 0 (the first frame's waits take longer than 0.5 s but under 5 s).
 
-A wait recorded after work in its list is not kept by default: the desktop can only hold a whole list.
-`--split-at-waits` splits the list there instead (`ListSplits`): the desktop list so far is closed as a segment, and
-recording goes on in another desktop list on the same allocator with the state set again (`ListReplayState`: heaps,
-bindless roots, pipeline, topology, vertex and index buffers, targets, viewports, scissors, blend factor, stencil
-reference, depth bounds; not open queries or predication). Segments run in queue order, each after its waits. It
-works (a unit test checks that work before a wait runs and work after it is held), but in the story load the
-split lists' frame-cell waits stalled every queue at one frame until the timeout (16 timeouts, the writers' lists
-not submitted for 5 s), so it stays off until that cycle is understood. The device's Dispose logs the counts.
-A compute list names only compute states (VERTEX_AND_CONSTANT_BUFFER, UNORDERED_ACCESS, NON_PIXEL_SHADER_RESOURCE,
+A wait recorded after any command of its list splits the list there (`ListSplits`; command-list forwarding thunks
+count their calls in the wrapper, and handlers that record work count themselves), as victory-gta6 cuts its lists:
+the desktop list so far is closed as a segment, and recording goes on in another desktop list on the same allocator
+with the state set again (`ListReplayState`: heaps, bindless roots, pipeline, topology, vertex and index buffers,
+targets, viewports, scissors, blend factor, stencil reference, depth bounds; not open queries or predication).
+Segments run in queue order, each after its waits; a wait at the list's start or right after another joins the
+current segment's. `--no-split-at-waits` holds no wait recorded after work instead.
+
+The stall that kept splitting off (boots 9 and 10: every queue held for 5 s at one frame, the next frame's writer
+lists recorded but not submitted) was our present throttle (`GpuFrameThrottle`): at a present it blocked the
+submitting thread until the GPU finished the work of two presents before, and that work stood at a wait whose writer
+the same thread submits after the present. victory-gta6 releases all held waits at a present; the throttle now
+releases them only when it has waited 250 ms. Wait checks read memory without VirtualQuery (victory-gta6 measured
+about 8 ms per query in the game's 1.1 GB allocation): a page in a mappable reservation must be mapped, other memory
+must be in the address table. The device's Dispose logs the counts.A compute list names only compute states (VERTEX_AND_CONSTANT_BUFFER, UNORDERED_ACCESS, NON_PIXEL_SHADER_RESOURCE,
 INDIRECT_ARGUMENT, COPY_DEST, COPY_SOURCE, acceleration structure) and a copy list only the copy ones
 (`ResourceStates.Legal`): any other bit fails the desktop Close. Render targets rest in RENDER_TARGET, so a compute
 list's transition of one (or to PIXEL_SHADER_RESOURCE) is left out and the texture keeps its state on that list

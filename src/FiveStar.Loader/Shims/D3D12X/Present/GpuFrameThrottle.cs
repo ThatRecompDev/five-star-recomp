@@ -12,7 +12,9 @@ namespace FiveStar.Loader.Shims.D3D12X.Present;
 /// into it (argument records over the pool's block-end nodes, docs/d3d12x-shim.md). At each present the throttle notes
 /// how far every queue has been submitted (its shim fence, <see cref="ListSubmissions"/>) and waits until the GPU has
 /// finished everything submitted up to the present <see cref="Lag"/> before. A wait longer than 5 s (by default)
-/// gives up (counted), so a lost fence cannot freeze the game.
+/// gives up (counted), so a lost fence cannot freeze the game. A wait past <see cref="ReleaseWaitsMilliseconds"/>
+/// releases the queues' memory waits (<see cref="MemoryWaits.ReleaseAll"/>): the console has no such throttle, and the
+/// writer a held queue waits for may be work the game submits after this present (a 5 s stall at one story-load frame).
 /// </summary>
 internal sealed unsafe class GpuFrameThrottle : IDisposable
 {
@@ -21,6 +23,9 @@ internal sealed unsafe class GpuFrameThrottle : IDisposable
 
     /// <summary>Queues followed; the game makes a handful.</summary>
     private const int MaxQueues = 32;
+
+    /// <summary>How long a present waits for the GPU before the queues' memory waits are released.</summary>
+    public const long ReleaseWaitsMilliseconds = 250;
 
     /// <summary>The default longest wait of a present for the GPU.</summary>
     public const uint DefaultLongestWaitMilliseconds = 5000;
@@ -135,20 +140,30 @@ internal sealed unsafe class GpuFrameThrottle : IDisposable
             return Outcome.Done;
         }
 
-        long deadline = Environment.TickCount64 + _longestWait;
+        long start = Environment.TickCount64;
+        long deadline = start + _longestWait;
+        bool released = false;
         _ = ((delegate* unmanaged<nint, ulong, nint, int>)ComObject.Slot(fence, SetEventOnCompletionSlot))(fence, value, _event);
 
         // The event is shared: a wake-up may be an earlier wait's, so the value is checked each time.
         while (Completed(fence) < value)
         {
-            long left = deadline - Environment.TickCount64;
+            long now = Environment.TickCount64;
+            long left = deadline - now;
 
             if (left <= 0)
             {
                 return Outcome.GaveUp;
             }
 
-            _ = PresentNative.WaitForSingleObject(_event, (uint)left);
+            if (!released && now - start >= ReleaseWaitsMilliseconds)
+            {
+                released = true;
+                MemoryWaits.ReleaseAll();
+            }
+
+            long slice = Math.Min(left, ReleaseWaitsMilliseconds);
+            _ = PresentNative.WaitForSingleObject(_event, (uint)slice);
         }
 
         return Outcome.Waited;
