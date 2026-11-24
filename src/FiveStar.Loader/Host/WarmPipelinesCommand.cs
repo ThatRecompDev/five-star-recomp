@@ -79,18 +79,7 @@ internal static unsafe class WarmPipelinesCommand
     {
         var warnings = new OnceLog(log);
         var index = ProgramIndex.Load(folders.Programs!);
-        // Through the program cache too, when there is a compiler: producers that need linking to their pixel shader
-        // are linked on the warm-up's threads (ProducerLinks).
-        var onDemand = folders.OnDemand?.Open(index, folders.Programs!, folders.Translated, device2, warnings, log);
-        TranslatedProgramLibrary? translated = null;
-
-        if (onDemand is null)
-        {
-            translated = TranslatedProgramLibrary.Open(index, folders.Translated!, device2, warnings, log);
-        }
-
-        IProgramLibrary library = onDemand ?? (IProgramLibrary)translated!;
-        Action forget = onDemand is null ? translated!.Forget : onDemand.Forget;
+        var (library, onDemand, forget) = Library(folders, index, device2, warnings, log);
 
         var builds = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
         var standIns = new StandInPipelines(PipelineSlots.CreationBudget, builds, builds, warnings);
@@ -136,6 +125,24 @@ internal static unsafe class WarmPipelinesCommand
         {
             Console.CancelKeyPress -= stop;
         }
+    }
+
+    /// <summary>
+    /// The translation, through the program cache too when there is a compiler: producers that need linking to their
+    /// pixel shader are then linked on the warm-up's threads (<see cref="ProducerLinks"/>). With how to drop read DXIL.
+    /// </summary>
+    private static (IProgramLibrary Library, OnDemandPrograms? OnDemand, Action Forget) Library(PipelineFolders folders, ProgramIndex index, nint device2, OnceLog warnings, LoaderLog log)
+    {
+        var onDemand = folders.OnDemand?.Open(index, folders.Programs!, folders.Translated, device2, warnings, log);
+
+        if (onDemand is not null)
+        {
+            return (onDemand, onDemand, onDemand.Forget);
+        }
+
+        var translated = TranslatedProgramLibrary.Open(index, folders.Translated!, device2, warnings, log);
+
+        return (translated, null, translated.Forget);
     }
 
     /// <summary>The targets with a shader whose extracted program name contains one of <paramref name="matches"/>; all without.</summary>

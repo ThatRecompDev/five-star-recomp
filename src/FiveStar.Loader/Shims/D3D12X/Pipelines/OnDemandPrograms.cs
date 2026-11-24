@@ -45,6 +45,7 @@ internal sealed class OnDemandPrograms : IProgramLibrary
         _producer = producer;
         _workers = workers;
         _warnings = warnings;
+
         Links = new ProducerLinks(producer, workers);
     }
 
