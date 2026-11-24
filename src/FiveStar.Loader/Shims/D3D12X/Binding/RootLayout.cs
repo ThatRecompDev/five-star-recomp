@@ -24,6 +24,17 @@ internal unsafe struct RootLayout
     /// <summary>Descriptors a table parameter spans (the end of its last range), at most <see cref="DescriptorWindow.MaxTableRecords"/>.</summary>
     public fixed ushort Extents[MaxParameters];
 
+    /// <summary>The user SGPRs all parameters take, packed in order.</summary>
+    public readonly int Sgprs()
+    {
+        if (Count == 0)
+        {
+            return 0;
+        }
+
+        return Offsets[Count - 1] + Sizes[Count - 1];
+    }
+
     /// <summary>The parameter's kind, or null past <see cref="Count"/>.</summary>
     public readonly RootParameterKind? Kind(uint parameter)
     {
