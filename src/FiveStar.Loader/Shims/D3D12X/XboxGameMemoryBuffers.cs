@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Five Star Recomp contributors.
+// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Loader.Diagnostics;
@@ -11,6 +11,8 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// heap with PAGE_GRAPHICS_READWRITE): on the console the GPU reads any of it at the CPU address. On the first address
 /// that misses <see cref="XboxPlacedResources.Addresses"/>, the whole VirtualAlloc allocation around it is opened as a
 /// heap (ID3D12Device3::OpenExistingHeapFromAddress) and covered by one placed buffer, whose range joins the table.
+/// The console GPU writes only to graphics memory (<see cref="GraphicsAllocations"/>): any other allocation gets a
+/// buffer without unordered access, so the address map gives programs no UAV there and their writes are dropped.
 /// </summary>
 internal sealed unsafe class XboxGameMemoryBuffers
 {
@@ -22,8 +24,9 @@ internal sealed unsafe class XboxGameMemoryBuffers
     /// <summary>MEM_PRIVATE: memory from VirtualAlloc, the only kind OpenExistingHeapFromAddress takes (winnt.h).</summary>
     private const uint PrivateMemory = 0x20000;
 
-    /// <summary>D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS | ALLOW_CROSS_ADAPTER, the flags such a buffer needs.</summary>
-    private const int BufferFlags = 0x14;
+    /// <summary>D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER, which a buffer in such a heap needs, and ALLOW_UNORDERED_ACCESS.</summary>
+    private const int CrossAdapter = 0x10;
+    private const int UnorderedAccess = 0x4;
 
     /// <summary>D3D12_TEXTURE_LAYOUT_ROW_MAJOR, the layout of every buffer, and the single sample.</summary>
     private const int RowMajor = 1;
@@ -37,13 +40,26 @@ internal sealed unsafe class XboxGameMemoryBuffers
     private readonly HashSet<nint> _tried = [];
     private readonly XboxObjects _objects;
     private readonly AddressTable _addresses;
+    private readonly GraphicsAllocations _graphics;
     private readonly LoaderLog _log;
 
-    public XboxGameMemoryBuffers(XboxObjects objects, AddressTable addresses, LoaderLog log)
+    public XboxGameMemoryBuffers(XboxObjects objects, AddressTable addresses, GraphicsAllocations graphics, LoaderLog log)
     {
         _objects = objects;
         _addresses = addresses;
+        _graphics = graphics;
         _log = log;
+    }
+
+    private readonly HashSet<nint> _readOnly = [];
+
+    /// <summary>Whether <paramref name="resource"/> is a buffer this class made over memory the GPU may not write.</summary>
+    public bool IsReadOnly(nint resource)
+    {
+        lock (_gate)
+        {
+            return _readOnly.Contains(resource);
+        }
     }
 
     /// <summary>The desktop GPU address of a console one; false when no desktop buffer covers it.</summary>
@@ -79,19 +95,46 @@ internal sealed unsafe class XboxGameMemoryBuffers
             }
 
             ulong size = AllocationSize(info.AllocationBase);
-            nint buffer = CreateBuffer(device, info.AllocationBase, size);
+            bool writable = GpuWritable(info.AllocationBase, size);
+            nint buffer = CreateBuffer(device, info.AllocationBase, size, writable);
 
             if (buffer == 0)
             {
                 return false;
             }
 
+            if (!writable)
+            {
+                _readOnly.Add(buffer);
+            }
+
             ulong gpu = ((delegate* unmanaged<nint, ulong>)ComObject.Slot(buffer, GetGpuAddressSlot))(buffer);
             _addresses.Add(new AddressRange((ulong)info.AllocationBase, size, gpu, buffer));
-            _log.Detail($"  [d3d12_xs] game memory 0x{info.AllocationBase:x} (0x{size:x} bytes) on the GPU at 0x{gpu:x}");
+            string access = writable ? string.Empty : ", read-only";
+            _log.Detail($"  [d3d12_xs] game memory 0x{info.AllocationBase:x} (0x{size:x} bytes) on the GPU at 0x{gpu:x}{access}");
 
             return true;
         }
+    }
+
+    /// <summary>Whether the game allocated <paramref name="allocation"/> as GPU-writable memory; logs the ones that are not.</summary>
+    private bool GpuWritable(nint allocation, ulong size)
+    {
+        if (_graphics.TryGet(allocation, out var access, out uint type, out uint protect))
+        {
+            if (access == GraphicsAccess.ReadWrite)
+            {
+                return true;
+            }
+
+            _log.Warn($"[d3d12_xs] game memory 0x{allocation:x} (0x{size:x} bytes, type 0x{type:x}, protect 0x{protect:x}) is not GPU-writable graphics memory: GPU writes there are dropped");
+        }
+        else
+        {
+            _log.Warn($"[d3d12_xs] game memory 0x{allocation:x} (0x{size:x} bytes) was not allocated through XMemVirtualAlloc: GPU writes there are dropped");
+        }
+
+        return false;
     }
 
     /// <summary>The bytes from <paramref name="allocation"/> to the end of the last region with that allocation base.</summary>
@@ -108,7 +151,7 @@ internal sealed unsafe class XboxGameMemoryBuffers
         return (ulong)(next - allocation);
     }
 
-    private nint CreateBuffer(nint device, nint allocation, ulong size)
+    private nint CreateBuffer(nint device, nint allocation, ulong size, bool writable)
     {
         Guid device3Iid = Device3Iid;
         nint device3 = 0;
@@ -131,7 +174,8 @@ internal sealed unsafe class XboxGameMemoryBuffers
             return 0;
         }
 
-        var description = new ResourceDescription { Dimension = ResourceDescription.BufferDimension, Width = size, Height = 1, DepthOrArraySize = 1, MipLevels = 1, SampleCount = 1, Layout = RowMajor, Flags = BufferFlags };
+        int flags = writable ? CrossAdapter | UnorderedAccess : CrossAdapter;
+        var description = new ResourceDescription { Dimension = ResourceDescription.BufferDimension, Width = size, Height = 1, DepthOrArraySize = 1, MipLevels = 1, SampleCount = 1, Layout = RowMajor, Flags = flags };
         Guid resourceIid = ResourceIid;
         nint buffer = 0;
         var create = (delegate* unmanaged<nint, nint, ulong, ResourceDescription*, int, void*, Guid*, nint*, int>)ComObject.Slot(device, CreatePlacedResourceSlot);

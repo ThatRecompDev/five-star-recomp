@@ -59,6 +59,15 @@ metadata operands, the mesh state property, and declaring every output dependent
 instead of tracing dependencies. Register packing, the order of signature rows and names, and the remaining layouts
 were checked against dxc's containers (`fivestar shader dxil --compare`); the code is our own.
 
+## XCL
+
+https://github.com/xcl-dev/xcl, GPL-2.0-only. Because that licence does not combine with ours, only facts from its
+notes were used, never its code, structure or tables: that the newer D3D12.X list layout puts
+Write32/64BitValueBottomOfPipeX at slots 71 and 72 and Wait32/64BitValueX at 73 and 74, that Wait64BitValueX's
+argument after the value is flags and not a mask, the timestamp flags of the bottom-of-pipe writes, and that the
+console GPU writes only to memory allocated as graphics memory (MEM_GRAPHICS, PAGE_GRAPHICS_*). Each was checked
+against the game's executable (docs/d3d12x-shim.md); the implementation is our own.
+
 ## GTA6-Asset-Info
 
 https://github.com/TrinitronClient/GTA6-Asset-Info, revision `0f649eba78cdd6e053d7aefd333fb6e3abe9739a`, GPL-3.0.

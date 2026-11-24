@@ -44,6 +44,9 @@ internal sealed unsafe class XMemPhysicalMemory : IDisposable
     /// </summary>
     public AllocationBases PlainAllocations { get; } = new();
 
+    /// <summary>The GPU access of those allocations, from their flags.</summary>
+    public GraphicsAllocations Graphics { get; } = new();
+
     /// <summary>
     /// <c>void* XMemVirtualAlloc(void* address, SIZE_T size, DWORD allocationType, uint64 xmemFlags, DWORD protect)</c>.
     /// MEM_RESERVE_PLACEHOLDER makes a placeholder the game splits itself; MEM_64K_PAGES without MEM_COMMIT makes a
@@ -66,6 +69,7 @@ internal sealed unsafe class XMemPhysicalMemory : IDisposable
         {
             result = Allocate(address, size, allocationType, protect);
             PlainAllocations.Add(result);
+            Graphics.Add(result, allocationType, protect);
         }
 
         if (_log.DetailEnabled)

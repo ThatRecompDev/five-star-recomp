@@ -344,6 +344,7 @@ internal static unsafe class CommandListBindingMethods
     private static int ResetList(XboxObject* self, nint allocator, nint pipelineState)
     {
         *CommandListBindings.Of(self) = default;
+        ListMemoryWaits.Of(self)->Reset();
         ListActivity.Reset(self);
         ShimContext.Runtime.D3D12X.DrawTrace?.Reset(self);
 

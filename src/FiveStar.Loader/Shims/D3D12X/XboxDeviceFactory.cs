@@ -60,7 +60,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         MemorySource = new GameMemorySource(memory);
         Textures = new GpuTextures(MemorySource, Descriptions, log);
         PlacedResources = new XboxPlacedResources(memory, Objects, Textures, log);
-        GameMemory = new XboxGameMemoryBuffers(Objects, PlacedResources.Addresses, log);
+        GameMemory = new XboxGameMemoryBuffers(Objects, PlacedResources.Addresses, memory.Graphics, log);
         PlacedResources.GameMemory = GameMemory;
 
         StalePages = new StaleGpuPages(PlacedResources.Addresses, memory, log);
@@ -390,6 +390,8 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
     public void Dispose()
     {
         _log.Info($"  [d3d12_xs] {ListSubmissions.Waits} submission(s) waited for the list's previous run");
+        var waits = MemoryWaits.Counts;
+        _log.Info($"  [memory wait] {waits.Recorded} recorded: {waits.Held} met at submission, {waits.Deferred} waited for on the GPU, {waits.TimedOut} released by the timeout, {waits.Dropped} not kept");
         Pipelines?.Cache?.Dispose();
 
         Presenter.Dispose();
@@ -551,6 +553,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         EnhancedBarrierSlots.Bind(Objects);
         UploadAllocations.Bind(Objects);
         BottomOfPipeWrites.Bind(Objects);
+        MemoryWaits.Bind(Objects, _log);
     }
 
     private void BindInputBuffers()

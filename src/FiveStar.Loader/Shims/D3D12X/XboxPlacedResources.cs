@@ -85,7 +85,7 @@ internal sealed unsafe class XboxPlacedResources
 
             if (inner == 0)
             {
-                inner = InGameMemory(address, description->Width);
+                inner = InGameMemory(address, description->Width, (description->Flags & AllowUnorderedAccess) != 0);
             }
 
             if (inner == 0)
@@ -101,7 +101,8 @@ internal sealed unsafe class XboxPlacedResources
             }
 
             *resource = _objects.WrapResource(inner, address);
-            ResourceStates.Record(_objects.AsResource(*resource), ResourceStates.BufferDimension, ResourceStates.Common, AllowUnorderedAccess);
+            int flags = GameMemory?.IsReadOnly(inner) == true ? 0 : AllowUnorderedAccess;
+            ResourceStates.Record(_objects.AsResource(*resource), ResourceStates.BufferDimension, ResourceStates.Common, flags);
             _log.Detail($"  [d3d12_xs] ID3D12Device.X::Slot133 CreatePlacedResource(0x{address:x}, 0x{description->Width:x} bytes) -> {runs.Count} page runs");
 
             return HResult.Ok;
@@ -249,12 +250,20 @@ internal sealed unsafe class XboxPlacedResources
     /// <summary>
     /// A buffer in memory the game committed itself (no XMem page): the desktop buffer over that whole allocation,
     /// referenced once more, so the GPU sees the game's writes. Its offsets are console ones; views and copies move
-    /// them (<see cref="Resources.BufferViewRanges"/>, <see cref="BufferCopies"/>). 0 when no such buffer covers it.
+    /// them (<see cref="Resources.BufferViewRanges"/>, <see cref="BufferCopies"/>). 0 when no such buffer covers it, or
+    /// when the game wants unordered access in memory it did not allocate as GPU-writable.
     /// </summary>
-    private nint InGameMemory(ulong address, ulong size)
+    private nint InGameMemory(ulong address, ulong size, bool unordered)
     {
         if (GameMemory is null || !GameMemory.TryFind(address, out var range) || range.Resource == 0 || address + size > range.GameAddress + range.Size)
         {
+            return 0;
+        }
+
+        if (unordered && GameMemory.IsReadOnly(range.Resource))
+        {
+            _log.Warn($"[d3d12_xs] ID3D12Device.X::Slot133 at 0x{address:x}: a UAV buffer in memory not allocated as GPU-writable");
+
             return 0;
         }
 

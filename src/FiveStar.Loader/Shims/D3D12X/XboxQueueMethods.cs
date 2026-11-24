@@ -89,8 +89,41 @@ internal static unsafe class XboxQueueMethods
             }
 
             RetireWaits.BeforeExecute((XboxQueueObject*)self, lists + first, size);
-            execute(inner, size, desktop);
-            ListSubmissions.Submitted((XboxQueueObject*)self, lists + first, size, objects);
+            Submit(self, lists + first, desktop, size, execute);
+        }
+    }
+
+    /// <summary>
+    /// Runs the lists in order, split before each list with memory waits so the lists before it are submitted first and
+    /// the queue then waits for its memory (<see cref="MemoryWaits"/>).
+    /// </summary>
+    [HotPath]
+    private static void Submit(XboxObject* self, nint* lists, nint* desktop, uint count, delegate* unmanaged<nint, uint, nint*, void> execute)
+    {
+        var objects = ShimContext.Runtime.D3D12X.Objects;
+        nint inner = self->Inner;
+        uint start = 0;
+
+        for (uint i = 0; i <= count; i++)
+        {
+            bool waits = i < count && desktop[i] != lists[i] && MemoryWaits.HasWaits(lists[i]);
+
+            if (i < count && !waits)
+            {
+                continue;
+            }
+
+            if (i > start)
+            {
+                execute(inner, i - start, desktop + start);
+                ListSubmissions.Submitted((XboxQueueObject*)self, lists + start, i - start, objects);
+                start = i;
+            }
+
+            if (waits)
+            {
+                MemoryWaits.Before(inner, lists[i]);
+            }
         }
     }
 }

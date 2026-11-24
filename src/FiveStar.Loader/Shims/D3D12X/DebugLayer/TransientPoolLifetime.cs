@@ -195,7 +195,7 @@ internal static unsafe class TransientPoolLifetime
         var (retire, retireAt) = RetireWaits.LastWrite;
         string reach = wide ? "the whole pool (a view over more than 8 blocks)" : $"block {block}";
         var text = new StringBuilder();
-        text.Append($"[lifetime] block {block} (0x{_start + ((ulong)block * _size):x}) taken again (token 0x{previous:x} -> 0x{token:x}) while recording {serial}, which reaches {reach}, is unfinished: {where}, at {completed} of {value} ({value - completed} submissions behind); last retire write 0x{retire:x} to 0x{retireAt:x}; its pipelines:");
+        text.Append($"[lifetime] block {block} (0x{_start + ((ulong)block * _size):x}) taken again (token 0x{previous:x} -> 0x{token:x}) while recording {serial}, which reaches {reach}, is unfinished: {where}, at {completed} of {value} ({value - completed} submissions behind); last slot-74 wait for 0x{retireAt:x} to reach 0x{retire:x}; its pipelines:");
         TransientPoolHits.DescribeRecording(text, serial, QueueProgress.PipelineName);
         _log?.Warn(text.ToString());
     }
