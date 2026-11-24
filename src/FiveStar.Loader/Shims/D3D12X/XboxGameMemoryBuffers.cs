@@ -37,7 +37,7 @@ internal sealed unsafe class XboxGameMemoryBuffers
     private static readonly Guid ResourceIid = new("696442be-a72e-4059-bc79-5b5c98040fad");
 
     private readonly object _gate = new();
-    private readonly HashSet<nint> _tried = [];
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<nint, byte> _tried = new();
     private readonly XboxObjects _objects;
     private readonly AddressTable _addresses;
     private readonly GraphicsAllocations _graphics;
@@ -78,26 +78,25 @@ internal sealed unsafe class XboxGameMemoryBuffers
 
     /// <summary>
     /// Covers the allocation holding <paramref name="address"/> with a buffer, once per allocation. Every miss asks, so
-    /// the allocation is found without VirtualQuery (<see cref="MemoryRegionInformation"/>): XMem pages are mapped views,
-    /// not private memory, and an allocation tried before is not walked again.
+    /// the allocation is found without VirtualQuery (<see cref="MemoryRegionInformation"/>): XMem pages are skipped, and an
+    /// allocation tried before is not walked again.
     /// </summary>
     private bool TryCover(ulong address)
     {
         nint device = _objects.DesktopDevice;
 
-        if (device == 0 || !MemoryRegionInformation.Query((nint)address, out var region) || (region.Flags & MemoryRegionInformation.PrivateFlag) == 0)
+        // XMem pages (the constant pools the game binds per draw) are never private memory: no system call for them.
+        if (device == 0 || ShimContext.Runtime.XMemPhysical.IsReserved((nint)address)
+            || !MemoryRegionInformation.Query((nint)address, out var region) || (region.Flags & MemoryRegionInformation.PrivateFlag) == 0)
         {
             return false;
         }
 
         nint allocation = region.AllocationBase;
 
-        lock (_gate)
+        if (_tried.ContainsKey(allocation))
         {
-            if (_tried.Contains(allocation))
-            {
-                return false;
-            }
+            return false;
         }
 
         if (!region.FullyCommittedPrivate && !CommittedPage((nint)address))
@@ -107,7 +106,7 @@ internal sealed unsafe class XboxGameMemoryBuffers
 
         lock (_gate)
         {
-            if (!_tried.Add(allocation))
+            if (!_tried.TryAdd(allocation, 0))
             {
                 return false;
             }

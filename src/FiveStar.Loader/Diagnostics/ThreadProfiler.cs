@@ -29,6 +29,7 @@ internal sealed unsafe class ThreadProfiler
     /// <summary>A system-call stub: mov r10, rcx; mov eax, n; test; jne; syscall; ret; int 2e; ret.</summary>
     private const ulong StubBytes = 0x20;
     private const string Managed = "managed";
+    private const double Percent = 100.0;
     private const string Prefix = "  [profile] ";
 
     private static readonly (string Module, string[] Calls)[] WaitCalls =
@@ -142,8 +143,8 @@ internal sealed unsafe class ThreadProfiler
             }
 
             string name = ThreadStacks.Name(threads[i]);
-            string kind = tally.Game ? "game" : name.Length == 0 ? "other" : $"\"{name}\"";
-            _log.Info($"{Prefix}thread {threads[i]} ({kind}) running {100.0 * tally.Running / Rounds:F0} % of rounds: {Shares(tally.Places, TopModules)}");
+            string kind = Kind(tally.Game, name);
+            _log.Info($"{Prefix}thread {threads[i]} ({kind}) running {Percent * tally.Running / Rounds:F0} % of rounds: {Shares(tally.Places, TopModules)}");
         }
     }
 
@@ -191,6 +192,21 @@ internal sealed unsafe class ThreadProfiler
         }
 
         return place;
+    }
+
+    private static string Kind(bool game, string name)
+    {
+        if (game)
+        {
+            return "game";
+        }
+
+        if (name.Length == 0)
+        {
+            return "other";
+        }
+
+        return $"\"{name}\"";
     }
 
     private static bool Reaches(LoadedImage main, ReadOnlySpan<ulong> stack)
@@ -270,7 +286,7 @@ internal sealed unsafe class ThreadProfiler
             return "none";
         }
 
-        return string.Join(", ", counts.OrderByDescending(p => p.Value).Take(top).Select(p => $"{p.Key} {100.0 * p.Value / total:F1} %"));
+        return string.Join(", ", counts.OrderByDescending(p => p.Value).Take(top).Select(p => $"{p.Key} {Percent * p.Value / total:F1} %"));
     }
 
     /// <summary>
