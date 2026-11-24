@@ -376,7 +376,17 @@ submitting thread until the GPU finished the work of two presents before, and th
 the same thread submits after the present. victory-gta6 releases all held waits at a present; the throttle now
 releases them only when it has waited 250 ms. Wait checks read memory without VirtualQuery (victory-gta6 measured
 about 8 ms per query in the game's 1.1 GB allocation): a page in a mappable reservation must be mapped, other memory
-must be in the address table. The device's Dispose logs the counts.A compute list names only compute states (VERTEX_AND_CONSTANT_BUFFER, UNORDERED_ACCESS, NON_PIXEL_SHADER_RESOURCE,
+must be in the address table. The device's Dispose logs the counts.
+
+**Indirect-argument clamp (`IndirectClamp`).** Before an ExecuteIndirect with a one-argument signature (all five of
+the game's: draw, indexed draw, dispatch, the X dispatch 0x69 and mesh dispatch), a compute program of ours (HLSL
+compiled once by Windows' d3dcompiler_47) copies the records into the list's scratch buffer and clamps them, and the
+list executes the copy: 2^24 vertices and 2^26 vertex instances per draw, 65,535 groups per dimension and 2^20 per
+dispatch (more runs nothing), mesh dispatches one-dimensional, a first dimension over 65,535 run empty (a record the
+game did not fill). A skipped or mistranslated argument pass leaves garbage there, and a dispatch of 0xFFFFFFFF groups
+runs until the driver resets the device. The game's buffers are not touched; the list's compute root signature and
+pipeline are set again after the clamp. Records past a count buffer's count are copied unclamped and never run.
+victory-gta6 has the same clamp with a per-list budget; ours has none.A compute list names only compute states (VERTEX_AND_CONSTANT_BUFFER, UNORDERED_ACCESS, NON_PIXEL_SHADER_RESOURCE,
 INDIRECT_ARGUMENT, COPY_DEST, COPY_SOURCE, acceleration structure) and a copy list only the copy ones
 (`ResourceStates.Legal`): any other bit fails the desktop Close. Render targets rest in RENDER_TARGET, so a compute
 list's transition of one (or to PIXEL_SHADER_RESOURCE) is left out and the texture keeps its state on that list

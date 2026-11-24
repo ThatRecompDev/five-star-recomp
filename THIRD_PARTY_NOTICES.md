@@ -64,7 +64,8 @@ were checked against dxc's containers (`fivestar shader dxil --compare`); the co
 A GPL-3.0-or-later fork of VIctory (fxceless) that reaches the prologue's gameplay. Its queue synchronisation was a
 source of mechanisms, written anew in our design (docs/d3d12x-shim.md, Memory waits): command lists cut at the
 Wait32/Wait64 slots and the parts run in order once the value is in memory (list.rs::cut,
-queue.rs::submit_cut / elease_held), held waits released at a present, and memory values read without
+queue.rs::submit_cut / elease_held), held waits released at a present, indirect arguments copied and clamped on the GPU before they run
+(`indirect.rs`; its bounds), and memory values read without
 VirtualQuery (its measurement of about 8 ms per query in the game's 1.1 GB allocation). Its console_insn*.rs files
 are GPL-2.0-only code from XCL and were not used. No code was copied.
 
