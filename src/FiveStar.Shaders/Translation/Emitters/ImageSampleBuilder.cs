@@ -15,6 +15,9 @@ internal sealed class ImageSampleBuilder
     private const int CubeFaceDerivatives = 4;
     private const int AllComponents = 0xf;
 
+    // A 2D array's address: x, y, then the slice.
+    private const int ArraySlice = 2;
+
     private static readonly HashSet<string> SampleOperations =
     [
         "sample", "sample_lz", "sample_l", "sample_b", "sample_c", "sample_c_lz", "sample_c_l", "sample_d", "sample_c_d",
@@ -223,7 +226,7 @@ internal sealed class ImageSampleBuilder
         if (array)
         {
             _state.Emit($"  uint _gw{n}, _gh{n}, _gs{n}, _gn{n}; {texture}.GetDimensions(0u, _gw{n}, _gh{n}, _gs{n}, _gn{n});");
-            slice = $", (int)min((uint)max(round(asfloat({values[2]})), 0.0), _gs{n} - 1u)";
+            slice = $", (int)min((uint)max(round(asfloat({values[ArraySlice]})), 0.0), _gs{n} - 1u)";
         }
         else
         {
@@ -233,6 +236,7 @@ internal sealed class ImageSampleBuilder
         var offset = request.Offsets is null ? string.Empty : $" + {request.Offsets}";
         _state.Emit($"  uint {level} = min((uint)max(round(asfloat({values[request.Components]})), 0.0), _gn{n} - 1u);");
         _state.Emit($"  int2 {size} = int2(max(_gw{n} >> {level}, 1u), max(_gh{n} >> {level}, 1u));");
+
         _state.Emit($"  int2 {low} = int2(floor(float2(asfloat({values[0]}), asfloat({values[1]})) * float2({size}) - 0.5)){offset};");
         _state.Emit($"  int2 {high} = clamp({low} + int2(1, 1), int2(0, 0), {size} - int2(1, 1));");
         _state.Emit($"  {low} = clamp({low}, int2(0, 0), {size} - int2(1, 1));");
