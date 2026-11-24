@@ -17,20 +17,23 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// <c>--d3d12-breadcrumbs</c> also their last dispatches) are logged, the first <see cref="DetailedReports"/> in full.
 /// A page whose counter did not move forward was given back by the allocator and reused for other data: it leaves the
 /// watch. The pools themselves are watched too (<see cref="PoolObjectWatch"/>).
+/// Every read goes through ReadProcessMemory (an allocation the game frees between scans reads as zeros).
 /// The heaps are scanned for pages every <see cref="ScanMilliseconds"/> ms on the same thread; a page found is only
 /// reported on once the allocator was seen at work on it (its counter moved), so GPU data that happens to read as a
-/// header is not taken for one. Reads are plain loads:
-/// the coherent heaps stay committed for the process's life (checked at each scan).
+/// header is not taken for one.
 /// </summary>
 internal static unsafe class PoolPageWatch
 {
-    private const int PollMilliseconds = 50;
+    private const int PollMilliseconds = 100;
     private const int ScanMilliseconds = 2000;
     private const int RecheckMilliseconds = 1;
     private const int MaxPages = 16384;
     private const int DetailedReports = 16;
     private const int DumpBytes = 64;
     private const int PreviousOffset = 16;
+
+    /// <summary>Qwords read per header: the free list, the links and the word holding the partial flag.</summary>
+    private const int HeaderWords = 5;
 
     /// <summary>winnt.h (console) PAGE_GRAPHICS_COHERENT.</summary>
     public const uint GraphicsCoherent = 0x20000;
@@ -160,7 +163,9 @@ internal static unsafe class PoolPageWatch
 
         for (int i = 0; i < DumpBytes; i += sizeof(ulong))
         {
-            text.Append(CultureInfo.InvariantCulture, $" {*(ulong*)(page + i):x16}");
+            ulong value = 0;
+            Copy(page + i, &value, sizeof(ulong));
+            text.Append(CultureInfo.InvariantCulture, $" {value:x16}");
         }
 
         if (count <= DetailedReports)
@@ -178,20 +183,36 @@ internal static unsafe class PoolPageWatch
     }
 
     /// <summary>The header at <paramref name="page"/> and the next-offset of its first free block.</summary>
+    /// <remarks>
+    /// Read through the kernel (ReadProcessMemory): the game may free a coherent allocation between two scans, and a
+    /// plain load there faulted this thread and ended boot 17. Memory that cannot be read reads as zeros.
+    /// </remarks>
     private static PoolPageHeader Read(nint page)
     {
-        ulong free = Volatile.Read(ref *(ulong*)page);
+        ulong* header = stackalloc ulong[HeaderWords];
+        Copy(page, header, HeaderWords * sizeof(ulong));
+        ulong free = header[0];
         uint first = (uint)free;
         uint next = 0;
 
         if (first != 0 && first <= PoolPageHeader.PageBytes - sizeof(uint))
         {
-            next = Volatile.Read(ref *(uint*)(page + (nint)first));
+            Copy(page + (nint)first, &next, sizeof(uint));
         }
 
-        byte partial = *(byte*)(page + PoolPageHeader.PartialOffset);
+        byte partial = ((byte*)header)[PoolPageHeader.PartialOffset];
 
-        return new PoolPageHeader(free, *(ulong*)(page + sizeof(ulong)), *(ulong*)(page + PreviousOffset), partial, next);
+        return new PoolPageHeader(free, header[1], header[PreviousOffset / sizeof(ulong)], partial, next);
+    }
+
+    private static void Copy(nint from, void* to, int bytes)
+    {
+        nuint done = 0;
+
+        if (Native.Kernel32.ReadProcessMemory(Native.Kernel32.GetCurrentProcess(), from, to, (nuint)bytes, &done) == 0 || done != (nuint)bytes)
+        {
+            new Span<byte>(to, bytes).Clear();
+        }
     }
 
     /// <summary>Whether the whole range is still committed memory (one VirtualQuery per region, at each scan).</summary>
