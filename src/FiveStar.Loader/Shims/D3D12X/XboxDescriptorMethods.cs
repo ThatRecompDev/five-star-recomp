@@ -95,7 +95,9 @@ internal static unsafe class XboxDescriptorMethods
 
     private static void WarnUnknownConstantBuffer(ulong address, uint size)
     {
-        D3D12X.Warnings.Warn("cbv", $"[d3d12_xs] CreateConstantBufferView: GPU address 0x{address:x} ({size} bytes) outside known game memory, null view written");
+        MemoryBasicInformation info = default;
+        Kernel32.VirtualQueryEx(Kernel32.GetCurrentProcess(), (nint)address, &info, (nuint)sizeof(MemoryBasicInformation));
+        D3D12X.Warnings.Warn("cbv", $"[d3d12_xs] CreateConstantBufferView: GPU address 0x{address:x} ({size} bytes) outside known game memory, null view written (allocation 0x{info.AllocationBase:x}, region 0x{info.BaseAddress:x} + 0x{info.RegionSize:x}, state 0x{info.State:x}, type 0x{info.Type:x}, protect 0x{info.Protect:x}, reserved by XMem {ShimContext.Runtime.XMemPhysical.IsReserved((nint)address)})");
     }
 
     [HotPath]

@@ -39,6 +39,15 @@ internal sealed unsafe class XboxPlacedResources
     private const int DefaultHeapType = 1;
     private const int AllowCrossAdapter = 0x10;
 
+    /// <summary>D3D12_TEXTURE_LAYOUT_ROW_MAJOR, the layout of every buffer (d3d12.h).</summary>
+    private const int RowMajorLayout = 1;
+
+    /// <summary>Bytes of section one heap opens at most: OpenExistingHeapFromAddress refuses the view of a 6 GiB section.</summary>
+    private const ulong HeapWindowBytes = 1UL << 30;
+
+    /// <summary>The most pages one read-only run over mapped pages takes (<see cref="CoverMappedPages"/>).</summary>
+    private const ulong MaxCoveredPages = 64;
+
     /// <summary>D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, the one desktop flag the game's buffers carry (d3d12.h).</summary>
     private const int AllowUnorderedAccess = 0x4;
 
@@ -48,6 +57,7 @@ internal sealed unsafe class XboxPlacedResources
 
     private readonly object _gate = new();
     private readonly Dictionary<nint, nint> _heaps = [];
+    private readonly Dictionary<(nint Section, ulong Window), nint> _windowHeaps = [];
     private readonly List<nint> _runBuffers = [];
     private readonly XMemPhysicalMemory _memory;
     private readonly XboxObjects _objects;
@@ -232,8 +242,15 @@ internal sealed unsafe class XboxPlacedResources
     private nint CreatePlaced(nint device, PageRun run, ResourceDescription* description)
     {
         nint heap = Heap(device, run.Chunk!);
+        ulong offset = run.Offset;
 
         if (heap == 0)
+        {
+            heap = WindowHeap(device, run, out offset);
+        }
+
+        // A placed resource starts on a 64 KiB boundary of its heap; the runtime refuses others (E_INVALIDARG).
+        if (heap == 0 || offset % XMemPhysicalMemory.PageSize != 0)
         {
             return 0;
         }
@@ -241,7 +258,7 @@ internal sealed unsafe class XboxPlacedResources
         Guid iid = ResourceIid;
         nint resource = 0;
         var create = (delegate* unmanaged<nint, nint, ulong, ResourceDescription*, int, void*, Guid*, nint*, int>)ComObject.Slot(device, DesktopCreatePlacedResourceSlot);
-        int hr = create(device, heap, run.Offset, description, CommonState, null, &iid, &resource);
+        int hr = create(device, heap, offset, description, CommonState, null, &iid, &resource);
         LogFailure("CreatePlacedResource", hr);
 
         return resource;
@@ -292,14 +309,112 @@ internal sealed unsafe class XboxPlacedResources
         return resource;
     }
 
-    /// <summary>The heap over a page section (through the store's whole-section view), opened once.</summary>
-    private nint Heap(nint device, XMemPageChunk chunk)
+    /// <summary>
+    /// A read-only buffer over the XMem pages mapped around <paramref name="address"/> when no buffer covers it: memory
+    /// the game reads through the GPU without a placed resource there, such as constant buffers in its pools (on the
+    /// console the GPU reads any mapped page). The run takes the pages consecutive in the same section, up to
+    /// <see cref="MaxCoveredPages"/>, that no other range overlaps; a later placed resource there replaces it. Without
+    /// unordered access the address map gives programs no UAV over it. False when nothing is mapped there or a range
+    /// already overlaps the page.
+    /// </summary>
+    public bool CoverMappedPages(nint device, ulong address)
     {
-        if (_heaps.TryGetValue(chunk.Section, out nint existing))
+        ulong pageSize = XMemPhysicalMemory.PageSize;
+        ulong page = address & ~(pageSize - 1);
+
+        lock (_gate)
+        {
+            if (!_memory.TryLocate((nint)page, out var chunk, out ulong offset) || Addresses.Overlaps(page, pageSize))
+            {
+                return false;
+            }
+
+            ulong start = page;
+            ulong end = page + pageSize;
+
+            // A run stays inside one heap window of its section (WindowHeap).
+            ulong windowStart = offset / HeapWindowBytes * HeapWindowBytes;
+
+            while (end - start < MaxCoveredPages * pageSize && offset + (end - page) + pageSize <= windowStart + HeapWindowBytes
+                && ContinuesRun(end, chunk, offset + (end - page)))
+            {
+                end += pageSize;
+            }
+
+            while (end - start < MaxCoveredPages * pageSize && start >= pageSize && offset >= windowStart + (page - start) + pageSize
+                && ContinuesRun(start - pageSize, chunk, offset - (page - start) - pageSize))
+            {
+                start -= pageSize;
+            }
+
+            var run = new PageRun(chunk, offset - (page - start), 0, end - start);
+            var description = new ResourceDescription
+            {
+                Dimension = ResourceDescription.BufferDimension, Width = run.Length, Height = 1, DepthOrArraySize = 1, MipLevels = 1,
+                SampleCount = 1, Layout = RowMajorLayout, Flags = AllowCrossAdapter,
+            };
+            nint buffer = CreatePlaced(device, run, &description);
+
+            if (buffer == 0)
+            {
+                return false;
+            }
+
+            Addresses.Add(new AddressRange(start, run.Length, GpuAddress(buffer), buffer));
+            ComObject.Release(buffer);
+            _log.Detail($"  [d3d12_xs] mapped pages 0x{start:x} (0x{run.Length:x} bytes, section offset 0x{run.Offset:x}) on the GPU read-only");
+
+            return true;
+        }
+    }
+
+    /// <summary>Whether the page at <paramref name="page"/> is mapped from <paramref name="chunk"/> at <paramref name="offset"/> and no range overlaps it.</summary>
+    private bool ContinuesRun(ulong page, XMemPageChunk chunk, ulong offset)
+    {
+        return _memory.TryLocate((nint)page, out var next, out ulong at) && ReferenceEquals(next, chunk) && at == offset
+            && !Addresses.Overlaps(page, XMemPhysicalMemory.PageSize);
+    }
+
+    /// <summary>
+    /// A heap over the <see cref="HeapWindowBytes"/> window of the run's section that holds the run, through a view of
+    /// that window: the store makes one section per contiguous allocation, and its whole-section view of a 6 GiB one is
+    /// refused (E_INVALIDARG). <paramref name="offset"/> is the run's offset in that heap; 0 when the run crosses a
+    /// window's end or the view cannot be made.
+    /// </summary>
+    private nint WindowHeap(nint device, PageRun run, out ulong offset)
+    {
+        var chunk = run.Chunk!;
+        ulong window = run.Offset / HeapWindowBytes;
+        ulong start = window * HeapWindowBytes;
+        ulong bytes = Math.Min(HeapWindowBytes, (chunk.Pages * XMemPhysicalMemory.PageSize) - start);
+        offset = run.Offset - start;
+
+        if (offset + run.Length > bytes)
+        {
+            return 0;
+        }
+
+        if (_windowHeaps.TryGetValue((chunk.Section, window), out nint existing))
         {
             return existing;
         }
 
+        nint view = KernelBase.MapViewOfFile3(chunk.Section, Kernel32.GetCurrentProcess(), 0, start, (nuint)bytes, 0, Win32Constants.PageReadWrite, null, 0);
+        nint heap = 0;
+
+        if (view != 0)
+        {
+            heap = OpenHeap(device, view);
+        }
+
+        _windowHeaps[(chunk.Section, window)] = heap;
+        _log.Detail($"  [d3d12_xs] heap over section 0x{chunk.Section:x} window {window} (0x{bytes:x} bytes at 0x{view:x}) -> 0x{heap:x}");
+
+        return heap;
+    }
+
+    private nint OpenHeap(nint device, nint view)
+    {
         Guid device3Iid = Device3Iid;
         nint device3 = 0;
         int hr = ((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(device, ComObject.QueryInterfaceSlot))(device, &device3Iid, &device3);
@@ -313,9 +428,30 @@ internal sealed unsafe class XboxPlacedResources
 
         Guid heapIid = HeapIid;
         nint heap = 0;
-        hr = ((delegate* unmanaged<nint, nint, Guid*, nint*, int>)ComObject.Slot(device3, OpenHeapFromAddressSlot))(device3, chunk.Window, &heapIid, &heap);
+        hr = ((delegate* unmanaged<nint, nint, Guid*, nint*, int>)ComObject.Slot(device3, OpenHeapFromAddressSlot))(device3, view, &heapIid, &heap);
         ComObject.Release(device3);
-        LogFailure("OpenExistingHeapFromAddress", hr);
+        LogFailure($"OpenExistingHeapFromAddress(0x{view:x})", hr);
+
+        return heap;
+    }
+
+    /// <summary>
+    /// The heap over a page section (through the store's whole-section view), opened once; 0 for a section larger than
+    /// <see cref="HeapWindowBytes"/>, which takes heaps by window (<see cref="WindowHeap"/>).
+    /// </summary>
+    private nint Heap(nint device, XMemPageChunk chunk)
+    {
+        if (chunk.Pages * XMemPhysicalMemory.PageSize > HeapWindowBytes)
+        {
+            return 0;
+        }
+
+        if (_heaps.TryGetValue(chunk.Section, out nint existing))
+        {
+            return existing;
+        }
+
+        nint heap = OpenHeap(device, chunk.Window);
         _heaps[chunk.Section] = heap;
 
         return heap;
