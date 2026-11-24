@@ -24,7 +24,7 @@ internal static unsafe class PoolObjectWatch
     private const int CapacityOffset = 176;
     private const int DumpBytes = 192;
     private const int MaxPools = 4096;
-    private const int MaxBlocks = PoolPageHeader.PageBytes / 16;
+    private const int MaxBlocks = PoolPageHeader.PageBytes / 8;
     private const ulong UserEnd = 0x0000_7FFF_FFFF_FFFF;
 
     private static readonly HashSet<nint> Pools = [];

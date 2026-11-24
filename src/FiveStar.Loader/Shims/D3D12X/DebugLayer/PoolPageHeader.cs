@@ -24,8 +24,8 @@ internal readonly record struct PoolPageHeader(ulong FreeList, ulong Next, ulong
     /// <summary>Header bytes before the first block.</summary>
     public const int HeaderBytes = 40;
 
-    /// <summary>Blocks a page holds at most (16-byte blocks).</summary>
-    private const uint MaxBlocks = PageBytes / 16;
+    /// <summary>Blocks a page holds at most (8-byte blocks: boot 16 saw counts over 1,024).</summary>
+    private const uint MaxBlocks = PageBytes / 8;
 
     /// <summary>Operations one page can see between two checks before a counter step looks like garbage.</summary>
     private const int MaxSteps = 4096;
