@@ -11,7 +11,12 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// first; a view over the whole buffer does not fit it and removes the device. One in memory the game committed itself
 /// shares that memory's buffer, so its first element moves by its address. The view goes to the run that holds its
 /// first element, moved to that run's offset and cut at its end (elements past a cut read 0). A view that fits its
-/// buffer passes unchanged.
+/// buffer passes unchanged. A view whose start is no whole number of elements into the shared buffer (a 28-byte
+/// structured buffer at a 64 KiB-aligned address) cannot be moved as it is: it becomes a raw view from the same byte,
+/// which is how translated programs read every V# anyway. Before, it stayed unmoved, so it began at the shared buffer's
+/// start, the start of the game's 1.1 GiB coherent heap where the game keeps its pool objects:
+/// GpuParticleUpdate~CS_InitFrameCompute's 28-byte records (0x7FFFFFFF three times, 0x80000001 three times, 0) were
+/// written over them from offset 0, and the story load crashed in the pool allocator.
 /// </summary>
 internal static unsafe class BufferViewRanges
 {
@@ -31,6 +36,10 @@ internal static unsafe class BufferViewRanges
     private const int UavStride = 20;
 
     private const int Flags = 32;
+
+    /// <summary>D3D12_BUFFER_UAV.CounterOffsetInBytes and DXGI_FORMAT_R32_TYPELESS.</summary>
+    private const int UavCounterOffset = 24;
+    private const int RawFormat = 39;
     private const int ViewSize = 40;
 
     /// <summary>
@@ -70,9 +79,28 @@ internal static unsafe class BufferViewRanges
 
         ulong end = range.GameAddress + range.Size;
 
-        if ((range.Resource == desktop && range.GameAddress == game && start + ((ulong)count * element) <= end) || (start - range.GameAddress) % element != 0)
+        if (range.Resource == desktop && range.GameAddress == game && start + ((ulong)count * element) <= end)
         {
             return desktop;
+        }
+
+        if ((start - range.GameAddress) % element != 0)
+        {
+            ulong bytes = (ulong)count * element;
+
+            if (bytes > end - start)
+            {
+                bytes = end - start;
+            }
+
+            if (!AsRaw(description, copy, start - range.GameAddress, bytes, firstAt == UavFirst))
+            {
+                return 0;
+            }
+
+            view = copy;
+
+            return range.Resource;
         }
 
         ulong fits = (end - start) / element;
@@ -88,6 +116,38 @@ internal static unsafe class BufferViewRanges
         view = copy;
 
         return range.Resource;
+    }
+
+    /// <summary>
+    /// Writes into <paramref name="copy"/> the view as a raw one over <paramref name="bytes"/> from byte
+    /// <paramref name="offset"/>: R32_TYPELESS, the RAW flag, no stride, no counter. False for a start off a dword: a
+    /// view that starts anywhere else would be written in the wrong place, so there is none.
+    /// </summary>
+    [HotPath]
+    internal static bool AsRaw(byte* description, byte* copy, ulong offset, ulong bytes, bool unordered)
+    {
+        if (offset % RawElementBytes != 0)
+        {
+            return false;
+        }
+
+        int firstAt = unordered ? UavFirst : SrvFirst;
+        int countAt = unordered ? UavCount : SrvCount;
+        int strideAt = unordered ? UavStride : SrvStride;
+        Buffer.MemoryCopy(description, copy, ViewSize, ViewSize);
+        *(int*)copy = RawFormat;
+        *(ulong*)(copy + firstAt) = offset / RawElementBytes;
+
+        *(uint*)(copy + countAt) = (uint)(bytes / RawElementBytes);
+        *(uint*)(copy + strideAt) = 0;
+        *(int*)(copy + Flags) |= RawFlag;
+
+        if (unordered)
+        {
+            *(ulong*)(copy + UavCounterOffset) = 0;
+        }
+
+        return true;
     }
 
     /// <summary>Bytes per element: 4 for raw views, the stride of structured ones, the format's size for typed ones; 0 when unknown.</summary>

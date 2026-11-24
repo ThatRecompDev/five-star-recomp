@@ -24,8 +24,8 @@ internal readonly record struct PoolPageHeader(ulong FreeList, ulong Next, ulong
     /// <summary>Header bytes before the first block.</summary>
     public const int HeaderBytes = 40;
 
-    /// <summary>Blocks a page holds at most (16-byte blocks).</summary>
-    private const uint MaxBlocks = PageBytes / 16;
+    /// <summary>Blocks a page holds at most (8-byte blocks: boot 16 saw counts over 1,024).</summary>
+    private const uint MaxBlocks = PageBytes / 8;
 
     /// <summary>Operations one page can see between two checks before a counter step looks like garbage.</summary>
     private const int MaxSteps = 4096;
@@ -66,6 +66,17 @@ internal readonly record struct PoolPageHeader(ulong FreeList, ulong Next, ulong
         int steps = (ushort)(later.Counter - Counter);
 
         return later.Plausible() && steps >= 1 && steps <= MaxSteps;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="later"/> is the allocator still at work on this page (its counter moved forward by 1 to
+    /// <see cref="MaxSteps"/>); a change that is not is the page given back and its memory used for something else.
+    /// </summary>
+    public bool StillPooled(PoolPageHeader later)
+    {
+        int steps = (ushort)(later.Counter - Counter);
+
+        return steps >= 1 && steps <= MaxSteps;
     }
 
     /// <summary>The free list's second offset must lie in the page too (0 ends it).</summary>

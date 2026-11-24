@@ -174,10 +174,12 @@ there. Header (`PoolPageHeader`): the first qword packs the first free block's o
 its pool's lists, +34 flags the partial list, and each free block's first dword is the next one's offset.
 
 Every 2 s a thread scans the coherent heaps at a 16 KiB stride for headers that read as one; a page counts once its
-counter was seen moving. Every 50 ms it reads each page's header and the first free block's next-offset. A change the
+counter was seen moving. Every 100 ms it reads each page's header and the first free block's next-offset, through
+ReadProcessMemory (a plain load faulted when the game freed an allocation between two scans). The pools themselves are
+learned from the pages' list links (pool + 104) and their current page (+144) must stay 0 or a page. A change the
 allocator cannot make (offsets outside the page, the counter not moved forward by 1 to 4,096) read the same twice is
 logged with the page, its first 64 bytes and, per queue, the executions retired since the last check (their last
 pipeline, and their dispatches with `--d3d12-breadcrumbs`). Cost: the scan reads 64 bytes of each of the heap's 73,000
-pages (well under a millisecond of reads every 2 s); a check reads two words per watched page (up to 16,384) on its own
+pages (well under a millisecond of reads every 2 s); a check makes one or two ReadProcessMemory calls per watched page (up to 16,384) on its own
 thread, with no GPU work and nothing on the submitting thread. A write between two checks is caught with the
 executions of that window, not the exact dispatch; breadcrumbs narrow it.
