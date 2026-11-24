@@ -118,6 +118,16 @@ public sealed unsafe class D3D12XBindingTests
         Assert.Equal(new byte[] { 0, 1, 4, 6 }, new[] { layout.Offsets[0], layout.Offsets[1], layout.Offsets[2], layout.Offsets[3] });
         Assert.Equal(new byte[] { 1, 3, 2, 1 }, new[] { layout.Sizes[0], layout.Sizes[1], layout.Sizes[2], layout.Sizes[3] });
         Assert.Equal(7, layout.Sgprs());
+
+        // A draw uploads the dwords up to the root signature's last SGPR, in 16-byte steps: compute s4 + 7, graphics s8 + 7.
+        var bindings = (CommandListBindings*)System.Runtime.InteropServices.NativeMemory.AllocZeroed((nuint)sizeof(CommandListBindings));
+        Assert.Equal((uint)CommandListBindings.UserDataDwords, UserData.Used(bindings, true));
+
+        bindings->ComputeLayout = &layout;
+        bindings->GraphicsLayout = &layout;
+        Assert.Equal(12u, UserData.Used(bindings, true));
+        Assert.Equal(16u, UserData.Used(bindings, false));
+        System.Runtime.InteropServices.NativeMemory.Free(bindings);
     }
 
     [Fact]

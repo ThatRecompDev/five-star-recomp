@@ -43,13 +43,24 @@ internal sealed unsafe class UserDataRing
         return new UserDataRing(data, DesktopCalls.GpuAddress(buffer));
     }
 
-    /// <summary>Copies one block of user data and returns its GPU address.</summary>
+    /// <summary>
+    /// Copies the first <paramref name="dwords"/> of one block of user data and returns the block's GPU address. A
+    /// root signature uses few of the 128 dwords (its base SGPR plus its parameters'), and the copy goes to
+    /// write-combined memory: copying 32 dwords instead of 128 took an upload from 115 ns to 95 ns (D3D12XUploadBenchmarks).
+    /// </summary>
     [HotPath]
-    public ulong Upload(uint* userData)
+    public ulong Upload(uint* userData, uint dwords)
     {
         ulong block = (ulong)(Interlocked.Increment(ref _next) - 1) % Blocks;
         ulong offset = block * BlockBytes;
-        Buffer.MemoryCopy(userData, _data + offset, BlockBytes, BlockBytes);
+        uint bytes = BlockBytes;
+
+        if (dwords < CommandListBindings.UserDataDwords)
+        {
+            bytes = dwords * sizeof(uint);
+        }
+
+        Buffer.MemoryCopy(userData, _data + offset, BlockBytes, bytes);
 
         return _gpu + offset;
     }
