@@ -11,34 +11,46 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// Runs the DXIL backend in a child process, the loader itself in <see cref="CompileHostProtocol.Mode"/> with server
 /// GC, so the backend's allocations never pause the game's threads and a compiler crash does not end the game. Requests
 /// from any thread go over one pipe and wait for their answers. A host that ends is started again at the next request;
-/// the requests it held go to dxc. When no host starts, the backend runs in this process. The machine-wide memory
-/// guards see the host like any other process.
+/// the requests it held go to dxc. A request not answered within the answer limit goes to dxc too, and a host that
+/// answered nothing meanwhile is wedged and is ended. When no host starts, the backend runs in this process. The
+/// machine-wide memory guards see the host like any other process.
 /// </summary>
 internal sealed class CompileHost : IBackendRunner
 {
+    /// <summary>
+    /// How long a request waits for its answer: the slowest program of the dump took 37 s in the backend (a 4-job
+    /// corpus run), so a wait this long means a wedged host, not a slow compile.
+    /// </summary>
+    public static readonly TimeSpan AnswerLimit = TimeSpan.FromSeconds(120);
+
     private const int StartAttempts = 3;
     private const int EndsTolerated = 16;
     private const string ServerGcVariable = "DOTNET_gcServer";
     private const string Ended = "the compile host ended";
     private const string EndedTooOften = "the compile host ended too often";
+    private const string TimedOut = "the compile host did not answer in time";
     private const double BytesPerGigabyte = 1 << 30;
 
     private readonly string _executable;
     private readonly string? _validator;
+    private readonly TimeSpan _answerLimit;
     private readonly InProcessBackend _here;
     private readonly Lock _gate = new();
     private Connection? _connection;
     private int _starts;
     private int _failedStarts;
     private int _ends;
+    private int _timeouts;
     private int _nextId;
 
     /// <param name="executable">The loader executable.</param>
     /// <param name="validator">dxil.dll, whose validator checks every container; null checks none.</param>
-    public CompileHost(string executable, string? validator)
+    /// <param name="answerLimit">How long a request waits for its answer (<see cref="AnswerLimit"/>).</param>
+    public CompileHost(string executable, string? validator, TimeSpan answerLimit)
     {
         _executable = executable;
         _validator = validator;
+        _answerLimit = answerLimit;
         _here = new InProcessBackend(validator);
     }
 
@@ -62,7 +74,7 @@ internal sealed class CompileHost : IBackendRunner
                 return "compile host: did not start, compiling in this process";
             }
 
-            return $"compile host: {Volatile.Read(ref _starts)} started, {Volatile.Read(ref _ends)} ended, {gigabytes:F1} GB private";
+            return $"compile host: {Volatile.Read(ref _starts)} started, {Volatile.Read(ref _ends)} ended, {Volatile.Read(ref _timeouts)} requests not answered in time, {gigabytes:F1} GB private";
         }
     }
 
@@ -82,16 +94,23 @@ internal sealed class CompileHost : IBackendRunner
                 return _here.Run(request);
             }
 
-            var (result, sent) = connection.Send(Interlocked.Increment(ref _nextId), request);
+            var (result, delivery) = connection.Send(Interlocked.Increment(ref _nextId), request, _answerLimit);
 
-            if (result is not null)
+            if (delivery == Delivery.Answered)
             {
-                return result;
+                return result!;
+            }
+
+            if (delivery == Delivery.TimedOut)
+            {
+                Interlocked.Increment(ref _timeouts);
+
+                return new BackendResult(BackendVerdict.NotLowered, TimedOut);
             }
 
             // A host that ended while compiling the request may have ended because of it: dxc takes it. One that had
             // ended before is replaced.
-            if (sent)
+            if (delivery == Delivery.Ended)
             {
                 return new BackendResult(BackendVerdict.NotLowered, Ended);
             }
@@ -158,6 +177,22 @@ internal sealed class CompileHost : IBackendRunner
         }
     }
 
+    /// <summary>How a request went.</summary>
+    private enum Delivery
+    {
+        /// <summary>The host answered.</summary>
+        Answered,
+
+        /// <summary>The host had ended before the request reached it.</summary>
+        NotSent,
+
+        /// <summary>The host ended while the request waited.</summary>
+        Ended,
+
+        /// <summary>No answer within the limit.</summary>
+        TimedOut,
+    }
+
     /// <summary>One host process: a writer for requests and a thread that hands each answer to its waiting request.</summary>
     private sealed class Connection
     {
@@ -166,6 +201,7 @@ internal sealed class CompileHost : IBackendRunner
         private readonly ConcurrentDictionary<int, TaskCompletionSource<BackendResult?>> _pending = new();
         private volatile bool _alive = true;
         private volatile bool _answered;
+        private long _lastAnswer;
 
         private Connection(Process process)
         {
@@ -233,16 +269,21 @@ internal sealed class CompileHost : IBackendRunner
 
         public int ProcessId => _process.Id;
 
-        /// <summary>The answer to one request, null when the host ended first; whether the request reached the host.</summary>
-        public (BackendResult? Result, bool Sent) Send(int id, CompileRequest request)
+        /// <summary>
+        /// The answer to one request and how it went. A request not answered within <paramref name="limit"/> is given
+        /// up; when the host answered nothing since it was sent, the host is wedged and is ended.
+        /// </summary>
+        public (BackendResult? Result, Delivery Delivery) Send(int id, CompileRequest request, TimeSpan limit)
         {
             var answer = new TaskCompletionSource<BackendResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
             _pending[id] = answer;
 
             if (!_alive && _pending.TryRemove(id, out _))
             {
-                return (null, false);
+                return (null, Delivery.NotSent);
             }
+
+            long sent = Stopwatch.GetTimestamp();
 
             try
             {
@@ -256,10 +297,27 @@ internal sealed class CompileHost : IBackendRunner
             {
                 End();
 
-                return (null, false);
+                return (null, Delivery.NotSent);
             }
 
-            return (answer.Task.GetAwaiter().GetResult(), true);
+            if (!answer.Task.Wait(limit) && _pending.TryRemove(id, out _))
+            {
+                if (Interlocked.Read(ref _lastAnswer) < sent)
+                {
+                    End();
+                }
+
+                return (null, Delivery.TimedOut);
+            }
+
+            var result = answer.Task.GetAwaiter().GetResult();
+
+            if (result is null)
+            {
+                return (null, Delivery.Ended);
+            }
+
+            return (result, Delivery.Answered);
         }
 
         private void Read()
@@ -272,6 +330,7 @@ internal sealed class CompileHost : IBackendRunner
                 {
                     var (id, result) = CompileHostProtocol.ReadResult(reader);
                     _answered = true;
+                    Interlocked.Exchange(ref _lastAnswer, Stopwatch.GetTimestamp());
 
                     if (_pending.TryRemove(id, out var answer))
                     {
