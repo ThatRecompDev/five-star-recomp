@@ -215,9 +215,8 @@ public sealed class ExpressionLowerer
             case SyntaxKind.Name:
                 return NamePlace(node);
             case SyntaxKind.Member:
-                return Nested(node, MemberPlace);
             case SyntaxKind.Index:
-                return Nested(node, ElementPlaceOrNone);
+                return Nested(node);
             default:
                 return null;
         }
@@ -235,7 +234,8 @@ public sealed class ExpressionLowerer
         return Variables.Whole(variable);
     }
 
-    private LValue? Nested(SyntaxNode node, Func<LValue, SyntaxNode, LValue?> part)
+    /// <summary>A member or element of a place (no delegate: this runs for every variable access).</summary>
+    private LValue? Nested(SyntaxNode node)
     {
         var owner = TryPlace(node[0]);
 
@@ -244,10 +244,15 @@ public sealed class ExpressionLowerer
             return null;
         }
 
-        return part(owner, node);
+        if (node.Kind == SyntaxKind.Member)
+        {
+            return MemberPlace(owner, node);
+        }
+
+        return ElementPlaceOrNone(owner, node);
     }
 
-    private LValue MemberPlace(LValue owner, SyntaxNode node)
+    private static LValue MemberPlace(LValue owner, SyntaxNode node)
     {
         var type = owner.Type;
 
