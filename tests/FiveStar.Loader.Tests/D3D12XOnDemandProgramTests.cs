@@ -71,7 +71,7 @@ public sealed unsafe class D3D12XOnDemandProgramTests(ITestOutputHelper output)
         FiveStar.Shaders.Translation.RuntimeIncludes.WriteTo(folder);
 
         var dxc = new DxcLibraryCompiler(DxcOptions.Defaults(OnDemandFactAttribute.Library, retry: false));
-        var compiler = new DxilBackendCompiler(dxc.Options, dxc, DxilBackendCompiler.ValidatorBeside(OnDemandFactAttribute.Library));
+        var compiler = new DxilBackendCompiler(dxc.Options, dxc, new InProcessBackend(DxilBackendCompiler.ValidatorBeside(OnDemandFactAttribute.Library)));
         var picker = new ProgramVariantPicker(new FiveStar.Graphics.Programs.ShaderManifest([]), adapter, warnings);
 
         var producer = new ProgramProducer(programs, folder, picker, compiler, SlowCompiles.Read([], compiler.Options.CompileTimeout));

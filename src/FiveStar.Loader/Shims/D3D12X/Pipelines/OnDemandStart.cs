@@ -8,7 +8,6 @@ using FiveStar.Loader.Diagnostics;
 using FiveStar.Shaders.Cache;
 using FiveStar.Shaders.Compilation;
 using FiveStar.Shaders.Disassembly;
-using FiveStar.Shaders.Dxil;
 using FiveStar.Shaders.Translation;
 
 namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
@@ -43,36 +42,36 @@ internal sealed class OnDemandStart
         """;
 
     private const string ComputeProfile = "cs";
+    private const string WarmUpFile = "warm-up.hlsl";
 
     private readonly Task<string> _identity;
     private readonly IShaderCompiler _compiler;
     private readonly DxilBackendCompiler? _backend;
+    private readonly IBackendRunner? _runner;
 
-    private OnDemandStart(string root, IShaderCompiler compiler, DxilBackendCompiler? backend, int jobs)
+    private OnDemandStart(string root, IShaderCompiler compiler, DxilBackendCompiler? backend, IBackendRunner? runner, int jobs)
     {
         Root = root;
         Jobs = jobs;
         _compiler = compiler;
         _backend = backend;
+        _runner = runner;
         _identity = Task.Run(() => Identity(compiler));
 
-        if (backend is not null)
+        if (runner is not null)
         {
             _ = Task.Run(WarmUp);
         }
     }
 
-    /// <summary>Compiles a small program, so the backend's code is jitted before a game thread compiles one inline.</summary>
-    private static void WarmUp()
+    /// <summary>
+    /// Compiles a small program, so the compile host is running and the backend's code jitted before a game thread
+    /// compiles a program inline.
+    /// </summary>
+    private void WarmUp()
     {
-        try
-        {
-            DxilBackend.Compile(WarmUpSource, ComputeProfile);
-        }
-        catch (DxilBackendException)
-        {
-            // Only a warm-up: real programs report their own failures.
-        }
+        Directory.CreateDirectory(Root);
+        _runner!.Run(new CompileRequest(Path.Combine(Root, WarmUpFile), WarmUpSource, ComputeProfile, DisableOptimizations: false));
     }
 
     /// <summary>The translator and compiler build's identity; programs that trace their stores (--trace-pool-stores) have their own.</summary>
@@ -118,6 +117,11 @@ internal sealed class OnDemandStart
                 return string.Empty;
             }
 
+            if (_runner is CompileHost host)
+            {
+                return $", {_backend.Summary}, {host.Summary}";
+            }
+
             return ", " + _backend.Summary;
         }
     }
@@ -145,14 +149,28 @@ internal sealed class OnDemandStart
         {
             message = $"programs made on demand with {library} into {root}";
 
-            return new OnDemandStart(root, dxcCompiler, null, jobs.Value);
+            return new OnDemandStart(root, dxcCompiler, null, null, jobs.Value);
         }
 
         var validator = DxilBackendCompiler.ValidatorBeside(library);
-        var backend = new DxilBackendCompiler(dxcCompiler.Options, dxcCompiler, validator);
-        message = $"programs made on demand with the DXIL backend (validated by {validator ?? "nothing: no dxil.dll"}), {library} for the rest, into {root}";
+        var runner = Runner(validator);
+        var backend = new DxilBackendCompiler(dxcCompiler.Options, dxcCompiler, runner);
+        message = $"programs made on demand with the DXIL backend in a compile host (validated by {validator ?? "nothing: no dxil.dll"}), {library} for the rest, into {root}";
 
-        return new OnDemandStart(root, backend, backend, jobs.Value);
+        return new OnDemandStart(root, backend, backend, runner, jobs.Value);
+    }
+
+    /// <summary>The backend in a compile host process (the loader itself), or in this process when the loader's path is unknown.</summary>
+    private static IBackendRunner Runner(string? validator)
+    {
+        var executable = Environment.ProcessPath;
+
+        if (executable is null)
+        {
+            return new InProcessBackend(validator);
+        }
+
+        return new CompileHost(executable, validator);
     }
 
     /// <summary>The identity, waiting for it; <paramref name="waited"/> is the time spent waiting.</summary>
