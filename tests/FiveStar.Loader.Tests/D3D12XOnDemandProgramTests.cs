@@ -15,7 +15,8 @@ namespace FiveStar.Loader.Tests;
 
 /// <summary>
 /// Programs made on demand on WARP with a real program: a compute pipeline whose program no translation holds gets a
-/// stand-in, the program is translated and compiled in-process and the stand-in becomes the pipeline; the next "boot"
+/// stand-in, the program is translated and compiled in-process (by the DXIL backend, dxc as its fallback) and the
+/// stand-in becomes the pipeline; the next "boot"
 /// finds the program in the program cache and creates the pipeline at once.
 /// </summary>
 public sealed unsafe class D3D12XOnDemandProgramTests(ITestOutputHelper output)
@@ -40,6 +41,7 @@ public sealed unsafe class D3D12XOnDemandProgramTests(ITestOutputHelper output)
             output.WriteLine($"first: {first.Summary}");
             Assert.True(first.Waited, "the first creation should wait for its program");
             Assert.True(first.Built, first.Summary);
+            Assert.Contains("DXIL backend 1, dxc 0", first.Summary, StringComparison.Ordinal);
             Assert.True(File.Exists(Path.Combine(first.Folder, name + ".dxil")));
 
             var second = Create(device.Device.NativePointer, index, programs, cache, prefix);
@@ -67,12 +69,13 @@ public sealed unsafe class D3D12XOnDemandProgramTests(ITestOutputHelper output)
         Directory.CreateDirectory(folder);
         FiveStar.Shaders.Translation.RuntimeIncludes.WriteTo(folder);
 
-        var compiler = new DxcLibraryCompiler(DxcOptions.Defaults(OnDemandFactAttribute.Library, retry: false));
+        var dxc = new DxcLibraryCompiler(DxcOptions.Defaults(OnDemandFactAttribute.Library, retry: false));
+        var compiler = new DxilBackendCompiler(dxc.Options, dxc, DxilBackendCompiler.ValidatorBeside(OnDemandFactAttribute.Library));
         var picker = new ProgramVariantPicker(new FiveStar.Graphics.Programs.ShaderManifest([]), adapter, warnings);
         var producer = new ProgramProducer(programs, folder, picker, compiler, SlowCompiles.Read([], compiler.Options.CompileTimeout));
         var workers = new ProgramWorkers(1, PipelineBuildQueue.AnyTime, PipelineBuildQueue.AnyTime);
         workers.Start();
-        var onDemand = new OnDemandPrograms(index, null, producer, workers, warnings);
+        var onDemand = new OnDemandPrograms(index, null, producer, workers, warnings, () => ", " + compiler.Summary);
 
         var builds = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
         builds.Start();

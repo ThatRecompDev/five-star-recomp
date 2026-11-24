@@ -98,6 +98,9 @@ internal sealed record HostOptions
     /// <summary>dxc.exe, dxcompiler.dll or their folder (<c>--dxc</c>); null finds one.</summary>
     public string? Dxc { get; set; }
 
+    /// <summary><c>--shader-backend dxc</c>: programs made on demand compile with dxc instead of the DXIL backend.</summary>
+    public bool DxcBackend { get; set; }
+
     /// <summary>Threads that make programs on demand (<c>--shader-jobs</c>); null for the default.</summary>
     public int? ShaderJobs { get; set; }
 
