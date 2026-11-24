@@ -133,7 +133,9 @@ internal sealed class TranslatedProgramLibrary : IProgramLibrary
                 return null;
             }
 
-            var path = PathOf(name);
+            // A name the index does not hold (a producer's .link- or .trim form) is not one of these programs: the
+            // caller then loads it from the programs made on demand. Throwing here ended the process from inside a slot.
+            var path = _index.TryStage(name, out var stage) ? PathOf(name) : null;
 
             if (path is null)
             {
@@ -142,7 +144,7 @@ internal sealed class TranslatedProgramLibrary : IProgramLibrary
                 return null;
             }
 
-            var program = new TranslatedProgram(name, _index.Stage(name), File.ReadAllBytes(path));
+            var program = new TranslatedProgram(name, stage, File.ReadAllBytes(path));
             _loaded[name] = _recent.AddFirst(program);
             Interlocked.Add(ref _heldBytes, program.Dxil.Length);
             Trim();

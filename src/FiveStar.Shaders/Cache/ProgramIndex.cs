@@ -85,6 +85,12 @@ public sealed class ProgramIndex
         return _stages[name];
     }
 
+    /// <summary>The stage of <paramref name="name"/>; false for a name the index does not hold (a linked or trimmed form).</summary>
+    public bool TryStage(string name, out HardwareStage stage)
+    {
+        return _stages.TryGetValue(name, out stage);
+    }
+
     private static List<ProgramIndexEntry> ReadPrograms(IReadOnlyList<string> paths)
     {
         var entries = new List<ProgramIndexEntry>(paths.Count);
