@@ -365,13 +365,15 @@ internal sealed class LoaderHost
         }
     }
 
-    /// <summary>With --run, the console's millisecond timers for the whole process, unless <c>--desktop-timers</c>.</summary>
+    /// <summary>With --run, per-monitor DPI awareness and the console's millisecond timers for the whole process, unless <c>--desktop-timers</c>.</summary>
     private ConsoleTimers? Timers()
     {
         if (!_options.RunMain)
         {
             return null;
         }
+
+        DpiAwareness.Take(_log);
 
         if (_options.DesktopTimers)
         {

@@ -158,7 +158,8 @@ method follows from the arguments and from the inline packet written instead:
 | 50 | 46 | OMSetRenderTargets | (count, handles, FALSE, DSV*) |
 | 51, 52 | 47, 48 | ClearDepthStencilView (*inferred*), ClearRenderTargetView | (handle, color*, 0, null) |
 | 61 | 59 | ExecuteIndirect | (signature, 1, argument buffer, offset, null, 0); 8 sites |
-| 62 | | X | (pointer, pointer, dword, 0) |
+| 62 | | X: CopyMemoryToMemoryX (destination, source, bytes, flags) | (GPU address, GPU address, dword, 0) (0x1409796a0, after the game makes a texture); a CopyBufferRegion between the desktop buffers over game memory |
+| 85, 86 | | X: CopyTextureRegionX, CopyResourceX (the desktop arguments, then flags) | the game's texture copy 0x1404F4210 (texture to texture, buffer to texture from its upload ring); textures move to COPY_DEST / COPY_SOURCE and back (`TextureCopies`). Names after victory-gta6, whose older list layout has them two slots lower (60, 83, 84) |
 | 70 | 62 | OMSetDepthBounds | floats in xmm1, xmm2 |
 | 71 | | X: Write32BitValueBottomOfPipeX (address, value, flush, flags) | (address, dword, 0, 0) (0x144ed46a3): a per-frame array of 18 dwords at [0x1475DF268] |
 | 72 | | X: Write64BitValueBottomOfPipeX (address, value, flush, flags); flags 1 or 2 write the GPU timestamp | (address in a type-2 query record's result array, 0, 0, 1) (0x142482b31) |
@@ -553,14 +554,24 @@ nothing. Boot presents one plane: the 3840x2160 render target from slot 127 (R8G
 - Slot 32 (`Presenter`) creates at the first present a flip-model swap chain (FLIP_DISCARD, 3 buffers, frame-latency
   waitable object, latency 2, SCALING_STRETCH, Alt+Enter off) on the presenting desktop queue and the game's window:
   the largest visible top-level window of the process that is not the console (the game's own, titled by the game).
-  The buffers take the plane's source-rect size and the flip-model format of its typeless family (R8G8B8A8,
-  B8G8R8A8, R10G10B10A2, R16G16B16A16); DXGI stretches them to the window, so window resizes need nothing, and a new
-  plane size or format resizes the buffers after the GPU is idle. A minimized window skips the present.
-- Each present waits for the latency object, copies the source rect of plane 0 into the back buffer
-  (CopyTextureRegion, the plane RENDER_TARGET to COPY_SOURCE and back, which is the state the debug layer tracks
-  for it at present; the back buffer PRESENT to COPY_DEST and back), runs the list on the presenting queue and
-  presents with sync interval 1. One allocator per back buffer, retired by a fence; nothing is allocated per frame.
-  A second plane is not composed.
+  The buffers take the window's client size and the flip-model format of its typeless family (R8G8B8A8, B8G8R8A8,
+  R10G10B10A2, R16G16B16A16); a new client size or plane format resizes them after the GPU is idle. A minimized
+  window skips the present.
+- **Window and scaling.** The game creates its window itself (0x142478440: `sgaWindowClass`, WS_OVERLAPPEDWINDOW at
+  CW_USEDEFAULT, sized to the render size, frame included: 3840x2160) and leaves its messages to DefWindowProcA.
+  Before, the buffers had the plane's size with SCALING_STRETCH and the process was not DPI aware: Windows scaled the
+  window by the display's scale factor (5760x3240 for 3840x2160 at 150%), so only its top-left part was on screen
+  and the frame looked zoomed in; any client area not 16:9 also stretched the frame. Now the loader is per-monitor
+  DPI aware (v2) from the start of a run, a window larger than its monitor's work area is fitted there at the first
+  present (the largest 16:9 client area, centered; `GameWindowFit`), and the frame is scaled to the client area with
+  its aspect ratio (`PresentScaler`, black bars).
+- Each present waits for the latency object and puts the source rect of plane 0 into the back buffer: a copy when the
+  client area has the plane's size (CopyTextureRegion, the plane RENDER_TARGET to COPY_SOURCE and back, which is the
+  state the debug layer tracks for it at present; the back buffer PRESENT to COPY_DEST and back), else a full-screen
+  triangle that samples it bilinearly into the largest rectangle of its aspect ratio over black (programs compiled by
+  d3dcompiler_47; the plane in PIXEL_SHADER_RESOURCE meanwhile). Then it runs the list on the presenting queue and
+  presents with sync interval 1. One allocator and one shader view per back buffer, retired by a fence; nothing is
+  allocated per frame. A second plane is not composed.
 - Color space: FP16 gets scRGB, R10G10B10A2 with dword 12 (HDR10 as a DXGI_COLOR_SPACE_TYPE) gets HDR10, otherwise
   sRGB; set with SetColorSpace1 when the display path supports it.
 - `--present-test` draws eight color bars and a block that moves one step per present instead of the plane (also
@@ -760,7 +771,7 @@ which any change of timing exposed.
 - Device slot 71; what slot 74's output is; whether list slot 139's third argument is flags. The open points of
   slots 61, 70 and 133 are in [gpu-resources.md](gpu-resources.md).
 - CBVs at addresses the desktop cannot express (16-byte aligned); the allocator's slot 9 (callback, context).
-- List slots 27, 31, 53 to 60, 62 and above 70 apart from those named; the list slots that take wrapped resources
+- List slots 27, 31, 53 to 60 and above 70 apart from those named; the list slots that take wrapped resources
   inside structures (texture copies) and GPU addresses.
 - Whether root constants take one SGPR per value (they are always the last parameter, so the metadata cannot tell),
   and what graphics s0 to s7 and compute s0 to s3 hold.

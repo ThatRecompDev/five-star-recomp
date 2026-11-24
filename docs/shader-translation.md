@@ -272,7 +272,8 @@ strip. The record size `GS_VTX_DW` is derived from the LDS write offsets between
 | Wave size | AMD lane numbers are kept. Pixel, vertex and mesh programs emulate the console wave on any hardware wave size (see Wave size). A compute program that reads other lanes by number gets `[WaveSize(32 or 64)]` (`TranslationOptions.PinWaveSize`, on in `fivestar shader translate`), so it fails to load on a GPU without that wave size instead of computing wrong results |
 | f32 → f16 | `f32tof16_rne` (round to nearest even, as AMD) |
 | f16 inline constants | an f16 operation reads an inline float constant as its f16 value in the low half (1.0 is 0x3C00; before, it read the f32 constant's low half, 0). Packed operations keep the 32-bit pattern (unverified on hardware) |
-| FMA | `mad` (the prelude's exact `fma32` exists but is slow) |
+| FMA | `mad` (the prelude's exact `fma32` exists but is slow): fused on AMD and NVIDIA, unfused on WARP. `v_mad_f32`, `v_mac_f32`, `v_madak_f32` and `v_madmk_f32`, unfused on AMD, are `mad_unfused`: a `precise` product and sum, which dxc does not mark fast, so no driver contracts them (NVIDIA did) |
+| `v_fract_f32` | `fract_f32`: `frac`, clamped to 0x3F7FFFFF as AMD does (`frac` of a small negative value rounds to 1.0 on NVIDIA) |
 
 **Mesh fallback contract** (register space 9, bound through a descriptor table):
 
@@ -674,7 +675,7 @@ the default tool locations; the decoder comparison on real programs needs LLVM; 
 or WARP is missing. `FIVESTAR_TEST_ADAPTER=hardware` runs the cases on the first hardware adapter instead of WARP;
 cases whose expected values assume WARP's waves say so and fail there.
 WARP runs 4-lane waves only (a pipeline with any other `[WaveSize]` fails to create), so cases
-that need a full 32/64-lane wave are skipped, and `v_fma_f32` is compared unfused (see FMA above). The wave emulation
+that need a full 32/64-lane wave are skipped, and `v_fma_f32` is compared fused or unfused (see FMA above). The wave emulation
 is checked there with test-sized program waves of 2, 4, 16 and 64 lanes (wider, equal and narrower hardware waves), by
 the mesh program, which reads lanes by console number, and by running every wave64 compute case as its group-wave
 variant with full-wave expectations (including the two full-wave cases WARP otherwise skips). Mesh windows: a variant

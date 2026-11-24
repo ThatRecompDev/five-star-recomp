@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Runtime.InteropServices;
 using FiveStar.Loader.Shims.D3D12X;
 using FiveStar.Loader.Shims.D3D12X.Pipelines;
 using FiveStar.Loader.Shims.D3D12X.Present;
@@ -45,6 +46,13 @@ public sealed unsafe class D3D12XBarrierTests
     private const int CopyDest = 0x400;
     private const uint AllSubresources = 0xFFFFFFFF;
     private const uint Size = 64;
+    private const uint RowPitch = 256;
+    private const int ReadbackHeap = 3;
+    private const int CopyResourceXSlot = 86;
+    private const int CopyTextureRegionXSlot = 85;
+
+    /// <summary>The clear color (0.25, 0.5, 0.75, 1) as R8G8B8A8_UNORM bytes.</summary>
+    private const uint ClearedPixel = 0xFFBF7F40;
     private const string DebugVariable = "FIVESTAR_D3D12_DEBUG";
     private static readonly Guid ResourceIid = new("696442be-a72e-4059-bc79-5b5c98040fad");
     private static readonly Guid HeapIid = new("8efb471d-616c-4f49-90f7-127bb763fa51");
@@ -91,6 +99,39 @@ public sealed unsafe class D3D12XBarrierTests
         Assert.Equal(2ul, ((delegate* unmanaged<nint, ulong>)XboxDevice.Vtable(fence)[FenceValueSlot])(fence));
         Assert.DoesNotContain("[d3d12-debug] error", log.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("[d3d12-debug] corruption", log.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_console_texture_copies_move_textures_from_their_home_states_and_back()
+    {
+        var log = new StringWriter();
+        using var test = TestRuntime.Create(log: log);
+
+        if (Environment.GetEnvironmentVariable(DebugVariable) == "1")
+        {
+            test.Runtime.D3D12X.Debugging.Enable(false);
+        }
+
+        var device = new XboxDevice(test);
+        nint queue = device.Queue();
+        nint fence = device.Fence();
+        nint target = Texture(device, RenderTargetAndUav, UnorderedAccess);
+        nint copy = Texture(device, 0, PixelShaderResource);
+        nint readback = device.Buffer(ReadbackHeap, Size * RowPitch, CopyDest);
+
+        // Cleared in its home state (RENDER_TARGET), then CopyResourceX and CopyTextureRegionX with no game barrier.
+        nint list = device.DirectList();
+        Clear(list, RenderTargetView(device, target));
+        ((delegate* unmanaged<nint, nint, nint, uint, void>)XboxDevice.Vtable(list)[CopyResourceXSlot])(list, copy, target, 0);
+
+        var to = new FootprintLocation { Resource = readback, Type = 1, Format = Rgba8Unorm, Width = Size, Height = Size, Depth = 1, RowPitch = RowPitch };
+        var from = new FootprintLocation { Resource = copy };
+        ((delegate* unmanaged<nint, FootprintLocation*, uint, uint, uint, FootprintLocation*, void*, uint, void>)XboxDevice.Vtable(list)[CopyTextureRegionXSlot])(list, &to, 0, 0, 0, &from, null, 0);
+        Submit(queue, fence, list, 1);
+
+        Assert.Equal(ClearedPixel, XboxDevice.ReadFirst(readback));
+        Assert.DoesNotContain("NOT IMPLEMENTED", log.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("[d3d12-debug] error", log.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -178,6 +219,20 @@ public sealed unsafe class D3D12XBarrierTests
     {
         float* color = stackalloc float[] { 0.25f, 0.5f, 0.75f, 1 };
         ((delegate* unmanaged<nint, nint, float*, uint, void*, void>)XboxDevice.Vtable(list)[ClearRenderTargetViewSlot])(list, view, color, 0, null);
+    }
+
+    /// <summary>D3D12_TEXTURE_COPY_LOCATION: a subresource index (0 here) or a placed footprint.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FootprintLocation
+    {
+        public nint Resource;
+        public int Type;
+        public ulong Offset;
+        public int Format;
+        public uint Width;
+        public uint Height;
+        public uint Depth;
+        public uint RowPitch;
     }
 
     private static void Submit(nint queue, nint fence, nint list, ulong value)

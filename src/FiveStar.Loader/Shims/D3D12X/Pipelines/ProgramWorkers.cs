@@ -10,9 +10,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// game's threads. Work a command list waits for goes before prefetched work, and only half the threads take prefetched
 /// work at all; compiles of huge sources run on a thread
 /// of their own, so one compile that takes minutes holds up nothing else. Like pipeline builds, work starts only while
-/// the machine has the memory for it (<see cref="WarmMemoryGuard"/>). The threads run below normal priority, as do the
-/// pipeline builds: the game's threads, and the programs they make inline, come first (a Subrender worker that waited
-/// 8 s for a small inline compile among 30 busy compile threads stalled a frame for 22 s).
+/// the machine has the memory for it (<see cref="WarmMemoryGuard"/>).
 /// </summary>
 internal sealed class ProgramWorkers
 {
@@ -72,10 +70,10 @@ internal sealed class ProgramWorkers
                 queues = both;
             }
 
-            new Thread(() => RunOrdinary(queues)) { IsBackground = true, Name = "fivestar program compile", Priority = ThreadPriority.BelowNormal }.Start();
+            new Thread(() => RunOrdinary(queues)) { IsBackground = true, Name = "fivestar program compile" }.Start();
         }
 
-        new Thread(RunHeavy) { IsBackground = true, Name = "fivestar heavy program compile", Priority = ThreadPriority.BelowNormal }.Start();
+        new Thread(RunHeavy) { IsBackground = true, Name = "fivestar heavy program compile" }.Start();
     }
 
     /// <summary>Queues ordinary work; <paramref name="urgent"/> for work a command list waits for.</summary>

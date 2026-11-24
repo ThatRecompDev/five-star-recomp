@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 
 namespace FiveStar.Loader.Native;
 
-/// <summary>The user32 functions the GameInput and accessibility shims call; none needs a window or a message queue.</summary>
+/// <summary>The user32 functions the GameInput and accessibility shims and the host call; none needs a window or a message queue.</summary>
 internal static unsafe class User32
 {
     /// <summary>The bit of a GetAsyncKeyState result that says the key is down.</summary>
@@ -25,6 +25,10 @@ internal static unsafe class User32
 
     [DllImport(Library)]
     public static extern uint MapVirtualKeyW(uint code, uint mapType);
+
+    /// <summary>SetProcessDpiAwarenessContext: non-zero on success; fails once the awareness is set.</summary>
+    [DllImport(Library, SetLastError = true)]
+    public static extern int SetProcessDpiAwarenessContext(nint context);
 
     /// <summary>SystemParametersInfoW with a pointer parameter, such as SPI_GETHIGHCONTRAST and a HIGHCONTRASTW.</summary>
     [DllImport(Library)]

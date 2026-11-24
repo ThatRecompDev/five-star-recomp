@@ -478,6 +478,12 @@ void FmtStore(uint heap_index, uint addr, uint code, uint4 v, uint n) {
 
 float mul_legacy(float a, float b) { return (a == 0.0 || b == 0.0) ? 0.0 : a * b; }
 float mad_legacy(float a, float b, float c) { return mul_legacy(a, b) + c; }
+// V_MAD_F32 / V_MAC_F32 round the product before the add. precise keeps dxc from marking the two operations fast, which
+// lets a driver contract them into one fused operation (NVIDIA does).
+float mad_unfused(float a, float b, float c) { precise float p = a * b; precise float r = p + c; return r; }
+// V_FRACT_F32: x - floor(x), clamped to the largest float below 1.0; x - floor(x) of a small negative x rounds to 1.0.
+// A NaN stays NaN.
+float fract_f32(float x) { float f = frac(x); return f >= 1.0 ? asfloat(0x3f7fffffu) : f; }
 float med3(float a, float b, float c) { return max(min(a, b), min(max(a, b), c)); }
 uint med3u(uint a, uint b, uint c) { return max(min(a, b), min(max(a, b), c)); }
 int med3i(int a, int b, int c) { return max(min(a, b), min(max(a, b), c)); }

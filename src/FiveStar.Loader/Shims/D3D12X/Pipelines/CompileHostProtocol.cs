@@ -8,7 +8,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// <summary>
 /// The messages between the loader and its compile host (<see cref="CompileHost"/>, <see cref="CompileHostServer"/>)
 /// over the host's standard input and output. A request is its id, the priority of the thread that asks (the host
-/// compiles at the same: compile workers below normal, a game thread's inline compile normal), profile, source path
+/// compiles at the same, so a game thread's inline compile keeps its priority), profile, source path
 /// and source; a result its id, verdict and reason. Strings are length-prefixed UTF-8 (<see cref="BinaryWriter.Write(string)"/>).
 /// </summary>
 internal static class CompileHostProtocol
