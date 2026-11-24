@@ -18,8 +18,9 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// </list>
 /// The desktop has no memory wait. Each list records its waits (<see cref="ListMemoryWaits"/>); at submission a list
 /// whose waits do not all hold yet is preceded by a desktop queue Wait on a fence of this class, and a watcher thread
-/// signals that fence once memory holds, or after <see cref="TimeoutMilliseconds"/> (logged). Waits are released in
-/// submission order. The whole list waits, not only the commands after its wait.
+/// signals that fence once memory holds, or after <see cref="TimeoutMilliseconds"/> (logged); an address that timed
+/// out is not waited for again. Waits are released in submission order. The whole list waits, so only a wait recorded
+/// before any work of its list is kept.
 /// </summary>
 internal static unsafe class MemoryWaits
 {
@@ -27,7 +28,7 @@ internal static unsafe class MemoryWaits
     public const int Wait64Slot = 74;
 
     /// <summary>A wait that has not held by then is released: a missing write must not hold a queue for ever.</summary>
-    public const long TimeoutMilliseconds = 2000;
+    public const long TimeoutMilliseconds = 500;
 
     /// <summary>ID3D12CommandQueue::Wait; ID3D12Fence::Signal; ID3D12Device::CreateFence (d3d12.h).</summary>
     private const int QueueWaitSlot = 15;
@@ -44,6 +45,7 @@ internal static unsafe class MemoryWaits
     private static readonly object Gate = new();
     private static readonly Queue<PendingWait> Pending = new();
     private static readonly AutoResetEvent Wake = new(false);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, byte> GivenUp = new();
     private static nint _fence;
     private static ulong _tickets;
     private static Thread? _watcher;
@@ -53,6 +55,7 @@ internal static unsafe class MemoryWaits
     private static long _deferred;
     private static long _timedOut;
     private static long _dropped;
+    private static long _notKept;
 
     /// <summary>Waits recorded, met at submission, waited for on the GPU, released by the timeout, and not kept.</summary>
     public static (long Recorded, long Held, long Deferred, long TimedOut, long Dropped) Counts =>
@@ -67,6 +70,7 @@ internal static unsafe class MemoryWaits
             _fence = 0;
             _tickets = 0;
             Pending.Clear();
+            GivenUp.Clear();
         }
 
         delegate* unmanaged<XboxObject*, ulong, uint, uint, uint, uint, int> wait32 = &Wait32;
@@ -98,10 +102,27 @@ internal static unsafe class MemoryWaits
     private static void Record(XboxObject* list, ulong address, int bytes, int comparison, ulong value, ulong mask)
     {
         Interlocked.Increment(ref _recorded);
+        var activity = ListActivity.Of(list);
+        int workBefore = activity->Draws + activity->Dispatches + activity->Indirect;
 
-        if (!MemoryComparison.Blocks(comparison) || !ListMemoryWaits.Of(list)->Record(address, bytes, comparison, value, mask))
+        if (!MemoryComparison.Blocks(comparison))
         {
             Interlocked.Increment(ref _dropped);
+        }
+        else if (!ListMemoryWaits.Of(list)->Record(address, bytes, comparison, value, mask, workBefore))
+        {
+            Interlocked.Increment(ref _dropped);
+            NotKept(address, value, workBefore);
+        }
+    }
+
+    private static void NotKept(ulong address, ulong value, int workBefore)
+    {
+        long count = Interlocked.Increment(ref _notKept);
+
+        if (count <= DetailedEvents)
+        {
+            _log?.Info($"  [memory wait] not kept: 0x{address:x} to reach 0x{value:x}, after {workBefore} draws, dispatches and indirect executions of its list");
         }
     }
 
@@ -127,7 +148,7 @@ internal static unsafe class MemoryWaits
         {
             var wait = new PendingWait(waits->Address[i], waits->Bytes[i], waits->Comparison[i], waits->Value[i], waits->Mask[i]);
 
-            if (!wait.Resolve())
+            if (GivenUp.ContainsKey(wait.Address) || !wait.Resolve())
             {
                 Interlocked.Increment(ref _dropped);
             }
@@ -281,13 +302,15 @@ internal static unsafe class MemoryWaits
         }
     }
 
+    /// <summary>A timed-out address is not waited for again: its writer depends on the work held behind the wait.</summary>
     private static void TimedOut(in PendingWait wait)
     {
+        GivenUp.TryAdd(wait.Address, 0);
         long count = Interlocked.Increment(ref _timedOut);
 
         if (count <= DetailedEvents || (count & (count - 1)) == 0)
         {
-            _log?.Warn($"[memory wait] 0x{wait.Address:x} (op {wait.Comparison}) did not reach 0x{wait.Value:x} in {TimeoutMilliseconds} ms (it holds 0x{wait.Current():x}): released; {count} so far");
+            _log?.Warn($"[memory wait] 0x{wait.Address:x} (op {wait.Comparison}) did not reach 0x{wait.Value:x} in {TimeoutMilliseconds} ms (it holds 0x{wait.Current():x}): released, and not waited for again; {count} so far");
         }
     }
 

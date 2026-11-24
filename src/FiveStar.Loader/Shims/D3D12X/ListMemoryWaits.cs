@@ -8,7 +8,9 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// <summary>
 /// The memory waits a command list recorded since its last Reset (slots 73 and 74, <see cref="MemoryWaits"/>), kept in
 /// its wrapper, and the last addresses its bottom-of-pipe writes went to: a wait on an address the same list wrote
-/// before it is met by the list's own order and is not kept.
+/// before it is met by the list's own order and is not kept. A wait recorded after draws, dispatches or indirect
+/// executions is not kept either: the desktop can only hold a whole list, and holding the work before the wait as well
+/// can close a cycle the console does not have (that work may be what the writer of the value waits for).
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct ListMemoryWaits
@@ -24,6 +26,7 @@ internal unsafe struct ListMemoryWaits
 
     public int Count;
     public int Dropped;
+    public int MidList;
     public int Writes;
     public fixed ulong Address[Capacity];
     public fixed ulong Value[Capacity];
@@ -43,6 +46,7 @@ internal unsafe struct ListMemoryWaits
     {
         Count = 0;
         Dropped = 0;
+        MidList = 0;
         Writes = 0;
     }
 
@@ -54,10 +58,20 @@ internal unsafe struct ListMemoryWaits
         Writes++;
     }
 
-    /// <summary>Keeps a wait; false when the list wrote that address before (met in order) or no room is left.</summary>
+    /// <summary>
+    /// Keeps a wait; false when the list wrote that address before (met in order), recorded work before it
+    /// (<paramref name="workBefore"/>) or has no room left.
+    /// </summary>
     [HotPath]
-    public bool Record(ulong address, int bytes, int comparison, ulong value, ulong mask)
+    public bool Record(ulong address, int bytes, int comparison, ulong value, ulong mask, int workBefore)
     {
+        if (workBefore != 0)
+        {
+            MidList++;
+
+            return false;
+        }
+
         int written = Writes;
 
         if (written > WriteCapacity)
