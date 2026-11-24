@@ -32,6 +32,9 @@ internal static unsafe class NativeCallbacks
 
     public static delegate* unmanaged<nint, uint, int> Schedule { get; set; }
 
+    /// <summary>XAsyncGetStatus, for <see cref="AsyncCompletedWaiting"/>.</summary>
+    public static delegate* unmanaged<nint, byte, int> Status { get; set; }
+
     public static void Reset()
     {
         Calls.Clear();
@@ -88,6 +91,14 @@ internal static unsafe class NativeCallbacks
     [UnmanagedCallersOnly]
     public static void AsyncCompleted(nint block)
     {
+        Completed.Enqueue(block);
+    }
+
+    /// <summary>A completion routine that waits on its own block, as title code does before freeing it.</summary>
+    [UnmanagedCallersOnly]
+    public static void AsyncCompletedWaiting(nint block)
+    {
+        Status(block, 1);
         Completed.Enqueue(block);
     }
 

@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # fivestar-loader --input-script: answers the first-run screens of an empty save folder unattended, up to the story
-# load (docs/running.md#first-run-in-the-game). The screen blocks wait for screens learned from your own frames
+# load (docs/running.md#first-run-in-the-game). Only an empty save folder shows them; later boots skip them, so do not use
+# this script then. The screen blocks wait for screens learned from your own frames
 # (--screens, default %LOCALAPPDATA%\FiveStar\screens.txt). The first time, a block waits for a screen it does not
 # know yet: press F8 when that screen shows, and the loader learns it and goes on. Presses are held 0.3 s: while
 # pipelines compile the game can miss 0.2 s presses, and from about 0.5 s a held arrow repeats.
