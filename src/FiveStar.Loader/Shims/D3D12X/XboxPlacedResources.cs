@@ -39,14 +39,8 @@ internal sealed unsafe class XboxPlacedResources
     private const int DefaultHeapType = 1;
     private const int AllowCrossAdapter = 0x10;
 
-    /// <summary>D3D12_TEXTURE_LAYOUT_ROW_MAJOR, the layout of every buffer (d3d12.h).</summary>
-    private const int RowMajorLayout = 1;
-
     /// <summary>Bytes of section one heap opens at most: OpenExistingHeapFromAddress refuses the view of a 6 GiB section.</summary>
     private const ulong HeapWindowBytes = 1UL << 30;
-
-    /// <summary>The most pages one read-only run over mapped pages takes (<see cref="CoverMappedPages"/>).</summary>
-    private const ulong MaxCoveredPages = 64;
 
     /// <summary>D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, the one desktop flag the game's buffers carry (d3d12.h).</summary>
     private const int AllowUnorderedAccess = 0x4;
@@ -307,72 +301,6 @@ internal sealed unsafe class XboxPlacedResources
         }
 
         return resource;
-    }
-
-    /// <summary>
-    /// A read-only buffer over the XMem pages mapped around <paramref name="address"/> when no buffer covers it: memory
-    /// the game reads through the GPU without a placed resource there, such as constant buffers in its pools (on the
-    /// console the GPU reads any mapped page). The run takes the pages consecutive in the same section, up to
-    /// <see cref="MaxCoveredPages"/>, that no other range overlaps; a later placed resource there replaces it. Without
-    /// unordered access the address map gives programs no UAV over it. False when nothing is mapped there or a range
-    /// already overlaps the page.
-    /// </summary>
-    public bool CoverMappedPages(nint device, ulong address)
-    {
-        ulong pageSize = XMemPhysicalMemory.PageSize;
-        ulong page = address & ~(pageSize - 1);
-
-        lock (_gate)
-        {
-            if (!_memory.TryLocate((nint)page, out var chunk, out ulong offset) || Addresses.Overlaps(page, pageSize))
-            {
-                return false;
-            }
-
-            ulong start = page;
-            ulong end = page + pageSize;
-
-            // A run stays inside one heap window of its section (WindowHeap).
-            ulong windowStart = offset / HeapWindowBytes * HeapWindowBytes;
-
-            while (end - start < MaxCoveredPages * pageSize && offset + (end - page) + pageSize <= windowStart + HeapWindowBytes
-                && ContinuesRun(end, chunk, offset + (end - page)))
-            {
-                end += pageSize;
-            }
-
-            while (end - start < MaxCoveredPages * pageSize && start >= pageSize && offset >= windowStart + (page - start) + pageSize
-                && ContinuesRun(start - pageSize, chunk, offset - (page - start) - pageSize))
-            {
-                start -= pageSize;
-            }
-
-            var run = new PageRun(chunk, offset - (page - start), 0, end - start);
-            var description = new ResourceDescription
-            {
-                Dimension = ResourceDescription.BufferDimension, Width = run.Length, Height = 1, DepthOrArraySize = 1, MipLevels = 1,
-                SampleCount = 1, Layout = RowMajorLayout, Flags = AllowCrossAdapter,
-            };
-            nint buffer = CreatePlaced(device, run, &description);
-
-            if (buffer == 0)
-            {
-                return false;
-            }
-
-            Addresses.Add(new AddressRange(start, run.Length, GpuAddress(buffer), buffer));
-            ComObject.Release(buffer);
-            _log.Detail($"  [d3d12_xs] mapped pages 0x{start:x} (0x{run.Length:x} bytes, section offset 0x{run.Offset:x}) on the GPU read-only");
-
-            return true;
-        }
-    }
-
-    /// <summary>Whether the page at <paramref name="page"/> is mapped from <paramref name="chunk"/> at <paramref name="offset"/> and no range overlaps it.</summary>
-    private bool ContinuesRun(ulong page, XMemPageChunk chunk, ulong offset)
-    {
-        return _memory.TryLocate((nint)page, out var next, out ulong at) && ReferenceEquals(next, chunk) && at == offset
-            && !Addresses.Overlaps(page, XMemPhysicalMemory.PageSize);
     }
 
     /// <summary>
