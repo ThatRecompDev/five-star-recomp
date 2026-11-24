@@ -13,14 +13,19 @@ namespace FiveStar.Shaders.Tests;
 /// </summary>
 public sealed class DxilBackendCompilerTests
 {
+    // A gather with computed offsets (texturecompression~CS_CompressBC1Mip0): no advanced-texture-ops flag.
     private const string Lowered = """
         #define VW_WAVE 64
         #define VW_EMULATE 1
         #include "rdna_prelude.hlsli"
         [numthreads(64, 1, 1)]
         void main(uint3 id : SV_DispatchThreadID) {
-          uint v0 = WaveActiveSum(id.x);
-          if (v0 > 3u) { v0 = v0 * 2u; }
+          uint s8 = 8u, s0 = 0u, v21 = id.x;
+          Texture2D<float4> _tex10 = ResourceDescriptorHeap[s8];
+          SamplerState _smp10 = SamplerDescriptorHeap[s0];
+          RWByteAddressBuffer output = ResourceDescriptorHeap[1];
+          float4 _img10 = _tex10.GatherAlpha(_smp10, float2(0.5, 0.5), int2((asint(v21 << 26) >> 26), (asint(v21 << 18) >> 26)));
+          output.Store(id.x * 4u, asuint(_img10.x));
         }
         """;
 
@@ -49,6 +54,7 @@ public sealed class DxilBackendCompilerTests
             Assert.True(compiler.Compile(lowered, TimeSpan.Zero).Succeeded);
             Assert.True(File.Exists(lowered.DxilPath));
             Assert.Empty(fallback.Requests);
+            Assert.Equal((1, 0, 0), compiler.Counts);
 
             Assert.True(compiler.Compile(notLowered, TimeSpan.Zero).Succeeded);
             Assert.Equal([notLowered], fallback.Requests);
