@@ -46,6 +46,7 @@ public static class ShaderContainer
         (ShaderFlagBits.AtomicInt64OnGroupShared, 0x80_0000),
         (ShaderFlagBits.ResourceDescriptorHeapIndexing, 0x200_0000),
         (ShaderFlagBits.SamplerDescriptorHeapIndexing, 0x400_0000),
+        (ShaderFlagBits.AdvancedTextureOps, 0x2000_0000),
     ];
 
     private static readonly Dictionary<DxilShaderKind, string> Models = new()
