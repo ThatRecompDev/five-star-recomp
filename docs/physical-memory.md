@@ -110,12 +110,20 @@ queue has finished everything submitted so far (its shim fence), then remaps on 
 (`XMemPhysicalMemory.CopyPageMappings`) before the call returns. Until then the slot was a stub, and the destinations
 kept their old pages.
 
-GPU limit: desktop buffers placed over the pages when a slot-133 resource was created, and the address map's views of
-them, keep the pages of that moment. A later remap is seen by the CPU and by resources created after it, not by
-earlier ones. The same holds for `XMemMapPhysicalPages`. Once the old frame is mapped again at another address, GPU
-writes through such a buffer change the memory there: a copy into the buffer reaches the other address and not the
-buffer's own (RTX 5070 and the loader tests). The loader reports both (`StaleGpuPages`, always on): a remap or unmap
-under a buffer of the address table as `[gpu pages]` with the GPU and CPU addresses and both frames, and the old
+The address map that translated programs reach game memory through follows the page tables, as the console GPU's
+do: every map, remap and unmap (this one, `XMemMapPhysicalPages` and the scatter form) points the page, where the GPU
+addresses it (its GPU-only alias when it has one, else its CPU address), into views over the section that holds its
+frame now, or at the null views ([shader-translation.md](shader-translation.md#resources)). Programs therefore read
+and write the frame the CPU sees. That includes pages under a slot-133 buffer that had no mapped page when it was made
+(a committed buffer of its own): once the game maps pages there, programs reach them while desktop views and copies
+on the resource keep its committed memory.
+
+GPU limit: desktop buffers placed over the pages when a slot-133 resource was created keep the pages of that moment,
+and so do the desktop views, copies and indirect arguments made on them. A later remap is seen by the CPU, by the
+address map and by resources created after it, not by those. Once the old frame is mapped again at another address,
+GPU writes through such a buffer change the memory there: a copy into the buffer reaches the other address and not
+the buffer's own (RTX 5070 and the loader tests). The loader reports both (`StaleGpuPages`, always on): a remap or
+unmap under a buffer of the address table as `[gpu pages]` with the GPU and CPU addresses and both frames, and the old
 frame mapped again with the address the buffer's writes now land at; the first 16 of each in full, then totals at
 every power of two.
 
@@ -132,7 +140,9 @@ On the console a mapped page has the same address for the GPU and the CPU. The D
 but can give the GPU the same memory:
 
 - Open the store's whole view of each page section as a heap with `ID3D12Device3::OpenExistingHeapFromAddress`
-  (`OpenExistingHeapFromFileMapping` rejects the pagefile sections).
+  (`OpenExistingHeapFromFileMapping` rejects the pagefile sections). The view of a section over 1 GiB is refused
+  (E_INVALIDARG for the 6 GiB pool), so such a section takes a heap per 1 GiB window, each through its own view
+  (`SectionHeaps`, shared by slot-133 buffers and the address map); a buffer or view stays inside one window.
 - Translate a game address with `XMemPhysicalMemory.TryLocate` to (section, offset), then to the GPU address of a
   buffer placed over that heap (`CreatePlacedResource`) plus the offset. Contiguity ends at each 64 KiB page unless
   the frames are consecutive in one section.

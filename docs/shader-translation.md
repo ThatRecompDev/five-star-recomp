@@ -139,10 +139,15 @@ The D3D12.X layer creates the views and samplers, so it decides what descriptor 
 
 The **address map** (`ResourceDescriptorHeap[GPU_MAP_HEAP]`, slot 7; `AddressMap` writes it) holds a dword per 4 GiB
 span of the address space (the address's high dword) naming the span's page table, and per 64 KiB page the heap index
-of a raw SRV over the page (its UAV follows) and the page's byte offset in that view. A V# base is looked up once per
-access and the access offset added inside the view; a pointer is looked up at the address it reads, without carrying
-out of the low dword. The D3D12.X shim fills the map from its address table ([d3d12x-shim.md](d3d12x-shim.md#binding));
-an address it does not know names a null view and reads 0.
+of a raw SRV over the page (its UAV follows) and the page's byte offset in that view. Every access is looked up at its
+own address, added in 64 bits: base + offset for a V# (`buf_view`), the pointer plus its offsets for `global_*` and
+`s_load`. The hardware translates each page, so the pages after a V#'s base need not continue its view (a neighbouring
+buffer, or frames the game remapped); an access's later dwords continue in the view of its first byte's page. Lanes
+of one wave can reach different views, so the heap index of each such access is `NonUniformResourceIndex`. The
+D3D12.X shim fills the map from its address table ([d3d12x-shim.md](d3d12x-shim.md#binding)) and from the XMem page
+tables: a mapped XMem page names a view over the section that holds its frame, rewritten on every remap
+([physical-memory.md](physical-memory.md#the-streaming-pool)); an address it does not know names a null view and
+reads 0.
 
 **Range checking.** Buffer accesses keep the RDNA rule: out of range, a load reads 0 and a store or atomic is dropped
 (an atomic returns 0). Console programs rely on it: an argument or append writer runs past its allocation, and a loop
@@ -224,9 +229,12 @@ of the console pipeline cache (see Commands).
 **Mesh shaders (NGG).** `s_sendmsg(MSG_GS_ALLOC_REQ)` (M0 = primitives << 12 | vertices) records the output counts.
 When every export follows a barrier that follows the allocation, the program runs in two phases: phase 1 without
 output writes until that barrier, then `SetMeshOutputCounts` at top level, then phase 2 resumes and writes `verts`,
-`tris` and `prims` directly. Otherwise exports are staged in compact `groupshared` structs (at most 28 KB with LDS) and
-copied out after the loop. A primitive export holds three 9-bit indices at bits 0/10/20; bit 31 culls. Thread index
-code uses a virtual wave64 lane (`in_gi & 63`).
+`tris` and `prims` directly. Phase 2 has its own barrier only when a block it can run (from the resume points after a
+barrier) yields again: NVIDIA's driver (RTX 5070, 621.40) hangs the group (DEVICE_HUNG) on dxc's optimized form of a
+program whose phase 2 carries a barrier it never reaches, while dxc `-Od` and the DXIL backend run it. Otherwise
+exports are staged in compact `groupshared` structs (at most 28 KB with LDS) and copied out after the loop. A
+primitive export holds three 9-bit indices at bits 0/10/20; bit 31 culls. Thread index code uses a virtual wave64 lane
+(`in_gi & 63`).
 
 **Geometry shaders (legacy GS).** One HLSL invocation is one lane with a private `static uint g_lds[]`. The input
 vertices are written at `GS_IN_BASE` (register r component c at dword r × 4 + c, stride `GS_IN_STRIDE`), and the vertex
@@ -641,7 +649,9 @@ VoxelizeGeneric GS programs and the executable's real `VS_Clear`, which draws fr
 Run `dotnet test tests/FiveStar.Shaders.Tests`. `FIVESTAR_LLVM` (LLVM bin folder) and `FIVESTAR_DXC` (dxc path) override
 the default tool locations; the decoder comparison on real programs needs LLVM; the real-GS tests and it need `FIVESTAR_DUMP` and
 `FIVESTAR_SHADER_DIR` (folder of extracted `.fssm`, containers in `../dxbc`). A test skips with the reason when a tool
-or WARP is missing. WARP runs 4-lane waves only (a pipeline with any other `[WaveSize]` fails to create), so cases
+or WARP is missing. `FIVESTAR_TEST_ADAPTER=hardware` runs the cases on the first hardware adapter instead of WARP;
+cases whose expected values assume WARP's waves say so and fail there.
+WARP runs 4-lane waves only (a pipeline with any other `[WaveSize]` fails to create), so cases
 that need a full 32/64-lane wave are skipped, and `v_fma_f32` is compared unfused (see FMA above). The wave emulation
 is checked there with test-sized program waves of 2, 4, 16 and 64 lanes (wider, equal and narrower hardware waves), by
 the mesh program, which reads lanes by console number, and by running every wave64 compute case as its group-wave

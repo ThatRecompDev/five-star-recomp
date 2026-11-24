@@ -27,7 +27,9 @@ void MemStore(uint ptr_lo, uint off, uint v) {
 // for a pointer, a heap index for a V# (the shim's descriptor records). Any other address is a console GPU address in
 // game memory, found in the address map the shim keeps: level 1 holds per 4 GiB span (high dword) the byte offset of
 // its page table; a page table holds per 64 KiB page the heap index of a raw SRV over the page (its UAV at + 1) and
-// the page's byte offset in that view. Unmapped spans and pages name a null SRV/UAV pair.
+// the page's byte offset in that view. Unmapped spans and pages name a null SRV/UAV pair. The view an access gets can
+// differ between the lanes of a wave (lanes in different pages), so every heap access through one is
+// NonUniformResourceIndex.
 uint2 gpu_page(uint lo, uint hi) {
     ByteAddressBuffer map = ResourceDescriptorHeap[GPU_MAP_HEAP];
     uint table = map.Load((hi & (GPU_MAP_SPANS - 1u)) * 4u);
@@ -96,7 +98,7 @@ uint PtrLoad(uint lo, uint hi, uint off) {   // off is signed (a dword offset or
     uint2 a = ptr_add(lo, hi, 0u, asint(off));
     if (hi == 0u) return MemLoad(a.x, 0u);
     uint2 p = gpu_page(a.x, a.y);
-    ByteAddressBuffer b = ResourceDescriptorHeap[p.x];
+    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(p.x)];
     return b.Load(p.y & ~3u);
 }
 void PtrStore(uint lo, uint hi, uint off, uint v) {
@@ -104,19 +106,22 @@ void PtrStore(uint lo, uint hi, uint off, uint v) {
     if (hi == 0u) { MemStore(a.x, 0u, v); return; }
     TRACE_ADDR(a.x, a.y, v);
     uint2 p = gpu_page(a.x, a.y);
-    RWByteAddressBuffer b = ResourceDescriptorHeap[p.x + 1u];
+    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(p.x + 1u)];
     b.Store(p.y & ~3u, v);
 }
 uint2 gpu_rw(uint lo, uint hi) {   // (RW heap index, byte address) of a pointer, for atomics
     if (hi == 0u) return uint2(GPU_MEM_HEAP + 1u, lo);
     uint2 p = gpu_page(lo, hi);
     return uint2(p.x + 1u, p.y);
-}// A V#'s view: (heap index, byte offset of the base in it); rw takes the UAV of a game-memory base. Dword1 holds
-// base_hi in bits 0-15 and the stride in bits 16-29.
-uint2 buf_view(uint d0, uint d1, bool rw) {
+}// An access's view: (heap index, byte offset of base + off in it); rw takes the UAV of a game-memory base. Dword1
+// holds base_hi in bits 0-15 and the stride in bits 16-29. A game-memory access is looked up at its own address, as
+// the hardware translates each page: the pages after the base's need not continue its view (another buffer, or
+// frames the game remapped). The access's later dwords continue in the view of its first byte's page.
+uint2 buf_view(uint d0, uint d1, bool rw, uint off) {
     uint hi = d1 & 0xffffu;
-    if (hi == 0u) return uint2(d0, 0u);
-    uint2 p = gpu_page(d0, hi);
+    if (hi == 0u) return uint2(d0, off);
+    uint2 a = ptr_add(d0, hi, off, 0);
+    uint2 p = gpu_page(a.x, a.y);
     return uint2(p.x + (rw ? 1u : 0u), p.y);
 }
 uint buf_stride(uint d1) { return (d1 >> 16) & 0x3fffu; }
@@ -150,16 +155,16 @@ uint sbuf_limit(uint d1, uint d2) {
 }
 
 uint BufLoad(uint heap_index, uint off) {
-    ByteAddressBuffer b = ResourceDescriptorHeap[heap_index];
+    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
     return b.Load(off & ~3u);
 }
 uint BufLoadRW(uint heap_index, uint off) {   // load through a UAV slot (buffer also written by this shader)
-    RWByteAddressBuffer b = ResourceDescriptorHeap[heap_index];
+    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
     return b.Load(off & ~3u);
 }
 void BufStore(uint heap_index, uint off, uint v) {
     TRACE_VIEW(heap_index, off, v);
-    RWByteAddressBuffer b = ResourceDescriptorHeap[heap_index];
+    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
     b.Store(off & ~3u, v);
 }
 
@@ -373,7 +378,7 @@ uint fmt_component(uint4 w, uint field, uint num, uint missing) {
     return select((field >> 8) != 0u, fmt_convert(fmt_field(w, field), field >> 8, num), missing);
 }
 uint4 FmtLoad(uint heap_index, uint addr, uint code) {
-    ByteAddressBuffer b = ResourceDescriptorHeap[heap_index];
+    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
     uint base = addr & ~3u, sh = (addr & 3u) * 8u;
     uint4 w = b.Load4(base); uint w4 = b.Load(base + 16);
     uint4 shifted = (w >> sh) | (uint4(w.yzw, w4) << ((32u - sh) & 31u));
@@ -451,7 +456,7 @@ uint enc_num(float f, uint bits, uint num) {
     return 0;
 }
 void FmtStore(uint heap_index, uint addr, uint code, uint4 v, uint n) {
-    RWByteAddressBuffer b = ResourceDescriptorHeap[heap_index];
+    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
     uint layout = code >> 3, num = code & 7;
     bool ints = num == 4 || num == 5;
     uint4 c = v;

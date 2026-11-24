@@ -9,8 +9,9 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// <summary>
 /// Reports pages the game remaps or unmaps under a desktop buffer of the address table. Such a buffer was placed over
 /// the frames mapped when it was made (<see cref="XboxPlacedResources"/>) and keeps them: on the console the GPU follows
-/// the new mapping, here its reads and writes at that address still reach the frame of that moment. When that frame
-/// is mapped again elsewhere, GPU writes through the buffer change the memory at the new address. Both are logged with
+/// the new mapping, as the address map of the translated programs does (<see cref="Binding.GameMemoryViews"/>), but
+/// desktop views, copies and indirect arguments on the buffer still reach the frame of that moment. When that frame is
+/// mapped again elsewhere, GPU writes through the buffer change the memory at the new address. Both are logged with
 /// the addresses involved (the first <see cref="DetailedEvents"/> of each), then counted at every power of two.
 /// </summary>
 internal sealed class StaleGpuPages

@@ -59,7 +59,9 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
 
         MemorySource = new GameMemorySource(memory);
         Textures = new GpuTextures(MemorySource, Descriptions, log);
-        PlacedResources = new XboxPlacedResources(memory, Objects, Textures, log);
+
+        var heaps = new SectionHeaps(log);
+        PlacedResources = new XboxPlacedResources(memory, heaps, Objects, Textures, log);
         GameMemory = new XboxGameMemoryBuffers(Objects, PlacedResources.Addresses, memory.Graphics, log);
         PlacedResources.GameMemory = GameMemory;
 
@@ -69,8 +71,9 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         Uploads = new UploadArena(Objects, PlacedResources.Addresses, log);
         AddressBuffers = new AddressBufferViews(GameMemory);
         AddressViews = new AddressShaderViews(Textures, AddressBuffers, Warnings, log);
-        MemoryViews = new GameMemoryViews(Warnings, log);
+        MemoryViews = new GameMemoryViews(memory, heaps, Warnings, log);
         PlacedResources.Addresses.Observe(MemoryViews.Add);
+        memory.ObservePages(MemoryViews.PageChanged);
 
         var hooks = new TitleMemoryHooks(images);
         Bindings = new XboxBindings(log, Warnings);
