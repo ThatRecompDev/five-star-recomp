@@ -8,8 +8,8 @@ using FiveStar.Shaders.Tests.Warp;
 namespace FiveStar.Shaders.Tests.Cases;
 
 /// <summary>
-/// Pixel-shader cases for cross-lane operations, EXEC and helper lanes. Expected values use the PC lane layout from the
-/// probe: on WARP a wave is one 2x2 quad, so wave-wide behaviour beyond a quad cannot be exercised here.
+/// Pixel-shader cases for cross-lane operations, EXEC and helper lanes. Expected values use the PC wave layout from the
+/// probe (<see cref="PixelContext.Wave"/>): on WARP a wave is one 2x2 quad, on a 32-lane GPU it holds eight quads.
 /// </summary>
 public static class PixelLaneCases
 {
@@ -38,8 +38,9 @@ public static class PixelLaneCases
     }
 
     // Whole-wave-mode minimum and sum of x + 16 * y, as compiled wave reductions do: lanes without a pixel hold the
-    // identity (-1, 0), read across the wave by permlanex16 and readlane 20. On a 4-lane wave those lanes are missing,
-    // so the result is the quad's, as on a console wave holding only this quad.
+    // identity (-1, 0). After the quad steps, permlanex16 brings lane 16's quad to lane 0 and readlane 20 adds the quad of
+    // lanes 20-23: the result covers lanes 0-3 and 16-23. On a 4-lane wave those lanes are missing, so the result is the
+    // quad's, as on a console wave holding only this quad.
     private static PixelCase WholeWaveReductions()
     {
         const string Program = PixelValue + """
@@ -74,7 +75,8 @@ public static class PixelLaneCases
 
         return new PixelCase("whole_wave_reductions", Program, 2, pixel =>
         {
-            var values = Enumerable.Range(0, 4).Select(slot => Value(pixel, slot)).ToList();
+            int[] lanes = [0, 1, 2, 3, 16, 17, 18, 19, 20, 21, 22, 23];
+            var values = lanes.Select(pixel.WavePixel).OfType<(int X, int Y)>().Select(Value).ToList();
 
             return [values.Min(), values.Aggregate(0u, (sum, value) => sum + value)];
         });
@@ -82,9 +84,12 @@ public static class PixelLaneCases
 
     private static uint Value(PixelContext pixel, int slot)
     {
-        var (x, y) = pixel.QuadPixel(slot);
+        return Value(pixel.QuadPixel(slot));
+    }
 
-        return (uint)(x + (16 * y));
+    private static uint Value((int X, int Y) pixel)
+    {
+        return (uint)(pixel.X + (16 * pixel.Y));
     }
 
     // x + 16 * y read across the 2x2 pixel quad with DPP quad_perm and ds_swizzle QUAD_PERM.
@@ -163,7 +168,7 @@ public static class PixelLaneCases
         return new PixelCase("wqm_exec", Program, 1, pixel => [Convert.ToUInt32(pixel.X < 2)]);
     }
 
-    // v_readfirstlane returns the first lane with EXEC set (here the odd-x lane 1 of the wave).
+    // v_readfirstlane returns the first lane with EXEC set (here the first odd-x lane of the wave).
     private static PixelCase ReadFirstLane()
     {
         const string Program = PixelValue + """
@@ -179,9 +184,9 @@ public static class PixelLaneCases
 
         return new PixelCase("readfirstlane_exec", Program, 1, pixel =>
         {
-            var (x, y) = pixel.WavePixel(1);
+            var first = Enumerable.Range(0, pixel.WaveSize).Select(pixel.WavePixel).OfType<(int X, int Y)>().First(other => other.X % 2 == 1);
 
-            return [x + (16 * y)];
+            return [Value(first)];
         });
     }
 
@@ -202,7 +207,7 @@ public static class PixelLaneCases
 
         return new PixelCase("mask_as_int_partial_exec", Program, 1, pixel =>
         {
-            var even = Enumerable.Range(0, pixel.WaveSize).Select(lane => pixel.WavePixel(lane).X % 2 == 0).ToArray();
+            var even = Enumerable.Range(0, pixel.WaveSize).Select(lane => pixel.WavePixel(lane) is { } other && other.X % 2 == 0).ToArray();
             var mask = (pixel.X & 1) != 0 ? CrossLane.Ballot(even).Low : 0;
 
             return [mask];
@@ -210,7 +215,7 @@ public static class PixelLaneCases
     }
 
     // row_shr:1 with bound_ctrl: lane l reads lane l - 1 of its 16-lane row, the row start reads 0 (on WARP only lanes
-    // 0..3 of a row exist).
+    // 0..3 of a row exist; a lane without a pixel is not compared).
     private static PixelCase RowShift()
     {
         const string Program = PixelValue + """
@@ -221,17 +226,24 @@ public static class PixelLaneCases
 
         return new PixelCase("dpp_row_shr", Program, 1, pixel =>
         {
-            var values = Enumerable.Range(0, pixel.WaveSize).Select(lane => Value(pixel, lane) + 1).ToArray();
+            var lanes = Enumerable.Range(0, pixel.WaveSize).Select(pixel.WavePixel).ToArray();
+            var values = lanes.Select(other => other is { } live ? Value(live) + 1 : 0).ToArray();
             var moved = new Dpp { RowControl = "row_shr", Shift = 1, BoundControl = true }.Move(values, old: 0);
+            var source = pixel.Lane - 1;
+
+            if ((pixel.Lane & 15) != 0 && lanes[source] is null)
+            {
+                return [Expected.Any];
+            }
 
             return [Expected.Maybe(moved[pixel.Lane])];
         });
     }
 
-    /// <summary>Quad slots of a pixel's quad covered by the half triangle (x + y &lt;= 6).</summary>
-    private static List<int> LiveSlots(PixelContext pixel)
+    /// <summary>The lanes of a pixel's wave that hold a live pixel (of the half triangle, x + y &lt;= 6).</summary>
+    private static List<int> LiveLanes(PixelContext pixel)
     {
-        return [.. Enumerable.Range(0, 4).Where(slot => pixel.QuadPixel(slot).X + pixel.QuadPixel(slot).Y <= 6)];
+        return [.. Enumerable.Range(0, pixel.WaveSize).Where(lane => pixel.WavePixel(lane) is not null)];
     }
 
     // A pixel shader starts with EXEC = live pixels only (helper lanes off), here in quads half covered by the triangle.
@@ -245,14 +257,14 @@ public static class PixelLaneCases
 
         return new PixelCase("helper_exec_initial", Program, 2, pixel =>
         {
-            var live = LiveSlots(pixel);
+            var live = LiveLanes(pixel);
 
-            return [live.Count(slot => slot < pixel.Quad), live.Count];
+            return [live.Count(lane => lane < pixel.Lane), live.Count];
         })
         { HalfCoverage = true };
     }
 
-    // After s_wqm EXEC holds all 4 lanes of every quad with a live pixel (helpers included).
+    // After s_wqm EXEC holds all 4 lanes of every quad with a live pixel (helpers included); quads are aligned lane groups.
     private static PixelCase HelperExecWholeQuad()
     {
         const string Program = """
@@ -262,6 +274,12 @@ public static class PixelLaneCases
             v_mov_b32 v21, s10
             """;
 
-        return new PixelCase("helper_exec_wqm", Program, 2, pixel => [pixel.Quad, 4]) { HalfCoverage = true };
+        return new PixelCase("helper_exec_wqm", Program, 2, pixel =>
+        {
+            var quads = LiveLanes(pixel).Select(lane => lane >> 2).Distinct().ToList();
+
+            return [(4 * quads.Count(quad => quad < pixel.Lane >> 2)) + (pixel.Lane & 3), 4 * quads.Count];
+        })
+        { HalfCoverage = true };
     }
 }
