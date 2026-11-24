@@ -383,7 +383,6 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         {
             DrawTrace = new DrawTrace(capture, MemorySource, this, _log);
             Presenter.Trace = DrawTrace;
-            DrawTraceSlots.Register(Objects);
         }
     }
 
@@ -554,6 +553,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         UploadAllocations.Bind(Objects);
         BottomOfPipeWrites.Bind(Objects);
         MemoryWaits.Bind(Objects, _log);
+        ListStateSlots.Register(Objects);
     }
 
     private void BindInputBuffers()

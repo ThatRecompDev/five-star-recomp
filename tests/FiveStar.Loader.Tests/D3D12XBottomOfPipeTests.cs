@@ -75,6 +75,41 @@ public sealed unsafe class D3D12XBottomOfPipeTests
         Wait(fence, 1);
     }
 
+    [Fact]
+    public void A_list_split_at_its_wait_runs_the_work_before_it_and_holds_only_the_work_after_it()
+    {
+        const ulong Before = 0x11;
+        const ulong After = 0x22;
+        const ulong Frame = 0x677;
+        const uint GreaterEqual = 7;
+
+        using var test = TestRuntime.Create();
+        var virtualAlloc = (delegate* unmanaged<nint, nuint, uint, ulong, uint, nint>)test.Shim("xmem.dll", "XMemVirtualAlloc");
+        ulong* cells = (ulong*)virtualAlloc(0, Bytes, ReserveCommitLargePages, Flags, GpuReadWrite);
+
+        var device = new XboxDevice(test);
+        nint queue = device.Queue();
+        nint fence = device.Fence();
+        nint list = device.DirectList();
+        var write64 = (delegate* unmanaged<nint, ulong, ulong, ulong, uint, int>)XboxDevice.Vtable(list)[BottomOfPipeWrites.Write64Slot];
+        var wait64 = (delegate* unmanaged<nint, ulong, uint, ulong, uint, int>)XboxDevice.Vtable(list)[MemoryWaits.Wait64Slot];
+
+        // A write, a wait on another cell, a write: the list is split at the wait.
+        Assert.Equal(0, write64(list, (ulong)cells, Before, 0, 0));
+        Assert.Equal(0, wait64(list, (ulong)(cells + 1), GreaterEqual, Frame, 1));
+        Assert.Equal(0, write64(list, (ulong)(cells + 2), After, 0, 0));
+        Assert.Equal(1, ListSegments.Of((XboxObject*)list)->Count);
+
+        Run(queue, list, fence, 1);
+        Thread.Sleep(200);
+        Assert.Equal(Before, Volatile.Read(ref cells[0]));
+        Assert.Equal(0ul, Volatile.Read(ref cells[2]));
+
+        Volatile.Write(ref cells[1], Frame);
+        Wait(fence, 1);
+        Assert.Equal(After, cells[2]);
+    }
+
     private static void Run(nint queue, nint list, nint fence, ulong value)
     {
         Assert.Equal(0, ((delegate* unmanaged<nint, int>)XboxDevice.Vtable(list)[CloseSlot])(list));

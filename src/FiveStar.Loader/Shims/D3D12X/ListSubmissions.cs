@@ -25,7 +25,11 @@ internal static unsafe class ListSubmissions
 
     private static readonly Guid FenceIid = new("0a753dcf-c4d8-4b91-adf6-be5a60d95a76");
 
+    private const long LongWaitMilliseconds = 100;
+    private const long LongWaitsLogged = 16;
+
     private static long _waits;
+    private static long _longWaits;
 
     /// <summary>Submissions that had to wait for the list's previous run.</summary>
     public static long Waits => Interlocked.Read(ref _waits);
@@ -43,9 +47,21 @@ internal static unsafe class ListSubmissions
         }
 
         Interlocked.Increment(ref _waits);
+        long start = Environment.TickCount64;
 
         // A null event makes SetEventOnCompletion return once the value is reached (or the device is removed).
         _ = ((delegate* unmanaged<nint, ulong, nint, int>)ComObject.Slot(fence, SetEventOnCompletionSlot))(fence, submission->Value, 0);
+        long waited = Environment.TickCount64 - start;
+
+        if (waited >= LongWaitMilliseconds && Interlocked.Increment(ref _longWaits) <= LongWaitsLogged)
+        {
+            WarnLongWait(list, waited);
+        }
+    }
+
+    private static void WarnLongWait(nint list, long waited)
+    {
+        ShimContext.Runtime.Log.Warn($"[d3d12_xs] submitting list 0x{list:x} waited {waited} ms on the CPU for its previous run (thread {Environment.CurrentManagedThreadId})");
     }
 
     /// <summary>After a submission: signals the queue's fence and records the value in every wrapped list.</summary>
