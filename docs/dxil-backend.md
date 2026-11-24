@@ -112,10 +112,12 @@ written, collections mark a large live graph, and server GC marks it on every co
 | Signatures against dxc, 384 sampled graphics programs (185 ps, 87 vs, 88 ms, 3 gs, 21 others) | | equal in every register and element; in 2 an input dxc's optimizer stops reading is still read |
 | Compute compile time, 54-program sample, 4 jobs, wall | | 7 s (18 s before server GC and the allocation work) |
 | Compute compile time, 54-program sample, one job, sum of steady-state compiles | | 9.7 s (18.1 s before) |
-| GRAPHICS_TIME_ROW |
+| Graphics compile time, 84-program sample (41 ps, 8 vs, 35 ms), 4 jobs, total / median | ps 46.2 s / 124 ms, vs 2.7 s / 120 ms, ms 300 s / 1.0 s | ps 5.9 s / 23 ms, vs 0.5 s / 24 ms, ms 12.9 s / 101 ms |
+| DXIL bytes, the same sample | 12.8 MB | 17.9 MB |
 | DXIL bytes, 54 compute programs | | 26.1 MB (34.8 MB with unabbreviated records) |
 | RTX 4090 pipeline creation, 58 graphics programs (30 ps, 4 vs, 24 ms) | | all accepted |
-| Outputs on WARP | | WARP_ROW |
+| Outputs on WARP against dxc -O3, real pixel programs | | 19 of 24 equal in every word; 1 differs between runs of the same form, 2 too large for the harness, 2 still in WARP's compiler after 30 minutes |
+| Outputs on WARP against dxc -O3, real vertex programs (compute harness) | | 20 of 24 equal in every word, 3 equal to dxc -Gis (dxc's fast-math), 1 skipped |
 
 Earlier compute measurements: on a 33-program sample dxc -O3 took 418 s, dxc -Od 305 s and the backend 83 s; RTX 4090
 pipeline creation for 113 programs took 921 s from dxc's DXIL and 973 s from the backend's, so the driver's compile

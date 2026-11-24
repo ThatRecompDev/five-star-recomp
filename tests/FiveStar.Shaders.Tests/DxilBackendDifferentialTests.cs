@@ -34,6 +34,14 @@ public sealed class DxilBackendDifferentialTests : IClassFixture<WarpFixture>
     [InlineData("vs")]
     public void The_dxil_backend_and_dxc_give_the_same_outputs_on_real_programs(string stage)
     {
+        var only = Environment.GetEnvironmentVariable(ControlFlowDifferentialTests.StageVariable);
+
+        // One stage per run: a WARP stall stops every later run in the process.
+        if (!string.IsNullOrWhiteSpace(only) && only != stage)
+        {
+            return;
+        }
+
         var count = DefaultPrograms;
 
         if (int.TryParse(Environment.GetEnvironmentVariable(ControlFlowDifferentialTests.ProgramsVariable), out var programs))
