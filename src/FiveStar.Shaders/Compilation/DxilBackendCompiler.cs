@@ -31,7 +31,7 @@ public sealed class DxilBackendCompiler : IShaderCompiler
     /// <param name="options">Limits, passed on to the fallback.</param>
     /// <param name="fallback">Compiles what the backend cannot; null fails instead.</param>
     /// <param name="validatorPath">dxil.dll, whose validator checks every container; null checks none.</param>
-    public DxilBackendCompiler(DxcOptions options, IShaderCompiler? fallback, string? validatorPath = null)
+    public DxilBackendCompiler(DxcOptions options, IShaderCompiler? fallback, string? validatorPath)
     {
         Options = options;
         _fallback = fallback;

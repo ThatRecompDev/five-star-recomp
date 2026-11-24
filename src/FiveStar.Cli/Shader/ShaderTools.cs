@@ -86,7 +86,7 @@ internal static class ShaderTools
         {
             null or "hlsl" => dxc,
             "dxil" => new DxilBackendCompiler(dxc.Options, dxc, DxilBackendCompiler.ValidatorBeside(dxc.Options.Path)),
-            "dxil-only" => new DxilBackendCompiler(dxc.Options, null),
+            "dxil-only" => new DxilBackendCompiler(dxc.Options, null, null),
             var other => throw new ArgumentException($"--backend {other}: expected hlsl, dxil or dxil-only"),
         };
     }

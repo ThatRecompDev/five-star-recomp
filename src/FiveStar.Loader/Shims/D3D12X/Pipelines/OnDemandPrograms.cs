@@ -39,11 +39,12 @@ internal sealed class OnDemandPrograms : IProgramLibrary
     /// <param name="workers">Runs the production (started by the caller).</param>
     /// <param name="warnings">Where failures are reported, once per program.</param>
     /// <param name="compilerCounts">The compiler's own counts for the summary (which compiler made the programs); null for none.</param>
-    public OnDemandPrograms(ProgramIndex index, TranslatedProgramLibrary? translated, ProgramProducer producer, ProgramWorkers workers, OnceLog warnings, Func<string>? compilerCounts = null)
+    public OnDemandPrograms(ProgramIndex index, TranslatedProgramLibrary? translated, ProgramProducer producer, ProgramWorkers workers, OnceLog warnings, Func<string>? compilerCounts)
     {
         _index = index;
         _translated = translated;
         _compiled = new TranslatedProgramLibrary(index, producer.Folder, null);
+
         _producer = producer;
         _workers = workers;
         _warnings = warnings;

@@ -41,6 +41,7 @@ public sealed unsafe class D3D12XOnDemandProgramTests(ITestOutputHelper output)
             output.WriteLine($"first: {first.Summary}");
             Assert.True(first.Waited, "the first creation should wait for its program");
             Assert.True(first.Built, first.Summary);
+
             Assert.Contains("DXIL backend 1, dxc 0", first.Summary, StringComparison.Ordinal);
             Assert.True(File.Exists(Path.Combine(first.Folder, name + ".dxil")));
 
@@ -72,6 +73,7 @@ public sealed unsafe class D3D12XOnDemandProgramTests(ITestOutputHelper output)
         var dxc = new DxcLibraryCompiler(DxcOptions.Defaults(OnDemandFactAttribute.Library, retry: false));
         var compiler = new DxilBackendCompiler(dxc.Options, dxc, DxilBackendCompiler.ValidatorBeside(OnDemandFactAttribute.Library));
         var picker = new ProgramVariantPicker(new FiveStar.Graphics.Programs.ShaderManifest([]), adapter, warnings);
+
         var producer = new ProgramProducer(programs, folder, picker, compiler, SlowCompiles.Read([], compiler.Options.CompileTimeout));
         var workers = new ProgramWorkers(1, PipelineBuildQueue.AnyTime, PipelineBuildQueue.AnyTime);
         workers.Start();
