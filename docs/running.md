@@ -98,20 +98,19 @@ running ([loader.md](loader.md#running-the-executable)) these can be answered fr
 `-- --input-script docs/first-run.input` answers them unattended: it taps Space until the legal screen shows, then
 waits for each screen it needs rather than for a time. It recognises screens it learned from your own frames
 (`%LOCALAPPDATA%\FiveStar\screens.txt`); the first time, press F8 when the legal screen, the terms screen and the story
-load show (and the legal screen once Next has the focus), and later runs need no help. B
+load show (and the legal screen once Next has the focus), and later runs need no help. Only the first run shows these
+screens (below). B
 (C) goes back to the previous screen. The screens' text, headings and logos render in full; the brightness-calibration
 symbol is still missing (every pixel right of the panel is 0 at level 15). It is not the frame's first draw: that is
 the executable's `VS_Clear` + `PS_Clear` ([shader-containers.md](shader-containers.md#executable)), which now runs but
 changes no pixel, since it reads its rectangle through a root SRV whose GPU address translated programs take as a heap
 index. The next draw (`PS_BlitColour` with a zero colour) fills the target black, and the UI is drawn over it.
 
-**The screens come back every boot (open).** The game saves `Player` at the terms screen and
-`SettingsProfileSettings` (settings and the first-run choices) on a later run, and the next boot lists both and
-reads their headers, but never reads the settings data, so the screens show again. In the executable the settings load
-(0x142245090) is queued only by a presence sign-in event (handler 0x142246740: state 0, signed in, with byte +0x105 set
-when the user is the active user, global 0x146c31b50) or a blocking load (vtable slot 0x146194cf0), and not while the
-settings object's state at +0x840 is 0. The local gamer record (0x1498489c8) is valid: our XUID, type 1, index 0.
-Calling the XUser change callback (SignedInAgain, Gamertag) once after the add did not start the load.
+**Later boots skip the screens.** At the terms screen the game writes `Player` and `SettingsProfileSettings`
+(settings and the first-run choices); the next boot goes from the logos straight to the story load. Start-up step 4 queues their loads one after the other on the same
+save slot. Each starts with an XAsyncRun whose completion routine calls `XAsyncGetStatus(block, true)` on its own
+block before it frees the block and the slot's in-use mark; the loader used to block there until the routine
+returned, so the settings load found the slot in use and failed, and the screens came back.
 
 ## Work folder
 

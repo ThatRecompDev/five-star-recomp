@@ -50,7 +50,7 @@ internal static unsafe class BottomOfPipeWrites
     [UnmanagedCallersOnly]
     public static int Marker(XboxObject* self, ulong address, uint value, ulong flush, uint flags)
     {
-        ListMemoryWaits.Of(self)->Wrote(address);
+        MemoryWaitWriters.Wrote(self, address, value);
         Write(self, address, &value, 1);
 
         return HResult.Ok;
@@ -65,7 +65,7 @@ internal static unsafe class BottomOfPipeWrites
             value = (ulong)(Stopwatch.GetTimestamp() * (ConsoleTicksPerSecond / (double)Stopwatch.Frequency));
         }
 
-        ListMemoryWaits.Of(self)->Wrote(address);
+        MemoryWaitWriters.Wrote(self, address, value);
         Write64(self, address, value);
 
         return HResult.Ok;

@@ -7,32 +7,37 @@ namespace FiveStar.Loader.Shims.D3D12X;
 
 /// <summary>
 /// The memory waits a command list recorded since its last Reset (slots 73 and 74, <see cref="MemoryWaits"/>), kept in
-/// its wrapper, and the last addresses its bottom-of-pipe writes went to: a wait on an address the same list wrote
-/// before it is met by the list's own order and is not kept. A wait recorded after draws, dispatches or indirect
-/// executions is not kept either: the desktop can only hold a whole list, and holding the work before the wait as well
-/// can close a cycle the console does not have (that work may be what the writer of the value waits for).
+/// its wrapper with the segment each one precedes (<see cref="ListSegments"/>), and the last addresses its bottom-of-pipe
+/// writes went to: a wait on an address the same list wrote before it is met by the list's own order and is not kept.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct ListMemoryWaits
 {
-    /// <summary>Offset in the command-list wrapper, past <see cref="Binding.CommandListBindings"/> (0x800 to 0xC30).</summary>
-    public const int Offset = 0xC40;
+    /// <summary>Offset in the command-list wrapper, past <see cref="ListReplayState"/>.</summary>
+    public const int Offset = 0x1600;
 
     /// <summary>Waits a recording keeps; later ones are counted in <see cref="Dropped"/>.</summary>
-    public const int Capacity = 8;
+    public const int Capacity = 16;
 
     /// <summary>Write addresses remembered, the newest ones.</summary>
-    public const int WriteCapacity = 8;
+    public const int WriteCapacity = 32;
 
     public int Count;
     public int Dropped;
-    public int MidList;
     public int Writes;
+
+    /// <summary>Work (draws, dispatches, indirect executions and writes) recorded when the list was last split.</summary>
+    public int WorkAtSplit;
+
+    /// <summary>When the list was last submitted (Environment.TickCount64) and to which queue (<see cref="MemoryWaitWriters"/>).</summary>
+    public long SubmittedAt;
+    public int Queue;
     public fixed ulong Address[Capacity];
     public fixed ulong Value[Capacity];
     public fixed ulong Mask[Capacity];
     public fixed int Comparison[Capacity];
     public fixed int Bytes[Capacity];
+    public fixed int Segment[Capacity];
     public fixed ulong Written[WriteCapacity];
 
     public static ListMemoryWaits* Of(XboxObject* list)
@@ -46,8 +51,8 @@ internal unsafe struct ListMemoryWaits
     {
         Count = 0;
         Dropped = 0;
-        MidList = 0;
         Writes = 0;
+        WorkAtSplit = 0;
     }
 
     /// <summary>A bottom-of-pipe write to <paramref name="address"/> was recorded.</summary>
@@ -58,20 +63,10 @@ internal unsafe struct ListMemoryWaits
         Writes++;
     }
 
-    /// <summary>
-    /// Keeps a wait; false when the list wrote that address before (met in order), recorded work before it
-    /// (<paramref name="workBefore"/>) or has no room left.
-    /// </summary>
+    /// <summary>Whether the list wrote <paramref name="address"/> before (among the last <see cref="WriteCapacity"/> writes).</summary>
     [HotPath]
-    public bool Record(ulong address, int bytes, int comparison, ulong value, ulong mask, int workBefore)
+    public readonly bool HasWritten(ulong address)
     {
-        if (workBefore != 0)
-        {
-            MidList++;
-
-            return false;
-        }
-
         int written = Writes;
 
         if (written > WriteCapacity)
@@ -83,10 +78,17 @@ internal unsafe struct ListMemoryWaits
         {
             if (Written[i] == address)
             {
-                return false;
+                return true;
             }
         }
 
+        return false;
+    }
+
+    /// <summary>Keeps a wait before segment <paramref name="segment"/>; false when no room is left.</summary>
+    [HotPath]
+    public bool Record(ulong address, int bytes, int comparison, ulong value, ulong mask, int segment)
+    {
         if (Count == Capacity)
         {
             Dropped++;
@@ -99,6 +101,8 @@ internal unsafe struct ListMemoryWaits
         Comparison[Count] = comparison;
         Value[Count] = value;
         Mask[Count] = mask;
+
+        Segment[Count] = segment;
         Count++;
 
         return true;

@@ -93,6 +93,21 @@ public sealed unsafe class AsyncTests
         Assert.Equal([block], NativeCallbacks.Completed);
     }
 
+    [Fact]
+    public void A_completion_routine_can_wait_on_its_own_block()
+    {
+        using var test = TestRuntime.Create();
+        NativeCallbacks.Reset();
+        NativeCallbacks.Status = (delegate* unmanaged<nint, byte, int>)test.Gdk("XAsyncGetStatus");
+        nint block = TestNative.AsyncBlock(0, (nint)(delegate* unmanaged<nint, void>)&NativeCallbacks.AsyncCompletedWaiting);
+        var run = (delegate* unmanaged<nint, nint, int>)test.Gdk("XAsyncRun");
+
+        run(block, (nint)(delegate* unmanaged<nint, int>)&NativeCallbacks.RunWork);
+        bool completed = SpinWait.SpinUntil(() => !NativeCallbacks.Completed.IsEmpty, TimeSpan.FromSeconds(5));
+
+        Assert.True(completed);
+    }
+
     private static nint ManualQueue(TestRuntime test)
     {
         nint queue = 0;
