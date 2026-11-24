@@ -756,7 +756,7 @@ internal static unsafe class CommandListBindingMethods
         }
 
         uint* data = compute ? bindings->Compute : bindings->Graphics;
-        ulong address = ring.Upload(data);
+        ulong address = ring.Upload(data, UserData.Used(bindings, compute));
         int slot = compute ? DesktopSetComputeRootConstantBufferView : DesktopSetGraphicsRootConstantBufferView;
         nint inner = self->Inner;
         ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(inner, slot))(inner, UserDataParameter, address);
