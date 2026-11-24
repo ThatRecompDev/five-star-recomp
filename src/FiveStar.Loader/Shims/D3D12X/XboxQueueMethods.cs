@@ -85,6 +85,7 @@ internal static unsafe class XboxQueueMethods
                 if (desktop[i] != list)
                 {
                     ListSubmissions.WaitIfRunning(list);
+                    MemoryWaitWriters.Submitted(list, (XboxQueueObject*)self);
                 }
             }
 
@@ -94,13 +95,14 @@ internal static unsafe class XboxQueueMethods
     }
 
     /// <summary>
-    /// Runs the lists in order, split before each list with memory waits so the lists before it are submitted first and
-    /// the queue then waits for its memory (<see cref="MemoryWaits"/>).
+    /// Runs the lists in order. A list with memory waits or segments (<see cref="MemoryWaits"/>, <see cref="ListSplits"/>)
+    /// goes alone after the lists before it: each of its segments runs after the waits that precede it.
     /// </summary>
     [HotPath]
     private static void Submit(XboxObject* self, nint* lists, nint* desktop, uint count, delegate* unmanaged<nint, uint, nint*, void> execute)
     {
         var objects = ShimContext.Runtime.D3D12X.Objects;
+        var queue = (XboxQueueObject*)self;
         nint inner = self->Inner;
         uint start = 0;
 
@@ -116,14 +118,31 @@ internal static unsafe class XboxQueueMethods
             if (i > start)
             {
                 execute(inner, i - start, desktop + start);
-                ListSubmissions.Submitted((XboxQueueObject*)self, lists + start, i - start, objects);
-                start = i;
+                ListSubmissions.Submitted(queue, lists + start, i - start, objects);
             }
 
             if (waits)
             {
-                MemoryWaits.Before(inner, lists[i]);
+                SubmitSegments(queue, lists[i], desktop[i], execute);
+                ListSubmissions.Submitted(queue, lists + i, 1, objects);
             }
+
+            start = i + 1;
+        }
+    }
+
+    /// <summary>The segments of <paramref name="list"/> (a wrapper whose desktop list is <paramref name="last"/>), each after its waits.</summary>
+    [HotPath]
+    private static void SubmitSegments(XboxQueueObject* queue, nint list, nint last, delegate* unmanaged<nint, uint, nint*, void> execute)
+    {
+        var segments = ListSegments.Of((XboxObject*)list);
+        nint inner = queue->Header.Inner;
+
+        for (int s = 0; s <= segments->Count; s++)
+        {
+            MemoryWaits.Before(queue, list, s);
+            nint segment = segments->Segment(s, last);
+            execute(inner, 1, &segment);
         }
     }
 }

@@ -31,15 +31,19 @@ internal static unsafe class InputBuffers
     {
         nint inner = self->Inner;
         var set = (delegate* unmanaged<nint, VertexBufferView*, void>)ComObject.Slot(inner, DesktopSetIndexBuffer);
+        var state = ListReplayState.Of(self);
 
         if (view == null)
         {
+            state->Set &= ~ListReplayState.IndexBit;
             set(inner, null);
 
             return;
         }
 
         var desktop = Translated(*view);
+        state->Index = desktop;
+        state->Set |= ListReplayState.IndexBit;
         set(inner, &desktop);
     }
 
@@ -52,6 +56,7 @@ internal static unsafe class InputBuffers
 
         if (views == null || count == 0 || startSlot >= MaxVertexBuffers)
         {
+            Unset(ListReplayState.Of(self), startSlot, count);
             set(inner, startSlot, count, null);
 
             return;
@@ -72,7 +77,28 @@ internal static unsafe class InputBuffers
         }
 
         ShimContext.Runtime.D3D12X.DrawTrace?.VertexBuffers(self, startSlot, used, views);
+        Keep(ListReplayState.Of(self), startSlot, used, desktop);
         set(inner, startSlot, used, desktop);
+    }
+
+    /// <summary>The desktop views of the slots a split list sets again (<see cref="ListReplayState"/>).</summary>
+    [HotPath]
+    private static void Keep(ListReplayState* state, uint startSlot, uint count, VertexBufferView* views)
+    {
+        for (uint i = 0; i < count && startSlot + i < ListReplayState.MaxVertexBuffers; i++)
+        {
+            *state->VertexView(startSlot + i) = views[i];
+            state->VertexMask |= 1u << (int)(startSlot + i);
+        }
+    }
+
+    [HotPath]
+    private static void Unset(ListReplayState* state, uint startSlot, uint count)
+    {
+        for (uint i = 0; i < count && startSlot + i < ListReplayState.MaxVertexBuffers; i++)
+        {
+            state->VertexMask &= ~(1u << (int)(startSlot + i));
+        }
     }
 
     /// <summary>The view with its desktop address; an unbound one (address 0) also has size 0, as the desktop requires.</summary>

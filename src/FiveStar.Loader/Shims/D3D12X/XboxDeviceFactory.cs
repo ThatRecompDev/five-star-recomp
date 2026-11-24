@@ -383,7 +383,6 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         {
             DrawTrace = new DrawTrace(capture, MemorySource, this, _log);
             Presenter.Trace = DrawTrace;
-            DrawTraceSlots.Register(Objects);
         }
     }
 
@@ -391,7 +390,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
     {
         _log.Info($"  [d3d12_xs] {ListSubmissions.Waits} submission(s) waited for the list's previous run");
         var waits = MemoryWaits.Counts;
-        _log.Info($"  [memory wait] {waits.Recorded} recorded: {waits.Held} met at submission, {waits.Deferred} waited for on the GPU, {waits.TimedOut} released by the timeout, {waits.Dropped} not kept");
+        _log.Info($"  [memory wait] {waits.Recorded} recorded: {waits.Held} met at submission, {waits.Deferred} waited for on the GPU, {waits.TimedOut} released by the timeout, {waits.ReleasedForCpu} released for a CPU wait, {waits.Dropped} not kept; {ListSplits.Splits} lists split");
         Pipelines?.Cache?.Dispose();
 
         Presenter.Dispose();
@@ -554,6 +553,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         UploadAllocations.Bind(Objects);
         BottomOfPipeWrites.Bind(Objects);
         MemoryWaits.Bind(Objects, _log);
+        ListStateSlots.Register(Objects);
     }
 
     private void BindInputBuffers()

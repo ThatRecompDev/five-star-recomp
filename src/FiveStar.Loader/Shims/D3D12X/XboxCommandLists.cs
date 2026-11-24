@@ -34,8 +34,15 @@ internal sealed unsafe class XboxCommandLists
         *list = 0;
         Guid iid = D3D12XLayout.GraphicsCommandListIid;
         var create = (delegate* unmanaged<nint, uint, int, nint, nint, Guid*, nint*, int>)ComObject.Slot(device, DesktopCreateCommandListSlot);
-        int hr = create(device, 0, type, _objects.Unwrap(allocator), _objects.Unwrap(pipelineState), &iid, list);
+        nint desktopAllocator = _objects.Unwrap(allocator);
+        int hr = create(device, 0, type, desktopAllocator, _objects.Unwrap(pipelineState), &iid, list);
+        hr = _objects.WrapResult(hr, XboxInterfaceKind.CommandList, list);
 
-        return _objects.WrapResult(hr, XboxInterfaceKind.CommandList, list);
+        if (!HResult.Failed(hr) && *list != 0)
+        {
+            ListSegments.Of((XboxObject*)*list)->Allocator = desktopAllocator;
+        }
+
+        return hr;
     }
 }

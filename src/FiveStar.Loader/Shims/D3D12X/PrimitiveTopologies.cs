@@ -68,6 +68,9 @@ internal static unsafe class PrimitiveTopologies
             return;
         }
 
+        var state = ListReplayState.Of(self);
+        state->Topology = topology;
+        state->Set |= ListReplayState.TopologyBit;
         nint inner = self->Inner;
         ((delegate* unmanaged<nint, uint, void>)ComObject.Slot(inner, SetPrimitiveTopologySlot))(inner, topology);
     }

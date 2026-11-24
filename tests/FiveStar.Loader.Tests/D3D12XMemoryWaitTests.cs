@@ -43,16 +43,17 @@ public sealed unsafe class D3D12XMemoryWaitTests
     }
 
     [Fact]
-    public void A_wait_after_the_lists_own_write_or_work_is_not_kept_and_never_and_always_do_not_block()
+    public void A_wait_after_the_lists_own_write_is_met_in_order_and_never_and_always_do_not_block()
     {
         var waits = (ListMemoryWaits*)NativeMemory.AllocZeroed((nuint)sizeof(ListMemoryWaits));
 
         try
         {
             waits->Wrote(Cell);
-            Assert.False(waits->Record(Cell, sizeof(ulong), MemoryComparison.GreaterEqual, 1, ulong.MaxValue, 0));
-            Assert.True(waits->Record(Cell + 8, sizeof(ulong), MemoryComparison.GreaterEqual, 1, ulong.MaxValue, 0));
-            Assert.False(waits->Record(Cell + 16, sizeof(ulong), MemoryComparison.GreaterEqual, 1, ulong.MaxValue, 1));
+            Assert.True(waits->HasWritten(Cell));
+            Assert.False(waits->HasWritten(Cell + 8));
+            Assert.True(waits->Record(Cell + 8, sizeof(ulong), MemoryComparison.GreaterEqual, 1, ulong.MaxValue, 1));
+            Assert.Equal(1, waits->Segment[0]);
 
             Assert.False(MemoryComparison.Blocks(MemoryComparison.Never));
             Assert.False(MemoryComparison.Blocks(MemoryComparison.Always));

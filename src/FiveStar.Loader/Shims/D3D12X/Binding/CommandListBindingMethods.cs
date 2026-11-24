@@ -345,6 +345,10 @@ internal static unsafe class CommandListBindingMethods
     {
         *CommandListBindings.Of(self) = default;
         ListMemoryWaits.Of(self)->Reset();
+
+        ListSegments.Of(self)->Reset(ShimContext.Runtime.D3D12X.Objects.Unwrap(allocator));
+        ListReplayState.Of(self)->Set = 0;
+        ListReplayState.Of(self)->VertexMask = 0;
         ListActivity.Reset(self);
         ShimContext.Runtime.D3D12X.DrawTrace?.Reset(self);
 
@@ -392,6 +396,7 @@ internal static unsafe class CommandListBindingMethods
         nint inner = self->Inner;
         ((delegate* unmanaged<nint, uint, nint*, void>)ComObject.Slot(inner, DesktopSetDescriptorHeaps))(inner, count, heaps);
         bindings->HeapsBound = 1;
+        KeepHeaps(self, count, heaps);
 
         // The bindless root signature indexes the heaps directly: it is set again after a heap change.
         if (bindings->GraphicsRoot != 0)
@@ -453,6 +458,54 @@ internal static unsafe class CommandListBindingMethods
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, uint, nint*, void>)ComObject.Slot(inner, DesktopSetDescriptorHeaps))(inner, count, heaps);
             CommandListBindings.Of(self)->HeapsBound = 1;
+            KeepHeaps(self, count, heaps);
+        }
+    }
+
+    /// <summary>The desktop heaps the list set, for a split list (<see cref="ListReplayState"/>).</summary>
+    [HotPath]
+    private static void KeepHeaps(XboxObject* self, uint count, nint* heaps)
+    {
+        var state = ListReplayState.Of(self);
+        state->Set &= ~ListReplayState.HeapsBit;
+
+        if (count > ListReplayState.MaxHeaps || (count != 0 && heaps == null))
+        {
+            return;
+        }
+
+        for (uint i = 0; i < count; i++)
+        {
+            state->Heaps[i] = heaps[i];
+        }
+
+        state->HeapCount = count;
+        state->Set |= ListReplayState.HeapsBit;
+    }
+
+    /// <summary>
+    /// After a split (<see cref="ListSplits"/>): sets the list's heaps again on its new desktop list, then the bindless
+    /// root signature of each bind point the list had set; the user data goes out again at the next draw or dispatch.
+    /// </summary>
+    public static void Rebind(XboxObject* self)
+    {
+        var state = ListReplayState.Of(self);
+        var bindings = CommandListBindings.Of(self);
+
+        if ((state->Set & ListReplayState.HeapsBit) != 0)
+        {
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, uint, long*, void>)ComObject.Slot(inner, DesktopSetDescriptorHeaps))(inner, state->HeapCount, state->Heaps);
+        }
+
+        if (bindings->GraphicsRoot != 0)
+        {
+            SetBindlessRoot(self, false);
+        }
+
+        if (bindings->ComputeRoot != 0)
+        {
+            SetBindlessRoot(self, true);
         }
     }
 

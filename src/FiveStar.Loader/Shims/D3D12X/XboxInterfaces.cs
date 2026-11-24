@@ -15,8 +15,11 @@ internal static class XboxInterfaces
     /// <summary>The vtable stride: every interface's vtable has room for this many slots.</summary>
     public const int MaxSlotCount = 160;
 
-    /// <summary>Bytes of a command-list wrapper: the game reads and writes fields up to +0x564 (inline recording).</summary>
-    public const int CommandListObjectSize = 0x1000;
+    /// <summary>
+    /// Bytes of a command-list wrapper: the game reads and writes fields up to +0x564 (inline recording); the shim's
+    /// per-list state follows from 0x800 (binding, submission, activity, rectangle lists, segments, replay state, waits).
+    /// </summary>
+    public const int CommandListObjectSize = 0x2000;
 
     /// <summary>Command-list slot 139, read as Reset(allocator, PSO, flags) (*inferred*: call at 0x142474cce).</summary>
     private const int ResetXSlot = 139;
