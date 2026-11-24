@@ -408,8 +408,10 @@ in a boot split; the elements past a cut read 0 until such a buffer is one deskt
 **Committed resources (slot 127).** Created in the state of the initial barrier layout (buffers COMMON), heap flags
 0 (the game passes 8). On the console D3D12.X takes their memory from the title's XMemAlloc hook, and the game checks
 it: around its two 4K render targets (0x14247ad10) it pushes a hook for D3D allocations with page-size field 2 that
-hands out a 64 MiB region, and breaks into the debugger unless all but 2 MiB of it was used. The shim allocates the
-desktop size with attributes 0x11808000 (allocator 128, page size 2, 64 KiB alignment) and frees it with the resource.
+hands out a 64 MiB region, and breaks into the debugger unless all but 2 MiB of it was used. The shim allocates a
+texture's XG console size (a desktop driver pads: an RDNA3 card asks 0x2010000 bytes per 4K target, and two overrun the
+region) and a buffer's desktop size, with attributes 0x11808000 (allocator 128, page size 2, 64 KiB alignment), and
+frees it with the resource.
 
 **Root signatures.** `D3D12SerializeVersionedRootSignature` drops the flag bits above 0xFFF (`XboxBvhBuilder.dll`
 passes 0x3000000) and logs the serializer's message when it still fails.

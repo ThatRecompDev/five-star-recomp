@@ -19,6 +19,9 @@ internal static unsafe class ConsoleAllocationSizes
     /// <summary>ALLOW_RENDER_TARGET, ALLOW_DEPTH_STENCIL and ALLOW_UNORDERED_ACCESS.</summary>
     private const int TargetFlags = 0x7;
 
+    /// <summary>DXGI_SAMPLE_DESC.Count of a texture that is not multisampled.</summary>
+    private const uint SingleSample = 1;
+
     /// <summary>
     /// Replaces <paramref name="result"/> (and <paramref name="infos"/>, when given) with the console sizes when every
     /// desc is a texture in a console layout; false, leaving them as they are, otherwise.
@@ -49,6 +52,25 @@ internal static unsafe class ConsoleAllocationSizes
 
         result->Size = XgLayoutBuilder.AlignUp(offset, alignment);
         result->Alignment = alignment;
+
+        return true;
+    }
+
+    /// <summary>
+    /// The console size of a texture the game creates committed, render and depth targets included (XG lays those out
+    /// with the mode it suggests); false for buffers and multisampled textures, which keep the desktop size.
+    /// </summary>
+    public static bool TryCommittedTextureSize(ResourceDescription* description, out ulong size)
+    {
+        size = 0;
+
+        if (description->Dimension == ResourceDescription.BufferDimension || description->SampleCount > SingleSample)
+        {
+            return false;
+        }
+
+        XgLayoutBuilder.Build(*(XgResourceDesc*)description, out var surface);
+        size = surface.Size;
 
         return true;
     }
