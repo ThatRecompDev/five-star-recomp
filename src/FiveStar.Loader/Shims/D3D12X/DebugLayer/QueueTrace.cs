@@ -59,27 +59,54 @@ internal static unsafe class QueueTrace
     [UnmanagedCallersOnly]
     private static int Signal(XboxObject* self, nint fence, ulong value)
     {
-        nint inner = ShimContext.Runtime.D3D12X.Objects.Unwrap(fence);
-        Write($"queue {QueueId(self)}: signal fence {FenceId(fence)} = {value} (completed {Completed(inner)})");
+        try
+        {
+            nint inner = ShimContext.Runtime.D3D12X.Objects.Unwrap(fence);
+            Write($"queue {QueueId(self)}: signal fence {FenceId(fence)} = {value} (completed {Completed(inner)})");
 
-        return FenceValueMirror.Signal(self, fence, value);
+            return FenceValueMirror.Signal(self, fence, value);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "QueueTrace.Signal");
+
+            return HResult.Fail;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static int Wait(XboxObject* self, nint fence, ulong value)
     {
-        nint inner = ShimContext.Runtime.D3D12X.Objects.Unwrap(fence);
-        Write($"queue {QueueId(self)}: WAIT fence {FenceId(fence)} >= {value} (completed {Completed(inner)})");
+        try
+        {
+            nint inner = ShimContext.Runtime.D3D12X.Objects.Unwrap(fence);
+            Write($"queue {QueueId(self)}: WAIT fence {FenceId(fence)} >= {value} (completed {Completed(inner)})");
 
-        return ((delegate* unmanaged<nint, nint, ulong, int>)ComObject.Slot(self->Inner, DesktopQueueWaitSlot))(self->Inner, inner, value);
+            return ((delegate* unmanaged<nint, nint, ulong, int>)ComObject.Slot(self->Inner, DesktopQueueWaitSlot))(self->Inner, inner, value);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "QueueTrace.Wait");
+
+            return HResult.Fail;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static int FenceSignal(XboxObject* self, ulong value)
     {
-        Write($"cpu: signal fence {FenceId((nint)self)} = {value} (completed {Completed(self->Inner)})");
+        try
+        {
+            Write($"cpu: signal fence {FenceId((nint)self)} = {value} (completed {Completed(self->Inner)})");
 
-        return ((delegate* unmanaged<nint, ulong, int>)ComObject.Slot(self->Inner, FenceSignalSlot))(self->Inner, value);
+            return ((delegate* unmanaged<nint, ulong, int>)ComObject.Slot(self->Inner, FenceSignalSlot))(self->Inner, value);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "QueueTrace.FenceSignal");
+
+            return HResult.Fail;
+        }
     }
 
     private static ulong Completed(nint fence)

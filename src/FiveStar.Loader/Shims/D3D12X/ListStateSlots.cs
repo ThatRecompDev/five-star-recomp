@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X;
@@ -46,95 +47,137 @@ internal static unsafe class ListStateSlots
     [UnmanagedCallersOnly]
     public static void SetViewports(XboxObject* self, uint count, float* viewports)
     {
-        var state = ListReplayState.Of(self);
-        state->Set &= ~ListReplayState.ViewportsBit;
-
-        if (viewports != null && count <= ListReplayState.MaxViewports)
+        try
         {
-            Buffer.MemoryCopy(viewports, state->Viewports, sizeof(float) * ListReplayState.MaxViewports * ListReplayState.ViewportFloats, sizeof(float) * count * ListReplayState.ViewportFloats);
-            state->ViewportCount = count;
-            state->Set |= ListReplayState.ViewportsBit;
-        }
+            var state = ListReplayState.Of(self);
+            state->Set &= ~ListReplayState.ViewportsBit;
 
-        ShimContext.Runtime.D3D12X.DrawTrace?.Viewports(self, count, viewports);
-        nint inner = self->Inner;
-        ((delegate* unmanaged<nint, uint, float*, void>)ComObject.Slot(inner, SetViewportsSlot))(inner, count, viewports);
+            if (viewports != null && count <= ListReplayState.MaxViewports)
+            {
+                Buffer.MemoryCopy(viewports, state->Viewports, sizeof(float) * ListReplayState.MaxViewports * ListReplayState.ViewportFloats, sizeof(float) * count * ListReplayState.ViewportFloats);
+                state->ViewportCount = count;
+                state->Set |= ListReplayState.ViewportsBit;
+            }
+
+            ShimContext.Runtime.D3D12X.DrawTrace?.Viewports(self, count, viewports);
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, uint, float*, void>)ComObject.Slot(inner, SetViewportsSlot))(inner, count, viewports);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "ListStateSlots.SetViewports");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetScissors(XboxObject* self, uint count, int* rects)
     {
-        var state = ListReplayState.Of(self);
-        state->Set &= ~ListReplayState.ScissorsBit;
-
-        if (rects != null && count <= ListReplayState.MaxViewports)
+        try
         {
-            Buffer.MemoryCopy(rects, state->Scissors, sizeof(int) * ListReplayState.MaxViewports * ListReplayState.RectInts, sizeof(int) * count * ListReplayState.RectInts);
-            state->ScissorCount = count;
-            state->Set |= ListReplayState.ScissorsBit;
-        }
+            var state = ListReplayState.Of(self);
+            state->Set &= ~ListReplayState.ScissorsBit;
 
-        ShimContext.Runtime.D3D12X.DrawTrace?.Scissors(self, count, rects);
-        nint inner = self->Inner;
-        ((delegate* unmanaged<nint, uint, int*, void>)ComObject.Slot(inner, SetScissorsSlot))(inner, count, rects);
+            if (rects != null && count <= ListReplayState.MaxViewports)
+            {
+                Buffer.MemoryCopy(rects, state->Scissors, sizeof(int) * ListReplayState.MaxViewports * ListReplayState.RectInts, sizeof(int) * count * ListReplayState.RectInts);
+                state->ScissorCount = count;
+                state->Set |= ListReplayState.ScissorsBit;
+            }
+
+            ShimContext.Runtime.D3D12X.DrawTrace?.Scissors(self, count, rects);
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, uint, int*, void>)ComObject.Slot(inner, SetScissorsSlot))(inner, count, rects);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "ListStateSlots.SetScissors");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetBlendFactor(XboxObject* self, float* factor)
     {
-        var state = ListReplayState.Of(self);
-        state->Set &= ~ListReplayState.BlendBit;
-
-        if (factor != null)
+        try
         {
-            Buffer.MemoryCopy(factor, state->Blend, sizeof(float) * ListReplayState.ColorFloats, sizeof(float) * ListReplayState.ColorFloats);
-            state->Set |= ListReplayState.BlendBit;
-        }
+            var state = ListReplayState.Of(self);
+            state->Set &= ~ListReplayState.BlendBit;
 
-        nint inner = self->Inner;
-        ((delegate* unmanaged<nint, float*, void>)ComObject.Slot(inner, SetBlendFactorSlot))(inner, factor);
+            if (factor != null)
+            {
+                Buffer.MemoryCopy(factor, state->Blend, sizeof(float) * ListReplayState.ColorFloats, sizeof(float) * ListReplayState.ColorFloats);
+                state->Set |= ListReplayState.BlendBit;
+            }
+
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, float*, void>)ComObject.Slot(inner, SetBlendFactorSlot))(inner, factor);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "ListStateSlots.SetBlendFactor");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetStencilReference(XboxObject* self, uint reference)
     {
-        var state = ListReplayState.Of(self);
-        state->StencilReference = reference;
-        state->Set |= ListReplayState.StencilBit;
-        nint inner = self->Inner;
-        ((delegate* unmanaged<nint, uint, void>)ComObject.Slot(inner, SetStencilReferenceSlot))(inner, reference);
+        try
+        {
+            var state = ListReplayState.Of(self);
+            state->StencilReference = reference;
+            state->Set |= ListReplayState.StencilBit;
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, uint, void>)ComObject.Slot(inner, SetStencilReferenceSlot))(inner, reference);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "ListStateSlots.SetStencilReference");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetDepthBounds(XboxObject* self, float min, float max)
     {
-        var state = ListReplayState.Of(self);
-        state->DepthMin = min;
-        state->DepthMax = max;
-        state->Set |= ListReplayState.DepthBoundsBit;
-        nint inner = self->Inner;
-        ((delegate* unmanaged<nint, float, float, void>)ComObject.Slot(inner, DesktopSetDepthBounds))(inner, min, max);
+        try
+        {
+            var state = ListReplayState.Of(self);
+            state->DepthMin = min;
+            state->DepthMax = max;
+            state->Set |= ListReplayState.DepthBoundsBit;
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, float, float, void>)ComObject.Slot(inner, DesktopSetDepthBounds))(inner, min, max);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "ListStateSlots.SetDepthBounds");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetRenderTargets(XboxObject* self, uint count, nint* handles, int single, nint* depthStencil)
     {
-        Keep(ListReplayState.Of(self), count, handles, single, depthStencil);
-        nint depth = 0;
-
-        if (depthStencil != null)
+        try
         {
-            depth = *depthStencil;
-        }
+            Keep(ListReplayState.Of(self), count, handles, single, depthStencil);
+            nint depth = 0;
 
-        ShimContext.Runtime.D3D12X.DrawTrace?.RenderTargets(self, count, handles, single != 0, depth);
-        nint inner = self->Inner;
-        ((delegate* unmanaged<nint, uint, nint*, int, nint*, void>)ComObject.Slot(inner, DesktopSetRenderTargets))(inner, count, handles, single, depthStencil);
+            if (depthStencil != null)
+            {
+                depth = *depthStencil;
+            }
+
+            ShimContext.Runtime.D3D12X.DrawTrace?.RenderTargets(self, count, handles, single != 0, depth);
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, uint, nint*, int, nint*, void>)ComObject.Slot(inner, DesktopSetRenderTargets))(inner, count, handles, single, depthStencil);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "ListStateSlots.SetRenderTargets");
+        }
     }
 
     /// <summary>The targets as given: one handle when <paramref name="single"/> is set (a descriptor range), else one per target.</summary>

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
 using FiveStar.Loader.Shims.D3D12X.Present;
@@ -36,21 +37,28 @@ internal static unsafe class ResourceBarrierSlots
     [UnmanagedCallersOnly]
     public static void ResourceBarrier(XboxObject* self, uint count, TransitionBarrier* barriers)
     {
-        ListSegments.Of(self)->Commands++;
-
-        if (barriers == null || count == 0)
+        try
         {
-            return;
+            ListSegments.Of(self)->Commands++;
+
+            if (barriers == null || count == 0)
+            {
+                return;
+            }
+
+            GpuBreadcrumbs.Before(self, RecordedCommand.ResourceBarrier);
+
+            var d3d12x = D3D12X;
+            var states = d3d12x.ListStates.For(self);
+
+            for (uint i = 0; i < count; i++)
+            {
+                Translate(d3d12x.Objects, self->Inner, states, barriers + i);
+            }
         }
-
-        GpuBreadcrumbs.Before(self, RecordedCommand.ResourceBarrier);
-
-        var d3d12x = D3D12X;
-        var states = d3d12x.ListStates.For(self);
-
-        for (uint i = 0; i < count; i++)
+        catch (Exception exception)
         {
-            Translate(d3d12x.Objects, self->Inner, states, barriers + i);
+            UnmanagedGuard.Caught(exception, "ResourceBarrierSlots.ResourceBarrier");
         }
     }
 
@@ -58,25 +66,34 @@ internal static unsafe class ResourceBarrierSlots
     [UnmanagedCallersOnly]
     public static int Close(XboxObject* self)
     {
-        nint inner = self->Inner;
-        var states = D3D12X.ListStates.Find(self);
-
-        if (states is not null && states.Count > 0)
+        try
         {
-            Restore(inner, states);
+            nint inner = self->Inner;
+            var states = D3D12X.ListStates.Find(self);
+
+            if (states is not null && states.Count > 0)
+            {
+                Restore(inner, states);
+            }
+
+            GpuBreadcrumbs.Close(self);
+
+            int hr = ((delegate* unmanaged<nint, int>)ComObject.Slot(inner, CloseSlot))(inner);
+
+            // An invalid call recorded on the list: its next Reset fails on any allocator (SpareAllocators replaces it).
+            if (HResult.Failed(hr))
+            {
+                WarnCloseFailed(hr);
+            }
+
+            return hr;
         }
-
-        GpuBreadcrumbs.Close(self);
-
-        int hr = ((delegate* unmanaged<nint, int>)ComObject.Slot(inner, CloseSlot))(inner);
-
-        // An invalid call recorded on the list: its next Reset fails on any allocator (SpareAllocators replaces it).
-        if (HResult.Failed(hr))
+        catch (Exception exception)
         {
-            WarnCloseFailed(hr);
-        }
+            UnmanagedGuard.Caught(exception, "ResourceBarrierSlots.Close");
 
-        return hr;
+            return HResult.Fail;
+        }
     }
 
     private static void WarnCloseFailed(int hr)

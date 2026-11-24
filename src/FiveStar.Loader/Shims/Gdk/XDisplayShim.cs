@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
+using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Gdk;
 
@@ -12,17 +14,26 @@ internal static unsafe partial class XDisplayShim
     [UnmanagedCallersOnly]
     private static uint XDisplayTryEnableHdrMode(uint preference, float* info)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Display.TryEnableHdr(preference, info);
-        }
-        catch (Exception e)
-        {
-            gdk.Boundary.Report(nameof(XDisplayTryEnableHdrMode), e);
+            var gdk = ShimContext.Runtime.Gdk;
 
-            return DisplayService.HdrDisabled;
+            try
+            {
+                return gdk.Display.TryEnableHdr(preference, info);
+            }
+            catch (Exception e)
+            {
+                gdk.Boundary.Report(nameof(XDisplayTryEnableHdrMode), e);
+
+                return DisplayService.HdrDisabled;
+            }
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XDisplayShim.XDisplayTryEnableHdrMode");
+
+            return default;
         }
     }
 
@@ -30,13 +41,29 @@ internal static unsafe partial class XDisplayShim
     [UnmanagedCallersOnly]
     private static int XDisplayAcquireTimeoutDeferral(nint* handle)
     {
-        return ShimContext.Runtime.Gdk.Display.AcquireDeferral(handle);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Display.AcquireDeferral(handle);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XDisplayShim.XDisplayAcquireTimeoutDeferral");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XDisplayCloseTimeoutDeferralHandle")]
     [UnmanagedCallersOnly]
     private static void XDisplayCloseTimeoutDeferralHandle(nint handle)
     {
-        ShimContext.Runtime.Gdk.Display.CloseDeferral(handle);
+        try
+        {
+            ShimContext.Runtime.Gdk.Display.CloseDeferral(handle);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XDisplayShim.XDisplayCloseTimeoutDeferralHandle");
+        }
     }
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Storage;
@@ -41,26 +42,62 @@ internal static unsafe class StorageFileMethods
     [UnmanagedCallersOnly]
     private static uint AddRef(nint self)
     {
-        return StorageObjects.AddRef(self);
+        try
+        {
+            return StorageObjects.AddRef(self);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StorageFileMethods.AddRef");
+
+            return default;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static uint Release(nint self)
     {
-        return ReleaseFile(self);
+        try
+        {
+            return ReleaseFile(self);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StorageFileMethods.Release");
+
+            return default;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static int Close(nint self)
     {
-        StorageObjects.Owner<StorageFile>(self).Dispose();
+        try
+        {
+            StorageObjects.Owner<StorageFile>(self).Dispose();
 
-        return HResult.Ok;
+            return HResult.Ok;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StorageFileMethods.Close");
+
+            return HResult.Fail;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static int GetFileInformation(nint self, void* information)
     {
-        return StorageObjects.Owner<StorageFile>(self).GetInformation(information);
+        try
+        {
+            return StorageObjects.Owner<StorageFile>(self).GetInformation(information);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StorageFileMethods.GetFileInformation");
+
+            return HResult.Fail;
+        }
     }
 }

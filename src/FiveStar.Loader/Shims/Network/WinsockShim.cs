@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
+using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Network;
 
@@ -20,36 +22,54 @@ internal static unsafe partial class WinsockShim
     [UnmanagedCallersOnly]
     private static int GetAddrInfo(byte* node, byte* service, nint hints, nint* result)
     {
-        var seal = ShimContext.Runtime.Network;
-        string? host = SocketAddressText.Ansi(node);
-        string target = SocketAddressText.Lookup(host, SocketAddressText.Ansi(service));
-
-        if (!seal.IsLocalName(host))
+        try
         {
-            return NotFound("getaddrinfo", target, result);
+            var seal = ShimContext.Runtime.Network;
+            string? host = SocketAddressText.Ansi(node);
+            string target = SocketAddressText.Lookup(host, SocketAddressText.Ansi(service));
+
+            if (!seal.IsLocalName(host))
+            {
+                return NotFound("getaddrinfo", target, result);
+            }
+
+            seal.Allow("getaddrinfo", target);
+
+            return Local(((delegate* unmanaged<byte*, byte*, nint, nint*, int>)seal.AnsiLookup)(node, service, hints, result));
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.GetAddrInfo");
 
-        seal.Allow("getaddrinfo", target);
-
-        return Local(((delegate* unmanaged<byte*, byte*, nint, nint*, int>)seal.AnsiLookup)(node, service, hints, result));
+            return HResult.Fail;
+        }
     }
 
     [Shim(Module, "GetAddrInfoW", SetsLastError = true)]
     [UnmanagedCallersOnly]
     private static int GetAddrInfoW(char* node, char* service, nint hints, nint* result)
     {
-        var seal = ShimContext.Runtime.Network;
-        string? host = SocketAddressText.Wide(node);
-        string target = SocketAddressText.Lookup(host, SocketAddressText.Wide(service));
-
-        if (!seal.IsLocalName(host))
+        try
         {
-            return NotFound("GetAddrInfoW", target, result);
+            var seal = ShimContext.Runtime.Network;
+            string? host = SocketAddressText.Wide(node);
+            string target = SocketAddressText.Lookup(host, SocketAddressText.Wide(service));
+
+            if (!seal.IsLocalName(host))
+            {
+                return NotFound("GetAddrInfoW", target, result);
+            }
+
+            seal.Allow("GetAddrInfoW", target);
+
+            return Local(((delegate* unmanaged<char*, char*, nint, nint*, int>)seal.WideLookup)(node, service, hints, result));
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.GetAddrInfoW");
 
-        seal.Allow("GetAddrInfoW", target);
-
-        return Local(((delegate* unmanaged<char*, char*, nint, nint*, int>)seal.WideLookup)(node, service, hints, result));
+            return HResult.Fail;
+        }
     }
 
     /// <summary>GetAddrInfoExW(name, service, namespace, nspId, hints, result, timeout, overlapped, completion, handle).</summary>
@@ -57,14 +77,32 @@ internal static unsafe partial class WinsockShim
     [UnmanagedCallersOnly]
     private static int GetAddrInfoExW(char* name, char* service, uint space, nint provider, nint hints, nint* result, nint timeout, nint overlapped, nint completion, nint handle)
     {
-        return NotFound("GetAddrInfoExW", SocketAddressText.Lookup(SocketAddressText.Wide(name), SocketAddressText.Wide(service)), result);
+        try
+        {
+            return NotFound("GetAddrInfoExW", SocketAddressText.Lookup(SocketAddressText.Wide(name), SocketAddressText.Wide(service)), result);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.GetAddrInfoExW");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(Module, "GetAddrInfoExA", SetsLastError = true)]
     [UnmanagedCallersOnly]
     private static int GetAddrInfoExA(byte* name, byte* service, uint space, nint provider, nint hints, nint* result, nint timeout, nint overlapped, nint completion, nint handle)
     {
-        return NotFound("GetAddrInfoExA", SocketAddressText.Lookup(SocketAddressText.Ansi(name), SocketAddressText.Ansi(service)), result);
+        try
+        {
+            return NotFound("GetAddrInfoExA", SocketAddressText.Lookup(SocketAddressText.Ansi(name), SocketAddressText.Ansi(service)), result);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.GetAddrInfoExA");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(Module, "gethostbyname", SetsLastError = true)]
@@ -72,7 +110,16 @@ internal static unsafe partial class WinsockShim
     [UnmanagedCallersOnly]
     private static nint GetHostByName(byte* name)
     {
-        return Fail("gethostbyname", SocketAddressText.Ansi(name) ?? "(null)", NetworkErrors.HostNotFound);
+        try
+        {
+            return Fail("gethostbyname", SocketAddressText.Ansi(name) ?? "(null)", NetworkErrors.HostNotFound);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.GetHostByName");
+
+            return default;
+        }
     }
 
     [Shim(Module, "gethostbyaddr", SetsLastError = true)]
@@ -80,7 +127,16 @@ internal static unsafe partial class WinsockShim
     [UnmanagedCallersOnly]
     private static nint GetHostByAddress(byte* address, int length, int type)
     {
-        return Fail("gethostbyaddr", "(address)", NetworkErrors.HostNotFound);
+        try
+        {
+            return Fail("gethostbyaddr", "(address)", NetworkErrors.HostNotFound);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.GetHostByAddress");
+
+            return default;
+        }
     }
 
     [Shim(Module, "connect", SetsLastError = true)]
@@ -88,7 +144,16 @@ internal static unsafe partial class WinsockShim
     [UnmanagedCallersOnly]
     private static int Connect(nint socket, byte* name, int length)
     {
-        return (int)Fail("connect", SocketAddressText.Format(name, length), NetworkErrors.NetworkUnreachable, NetworkErrors.SocketError);
+        try
+        {
+            return (int)Fail("connect", SocketAddressText.Format(name, length), NetworkErrors.NetworkUnreachable, NetworkErrors.SocketError);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.Connect");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>WSAConnect(s, name, namelen, callerData, calleeData, sqos, gqos).</summary>
@@ -96,7 +161,16 @@ internal static unsafe partial class WinsockShim
     [UnmanagedCallersOnly]
     private static int WsaConnect(nint socket, byte* name, int length, nint callerData, nint calleeData, nint sqos, nint gqos)
     {
-        return (int)Fail("WSAConnect", SocketAddressText.Format(name, length), NetworkErrors.NetworkUnreachable, NetworkErrors.SocketError);
+        try
+        {
+            return (int)Fail("WSAConnect", SocketAddressText.Format(name, length), NetworkErrors.NetworkUnreachable, NetworkErrors.SocketError);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.WsaConnect");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>BOOL WSAConnectByNameW(s, nodeName, serviceName, localLength*, local, remoteLength*, remote, timeout, reserved).</summary>
@@ -104,14 +178,32 @@ internal static unsafe partial class WinsockShim
     [UnmanagedCallersOnly]
     private static int WsaConnectByNameW(nint socket, char* node, char* service, nint localLength, nint local, nint remoteLength, nint remote, nint timeout, nint reserved)
     {
-        return (int)Fail("WSAConnectByNameW", SocketAddressText.Lookup(SocketAddressText.Wide(node), SocketAddressText.Wide(service)), NetworkErrors.HostNotFound);
+        try
+        {
+            return (int)Fail("WSAConnectByNameW", SocketAddressText.Lookup(SocketAddressText.Wide(node), SocketAddressText.Wide(service)), NetworkErrors.HostNotFound);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.WsaConnectByNameW");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(Module, "WSAConnectByNameA", SetsLastError = true)]
     [UnmanagedCallersOnly]
     private static int WsaConnectByNameA(nint socket, byte* node, byte* service, nint localLength, nint local, nint remoteLength, nint remote, nint timeout, nint reserved)
     {
-        return (int)Fail("WSAConnectByNameA", SocketAddressText.Lookup(SocketAddressText.Ansi(node), SocketAddressText.Ansi(service)), NetworkErrors.HostNotFound);
+        try
+        {
+            return (int)Fail("WSAConnectByNameA", SocketAddressText.Lookup(SocketAddressText.Ansi(node), SocketAddressText.Ansi(service)), NetworkErrors.HostNotFound);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.WsaConnectByNameA");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>BOOL WSAConnectByList(s, addressList, localLength*, local, remoteLength*, remote, timeout, reserved).</summary>
@@ -119,7 +211,16 @@ internal static unsafe partial class WinsockShim
     [UnmanagedCallersOnly]
     private static int WsaConnectByList(nint socket, nint list, nint localLength, nint local, nint remoteLength, nint remote, nint timeout, nint reserved)
     {
-        return (int)Fail("WSAConnectByList", "(address list)", NetworkErrors.NetworkUnreachable);
+        try
+        {
+            return (int)Fail("WSAConnectByList", "(address list)", NetworkErrors.NetworkUnreachable);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.WsaConnectByList");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(Module, "sendto", SetsLastError = true)]
@@ -127,7 +228,16 @@ internal static unsafe partial class WinsockShim
     [UnmanagedCallersOnly]
     private static int SendTo(nint socket, nint buffer, int length, int flags, byte* to, int toLength)
     {
-        return (int)Fail("sendto", SocketAddressText.Format(to, toLength), NetworkErrors.NetworkUnreachable, NetworkErrors.SocketError);
+        try
+        {
+            return (int)Fail("sendto", SocketAddressText.Format(to, toLength), NetworkErrors.NetworkUnreachable, NetworkErrors.SocketError);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.SendTo");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>WSASendTo(s, buffers, count, sent*, flags, to, toLength, overlapped, completion).</summary>
@@ -135,7 +245,16 @@ internal static unsafe partial class WinsockShim
     [UnmanagedCallersOnly]
     private static int WsaSendTo(nint socket, nint buffers, uint count, nint sent, uint flags, byte* to, int toLength, nint overlapped, nint completion)
     {
-        return (int)Fail("WSASendTo", SocketAddressText.Format(to, toLength), NetworkErrors.NetworkUnreachable, NetworkErrors.SocketError);
+        try
+        {
+            return (int)Fail("WSASendTo", SocketAddressText.Format(to, toLength), NetworkErrors.NetworkUnreachable, NetworkErrors.SocketError);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.WsaSendTo");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(Module, "listen", SetsLastError = true)]
@@ -143,7 +262,16 @@ internal static unsafe partial class WinsockShim
     [UnmanagedCallersOnly]
     private static int Listen(nint socket, int backlog)
     {
-        return (int)Fail("listen", $"socket 0x{socket:x}", NetworkErrors.NetworkDown, NetworkErrors.SocketError);
+        try
+        {
+            return (int)Fail("listen", $"socket 0x{socket:x}", NetworkErrors.NetworkDown, NetworkErrors.SocketError);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.Listen");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>WSAIoctl(s, code, in, inLength, out, outLength, returned*, overlapped, completion).</summary>
@@ -151,7 +279,16 @@ internal static unsafe partial class WinsockShim
     [UnmanagedCallersOnly]
     private static int WsaIoctl(nint socket, uint code, nint input, uint inputLength, nint output, uint outputLength, nint returned, nint overlapped, nint completion)
     {
-        return (int)Fail("WSAIoctl", $"code 0x{code:x8}", NetworkErrors.OperationNotSupported, NetworkErrors.SocketError);
+        try
+        {
+            return (int)Fail("WSAIoctl", $"code 0x{code:x8}", NetworkErrors.OperationNotSupported, NetworkErrors.SocketError);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WinsockShim.WsaIoctl");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>The result of a local lookup Windows answered, also as the last error (the shim's return path resets it).</summary>

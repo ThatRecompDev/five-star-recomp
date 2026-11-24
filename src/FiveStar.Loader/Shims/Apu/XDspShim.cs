@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Apu;
@@ -16,38 +17,83 @@ internal static unsafe partial class XDspShim
     [UnmanagedCallersOnly]
     private static int XDspConnectWithMaximumStreamLimit(nint memory, uint bytes, uint maxStreams, uint commandLimit, uint flags, nint* handle)
     {
-        return ShimContext.Runtime.XDsp.Connect(memory, bytes, maxStreams, handle);
+        try
+        {
+            return ShimContext.Runtime.XDsp.Connect(memory, bytes, maxStreams, handle);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XDspShim.XDspConnectWithMaximumStreamLimit");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(AudioHardwareModules.XDspModule, "XDspActivate")]
     [UnmanagedCallersOnly]
     private static int XDspActivate(nint handle, byte* config, nint* status, nint* stream)
     {
-        return ShimContext.Runtime.XDsp.Activate(handle, config, status, stream);
+        try
+        {
+            return ShimContext.Runtime.XDsp.Activate(handle, config, status, stream);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XDspShim.XDspActivate");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(AudioHardwareModules.XDspModule, "XDspSubmitCommand")]
     [UnmanagedCallersOnly]
     private static int XDspSubmitCommand(nint stream, byte* command, uint* id)
     {
-        return ShimContext.Runtime.XDsp.Submit(stream, command, id);
+        try
+        {
+            return ShimContext.Runtime.XDsp.Submit(stream, command, id);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XDspShim.XDspSubmitCommand");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(AudioHardwareModules.XDspModule, "XDspDeactivate")]
     [UnmanagedCallersOnly]
     private static int XDspDeactivate(nint stream)
     {
-        ShimContext.Runtime.XDsp.Deactivate(stream);
+        try
+        {
+            ShimContext.Runtime.XDsp.Deactivate(stream);
 
-        return HResult.Ok;
+            return HResult.Ok;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XDspShim.XDspDeactivate");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(AudioHardwareModules.XDspModule, "XDspDisconnect")]
     [UnmanagedCallersOnly]
     private static int XDspDisconnect(nint handle)
     {
-        ShimContext.Runtime.XDsp.Disconnect();
+        try
+        {
+            ShimContext.Runtime.XDsp.Disconnect();
 
-        return HResult.Ok;
+            return HResult.Ok;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XDspShim.XDspDisconnect");
+
+            return HResult.Fail;
+        }
     }
 }

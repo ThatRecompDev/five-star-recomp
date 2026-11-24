@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
+using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Gdk;
 
@@ -15,15 +17,24 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static int XTaskQueueCreate(uint workMode, uint completionMode, nint* queue)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.TaskQueues.Create(workMode, completionMode, queue);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.TaskQueues.Create(workMode, completionMode, queue);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XTaskQueueCreate), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XTaskQueueCreate), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueCreate");
+
+            return HResult.Fail;
         }
     }
 
@@ -31,15 +42,24 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static int XTaskQueueGetPort(nint queue, uint port, nint* portHandle)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.TaskQueues.GetPort(queue, port, portHandle);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.TaskQueues.GetPort(queue, port, portHandle);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XTaskQueueGetPort), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XTaskQueueGetPort), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueGetPort");
+
+            return HResult.Fail;
         }
     }
 
@@ -47,15 +67,24 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static int XTaskQueueCreateComposite(nint workPort, nint completionPort, nint* queue)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.TaskQueues.CreateComposite(workPort, completionPort, queue);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.TaskQueues.CreateComposite(workPort, completionPort, queue);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XTaskQueueCreateComposite), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XTaskQueueCreateComposite), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueCreateComposite");
+
+            return HResult.Fail;
         }
     }
 
@@ -64,20 +93,29 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static byte XTaskQueueDispatch(nint queue, uint port, uint timeoutInMs)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            bool dispatched = gdk.TaskQueues.Dispatch(queue, port, timeoutInMs);
-            byte result = dispatched ? GdkModule.True : GdkModule.False;
+            var gdk = ShimContext.Runtime.Gdk;
 
-            return result;
+            try
+            {
+                bool dispatched = gdk.TaskQueues.Dispatch(queue, port, timeoutInMs);
+                byte result = dispatched ? GdkModule.True : GdkModule.False;
+
+                return result;
+            }
+            catch (Exception e)
+            {
+                gdk.Boundary.Report(nameof(XTaskQueueDispatch), e);
+
+                return GdkModule.False;
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            gdk.Boundary.Report(nameof(XTaskQueueDispatch), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueDispatch");
 
-            return GdkModule.False;
+            return default;
         }
     }
 
@@ -86,15 +124,24 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static int XTaskQueueSubmitCallback(nint queue, uint port, nint context, nint callback)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.TaskQueues.Submit(queue, port, 0, context, callback);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.TaskQueues.Submit(queue, port, 0, context, callback);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XTaskQueueSubmitCallback), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XTaskQueueSubmitCallback), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueSubmitCallback");
+
+            return HResult.Fail;
         }
     }
 
@@ -103,15 +150,24 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static int XTaskQueueSubmitDelayedCallback(nint queue, uint port, uint delayMs, nint context, nint callback)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.TaskQueues.Submit(queue, port, delayMs, context, callback);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.TaskQueues.Submit(queue, port, delayMs, context, callback);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XTaskQueueSubmitDelayedCallback), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XTaskQueueSubmitDelayedCallback), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueSubmitDelayedCallback");
+
+            return HResult.Fail;
         }
     }
 
@@ -119,15 +175,24 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static int XTaskQueueRegisterWaiter(nint queue, uint port, nint waitHandle, nint context, nint callback, ulong* token)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.TaskQueues.RegisterWaiter(queue, port, waitHandle, context, callback, token);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.TaskQueues.RegisterWaiter(queue, port, waitHandle, context, callback, token);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XTaskQueueRegisterWaiter), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XTaskQueueRegisterWaiter), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueRegisterWaiter");
+
+            return HResult.Fail;
         }
     }
 
@@ -135,15 +200,22 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static void XTaskQueueUnregisterWaiter(nint queue, ulong token)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            gdk.TaskQueues.UnregisterWaiter(queue, token);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                gdk.TaskQueues.UnregisterWaiter(queue, token);
+            }
+            catch (Exception e)
+            {
+                gdk.Boundary.Report(nameof(XTaskQueueUnregisterWaiter), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            gdk.Boundary.Report(nameof(XTaskQueueUnregisterWaiter), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueUnregisterWaiter");
         }
     }
 
@@ -151,15 +223,24 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static int XTaskQueueRegisterMonitor(nint queue, nint context, nint callback, ulong* token)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.TaskQueues.RegisterMonitor(queue, context, callback, token);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.TaskQueues.RegisterMonitor(queue, context, callback, token);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XTaskQueueRegisterMonitor), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XTaskQueueRegisterMonitor), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueRegisterMonitor");
+
+            return HResult.Fail;
         }
     }
 
@@ -167,15 +248,22 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static void XTaskQueueUnregisterMonitor(nint queue, ulong token)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            gdk.TaskQueues.UnregisterMonitor(queue, token);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                gdk.TaskQueues.UnregisterMonitor(queue, token);
+            }
+            catch (Exception e)
+            {
+                gdk.Boundary.Report(nameof(XTaskQueueUnregisterMonitor), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            gdk.Boundary.Report(nameof(XTaskQueueUnregisterMonitor), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueUnregisterMonitor");
         }
     }
 
@@ -183,15 +271,24 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static int XTaskQueueDuplicateHandle(nint queue, nint* duplicated)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.TaskQueues.Duplicate(queue, duplicated);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.TaskQueues.Duplicate(queue, duplicated);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XTaskQueueDuplicateHandle), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XTaskQueueDuplicateHandle), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueDuplicateHandle");
+
+            return HResult.Fail;
         }
     }
 
@@ -199,15 +296,22 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static void XTaskQueueCloseHandle(nint queue)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            gdk.TaskQueues.Close(queue);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                gdk.TaskQueues.Close(queue);
+            }
+            catch (Exception e)
+            {
+                gdk.Boundary.Report(nameof(XTaskQueueCloseHandle), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            gdk.Boundary.Report(nameof(XTaskQueueCloseHandle), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueCloseHandle");
         }
     }
 
@@ -215,15 +319,24 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static int XTaskQueueTerminate(nint queue, byte wait, nint context, nint callback)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.TaskQueues.Terminate(queue, wait != 0, context, callback);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.TaskQueues.Terminate(queue, wait != 0, context, callback);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XTaskQueueTerminate), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XTaskQueueTerminate), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueTerminate");
+
+            return HResult.Fail;
         }
     }
 
@@ -231,20 +344,29 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static byte XTaskQueueGetCurrentProcessTaskQueue(nint* queue)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            bool found = gdk.TaskQueues.GetProcessQueue(queue);
-            byte result = found ? GdkModule.True : GdkModule.False;
+            var gdk = ShimContext.Runtime.Gdk;
 
-            return result;
+            try
+            {
+                bool found = gdk.TaskQueues.GetProcessQueue(queue);
+                byte result = found ? GdkModule.True : GdkModule.False;
+
+                return result;
+            }
+            catch (Exception e)
+            {
+                gdk.Boundary.Report(nameof(XTaskQueueGetCurrentProcessTaskQueue), e);
+
+                return GdkModule.False;
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            gdk.Boundary.Report(nameof(XTaskQueueGetCurrentProcessTaskQueue), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueGetCurrentProcessTaskQueue");
 
-            return GdkModule.False;
+            return default;
         }
     }
 
@@ -252,15 +374,22 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static void XTaskQueueSetCurrentProcessTaskQueue(nint queue)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            gdk.TaskQueues.SetProcessQueue(queue);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                gdk.TaskQueues.SetProcessQueue(queue);
+            }
+            catch (Exception e)
+            {
+                gdk.Boundary.Report(nameof(XTaskQueueSetCurrentProcessTaskQueue), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            gdk.Boundary.Report(nameof(XTaskQueueSetCurrentProcessTaskQueue), e);
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueSetCurrentProcessTaskQueue");
         }
     }
 
@@ -270,9 +399,18 @@ internal static unsafe partial class XTaskQueueShim
     [UnmanagedCallersOnly]
     private static byte XTaskQueueIsEmpty(nint queue, uint port)
     {
-        bool empty = ShimContext.Runtime.Gdk.TaskQueues.IsEmpty(queue, port);
-        byte result = empty ? GdkModule.True : GdkModule.False;
+        try
+        {
+            bool empty = ShimContext.Runtime.Gdk.TaskQueues.IsEmpty(queue, port);
+            byte result = empty ? GdkModule.True : GdkModule.False;
 
-        return result;
+            return result;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XTaskQueueShim.XTaskQueueIsEmpty");
+
+            return default;
+        }
     }
 }

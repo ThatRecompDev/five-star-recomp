@@ -124,7 +124,16 @@ internal sealed unsafe class UnresolvedStubs
     [UnmanagedCallersOnly]
     private static nint StubCalled(nint id, nint returnAddress)
     {
-        return ShimContext.Runtime.Stubs.OnCalled((int)id, returnAddress);
+        try
+        {
+            return ShimContext.Runtime.Stubs.OnCalled((int)id, returnAddress);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "UnresolvedStubs.StubCalled");
+
+            return default;
+        }
     }
 
     private nint OnNotImplemented(UnresolvedStub stub, int calls, nint returnAddress)

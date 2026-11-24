@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Gdk;
@@ -18,14 +19,32 @@ internal static unsafe partial class XStorePurchaseShim
     [UnmanagedCallersOnly]
     private static int XStoreShowPurchaseUIAsync(nint context, byte* storeId, byte* name, byte* json, nint async)
     {
-        return BeginCanceled(context, async, nameof(XStoreShowPurchaseUIAsync));
+        try
+        {
+            return BeginCanceled(context, async, nameof(XStoreShowPurchaseUIAsync));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreShowPurchaseUIAsync");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XStoreShowPurchaseUIResult")]
     [UnmanagedCallersOnly]
     private static int XStoreShowPurchaseUIResult(nint async)
     {
-        return AsyncCalls.Result(async, nameof(XStoreShowPurchaseUIAsync), 0, 0);
+        try
+        {
+            return AsyncCalls.Result(async, nameof(XStoreShowPurchaseUIAsync), 0, 0);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreShowPurchaseUIResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreShowProductPageUIAsync(XStoreContextHandle, const char* storeId, XAsyncBlock*).</summary>
@@ -33,14 +52,32 @@ internal static unsafe partial class XStorePurchaseShim
     [UnmanagedCallersOnly]
     private static int XStoreShowProductPageUIAsync(nint context, byte* storeId, nint async)
     {
-        return BeginCanceled(context, async, nameof(XStoreShowProductPageUIAsync));
+        try
+        {
+            return BeginCanceled(context, async, nameof(XStoreShowProductPageUIAsync));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreShowProductPageUIAsync");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XStoreShowProductPageUIResult")]
     [UnmanagedCallersOnly]
     private static int XStoreShowProductPageUIResult(nint async)
     {
-        return AsyncCalls.Result(async, nameof(XStoreShowProductPageUIAsync), 0, 0);
+        try
+        {
+            return AsyncCalls.Result(async, nameof(XStoreShowProductPageUIAsync), 0, 0);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreShowProductPageUIResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreShowRedeemTokenUIAsync(XStoreContextHandle, const char* token, const char** allowedStoreIds, size_t count, bool disallowCsvRedemption, XAsyncBlock*).</summary>
@@ -48,14 +85,32 @@ internal static unsafe partial class XStorePurchaseShim
     [UnmanagedCallersOnly]
     private static int XStoreShowRedeemTokenUIAsync(nint context, byte* token, nint allowedStoreIds, nuint count, byte disallowCsv, nint async)
     {
-        return BeginCanceled(context, async, nameof(XStoreShowRedeemTokenUIAsync));
+        try
+        {
+            return BeginCanceled(context, async, nameof(XStoreShowRedeemTokenUIAsync));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreShowRedeemTokenUIAsync");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XStoreShowRedeemTokenUIResult")]
     [UnmanagedCallersOnly]
     private static int XStoreShowRedeemTokenUIResult(nint async)
     {
-        return AsyncCalls.Result(async, nameof(XStoreShowRedeemTokenUIAsync), 0, 0);
+        try
+        {
+            return AsyncCalls.Result(async, nameof(XStoreShowRedeemTokenUIAsync), 0, 0);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreShowRedeemTokenUIResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreQueryConsumableBalanceRemainingAsync(XStoreContextHandle, const char* storeProductId, XAsyncBlock*).</summary>
@@ -63,7 +118,16 @@ internal static unsafe partial class XStorePurchaseShim
     [UnmanagedCallersOnly]
     private static int XStoreQueryConsumableBalanceRemainingAsync(nint context, byte* storeProductId, nint async)
     {
-        return AsyncCalls.BeginStoreOffline(context, async, nameof(XStoreQueryConsumableBalanceRemainingAsync));
+        try
+        {
+            return AsyncCalls.BeginStoreOffline(context, async, nameof(XStoreQueryConsumableBalanceRemainingAsync));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreQueryConsumableBalanceRemainingAsync");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreQueryConsumableBalanceRemainingResult(XAsyncBlock*, XStoreConsumableResult*).</summary>
@@ -71,7 +135,16 @@ internal static unsafe partial class XStorePurchaseShim
     [UnmanagedCallersOnly]
     private static int XStoreQueryConsumableBalanceRemainingResult(nint async, uint* consumable)
     {
-        return AsyncCalls.Result(async, nameof(XStoreQueryConsumableBalanceRemainingAsync), sizeof(uint), (nint)consumable);
+        try
+        {
+            return AsyncCalls.Result(async, nameof(XStoreQueryConsumableBalanceRemainingAsync), sizeof(uint), (nint)consumable);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreQueryConsumableBalanceRemainingResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>
@@ -82,7 +155,16 @@ internal static unsafe partial class XStorePurchaseShim
     [UnmanagedCallersOnly]
     private static int XStoreReportConsumableFulfillmentAsync(nint context, byte* storeProductId, uint quantity, nint trackingId, nint async)
     {
-        return AsyncCalls.BeginStoreOffline(context, async, nameof(XStoreReportConsumableFulfillmentAsync));
+        try
+        {
+            return AsyncCalls.BeginStoreOffline(context, async, nameof(XStoreReportConsumableFulfillmentAsync));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreReportConsumableFulfillmentAsync");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreReportConsumableFulfillmentResult(XAsyncBlock*, XStoreConsumableResult*).</summary>
@@ -90,7 +172,16 @@ internal static unsafe partial class XStorePurchaseShim
     [UnmanagedCallersOnly]
     private static int XStoreReportConsumableFulfillmentResult(nint async, uint* consumable)
     {
-        return AsyncCalls.Result(async, nameof(XStoreReportConsumableFulfillmentAsync), sizeof(uint), (nint)consumable);
+        try
+        {
+            return AsyncCalls.Result(async, nameof(XStoreReportConsumableFulfillmentAsync), sizeof(uint), (nint)consumable);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreReportConsumableFulfillmentResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreGetUserCollectionsIdAsync(XStoreContextHandle, const char* serviceTicket, const char* publisherUserId, XAsyncBlock*).</summary>
@@ -98,7 +189,16 @@ internal static unsafe partial class XStorePurchaseShim
     [UnmanagedCallersOnly]
     private static int XStoreGetUserCollectionsIdAsync(nint context, byte* serviceTicket, byte* publisherUserId, nint async)
     {
-        return AsyncCalls.BeginStoreOffline(context, async, nameof(XStoreGetUserCollectionsIdAsync));
+        try
+        {
+            return AsyncCalls.BeginStoreOffline(context, async, nameof(XStoreGetUserCollectionsIdAsync));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreGetUserCollectionsIdAsync");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreGetUserPurchaseIdAsync(XStoreContextHandle, const char* serviceTicket, const char* publisherUserId, XAsyncBlock*).</summary>
@@ -106,7 +206,16 @@ internal static unsafe partial class XStorePurchaseShim
     [UnmanagedCallersOnly]
     private static int XStoreGetUserPurchaseIdAsync(nint context, byte* serviceTicket, byte* publisherUserId, nint async)
     {
-        return AsyncCalls.BeginStoreOffline(context, async, nameof(XStoreGetUserPurchaseIdAsync));
+        try
+        {
+            return AsyncCalls.BeginStoreOffline(context, async, nameof(XStoreGetUserPurchaseIdAsync));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreGetUserPurchaseIdAsync");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreGetUser{Collections,Purchase}IdResultSize(XAsyncBlock*, size_t* size).</summary>
@@ -115,7 +224,16 @@ internal static unsafe partial class XStorePurchaseShim
     [UnmanagedCallersOnly]
     private static int XStoreGetUserIdResultSize(nint async, nuint* size)
     {
-        return AsyncCalls.EmptyCount(async, size);
+        try
+        {
+            return AsyncCalls.EmptyCount(async, size);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreGetUserIdResultSize");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreGetUserCollectionsIdResult(XAsyncBlock*, size_t size, char* result).</summary>
@@ -123,7 +241,16 @@ internal static unsafe partial class XStorePurchaseShim
     [UnmanagedCallersOnly]
     private static int XStoreGetUserCollectionsIdResult(nint async, nuint size, byte* result)
     {
-        return AsyncCalls.Result(async, nameof(XStoreGetUserCollectionsIdAsync), size, (nint)result);
+        try
+        {
+            return AsyncCalls.Result(async, nameof(XStoreGetUserCollectionsIdAsync), size, (nint)result);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreGetUserCollectionsIdResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreGetUserPurchaseIdResult(XAsyncBlock*, size_t size, char* result).</summary>
@@ -131,7 +258,16 @@ internal static unsafe partial class XStorePurchaseShim
     [UnmanagedCallersOnly]
     private static int XStoreGetUserPurchaseIdResult(nint async, nuint size, byte* result)
     {
-        return AsyncCalls.Result(async, nameof(XStoreGetUserPurchaseIdAsync), size, (nint)result);
+        try
+        {
+            return AsyncCalls.Result(async, nameof(XStoreGetUserPurchaseIdAsync), size, (nint)result);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStorePurchaseShim.XStoreGetUserPurchaseIdResult");
+
+            return HResult.Fail;
+        }
     }
 
     private static int BeginCanceled(nint context, nint async, string api)

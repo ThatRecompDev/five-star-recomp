@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
@@ -32,66 +33,111 @@ internal static unsafe class PipelineSlotHandlers
     [UnmanagedCallersOnly]
     private static int Derive(nint self, nint basePipeline, uint count, byte* entries, Guid* iid, nint* result)
     {
-        var slots = Owner(self);
-
-        if (slots is null)
+        try
         {
-            return HResult.NotImplemented;
-        }
+            var slots = Owner(self);
 
-        return slots.Derive(basePipeline, count, entries, iid, result);
+            if (slots is null)
+            {
+                return HResult.NotImplemented;
+            }
+
+            return slots.Derive(basePipeline, count, entries, iid, result);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "PipelineSlotHandlers.Derive");
+
+            return HResult.Fail;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static int CachedGraphics(nint self, byte* desc, Guid* iid, nint* result)
     {
-        var slots = Owner(self);
-
-        if (slots is null)
+        try
         {
-            return HResult.NotImplemented;
-        }
+            var slots = Owner(self);
 
-        return slots.CachedGraphics(desc, iid, result);
+            if (slots is null)
+            {
+                return HResult.NotImplemented;
+            }
+
+            return slots.CachedGraphics(desc, iid, result);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "PipelineSlotHandlers.CachedGraphics");
+
+            return HResult.Fail;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static int Compute(nint self, byte* desc, nint second, nint third, Guid* iid, nint* result)
     {
-        var slots = Owner(self);
-
-        if (slots is null)
+        try
         {
-            return HResult.NotImplemented;
-        }
+            var slots = Owner(self);
 
-        return slots.Compute(desc, second, third, iid, result);
+            if (slots is null)
+            {
+                return HResult.NotImplemented;
+            }
+
+            return slots.Compute(desc, second, third, iid, result);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "PipelineSlotHandlers.Compute");
+
+            return HResult.Fail;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static int CachedCompute(nint self, byte* desc, Guid* iid, nint* result)
     {
-        var slots = Owner(self);
-
-        if (slots is null)
+        try
         {
-            return HResult.NotImplemented;
-        }
+            var slots = Owner(self);
 
-        return slots.CachedCompute(desc, iid, result);
+            if (slots is null)
+            {
+                return HResult.NotImplemented;
+            }
+
+            return slots.CachedCompute(desc, iid, result);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "PipelineSlotHandlers.CachedCompute");
+
+            return HResult.Fail;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static int Stream(nint self, byte* desc, Guid* iid, nint* result)
     {
-        var slots = Owner(self);
-
-        if (slots is null)
+        try
         {
-            return HResult.NotImplemented;
-        }
+            var slots = Owner(self);
 
-        return slots.Stream(desc, iid, result);
+            if (slots is null)
+            {
+                return HResult.NotImplemented;
+            }
+
+            return slots.Stream(desc, iid, result);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "PipelineSlotHandlers.Stream");
+
+            return HResult.Fail;
+        }
     }
 
     private static PipelineSlots? Owner(nint self)

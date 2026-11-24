@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Gdk;
@@ -23,7 +24,16 @@ internal static unsafe partial class XSystemShim
     [UnmanagedCallersOnly]
     private static byte* XSystemGetAnalyticsInfo(byte* result)
     {
-        return ShimContext.Runtime.Gdk.System.GetAnalyticsInfo(result);
+        try
+        {
+            return ShimContext.Runtime.Gdk.System.GetAnalyticsInfo(result);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XSystemShim.XSystemGetAnalyticsInfo");
+
+            return default;
+        }
     }
 
     /// <summary>HRESULT XSystemGetConsoleId(size_t consoleIdSize, char* consoleId, size_t* consoleIdUsed); XSystemConsoleIdBytes = 39.</summary>
@@ -31,29 +41,56 @@ internal static unsafe partial class XSystemShim
     [UnmanagedCallersOnly]
     private static int XSystemGetConsoleId(nuint size, byte* id, nuint* used)
     {
-        return SystemService.GetConsoleId(size, id, used);
+        try
+        {
+            return SystemService.GetConsoleId(size, id, used);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XSystemShim.XSystemGetConsoleId");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XSystemGetXboxLiveSandboxId")]
     [UnmanagedCallersOnly]
     private static int XSystemGetXboxLiveSandboxId(nuint size, byte* id, nuint* used)
     {
-        return SystemService.GetSandboxId(size, id, used);
+        try
+        {
+            return SystemService.GetSandboxId(size, id, used);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XSystemShim.XSystemGetXboxLiveSandboxId");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XSystemGetAppSpecificDeviceId")]
     [UnmanagedCallersOnly]
     private static int XSystemGetAppSpecificDeviceId(nuint size, byte* id, nuint* used)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.System.GetAppSpecificDeviceId(size, id, used);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.System.GetAppSpecificDeviceId(size, id, used);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XSystemGetAppSpecificDeviceId), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XSystemGetAppSpecificDeviceId), e);
+            UnmanagedGuard.Caught(exception, "XSystemShim.XSystemGetAppSpecificDeviceId");
+
+            return HResult.Fail;
         }
     }
 
@@ -82,26 +119,51 @@ internal static unsafe partial class XSystemShim
     [UnmanagedCallersOnly]
     private static int XThreadSetTimeSensitive(byte isTimeSensitive)
     {
-        ShimContext.Runtime.Gdk.System.SetTimeSensitive(isTimeSensitive != 0);
+        try
+        {
+            ShimContext.Runtime.Gdk.System.SetTimeSensitive(isTimeSensitive != 0);
 
-        return HResult.Ok;
+            return HResult.Ok;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XSystemShim.XThreadSetTimeSensitive");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XThreadIsTimeSensitive")]
     [UnmanagedCallersOnly]
     private static byte XThreadIsTimeSensitive()
     {
-        bool sensitive = ShimContext.Runtime.Gdk.System.IsTimeSensitive();
-        byte result = sensitive ? GdkModule.True : GdkModule.False;
+        try
+        {
+            bool sensitive = ShimContext.Runtime.Gdk.System.IsTimeSensitive();
+            byte result = sensitive ? GdkModule.True : GdkModule.False;
 
-        return result;
+            return result;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XSystemShim.XThreadIsTimeSensitive");
+
+            return default;
+        }
     }
 
     [Shim(GdkModule.Name, "XThreadAssertNotTimeSensitive")]
     [UnmanagedCallersOnly]
     private static void XThreadAssertNotTimeSensitive()
     {
-        ShimContext.Runtime.Gdk.System.AssertNotTimeSensitive();
+        try
+        {
+            ShimContext.Runtime.Gdk.System.AssertNotTimeSensitive();
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XSystemShim.XThreadAssertNotTimeSensitive");
+        }
     }
 
     /// <summary>
@@ -112,16 +174,34 @@ internal static unsafe partial class XSystemShim
     [UnmanagedCallersOnly]
     private static int XThreadVerifyNotTimeSensitive()
     {
-        ShimContext.Runtime.Gdk.System.AssertNotTimeSensitive();
+        try
+        {
+            ShimContext.Runtime.Gdk.System.AssertNotTimeSensitive();
 
-        return HResult.Ok;
+            return HResult.Ok;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XSystemShim.XThreadVerifyNotTimeSensitive");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XGameGetXboxTitleId")]
     [UnmanagedCallersOnly]
     private static int XGameGetXboxTitleId(uint* titleId)
     {
-        return ShimContext.Runtime.Gdk.System.GetTitleId(titleId);
+        try
+        {
+            return ShimContext.Runtime.Gdk.System.GetTitleId(titleId);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XSystemShim.XGameGetXboxTitleId");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XGameEventWrite(XUserHandle, const char* serviceConfigId, const char* playSessionId, const char* eventName, const char* dimensionsJson, const char* measurementsJson).</summary>
@@ -129,7 +209,16 @@ internal static unsafe partial class XSystemShim
     [UnmanagedCallersOnly]
     private static int XGameEventWrite(nint user, byte* serviceConfigId, byte* playSessionId, byte* eventName, byte* dimensions, byte* measurements)
     {
-        return ShimContext.Runtime.Gdk.System.WriteEvent(eventName);
+        try
+        {
+            return ShimContext.Runtime.Gdk.System.WriteEvent(eventName);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XSystemShim.XGameEventWrite");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XErrorSetCallback(XErrorCallback*, void* context): accepted, never called.</summary>
@@ -151,15 +240,24 @@ internal static unsafe partial class XSystemShim
     [UnmanagedCallersOnly]
     private static int XPersistentLocalStorageGetPathSize(nuint* size)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.System.GetLocalStoragePathSize(size);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.System.GetLocalStoragePathSize(size);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPersistentLocalStorageGetPathSize), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPersistentLocalStorageGetPathSize), e);
+            UnmanagedGuard.Caught(exception, "XSystemShim.XPersistentLocalStorageGetPathSize");
+
+            return HResult.Fail;
         }
     }
 
@@ -167,15 +265,24 @@ internal static unsafe partial class XSystemShim
     [UnmanagedCallersOnly]
     private static int XPersistentLocalStorageGetPath(nuint size, byte* path, nuint* used)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.System.GetLocalStoragePath(size, path, used);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.System.GetLocalStoragePath(size, path, used);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPersistentLocalStorageGetPath), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPersistentLocalStorageGetPath), e);
+            UnmanagedGuard.Caught(exception, "XSystemShim.XPersistentLocalStorageGetPath");
+
+            return HResult.Fail;
         }
     }
 
@@ -184,15 +291,24 @@ internal static unsafe partial class XSystemShim
     [UnmanagedCallersOnly]
     private static int XPersistentLocalStoragePromptUserForSpaceAsync(ulong requested, nint async)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Async.BeginManaged(async, SystemService.PromptForSpaceApi, new LocalStorageSpaceOperation(gdk.System, requested));
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Async.BeginManaged(async, SystemService.PromptForSpaceApi, new LocalStorageSpaceOperation(gdk.System, requested));
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPersistentLocalStoragePromptUserForSpaceAsync), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPersistentLocalStoragePromptUserForSpaceAsync), e);
+            UnmanagedGuard.Caught(exception, "XSystemShim.XPersistentLocalStoragePromptUserForSpaceAsync");
+
+            return HResult.Fail;
         }
     }
 
@@ -200,15 +316,24 @@ internal static unsafe partial class XSystemShim
     [UnmanagedCallersOnly]
     private static int XPersistentLocalStoragePromptUserForSpaceResult(nint async)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Async.ManagedResult(async, SystemService.PromptForSpaceApi, 0, 0);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Async.ManagedResult(async, SystemService.PromptForSpaceApi, 0, 0);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPersistentLocalStoragePromptUserForSpaceResult), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPersistentLocalStoragePromptUserForSpaceResult), e);
+            UnmanagedGuard.Caught(exception, "XSystemShim.XPersistentLocalStoragePromptUserForSpaceResult");
+
+            return HResult.Fail;
         }
     }
 
@@ -216,15 +341,24 @@ internal static unsafe partial class XSystemShim
     [UnmanagedCallersOnly]
     private static int XPersistentLocalStorageGetSpaceInfo(ulong* info)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.System.GetLocalStorageSpaceInfo(info);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.System.GetLocalStorageSpaceInfo(info);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPersistentLocalStorageGetSpaceInfo), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPersistentLocalStorageGetSpaceInfo), e);
+            UnmanagedGuard.Caught(exception, "XSystemShim.XPersistentLocalStorageGetSpaceInfo");
+
+            return HResult.Fail;
         }
     }
 }

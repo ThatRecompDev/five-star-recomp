@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Gdk;
@@ -16,7 +17,16 @@ internal static unsafe partial class XNetworkingShim
     [UnmanagedCallersOnly]
     private static int XNetworkingGetConnectivityHint(byte* hint)
     {
-        return ShimContext.Runtime.Gdk.Connectivity.GetHint(hint);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Connectivity.GetHint(hint);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XNetworkingShim.XNetworkingGetConnectivityHint");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XNetworkingRegisterConnectivityHintChanged(XTaskQueueHandle, void* context, callback, XTaskQueueRegistrationToken*).</summary>
@@ -24,7 +34,16 @@ internal static unsafe partial class XNetworkingShim
     [UnmanagedCallersOnly]
     private static int XNetworkingRegisterConnectivityHintChanged(nint queue, nint context, nint callback, ulong* token)
     {
-        return ShimContext.Runtime.Gdk.Connectivity.Register(queue, context, callback, token);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Connectivity.Register(queue, context, callback, token);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XNetworkingShim.XNetworkingRegisterConnectivityHintChanged");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XNetworkingUnregisterConnectivityHintChanged")]
@@ -32,29 +51,56 @@ internal static unsafe partial class XNetworkingShim
     [UnmanagedCallersOnly]
     private static byte XNetworkingUnregister(ulong token, byte wait)
     {
-        return ShimContext.Runtime.Gdk.Registrations.Unregister(token);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Registrations.Unregister(token);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XNetworkingShim.XNetworkingUnregister");
+
+            return default;
+        }
     }
 
     [Shim(GdkModule.Name, "XNetworkingQueryPreferredLocalUdpMultiplayerPort")]
     [UnmanagedCallersOnly]
     private static int XNetworkingQueryPreferredLocalUdpMultiplayerPort(ushort* port)
     {
-        return NetworkingService.QueryPreferredPort(port);
+        try
+        {
+            return NetworkingService.QueryPreferredPort(port);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XNetworkingShim.XNetworkingQueryPreferredLocalUdpMultiplayerPort");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, NetworkingService.PortApi)]
     [UnmanagedCallersOnly]
     private static int XNetworkingQueryPreferredLocalUdpMultiplayerPortAsync(nint async)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Async.BeginManaged(async, NetworkingService.PortApi, new PortQueryOperation());
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Async.BeginManaged(async, NetworkingService.PortApi, new PortQueryOperation());
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(NetworkingService.PortApi, e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(NetworkingService.PortApi, e);
+            UnmanagedGuard.Caught(exception, "XNetworkingShim.XNetworkingQueryPreferredLocalUdpMultiplayerPortAsync");
+
+            return HResult.Fail;
         }
     }
 
@@ -62,20 +108,29 @@ internal static unsafe partial class XNetworkingShim
     [UnmanagedCallersOnly]
     private static int XNetworkingQueryPreferredLocalUdpMultiplayerPortAsyncResult(nint async, ushort* port)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
-        if (port == null)
-        {
-            return HResult.Pointer;
-        }
-
         try
         {
-            return gdk.Async.ManagedResult(async, NetworkingService.PortApi, sizeof(ushort), (nint)port);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            if (port == null)
+            {
+                return HResult.Pointer;
+            }
+
+            try
+            {
+                return gdk.Async.ManagedResult(async, NetworkingService.PortApi, sizeof(ushort), (nint)port);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XNetworkingQueryPreferredLocalUdpMultiplayerPortAsyncResult), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XNetworkingQueryPreferredLocalUdpMultiplayerPortAsyncResult), e);
+            UnmanagedGuard.Caught(exception, "XNetworkingShim.XNetworkingQueryPreferredLocalUdpMultiplayerPortAsyncResult");
+
+            return HResult.Fail;
         }
     }
 
@@ -83,7 +138,16 @@ internal static unsafe partial class XNetworkingShim
     [UnmanagedCallersOnly]
     private static int XNetworkingRegisterPreferredLocalUdpMultiplayerPortChanged(nint queue, nint context, nint callback, ulong* token)
     {
-        return ShimContext.Runtime.Gdk.Registrations.Register("XNetworkingRegisterPreferredLocalUdpMultiplayerPortChanged", callback, token);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Registrations.Register("XNetworkingRegisterPreferredLocalUdpMultiplayerPortChanged", callback, token);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XNetworkingShim.XNetworkingRegisterPreferredLocalUdpMultiplayerPortChanged");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XNetworkingQuerySecurityInformationForUrlAsync(const char* url, XAsyncBlock*): the URL's server cannot be reached.</summary>
@@ -91,12 +155,21 @@ internal static unsafe partial class XNetworkingShim
     [UnmanagedCallersOnly]
     private static int XNetworkingQuerySecurityInformationForUrlAsync(byte* url, nint async)
     {
-        if (url == null)
+        try
         {
-            return HResult.InvalidArgument;
-        }
+            if (url == null)
+            {
+                return HResult.InvalidArgument;
+            }
 
-        return AsyncCalls.Begin(async, NetworkingService.SecurityInformationApi, new OfflineOperation(HResult.NetworkUnreachable));
+            return AsyncCalls.Begin(async, NetworkingService.SecurityInformationApi, new OfflineOperation(HResult.NetworkUnreachable));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XNetworkingShim.XNetworkingQuerySecurityInformationForUrlAsync");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XNetworkingQuerySecurityInformationForUrlAsyncResultSize(XAsyncBlock*, size_t* securityInformationBufferByteCount).</summary>
@@ -104,7 +177,16 @@ internal static unsafe partial class XNetworkingShim
     [UnmanagedCallersOnly]
     private static int XNetworkingQuerySecurityInformationForUrlAsyncResultSize(nint async, nuint* size)
     {
-        return AsyncCalls.EmptyCount(async, size);
+        try
+        {
+            return AsyncCalls.EmptyCount(async, size);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XNetworkingShim.XNetworkingQuerySecurityInformationForUrlAsyncResultSize");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>
@@ -115,17 +197,26 @@ internal static unsafe partial class XNetworkingShim
     [UnmanagedCallersOnly]
     private static int XNetworkingQuerySecurityInformationForUrlAsyncResult(nint async, nuint size, nuint* used, nint buffer, nint* information)
     {
-        if (used != null)
+        try
         {
-            *used = 0;
-        }
+            if (used != null)
+            {
+                *used = 0;
+            }
 
-        if (information != null)
+            if (information != null)
+            {
+                *information = 0;
+            }
+
+            return AsyncCalls.Result(async, NetworkingService.SecurityInformationApi, size, buffer);
+        }
+        catch (Exception exception)
         {
-            *information = 0;
-        }
+            UnmanagedGuard.Caught(exception, "XNetworkingShim.XNetworkingQuerySecurityInformationForUrlAsyncResult");
 
-        return AsyncCalls.Result(async, NetworkingService.SecurityInformationApi, size, buffer);
+            return HResult.Fail;
+        }
     }
 
     /// <summary>

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 
 namespace FiveStar.Loader.Shims.Ffx;
 
@@ -16,28 +17,64 @@ internal static unsafe partial class FfxShim
     [UnmanagedCallersOnly]
     private static uint FfxCreateContext(nint* context, byte* desc, nint allocator)
     {
-        return ShimContext.Runtime.FidelityFx.CreateContext(context, desc, allocator);
+        try
+        {
+            return ShimContext.Runtime.FidelityFx.CreateContext(context, desc, allocator);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FfxShim.FfxCreateContext");
+
+            return default;
+        }
     }
 
     [Shim(FfxLayout.Module, "ffxDestroyContext")]
     [UnmanagedCallersOnly]
     private static uint FfxDestroyContext(nint* context, nint allocator)
     {
-        return ShimContext.Runtime.FidelityFx.DestroyContext(context, allocator);
+        try
+        {
+            return ShimContext.Runtime.FidelityFx.DestroyContext(context, allocator);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FfxShim.FfxDestroyContext");
+
+            return default;
+        }
     }
 
     [Shim(FfxLayout.Module, "ffxConfigure")]
     [UnmanagedCallersOnly]
     private static uint FfxConfigure(nint* context, byte* desc)
     {
-        return ShimContext.Runtime.FidelityFx.Configure(context, desc);
+        try
+        {
+            return ShimContext.Runtime.FidelityFx.Configure(context, desc);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FfxShim.FfxConfigure");
+
+            return default;
+        }
     }
 
     [Shim(FfxLayout.Module, "ffxQuery")]
     [UnmanagedCallersOnly]
     private static uint FfxQuery(nint* context, byte* desc)
     {
-        return ShimContext.Runtime.FidelityFx.Query(context, desc);
+        try
+        {
+            return ShimContext.Runtime.FidelityFx.Query(context, desc);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FfxShim.FfxQuery");
+
+            return default;
+        }
     }
 
     [Shim(FfxLayout.Module, "ffxDispatch")]
@@ -45,6 +82,15 @@ internal static unsafe partial class FfxShim
     [UnmanagedCallersOnly]
     private static uint FfxDispatch(nint* context, byte* desc)
     {
-        return ShimContext.Runtime.FidelityFx.Dispatch(context, desc);
+        try
+        {
+            return ShimContext.Runtime.FidelityFx.Dispatch(context, desc);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FfxShim.FfxDispatch");
+
+            return default;
+        }
     }
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Xg;
@@ -16,21 +17,39 @@ internal static unsafe class XgComputerMethods
     [UnmanagedCallersOnly]
     public static uint AddRef(nint self)
     {
-        return (uint)Interlocked.Increment(ref ((XgComputerObject*)self)->References);
+        try
+        {
+            return (uint)Interlocked.Increment(ref ((XgComputerObject*)self)->References);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XgComputerMethods.AddRef");
+
+            return default;
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static uint Release(nint self)
     {
-        int left = Interlocked.Decrement(ref ((XgComputerObject*)self)->References);
-
-        if (left == 0)
+        try
         {
-            NativeMemory.Free((void*)self);
-        }
+            int left = Interlocked.Decrement(ref ((XgComputerObject*)self)->References);
 
-        return (uint)left;
+            if (left == 0)
+            {
+                NativeMemory.Free((void*)self);
+            }
+
+            return (uint)left;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XgComputerMethods.Release");
+
+            return default;
+        }
     }
 
     /// <summary>Slot 2: GetResourceLayout(XG_RESOURCE_LAYOUT*).</summary>
@@ -38,14 +57,23 @@ internal static unsafe class XgComputerMethods
     [UnmanagedCallersOnly]
     public static int GetResourceLayout(nint self, byte* layout)
     {
-        if (layout == null)
+        try
         {
-            return HResult.Pointer;
+            if (layout == null)
+            {
+                return HResult.Pointer;
+            }
+
+            XgLayoutWriter.Write(((XgComputerObject*)self)->Surface, layout);
+
+            return HResult.Ok;
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XgComputerMethods.GetResourceLayout");
 
-        XgLayoutWriter.Write(((XgComputerObject*)self)->Surface, layout);
-
-        return HResult.Ok;
+            return HResult.Fail;
+        }
     }
 
     /// <summary>Slot 3: UINT64 GetResourceSizeBytes().</summary>
@@ -69,7 +97,16 @@ internal static unsafe class XgComputerMethods
     [UnmanagedCallersOnly]
     public static ulong GetMipLevelOffsetBytes(nint self, uint plane, uint mip)
     {
-        return XgAddress.Mip(((XgComputerObject*)self)->Surface, plane, mip);
+        try
+        {
+            return XgAddress.Mip(((XgComputerObject*)self)->Surface, plane, mip);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XgComputerMethods.GetMipLevelOffsetBytes");
+
+            return default;
+        }
     }
 
     /// <summary>
@@ -81,12 +118,21 @@ internal static unsafe class XgComputerMethods
     [UnmanagedCallersOnly]
     public static ulong GetTexelElementOffsetBytes(nint self, uint plane, uint mip, ulong x, uint y, uint zOrSlice, uint sample, uint* bitOffset)
     {
-        if (bitOffset != null)
+        try
         {
-            *bitOffset = 0;
-        }
+            if (bitOffset != null)
+            {
+                *bitOffset = 0;
+            }
 
-        return XgAddress.Texel(((XgComputerObject*)self)->Surface, plane, mip, x, y, zOrSlice);
+            return XgAddress.Texel(((XgComputerObject*)self)->Surface, plane, mip, x, y, zOrSlice);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XgComputerMethods.GetTexelElementOffsetBytes");
+
+            return default;
+        }
     }
 
     /// <summary>Slot 8: CopyIntoSubresource(void* resource, UINT plane, UINT subresource, const void* linear, UINT rowPitch, UINT slicePitch).</summary>
@@ -94,7 +140,16 @@ internal static unsafe class XgComputerMethods
     [UnmanagedCallersOnly]
     public static int CopyIntoSubresource(nint self, byte* resource, uint plane, uint subresource, byte* linear, uint rowPitch, uint slicePitch)
     {
-        return XgCopier.Into(((XgComputerObject*)self)->Surface, resource, plane, subresource, linear, rowPitch, slicePitch);
+        try
+        {
+            return XgCopier.Into(((XgComputerObject*)self)->Surface, resource, plane, subresource, linear, rowPitch, slicePitch);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XgComputerMethods.CopyIntoSubresource");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>
@@ -105,7 +160,16 @@ internal static unsafe class XgComputerMethods
     [UnmanagedCallersOnly]
     public static int CopyFromSubresource(nint self, byte* linear, uint plane, uint subresource, uint unknown, byte* resource, uint rowPitch, uint slicePitch)
     {
-        return XgCopier.From(((XgComputerObject*)self)->Surface, linear, plane, subresource, resource, rowPitch, slicePitch);
+        try
+        {
+            return XgCopier.From(((XgComputerObject*)self)->Surface, linear, plane, subresource, resource, rowPitch, slicePitch);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XgComputerMethods.CopyFromSubresource");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>Slot 10: GetResourceTiling with the arguments of ID3D12Device::GetResourceTiling after the resource.</summary>
@@ -113,6 +177,13 @@ internal static unsafe class XgComputerMethods
     [UnmanagedCallersOnly]
     public static void GetResourceTiling(nint self, uint* tileCount, XgPackedMipInfo* packed, XgTileShape* shape, uint* tilingCount, uint first, XgSubresourceTiling* tilings)
     {
-        XgTiling.Get(((XgComputerObject*)self)->Surface, tileCount, packed, shape, tilingCount, first, tilings);
+        try
+        {
+            XgTiling.Get(((XgComputerObject*)self)->Surface, tileCount, packed, shape, tilingCount, first, tilings);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XgComputerMethods.GetResourceTiling");
+        }
     }
 }

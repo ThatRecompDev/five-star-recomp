@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Gdk;
@@ -31,7 +32,16 @@ internal static unsafe partial class XGameUiShim
     [UnmanagedCallersOnly]
     private static int XGameUiShowMessageDialogAsync(nint async, nint title, nint content, nint first, nint second, nint third, uint defaultButton, uint cancelButton)
     {
-        return Begin(MessageDialogApi, async, DismissedUiOperation.WithValue(cancelButton));
+        try
+        {
+            return Begin(MessageDialogApi, async, DismissedUiOperation.WithValue(cancelButton));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowMessageDialogAsync");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XGameUiShowMessageDialogResult(XAsyncBlock*, XGameUiMessageDialogButton* resultButton).</summary>
@@ -39,103 +49,229 @@ internal static unsafe partial class XGameUiShim
     [UnmanagedCallersOnly]
     private static int XGameUiShowMessageDialogResult(nint async, uint* button)
     {
-        if (button == null)
+        try
         {
-            return HResult.Pointer;
-        }
+            if (button == null)
+            {
+                return HResult.Pointer;
+            }
 
-        return Result(MessageDialogApi, async, sizeof(uint), (nint)button);
+            return Result(MessageDialogApi, async, sizeof(uint), (nint)button);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowMessageDialogResult");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, ErrorDialogApi)]
     [UnmanagedCallersOnly]
     private static int XGameUiShowErrorDialogAsync(nint async)
     {
-        return Begin(ErrorDialogApi, async, DismissedUiOperation.Closed());
+        try
+        {
+            return Begin(ErrorDialogApi, async, DismissedUiOperation.Closed());
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowErrorDialogAsync");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XGameUiShowErrorDialogResult")]
     [UnmanagedCallersOnly]
     private static int XGameUiShowErrorDialogResult(nint async)
     {
-        return Result(ErrorDialogApi, async, 0, 0);
+        try
+        {
+            return Result(ErrorDialogApi, async, 0, 0);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowErrorDialogResult");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, AchievementsApi)]
     [UnmanagedCallersOnly]
     private static int XGameUiShowAchievementsAsync(nint async)
     {
-        return Begin(AchievementsApi, async, DismissedUiOperation.Closed());
+        try
+        {
+            return Begin(AchievementsApi, async, DismissedUiOperation.Closed());
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowAchievementsAsync");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XGameUiShowAchievementsResult")]
     [UnmanagedCallersOnly]
     private static int XGameUiShowAchievementsResult(nint async)
     {
-        return Result(AchievementsApi, async, 0, 0);
+        try
+        {
+            return Result(AchievementsApi, async, 0, 0);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowAchievementsResult");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, ProfileCardApi)]
     [UnmanagedCallersOnly]
     private static int XGameUiShowPlayerProfileCardAsync(nint async)
     {
-        return Begin(ProfileCardApi, async, DismissedUiOperation.Closed());
+        try
+        {
+            return Begin(ProfileCardApi, async, DismissedUiOperation.Closed());
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowPlayerProfileCardAsync");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XGameUiShowPlayerProfileCardResult")]
     [UnmanagedCallersOnly]
     private static int XGameUiShowPlayerProfileCardResult(nint async)
     {
-        return Result(ProfileCardApi, async, 0, 0);
+        try
+        {
+            return Result(ProfileCardApi, async, 0, 0);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowPlayerProfileCardResult");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, SendInviteApi)]
     [UnmanagedCallersOnly]
     private static int XGameUiShowSendGameInviteAsync(nint async)
     {
-        return Begin(SendInviteApi, async, DismissedUiOperation.Closed());
+        try
+        {
+            return Begin(SendInviteApi, async, DismissedUiOperation.Closed());
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowSendGameInviteAsync");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XGameUiShowSendGameInviteResult")]
     [UnmanagedCallersOnly]
     private static int XGameUiShowSendGameInviteResult(nint async)
     {
-        return Result(SendInviteApi, async, 0, 0);
+        try
+        {
+            return Result(SendInviteApi, async, 0, 0);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowSendGameInviteResult");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, ActivityInviteApi)]
     [UnmanagedCallersOnly]
     private static int XGameUiShowMultiplayerActivityGameInviteAsync(nint async)
     {
-        return Begin(ActivityInviteApi, async, DismissedUiOperation.Closed());
+        try
+        {
+            return Begin(ActivityInviteApi, async, DismissedUiOperation.Closed());
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowMultiplayerActivityGameInviteAsync");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XGameUiShowMultiplayerActivityGameInviteResult")]
     [UnmanagedCallersOnly]
     private static int XGameUiShowMultiplayerActivityGameInviteResult(nint async)
     {
-        return Result(ActivityInviteApi, async, 0, 0);
+        try
+        {
+            return Result(ActivityInviteApi, async, 0, 0);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowMultiplayerActivityGameInviteResult");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, StateShareApi)]
     [UnmanagedCallersOnly]
     private static int XGameUiShowStateShareAsync(nint async)
     {
-        return Begin(StateShareApi, async, DismissedUiOperation.Closed());
+        try
+        {
+            return Begin(StateShareApi, async, DismissedUiOperation.Closed());
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowStateShareAsync");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XGameUiShowStateShareResult")]
     [UnmanagedCallersOnly]
     private static int XGameUiShowStateShareResult(nint async)
     {
-        return Result(StateShareApi, async, 0, 0);
+        try
+        {
+            return Result(StateShareApi, async, 0, 0);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowStateShareResult");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, PlayerPickerApi)]
     [UnmanagedCallersOnly]
     private static int XGameUiShowPlayerPickerAsync(nint async)
     {
-        return Begin(PlayerPickerApi, async, DismissedUiOperation.Closed());
+        try
+        {
+            return Begin(PlayerPickerApi, async, DismissedUiOperation.Closed());
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowPlayerPickerAsync");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XGameUiShowPlayerPickerResultCount(XAsyncBlock*, uint32_t* resultPlayersCount): nobody was picked.</summary>
@@ -143,7 +279,16 @@ internal static unsafe partial class XGameUiShim
     [UnmanagedCallersOnly]
     private static int XGameUiShowPlayerPickerResultCount(nint async, uint* count)
     {
-        return NoPlayers(async, count);
+        try
+        {
+            return NoPlayers(async, count);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowPlayerPickerResultCount");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XGameUiShowPlayerPickerResult(XAsyncBlock*, uint32_t count, uint64_t* players, uint32_t* resultPlayersUsed).</summary>
@@ -151,28 +296,64 @@ internal static unsafe partial class XGameUiShim
     [UnmanagedCallersOnly]
     private static int XGameUiShowPlayerPickerResult(nint async, uint count, ulong* players, uint* used)
     {
-        return NoPlayers(async, used);
+        try
+        {
+            return NoPlayers(async, used);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowPlayerPickerResult");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, TextEntryApi)]
     [UnmanagedCallersOnly]
     private static int XGameUiShowTextEntryAsync(nint async)
     {
-        return Begin(TextEntryApi, async, DismissedUiOperation.Canceled());
+        try
+        {
+            return Begin(TextEntryApi, async, DismissedUiOperation.Canceled());
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowTextEntryAsync");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XGameUiShowTextEntryResultSize")]
     [UnmanagedCallersOnly]
     private static int XGameUiShowTextEntryResultSize(nint async, uint* size)
     {
-        return Result(TextEntryApi, async, 0, 0);
+        try
+        {
+            return Result(TextEntryApi, async, 0, 0);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowTextEntryResultSize");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XGameUiShowTextEntryResult")]
     [UnmanagedCallersOnly]
     private static int XGameUiShowTextEntryResult(nint async, uint size, byte* text, uint* used)
     {
-        return Result(TextEntryApi, async, 0, 0);
+        try
+        {
+            return Result(TextEntryApi, async, 0, 0);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowTextEntryResult");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, WebAuthenticationApi)]
@@ -180,21 +361,48 @@ internal static unsafe partial class XGameUiShim
     [UnmanagedCallersOnly]
     private static int XGameUiShowWebAuthenticationAsync(nint async)
     {
-        return Begin(WebAuthenticationApi, async, DismissedUiOperation.Canceled());
+        try
+        {
+            return Begin(WebAuthenticationApi, async, DismissedUiOperation.Canceled());
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowWebAuthenticationAsync");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XGameUiShowWebAuthenticationResultSize")]
     [UnmanagedCallersOnly]
     private static int XGameUiShowWebAuthenticationResultSize(nint async, nuint* size)
     {
-        return Result(WebAuthenticationApi, async, 0, 0);
+        try
+        {
+            return Result(WebAuthenticationApi, async, 0, 0);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowWebAuthenticationResultSize");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XGameUiShowWebAuthenticationResult")]
     [UnmanagedCallersOnly]
     private static int XGameUiShowWebAuthenticationResult(nint async, nuint size, nint buffer, nint* result, nuint* used)
     {
-        return Result(WebAuthenticationApi, async, 0, 0);
+        try
+        {
+            return Result(WebAuthenticationApi, async, 0, 0);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameUiShim.XGameUiShowWebAuthenticationResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XGameUiSetNotificationPositionHint(XGameUiNotificationPositionHint): there are no notifications to place.</summary>

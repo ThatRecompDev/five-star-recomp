@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
 
@@ -30,14 +31,23 @@ internal static unsafe class XboxQueueMethods
     [UnmanagedCallersOnly]
     public static int ExecuteCommandListsX(XboxObject* self, uint count, nint* lists, nint frame, uint flags)
     {
-        if (QueueTrace.Enabled)
+        try
         {
-            QueueTrace.Execute(self, count, frame, flags);
+            if (QueueTrace.Enabled)
+            {
+                QueueTrace.Execute(self, count, frame, flags);
+            }
+
+            Execute(self, count, lists);
+
+            return HResult.Ok;
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxQueueMethods.ExecuteCommandListsX");
 
-        Execute(self, count, lists);
-
-        return HResult.Ok;
+            return HResult.Fail;
+        }
     }
 
     /// <summary>Slot 12, desktop ExecuteCommandLists(count, lists).</summary>
@@ -45,12 +55,19 @@ internal static unsafe class XboxQueueMethods
     [UnmanagedCallersOnly]
     public static void ExecuteCommandLists(XboxObject* self, uint count, nint* lists)
     {
-        if (QueueTrace.Enabled)
+        try
         {
-            QueueTrace.Execute(self, count, 0, 0);
-        }
+            if (QueueTrace.Enabled)
+            {
+                QueueTrace.Execute(self, count, 0, 0);
+            }
 
-        Execute(self, count, lists);
+            Execute(self, count, lists);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxQueueMethods.ExecuteCommandLists");
+        }
     }
 
     [HotPath]

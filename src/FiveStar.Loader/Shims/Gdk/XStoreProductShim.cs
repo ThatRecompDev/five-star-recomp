@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Gdk;
@@ -17,7 +18,16 @@ internal static unsafe partial class XStoreProductShim
     [UnmanagedCallersOnly]
     private static int XStoreQueryAssociatedProductsAsync(nint context, uint kinds, uint pageSize, nint async)
     {
-        return BeginQuery(context, async, nameof(XStoreQueryAssociatedProductsAsync));
+        try
+        {
+            return BeginQuery(context, async, nameof(XStoreQueryAssociatedProductsAsync));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreProductShim.XStoreQueryAssociatedProductsAsync");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreQueryAssociatedProductsResult(XAsyncBlock*, XStoreProductQueryHandle*).</summary>
@@ -25,7 +35,16 @@ internal static unsafe partial class XStoreProductShim
     [UnmanagedCallersOnly]
     private static int XStoreQueryAssociatedProductsResult(nint async, nint* query)
     {
-        return AsyncCalls.HandleResult(async, nameof(XStoreQueryAssociatedProductsAsync), query);
+        try
+        {
+            return AsyncCalls.HandleResult(async, nameof(XStoreQueryAssociatedProductsAsync), query);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreProductShim.XStoreQueryAssociatedProductsResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreQueryEntitledProductsAsync(XStoreContextHandle, XStoreProductKind, uint32_t maxItemsToRetrievePerPage, XAsyncBlock*).</summary>
@@ -33,7 +52,16 @@ internal static unsafe partial class XStoreProductShim
     [UnmanagedCallersOnly]
     private static int XStoreQueryEntitledProductsAsync(nint context, uint kinds, uint pageSize, nint async)
     {
-        return BeginQuery(context, async, nameof(XStoreQueryEntitledProductsAsync));
+        try
+        {
+            return BeginQuery(context, async, nameof(XStoreQueryEntitledProductsAsync));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreProductShim.XStoreQueryEntitledProductsAsync");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreQueryEntitledProductsResult(XAsyncBlock*, XStoreProductQueryHandle*).</summary>
@@ -41,7 +69,16 @@ internal static unsafe partial class XStoreProductShim
     [UnmanagedCallersOnly]
     private static int XStoreQueryEntitledProductsResult(nint async, nint* query)
     {
-        return AsyncCalls.HandleResult(async, nameof(XStoreQueryEntitledProductsAsync), query);
+        try
+        {
+            return AsyncCalls.HandleResult(async, nameof(XStoreQueryEntitledProductsAsync), query);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreProductShim.XStoreQueryEntitledProductsResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreEnumerateProductsQuery(XStoreProductQueryHandle, void* context, XStoreProductQueryCallback*): no products, so no callback.</summary>
@@ -49,12 +86,21 @@ internal static unsafe partial class XStoreProductShim
     [UnmanagedCallersOnly]
     private static int XStoreEnumerateProductsQuery(nint query, nint context, nint callback)
     {
-        if (callback == 0 || !ShimContext.Runtime.Gdk.Store.IsProductQuery(query))
+        try
         {
-            return HResult.InvalidArgument;
-        }
+            if (callback == 0 || !ShimContext.Runtime.Gdk.Store.IsProductQuery(query))
+            {
+                return HResult.InvalidArgument;
+            }
 
-        return HResult.Ok;
+            return HResult.Ok;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreProductShim.XStoreEnumerateProductsQuery");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XStoreProductsQueryHasMorePages")]
@@ -69,12 +115,21 @@ internal static unsafe partial class XStoreProductShim
     [UnmanagedCallersOnly]
     private static int XStoreProductsQueryNextPageAsync(nint query, nint async)
     {
-        if (!ShimContext.Runtime.Gdk.Store.IsProductQuery(query))
+        try
         {
-            return HResult.InvalidArgument;
-        }
+            if (!ShimContext.Runtime.Gdk.Store.IsProductQuery(query))
+            {
+                return HResult.InvalidArgument;
+            }
 
-        return AsyncCalls.Begin(async, nameof(XStoreProductsQueryNextPageAsync), new OfflineOperation(StoreService.NetworkError));
+            return AsyncCalls.Begin(async, nameof(XStoreProductsQueryNextPageAsync), new OfflineOperation(StoreService.NetworkError));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreProductShim.XStoreProductsQueryNextPageAsync");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreProductsQueryNextPageResult(XAsyncBlock*, XStoreProductQueryHandle*).</summary>
@@ -82,14 +137,30 @@ internal static unsafe partial class XStoreProductShim
     [UnmanagedCallersOnly]
     private static int XStoreProductsQueryNextPageResult(nint async, nint* query)
     {
-        return AsyncCalls.HandleResult(async, nameof(XStoreProductsQueryNextPageAsync), query);
+        try
+        {
+            return AsyncCalls.HandleResult(async, nameof(XStoreProductsQueryNextPageAsync), query);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreProductShim.XStoreProductsQueryNextPageResult");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XStoreCloseProductsQueryHandle")]
     [UnmanagedCallersOnly]
     private static void XStoreCloseProductsQueryHandle(nint query)
     {
-        ShimContext.Runtime.Gdk.Store.CloseProductQuery(query);
+        try
+        {
+            ShimContext.Runtime.Gdk.Store.CloseProductQuery(query);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreProductShim.XStoreCloseProductsQueryHandle");
+        }
     }
 
     private static int BeginQuery(nint context, nint async, string api)

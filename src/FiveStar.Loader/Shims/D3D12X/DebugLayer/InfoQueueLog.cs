@@ -165,8 +165,15 @@ internal sealed unsafe class InfoQueueLog
     [UnmanagedCallersOnly]
     private static void OnMessage(int category, int severity, int id, byte* description, void* context)
     {
-        string text = description == null ? string.Empty : Marshal.PtrToStringAnsi((nint)description) ?? string.Empty;
-        ((InfoQueueLog)GCHandle.FromIntPtr((nint)context).Target!).Write(severity, id, text);
+        try
+        {
+            string text = description == null ? string.Empty : Marshal.PtrToStringAnsi((nint)description) ?? string.Empty;
+            ((InfoQueueLog)GCHandle.FromIntPtr((nint)context).Target!).Write(severity, id, text);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "InfoQueueLog.OnMessage");
+        }
     }
 
     /// <summary>Keeps the messages that describe intended behaviour out of storage, and so out of the callback.</summary>

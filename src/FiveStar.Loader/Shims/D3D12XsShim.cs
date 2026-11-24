@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims;
@@ -18,41 +19,95 @@ internal static unsafe partial class D3D12XsShim
     [UnmanagedCallersOnly]
     private static int D3D12XboxCreateDevice(nint adapter, byte* parameters, Guid* iid, nint* device)
     {
-        return ShimContext.Runtime.D3D12X.CreateDevice(adapter, parameters, iid, device);
+        try
+        {
+            return ShimContext.Runtime.D3D12X.CreateDevice(adapter, parameters, iid, device);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "D3D12XsShim.D3D12XboxCreateDevice");
+
+            return default;
+        }
     }
 
     [Shim("d3d12_xs.dll", "D3D12ConfigureVirtualMemoryX")]
     [UnmanagedCallersOnly]
     private static int D3D12ConfigureVirtualMemoryX(byte* configuration)
     {
-        return ShimContext.Runtime.D3D12X.ConfigureVirtualMemory(configuration);
+        try
+        {
+            return ShimContext.Runtime.D3D12X.ConfigureVirtualMemory(configuration);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "D3D12XsShim.D3D12ConfigureVirtualMemoryX");
+
+            return default;
+        }
     }
 
     [Shim("d3d12_xs.dll", "D3D12SerializeVersionedRootSignature")]
     [UnmanagedCallersOnly]
     private static int D3D12SerializeVersionedRootSignature(nint desc, nint* blob, nint* error)
     {
-        return ShimContext.Runtime.D3D12.SerializeVersionedRootSignature(desc, blob, error);
+        try
+        {
+            return ShimContext.Runtime.D3D12.SerializeVersionedRootSignature(desc, blob, error);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "D3D12XsShim.D3D12SerializeVersionedRootSignature");
+
+            return default;
+        }
     }
 
     [Shim("d3d12_xs.dll", "D3D12SerializeRootSignature")]
     [UnmanagedCallersOnly]
     private static int D3D12SerializeRootSignature(nint desc, uint version, nint* blob, nint* error)
     {
-        return ShimContext.Runtime.D3D12.SerializeRootSignature(desc, version, blob, error);
+        try
+        {
+            return ShimContext.Runtime.D3D12.SerializeRootSignature(desc, version, blob, error);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "D3D12XsShim.D3D12SerializeRootSignature");
+
+            return default;
+        }
     }
 
     [Shim("d3d12_xs.dll", "D3D12CreateRootSignatureDeserializer")]
     [UnmanagedCallersOnly]
     private static int D3D12CreateRootSignatureDeserializer(nint data, nuint size, Guid* iid, nint* result)
     {
-        return ShimContext.Runtime.D3D12.CreateDeserializer("D3D12CreateRootSignatureDeserializer", data, size, iid, result);
+        try
+        {
+            return ShimContext.Runtime.D3D12.CreateDeserializer("D3D12CreateRootSignatureDeserializer", data, size, iid, result);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "D3D12XsShim.D3D12CreateRootSignatureDeserializer");
+
+            return default;
+        }
     }
 
     [Shim("d3d12_xs.dll", "D3D12CreateVersionedRootSignatureDeserializer")]
     [UnmanagedCallersOnly]
     private static int D3D12CreateVersionedRootSignatureDeserializer(nint data, nuint size, Guid* iid, nint* result)
     {
-        return ShimContext.Runtime.D3D12.CreateDeserializer("D3D12CreateVersionedRootSignatureDeserializer", data, size, iid, result);
+        try
+        {
+            return ShimContext.Runtime.D3D12.CreateDeserializer("D3D12CreateVersionedRootSignatureDeserializer", data, size, iid, result);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "D3D12XsShim.D3D12CreateVersionedRootSignatureDeserializer");
+
+            return default;
+        }
     }
 }

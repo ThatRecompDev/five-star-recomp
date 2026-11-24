@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Shims;
 
 namespace FiveStar.Loader.Calls;
@@ -15,19 +16,44 @@ internal static class RecipeAllocatorCallbacks
     [UnmanagedCallersOnly]
     public static nint Allocate(nuint size, uint memoryType)
     {
-        return ShimContext.Runtime.RecipeAllocator.Allocate(size);
+        try
+        {
+            return ShimContext.Runtime.RecipeAllocator.Allocate(size);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "RecipeAllocatorCallbacks.Allocate");
+
+            return default;
+        }
     }
 
     [UnmanagedCallersOnly]
     public static void Free(nint block, uint memoryType)
     {
-        ShimContext.Runtime.RecipeAllocator.Free(block);
+        try
+        {
+            ShimContext.Runtime.RecipeAllocator.Free(block);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "RecipeAllocatorCallbacks.Free");
+        }
     }
 
     [UnmanagedCallersOnly]
     public static nint AlwaysFail(nuint size, uint memoryType)
     {
-        return ShimContext.Runtime.RecipeAllocator.Fail();
+        try
+        {
+            return ShimContext.Runtime.RecipeAllocator.Fail();
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "RecipeAllocatorCallbacks.AlwaysFail");
+
+            return default;
+        }
     }
 
     [UnmanagedCallersOnly]

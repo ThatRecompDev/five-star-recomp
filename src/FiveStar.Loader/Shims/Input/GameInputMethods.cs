@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Input;
@@ -38,76 +39,155 @@ internal static unsafe class GameInputMethods
     [UnmanagedCallersOnly]
     private static int QueryInterface(nint self, Guid* iid, nint* result)
     {
-        return InputObjects.Query(self, iid, result, GameInputLayout.InputIid);
+        try
+        {
+            return InputObjects.Query(self, iid, result, GameInputLayout.InputIid);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "GameInputMethods.QueryInterface");
+
+            return HResult.Fail;
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     private static ulong GetCurrentTimestamp(nint self)
     {
-        return InputObjects.Session(self).Timestamp();
+        try
+        {
+            return InputObjects.Session(self).Timestamp();
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "GameInputMethods.GetCurrentTimestamp");
+
+            return default;
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     private static int GetCurrentReading(nint self, uint kind, nint device, nint* reading)
     {
-        return InputObjects.Session(self).GetReading(kind, device, NoSequence, long.MaxValue, true, reading);
+        try
+        {
+            return InputObjects.Session(self).GetReading(kind, device, NoSequence, long.MaxValue, true, reading);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "GameInputMethods.GetCurrentReading");
+
+            return HResult.Fail;
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     private static int GetNextReading(nint self, nint reference, uint kind, nint device, nint* reading)
     {
-        if (reference == 0)
+        try
         {
-            return HResult.InvalidArgument;
+            if (reference == 0)
+            {
+                return HResult.InvalidArgument;
+            }
+
+            long after = ((ReadingObject*)reference)->Sequence;
+
+            return InputObjects.Session(self).GetReading(kind, device, after, long.MaxValue, false, reading);
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "GameInputMethods.GetNextReading");
 
-        long after = ((ReadingObject*)reference)->Sequence;
-
-        return InputObjects.Session(self).GetReading(kind, device, after, long.MaxValue, false, reading);
+            return HResult.Fail;
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     private static int GetPreviousReading(nint self, nint reference, uint kind, nint device, nint* reading)
     {
-        if (reference == 0)
+        try
         {
-            return HResult.InvalidArgument;
+            if (reference == 0)
+            {
+                return HResult.InvalidArgument;
+            }
+
+            long before = ((ReadingObject*)reference)->Sequence;
+
+            return InputObjects.Session(self).GetReading(kind, device, NoSequence, before, true, reading);
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "GameInputMethods.GetPreviousReading");
 
-        long before = ((ReadingObject*)reference)->Sequence;
-
-        return InputObjects.Session(self).GetReading(kind, device, NoSequence, before, true, reading);
+            return HResult.Fail;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static int RegisterDeviceCallback(nint self, nint device, uint kind, uint statusFilter, uint enumeration, nint context, nint function, ulong* token)
     {
-        return InputObjects.Session(self).RegisterDeviceCallback(device, kind, statusFilter, enumeration, context, function, token);
+        try
+        {
+            return InputObjects.Session(self).RegisterDeviceCallback(device, kind, statusFilter, enumeration, context, function, token);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "GameInputMethods.RegisterDeviceCallback");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>StopCallback: the callback is removed at once.</summary>
     [UnmanagedCallersOnly]
     private static void StopCallback(nint self, ulong token)
     {
-        InputObjects.Session(self).Unregister(token);
+        try
+        {
+            InputObjects.Session(self).Unregister(token);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "GameInputMethods.StopCallback");
+        }
     }
 
     [UnmanagedCallersOnly]
     private static int FindDeviceFromId(nint self, byte* id, nint* device)
     {
-        return InputObjects.Session(self).FindDevice(id, device);
+        try
+        {
+            return InputObjects.Session(self).FindDevice(id, device);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "GameInputMethods.FindDeviceFromId");
+
+            return HResult.Fail;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static byte UnregisterCallback(nint self, ulong token, ulong timeoutMicroseconds)
     {
-        bool removed = InputObjects.Session(self).Unregister(token);
-        byte result = removed ? (byte)1 : (byte)0;
+        try
+        {
+            bool removed = InputObjects.Session(self).Unregister(token);
+            byte result = removed ? (byte)1 : (byte)0;
 
-        return result;
+            return result;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "GameInputMethods.UnregisterCallback");
+
+            return default;
+        }
     }
 }

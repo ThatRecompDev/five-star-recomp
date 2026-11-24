@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
@@ -47,130 +48,211 @@ internal static unsafe class StandInPipelineMethods
     [UnmanagedCallersOnly]
     private static uint AddRef(StandInPipelineObject* self)
     {
-        return (uint)Interlocked.Increment(ref self->References);
+        try
+        {
+            return (uint)Interlocked.Increment(ref self->References);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StandInPipelineMethods.AddRef");
+
+            return default;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static uint Release(StandInPipelineObject* self)
     {
-        int left = Interlocked.Decrement(ref self->References);
-
-        if (left == 0 && GCHandle.FromIntPtr(self->Owner).Target is StandInPipelines owner)
+        try
         {
-            owner.Retire(self);
-        }
+            int left = Interlocked.Decrement(ref self->References);
 
-        return (uint)left;
+            if (left == 0 && GCHandle.FromIntPtr(self->Owner).Target is StandInPipelines owner)
+            {
+                owner.Retire(self);
+            }
+
+            return (uint)left;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StandInPipelineMethods.Release");
+
+            return default;
+        }
     }
 
     /// <summary>The stand-in answers for every interface the desktop pipeline would (IUnknown and ID3D12PipelineState before it is built).</summary>
     [UnmanagedCallersOnly]
     private static int QueryInterface(StandInPipelineObject* self, Guid* iid, nint* result)
     {
-        if (result == null)
+        try
         {
-            return HResult.Pointer;
+            if (result == null)
+            {
+                return HResult.Pointer;
+            }
+
+            nint desktop = Volatile.Read(ref self->Desktop);
+            bool known = *iid == DesktopDevice.PipelineStateIid || *iid == DesktopDevice.UnknownIid;
+
+            if (desktop != 0)
+            {
+                nint answer = 0;
+                known = !HResult.Failed(((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(desktop, ComObject.QueryInterfaceSlot))(desktop, iid, &answer));
+                ComObject.Release(answer);
+            }
+
+            if (!known)
+            {
+                *result = 0;
+
+                return HResult.NoInterface;
+            }
+
+            Interlocked.Increment(ref self->References);
+            *result = (nint)self;
+
+            return HResult.Ok;
         }
-
-        nint desktop = Volatile.Read(ref self->Desktop);
-        bool known = *iid == DesktopDevice.PipelineStateIid || *iid == DesktopDevice.UnknownIid;
-
-        if (desktop != 0)
+        catch (Exception exception)
         {
-            nint answer = 0;
-            known = !HResult.Failed(((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(desktop, ComObject.QueryInterfaceSlot))(desktop, iid, &answer));
-            ComObject.Release(answer);
+            UnmanagedGuard.Caught(exception, "StandInPipelineMethods.QueryInterface");
+
+            return HResult.Fail;
         }
-
-        if (!known)
-        {
-            *result = 0;
-
-            return HResult.NoInterface;
-        }
-
-        Interlocked.Increment(ref self->References);
-        *result = (nint)self;
-
-        return HResult.Ok;
     }
 
     [UnmanagedCallersOnly]
     private static int GetPrivateData(StandInPipelineObject* self, Guid* guid, uint* size, nint data)
     {
-        nint desktop = Volatile.Read(ref self->Desktop);
-
-        if (desktop == 0)
+        try
         {
-            return NotFound;
-        }
+            nint desktop = Volatile.Read(ref self->Desktop);
 
-        return ((delegate* unmanaged<nint, Guid*, uint*, nint, int>)ComObject.Slot(desktop, GetPrivateDataSlot))(desktop, guid, size, data);
+            if (desktop == 0)
+            {
+                return NotFound;
+            }
+
+            return ((delegate* unmanaged<nint, Guid*, uint*, nint, int>)ComObject.Slot(desktop, GetPrivateDataSlot))(desktop, guid, size, data);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StandInPipelineMethods.GetPrivateData");
+
+            return HResult.Fail;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static int SetPrivateData(StandInPipelineObject* self, Guid* guid, uint size, nint data)
     {
-        nint desktop = Volatile.Read(ref self->Desktop);
-
-        if (desktop == 0)
+        try
         {
-            return HResult.Ok;
-        }
+            nint desktop = Volatile.Read(ref self->Desktop);
 
-        return ((delegate* unmanaged<nint, Guid*, uint, nint, int>)ComObject.Slot(desktop, SetPrivateDataSlot))(desktop, guid, size, data);
+            if (desktop == 0)
+            {
+                return HResult.Ok;
+            }
+
+            return ((delegate* unmanaged<nint, Guid*, uint, nint, int>)ComObject.Slot(desktop, SetPrivateDataSlot))(desktop, guid, size, data);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StandInPipelineMethods.SetPrivateData");
+
+            return HResult.Fail;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static int SetPrivateDataInterface(StandInPipelineObject* self, Guid* guid, nint data)
     {
-        nint desktop = Volatile.Read(ref self->Desktop);
-
-        if (desktop == 0)
+        try
         {
-            return HResult.Ok;
-        }
+            nint desktop = Volatile.Read(ref self->Desktop);
 
-        return ((delegate* unmanaged<nint, Guid*, nint, int>)ComObject.Slot(desktop, SetPrivateDataInterfaceSlot))(desktop, guid, data);
+            if (desktop == 0)
+            {
+                return HResult.Ok;
+            }
+
+            return ((delegate* unmanaged<nint, Guid*, nint, int>)ComObject.Slot(desktop, SetPrivateDataInterfaceSlot))(desktop, guid, data);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StandInPipelineMethods.SetPrivateDataInterface");
+
+            return HResult.Fail;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static int SetName(StandInPipelineObject* self, char* name)
     {
-        nint desktop = Volatile.Read(ref self->Desktop);
-
-        if (desktop == 0)
+        try
         {
-            return HResult.Ok;
-        }
+            nint desktop = Volatile.Read(ref self->Desktop);
 
-        return ((delegate* unmanaged<nint, char*, int>)ComObject.Slot(desktop, SetNameSlot))(desktop, name);
+            if (desktop == 0)
+            {
+                return HResult.Ok;
+            }
+
+            return ((delegate* unmanaged<nint, char*, int>)ComObject.Slot(desktop, SetNameSlot))(desktop, name);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StandInPipelineMethods.SetName");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>The game's device wrapper, as for every wrapped object.</summary>
     [UnmanagedCallersOnly]
     private static int GetDevice(StandInPipelineObject* self, Guid* iid, nint* device)
     {
-        nint wrapper = ShimContext.Runtime.D3D12X.Objects.Device;
-
-        if (device == null || wrapper == 0)
+        try
         {
+            nint wrapper = ShimContext.Runtime.D3D12X.Objects.Device;
+
+            if (device == null || wrapper == 0)
+            {
+                return HResult.Fail;
+            }
+
+            return ((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(wrapper, ComObject.QueryInterfaceSlot))(wrapper, iid, device);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StandInPipelineMethods.GetDevice");
+
             return HResult.Fail;
         }
-
-        return ((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(wrapper, ComObject.QueryInterfaceSlot))(wrapper, iid, device);
     }
 
     [UnmanagedCallersOnly]
     private static int GetCachedBlob(StandInPipelineObject* self, nint* blob)
     {
-        nint desktop = Volatile.Read(ref self->Desktop);
-
-        if (desktop == 0)
+        try
         {
+            nint desktop = Volatile.Read(ref self->Desktop);
+
+            if (desktop == 0)
+            {
+                return HResult.Fail;
+            }
+
+            return ((delegate* unmanaged<nint, nint*, int>)ComObject.Slot(desktop, GetCachedBlobSlot))(desktop, blob);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StandInPipelineMethods.GetCachedBlob");
+
             return HResult.Fail;
         }
-
-        return ((delegate* unmanaged<nint, nint*, int>)ComObject.Slot(desktop, GetCachedBlobSlot))(desktop, blob);
     }
 }

@@ -3,6 +3,7 @@
 
 using System.Runtime.InteropServices;
 using FiveStar.Graphics.Pipelines;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
 
@@ -61,30 +62,57 @@ internal static unsafe class CommandListBindingMethods
     [UnmanagedCallersOnly]
     public static int CreateRootSignature(XboxObject* self, uint nodeMask, void* blob, nuint size, Guid* iid, nint* rootSignature)
     {
-        nint inner = self->Inner;
-        var create = (delegate* unmanaged<nint, uint, void*, nuint, Guid*, nint*, int>)ComObject.Slot(inner, CreateRootSignatureSlot);
-        int hr = create(inner, nodeMask, blob, size, iid, rootSignature);
-
-        if (!HResult.Failed(hr) && rootSignature != null && blob != null && !Bindings.Layouts.Register(*rootSignature, new ReadOnlySpan<byte>(blob, (int)size)))
+        try
         {
-            Bindings.Warnings.Warn("root-layout", "[d3d12_xs] CreateRootSignature: a blob without a readable RTS0 part; its root arguments are dropped");
-        }
+            nint inner = self->Inner;
+            var create = (delegate* unmanaged<nint, uint, void*, nuint, Guid*, nint*, int>)ComObject.Slot(inner, CreateRootSignatureSlot);
+            int hr = create(inner, nodeMask, blob, size, iid, rootSignature);
 
-        return hr;
+            if (!HResult.Failed(hr) && rootSignature != null && blob != null && !Bindings.Layouts.Register(*rootSignature, new ReadOnlySpan<byte>(blob, (int)size)))
+            {
+                Bindings.Warnings.Warn("root-layout", "[d3d12_xs] CreateRootSignature: a blob without a readable RTS0 part; its root arguments are dropped");
+            }
+
+            return hr;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.CreateRootSignature");
+
+            return HResult.Fail;
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static int Reset(XboxObject* self, nint allocator, nint pipelineState)
     {
-        return ResetList(self, allocator, pipelineState);
+        try
+        {
+            return ResetList(self, allocator, pipelineState);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.Reset");
+
+            return HResult.Fail;
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static int ResetX(XboxObject* self, nint allocator, nint pipelineState, uint flags)
     {
-        return ResetList(self, allocator, pipelineState);
+        try
+        {
+            return ResetList(self, allocator, pipelineState);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.ResetX");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>Slot 32: the desktop heaps behind the game's heaps.</summary>
@@ -92,79 +120,142 @@ internal static unsafe class CommandListBindingMethods
     [UnmanagedCallersOnly]
     public static void SetDescriptorHeaps(XboxObject* self, uint count, nint* heaps)
     {
-        var objects = ShimContext.Runtime.D3D12X.Objects;
-        nint* desktop = stackalloc nint[MaxHeaps];
-        uint used = count;
-
-        if (used > MaxHeaps)
+        try
         {
-            used = MaxHeaps;
-        }
+            var objects = ShimContext.Runtime.D3D12X.Objects;
+            nint* desktop = stackalloc nint[MaxHeaps];
+            uint used = count;
 
-        for (uint i = 0; i < used; i++)
+            if (used > MaxHeaps)
+            {
+                used = MaxHeaps;
+            }
+
+            for (uint i = 0; i < used; i++)
+            {
+                desktop[i] = objects.Unwrap(heaps[i]);
+            }
+
+            BindHeaps(self, used, desktop);
+        }
+        catch (Exception exception)
         {
-            desktop[i] = objects.Unwrap(heaps[i]);
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.SetDescriptorHeaps");
         }
-
-        BindHeaps(self, used, desktop);
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetComputeRootSignature(XboxObject* self, nint rootSignature)
     {
-        SetRootSignature(self, rootSignature, true);
+        try
+        {
+            SetRootSignature(self, rootSignature, true);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.SetComputeRootSignature");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetGraphicsRootSignature(XboxObject* self, nint rootSignature)
     {
-        SetRootSignature(self, rootSignature, false);
+        try
+        {
+            SetRootSignature(self, rootSignature, false);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.SetGraphicsRootSignature");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetComputeRootDescriptorTable(XboxObject* self, uint parameter, ulong handle)
     {
-        var bindings = CommandListBindings.Of(self);
-        UserData.Write(bindings, true, parameter, 0, TableAddress(bindings, true, parameter, handle));
+        try
+        {
+            var bindings = CommandListBindings.Of(self);
+            UserData.Write(bindings, true, parameter, 0, TableAddress(bindings, true, parameter, handle));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.SetComputeRootDescriptorTable");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetGraphicsRootDescriptorTable(XboxObject* self, uint parameter, ulong handle)
     {
-        var bindings = CommandListBindings.Of(self);
-        UserData.Write(bindings, false, parameter, 0, TableAddress(bindings, false, parameter, handle));
+        try
+        {
+            var bindings = CommandListBindings.Of(self);
+            UserData.Write(bindings, false, parameter, 0, TableAddress(bindings, false, parameter, handle));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.SetGraphicsRootDescriptorTable");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetComputeRoot32BitConstant(XboxObject* self, uint parameter, uint value, uint offset)
     {
-        UserData.Write(CommandListBindings.Of(self), true, parameter, offset, value);
+        try
+        {
+            UserData.Write(CommandListBindings.Of(self), true, parameter, offset, value);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.SetComputeRoot32BitConstant");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetGraphicsRoot32BitConstant(XboxObject* self, uint parameter, uint value, uint offset)
     {
-        UserData.Write(CommandListBindings.Of(self), false, parameter, offset, value);
+        try
+        {
+            UserData.Write(CommandListBindings.Of(self), false, parameter, offset, value);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.SetGraphicsRoot32BitConstant");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetComputeRoot32BitConstants(XboxObject* self, uint parameter, uint count, uint* values, uint offset)
     {
-        WriteConstants(CommandListBindings.Of(self), true, parameter, count, values, offset);
+        try
+        {
+            WriteConstants(CommandListBindings.Of(self), true, parameter, count, values, offset);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.SetComputeRoot32BitConstants");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetGraphicsRoot32BitConstants(XboxObject* self, uint parameter, uint count, uint* values, uint offset)
     {
-        WriteConstants(CommandListBindings.Of(self), false, parameter, count, values, offset);
+        try
+        {
+            WriteConstants(CommandListBindings.Of(self), false, parameter, count, values, offset);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.SetGraphicsRoot32BitConstants");
+        }
     }
 
     /// <summary>
@@ -175,74 +266,109 @@ internal static unsafe class CommandListBindingMethods
     [UnmanagedCallersOnly]
     public static void SetComputeRootAddress(XboxObject* self, uint parameter, ulong address)
     {
-        ShimContext.Runtime.D3D12X.GameMemory.TryFind(address, out _);
-        TransientPoolWatch.Note(address, ListActivity.Of(self)->Pipeline, true);
-        UserData.WriteAddress(CommandListBindings.Of(self), true, parameter, address);
+        try
+        {
+            ShimContext.Runtime.D3D12X.GameMemory.TryFind(address, out _);
+            TransientPoolWatch.Note(address, ListActivity.Of(self)->Pipeline, true);
+            UserData.WriteAddress(CommandListBindings.Of(self), true, parameter, address);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.SetComputeRootAddress");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetGraphicsRootAddress(XboxObject* self, uint parameter, ulong address)
     {
-        ShimContext.Runtime.D3D12X.GameMemory.TryFind(address, out _);
-        TransientPoolWatch.Note(address, ListActivity.Of(self)->Pipeline, false);
-        UserData.WriteAddress(CommandListBindings.Of(self), false, parameter, address);
+        try
+        {
+            ShimContext.Runtime.D3D12X.GameMemory.TryFind(address, out _);
+            TransientPoolWatch.Note(address, ListActivity.Of(self)->Pipeline, false);
+            UserData.WriteAddress(CommandListBindings.Of(self), false, parameter, address);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.SetGraphicsRootAddress");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void DrawInstanced(XboxObject* self, uint vertices, uint instances, uint firstVertex, uint firstInstance)
     {
-        if (PipelinePending(self))
+        try
         {
-            return;
+            if (PipelinePending(self))
+            {
+                return;
+            }
+
+            Flush(self, false);
+            ListActivity.Of(self)->Draws++;
+            GpuBreadcrumbs.Before(self, MarkedKind.Draw, vertices, instances, 0);
+
+            ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
+            ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, vertices, instances);
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, uint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDrawInstanced))(inner, vertices, instances, firstVertex, firstInstance);
+            ShimContext.Runtime.D3D12X.DrawTrace?.AfterDraw(self);
         }
-
-        Flush(self, false);
-        ListActivity.Of(self)->Draws++;
-        GpuBreadcrumbs.Before(self, MarkedKind.Draw, vertices, instances, 0);
-
-        ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
-        ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, vertices, instances);
-        nint inner = self->Inner;
-        ((delegate* unmanaged<nint, uint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDrawInstanced))(inner, vertices, instances, firstVertex, firstInstance);
-        ShimContext.Runtime.D3D12X.DrawTrace?.AfterDraw(self);
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.DrawInstanced");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void DrawIndexedInstanced(XboxObject* self, uint indices, uint instances, uint firstIndex, int baseVertex, uint firstInstance)
     {
-        if (PipelinePending(self))
+        try
         {
-            return;
+            if (PipelinePending(self))
+            {
+                return;
+            }
+
+            Flush(self, false);
+            ListActivity.Of(self)->Draws++;
+            GpuBreadcrumbs.Before(self, MarkedKind.Draw, indices, instances, 0);
+
+            ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
+            ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, indices, instances);
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, uint, uint, uint, int, uint, void>)ComObject.Slot(inner, DesktopDrawIndexedInstanced))(inner, indices, instances, firstIndex, baseVertex, firstInstance);
+            ShimContext.Runtime.D3D12X.DrawTrace?.AfterDraw(self);
         }
-
-        Flush(self, false);
-        ListActivity.Of(self)->Draws++;
-        GpuBreadcrumbs.Before(self, MarkedKind.Draw, indices, instances, 0);
-
-        ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
-        ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, indices, instances);
-        nint inner = self->Inner;
-        ((delegate* unmanaged<nint, uint, uint, uint, int, uint, void>)ComObject.Slot(inner, DesktopDrawIndexedInstanced))(inner, indices, instances, firstIndex, baseVertex, firstInstance);
-        ShimContext.Runtime.D3D12X.DrawTrace?.AfterDraw(self);
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.DrawIndexedInstanced");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void Dispatch(XboxObject* self, uint x, uint y, uint z)
     {
-        if (ComputeChainBroken(self, producer: true))
+        try
         {
-            return;
-        }
+            if (ComputeChainBroken(self, producer: true))
+            {
+                return;
+            }
 
-        Flush(self, true);
-        ListActivity.Of(self)->Dispatches++;
-        GpuBreadcrumbs.Before(self, MarkedKind.Dispatch, x, y, z);
-        nint inner = self->Inner;
-        ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDispatch))(inner, x, y, z);
+            Flush(self, true);
+            ListActivity.Of(self)->Dispatches++;
+            GpuBreadcrumbs.Before(self, MarkedKind.Dispatch, x, y, z);
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDispatch))(inner, x, y, z);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.Dispatch");
+        }
     }
 
     /// <summary>Slot 61: (signature, max count, argument buffer, offset, count buffer, offset) with wrapped objects.</summary>
@@ -250,45 +376,52 @@ internal static unsafe class CommandListBindingMethods
     [UnmanagedCallersOnly]
     public static void ExecuteIndirect(XboxObject* self, nint signature, uint maxCount, nint arguments, ulong argumentOffset, nint count, ulong countOffset)
     {
-        bool consumer = EmptyIndirectAfterSkip && CommandListBindings.Of(self)->ProducerSkipped != 0;
-
-        if (ComputeChainBroken(self, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind))
+        try
         {
-            return;
-        }
+            bool consumer = EmptyIndirectAfterSkip && CommandListBindings.Of(self)->ProducerSkipped != 0;
 
-        // Its arguments, counts and offsets may come from the skipped pass: stale, so it runs nothing.
-        if (consumer)
+            if (ComputeChainBroken(self, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind))
+            {
+                return;
+            }
+
+            // Its arguments, counts and offsets may come from the skipped pass: stale, so it runs nothing.
+            if (consumer)
+            {
+                ShimContext.Runtime.D3D12X.Pipelines?.StandIns.SkippedAfterChain();
+
+                return;
+            }
+
+            Flush(self, false);
+            Flush(self, true);
+            ListActivity.Of(self)->Indirect++;
+            GpuBreadcrumbs.BeforeIndirect(self, signature, maxCount, ArgumentAddress(arguments, argumentOffset));
+
+            var objects = ShimContext.Runtime.D3D12X.Objects;
+            nint inner = self->Inner;
+            var execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
+
+            nint argumentBuffer = BufferCopies.Desktop(arguments, ref argumentOffset);
+            nint countBuffer = BufferCopies.Desktop(count, ref countOffset);
+
+            if (IndirectClamp.Record(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
+            {
+                RestoreCompute(self);
+                inner = self->Inner;
+                execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
+                execute(inner, objects.Unwrap(signature), maxCount, scratch, scratchOffset, countBuffer, countOffset);
+                IndirectClamp.Done(self, scratch);
+
+                return;
+            }
+
+            execute(inner, objects.Unwrap(signature), maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+        }
+        catch (Exception exception)
         {
-            ShimContext.Runtime.D3D12X.Pipelines?.StandIns.SkippedAfterChain();
-
-            return;
+            UnmanagedGuard.Caught(exception, "CommandListBindingMethods.ExecuteIndirect");
         }
-
-        Flush(self, false);
-        Flush(self, true);
-        ListActivity.Of(self)->Indirect++;
-        GpuBreadcrumbs.BeforeIndirect(self, signature, maxCount, ArgumentAddress(arguments, argumentOffset));
-
-        var objects = ShimContext.Runtime.D3D12X.Objects;
-        nint inner = self->Inner;
-        var execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
-
-        nint argumentBuffer = BufferCopies.Desktop(arguments, ref argumentOffset);
-        nint countBuffer = BufferCopies.Desktop(count, ref countOffset);
-
-        if (IndirectClamp.Record(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
-        {
-            RestoreCompute(self);
-            inner = self->Inner;
-            execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
-            execute(inner, objects.Unwrap(signature), maxCount, scratch, scratchOffset, countBuffer, countOffset);
-            IndirectClamp.Done(self, scratch);
-
-            return;
-        }
-
-        execute(inner, objects.Unwrap(signature), maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
     }
 
     /// <summary>After the argument clamp's dispatch: the list's compute root signature, user data and pipeline again.</summary>

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Storage;
@@ -21,6 +22,15 @@ internal static unsafe partial class DStorageShim
     [UnmanagedCallersOnly]
     private static int DStorageGetFactory(Guid* iid, nint* factory)
     {
-        return ShimContext.Runtime.Storage.GetFactory(iid, factory);
+        try
+        {
+            return ShimContext.Runtime.Storage.GetFactory(iid, factory);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "DStorageShim.DStorageGetFactory");
+
+            return HResult.Fail;
+        }
     }
 }

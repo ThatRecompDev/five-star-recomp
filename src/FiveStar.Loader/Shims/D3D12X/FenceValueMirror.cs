@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X;
@@ -121,7 +122,16 @@ internal sealed unsafe class FenceValueMirror : IDisposable
     [UnmanagedCallersOnly]
     public static ulong* CompletedValueAddress(XboxFenceObject* self)
     {
-        return ShimContext.Runtime.D3D12X.Fences.Track(self);
+        try
+        {
+            return ShimContext.Runtime.D3D12X.Fences.Track(self);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FenceValueMirror.CompletedValueAddress");
+
+            return default;
+        }
     }
 
     /// <summary>The longest Signal-to-cell time (Stopwatch ticks) since the last call, then starts over.</summary>
@@ -135,7 +145,16 @@ internal sealed unsafe class FenceValueMirror : IDisposable
     [UnmanagedCallersOnly]
     public static int QueueSignal(XboxObject* queue, nint fence, ulong value)
     {
-        return Signal(queue, fence, value);
+        try
+        {
+            return Signal(queue, fence, value);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FenceValueMirror.QueueSignal");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>Notes the Signal on a wrapped fence and forwards it to the desktop queue.</summary>
@@ -161,26 +180,44 @@ internal sealed unsafe class FenceValueMirror : IDisposable
     [UnmanagedCallersOnly]
     public static int QueueWait(XboxObject* queue, nint fence, ulong value)
     {
-        nint inner = ShimContext.Runtime.D3D12X.Objects.Unwrap(fence);
-        QueueProgress.FenceCall(queue, QueueEventKind.Wait, fence, value);
+        try
+        {
+            nint inner = ShimContext.Runtime.D3D12X.Objects.Unwrap(fence);
+            QueueProgress.FenceCall(queue, QueueEventKind.Wait, fence, value);
 
-        return ((delegate* unmanaged<nint, nint, ulong, int>)ComObject.Slot(queue->Inner, DesktopQueueWaitSlot))(queue->Inner, inner, value);
+            return ((delegate* unmanaged<nint, nint, ulong, int>)ComObject.Slot(queue->Inner, DesktopQueueWaitSlot))(queue->Inner, inner, value);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FenceValueMirror.QueueWait");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>Fence slot 2: Release that drops the fence from the mirror with the last reference.</summary>
     [UnmanagedCallersOnly]
     public static uint ReleaseFence(XboxFenceObject* self)
     {
-        nint inner = self->Header.Inner;
-        uint left = ((delegate* unmanaged<nint, uint>)ComObject.Slot(inner, ComObject.ReleaseSlot))(inner);
-
-        if (left == 0)
+        try
         {
-            ShimContext.Runtime.D3D12X.Fences.Forget(self);
-            NativeMemory.Free(self);
-        }
+            nint inner = self->Header.Inner;
+            uint left = ((delegate* unmanaged<nint, uint>)ComObject.Slot(inner, ComObject.ReleaseSlot))(inner);
 
-        return left;
+            if (left == 0)
+            {
+                ShimContext.Runtime.D3D12X.Fences.Forget(self);
+                NativeMemory.Free(self);
+            }
+
+            return left;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FenceValueMirror.ReleaseFence");
+
+            return default;
+        }
     }
 
     private void NoteLatency(XboxFenceObject* fence, ulong value)

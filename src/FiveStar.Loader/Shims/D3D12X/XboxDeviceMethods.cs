@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X;
@@ -22,37 +23,55 @@ internal static unsafe class XboxDeviceMethods
     [UnmanagedCallersOnly]
     public static int CreateCommandQueue(XboxObject* self, CommandQueueDescription* description, Guid* iid, nint* queue)
     {
-        if (self == null || description == null)
+        try
         {
-            return HResult.InvalidArgument;
+            if (self == null || description == null)
+            {
+                return HResult.InvalidArgument;
+            }
+
+            var desktop = *description;
+            desktop.Flags &= DesktopQueueFlags;
+            nint inner = self->Inner;
+            var create = (delegate* unmanaged<nint, CommandQueueDescription*, Guid*, nint*, int>)(*(nint**)inner)[DesktopCreateCommandQueueSlot];
+            int hr = create(inner, &desktop, iid, queue);
+
+            string desc = $"type {description->Type}, priority {description->Priority}, flags 0x{description->Flags:x}, node 0x{description->NodeMask:x}";
+            ShimContext.Runtime.Log.Detail($"  [d3d12_xs] ID3D12Device.X::Slot48 CreateCommandQueue({desc}) -> {HResult.Format(hr)}");
+
+            return ShimContext.Runtime.D3D12X.Objects.WrapResult(hr, XboxInterfaceKind.CommandQueue, queue);
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxDeviceMethods.CreateCommandQueue");
 
-        var desktop = *description;
-        desktop.Flags &= DesktopQueueFlags;
-        nint inner = self->Inner;
-        var create = (delegate* unmanaged<nint, CommandQueueDescription*, Guid*, nint*, int>)(*(nint**)inner)[DesktopCreateCommandQueueSlot];
-        int hr = create(inner, &desktop, iid, queue);
-
-        string desc = $"type {description->Type}, priority {description->Priority}, flags 0x{description->Flags:x}, node 0x{description->NodeMask:x}";
-        ShimContext.Runtime.Log.Detail($"  [d3d12_xs] ID3D12Device.X::Slot48 CreateCommandQueue({desc}) -> {HResult.Format(hr)}");
-
-        return ShimContext.Runtime.D3D12X.Objects.WrapResult(hr, XboxInterfaceKind.CommandQueue, queue);
+            return HResult.Fail;
+        }
     }
 
     /// <summary>Slot 73: (desc, allocator, PSO, REFIID, void**). The list is wrapped whatever IID the game asks for.</summary>
     [UnmanagedCallersOnly]
     public static int CreateCommandList(XboxObject* self, CommandListDescription* description, nint allocator, nint pipelineState, Guid* iid, nint* list)
     {
-        if (self == null || description == null)
+        try
         {
-            return HResult.InvalidArgument;
+            if (self == null || description == null)
+            {
+                return HResult.InvalidArgument;
+            }
+
+            var lists = ShimContext.Runtime.D3D12X.CommandLists;
+            int hr = lists.Create(self->Inner, description->Type, allocator, pipelineState, list);
+            ShimContext.Runtime.Log.Detail($"  [d3d12_xs] ID3D12Device.X::Slot73 CreateCommandList(type {description->Type}, dword1 {description->Unknown1}, dword2 {description->Unknown2}, dword3 {description->Unknown3}) -> {HResult.Format(hr)}");
+
+            return hr;
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxDeviceMethods.CreateCommandList");
 
-        var lists = ShimContext.Runtime.D3D12X.CommandLists;
-        int hr = lists.Create(self->Inner, description->Type, allocator, pipelineState, list);
-        ShimContext.Runtime.Log.Detail($"  [d3d12_xs] ID3D12Device.X::Slot73 CreateCommandList(type {description->Type}, dword1 {description->Unknown1}, dword2 {description->Unknown2}, dword3 {description->Unknown3}) -> {HResult.Format(hr)}");
-
-        return hr;
+            return HResult.Fail;
+        }
     }
 
     /// <summary>
@@ -62,12 +81,21 @@ internal static unsafe class XboxDeviceMethods
     [UnmanagedCallersOnly]
     public static int CreatePlacedResource(XboxObject* self, ulong address, ResourceDescription* description, uint state, void* clear, Guid* iid, nint* resource)
     {
-        if (self == null || description == null || resource == null)
+        try
         {
-            return HResult.InvalidArgument;
-        }
+            if (self == null || description == null || resource == null)
+            {
+                return HResult.InvalidArgument;
+            }
 
-        return ShimContext.Runtime.D3D12X.PlacedResources.Create(self->Inner, address, description, (int)state, clear, resource);
+            return ShimContext.Runtime.D3D12X.PlacedResources.Create(self->Inner, address, description, (int)state, clear, resource);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxDeviceMethods.CreatePlacedResource");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>
@@ -79,12 +107,21 @@ internal static unsafe class XboxDeviceMethods
     [UnmanagedCallersOnly]
     public static int CreateCommittedResource(XboxObject* self, void* properties, int heapFlags, ResourceDescription* description, int initialLayout, void* clear, nint protectedSession, uint castableCount, void* castableFormats, Guid* iid, nint* resource)
     {
-        if (self == null || description == null || resource == null)
+        try
         {
-            return HResult.InvalidArgument;
-        }
+            if (self == null || description == null || resource == null)
+            {
+                return HResult.InvalidArgument;
+            }
 
-        return ShimContext.Runtime.D3D12X.CommittedResources.Create(self->Inner, properties, heapFlags, description, initialLayout, clear, iid, resource);
+            return ShimContext.Runtime.D3D12X.CommittedResources.Create(self->Inner, properties, heapFlags, description, initialLayout, clear, iid, resource);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxDeviceMethods.CreateCommittedResource");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>
@@ -95,13 +132,22 @@ internal static unsafe class XboxDeviceMethods
     [UnmanagedCallersOnly]
     public static int RegisterGpuRange(XboxObject* self, nint address, uint pages, ulong* output)
     {
-        if (output != null)
+        try
         {
-            *output = 0;
+            if (output != null)
+            {
+                *output = 0;
+            }
+
+            ShimContext.Runtime.Log.Detail($"  [d3d12_xs] ID3D12Device.X::Slot74(0x{address:x}, {pages} pages) -> S_OK (no-op)");
+
+            return HResult.Ok;
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxDeviceMethods.RegisterGpuRange");
 
-        ShimContext.Runtime.Log.Detail($"  [d3d12_xs] ID3D12Device.X::Slot74(0x{address:x}, {pages} pages) -> S_OK (no-op)");
-
-        return HResult.Ok;
+            return HResult.Fail;
+        }
     }
 }

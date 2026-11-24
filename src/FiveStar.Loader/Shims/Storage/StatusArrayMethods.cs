@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Storage;
@@ -43,43 +44,79 @@ internal static unsafe class StatusArrayMethods
     [UnmanagedCallersOnly]
     private static uint AddRef(nint self)
     {
-        return StorageObjects.AddRef(self);
+        try
+        {
+            return StorageObjects.AddRef(self);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StatusArrayMethods.AddRef");
+
+            return default;
+        }
     }
 
     [UnmanagedCallersOnly]
     private static uint Release(nint self)
     {
-        return ReleaseArray(self);
+        try
+        {
+            return ReleaseArray(self);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StatusArrayMethods.Release");
+
+            return default;
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     private static byte IsComplete(nint self, uint index)
     {
-        if (index >= (uint)((StorageObjectHeader*)self)->Count)
+        try
         {
-            return 1;
-        }
+            if (index >= (uint)((StorageObjectHeader*)self)->Count)
+            {
+                return 1;
+            }
 
-        return (byte)Volatile.Read(ref StorageObjects.Entries(self)[index].Complete);
+            return (byte)Volatile.Read(ref StorageObjects.Entries(self)[index].Complete);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StatusArrayMethods.IsComplete");
+
+            return default;
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     private static int GetHResult(nint self, uint index)
     {
-        if (index >= (uint)((StorageObjectHeader*)self)->Count)
+        try
         {
-            return HResult.InvalidArgument;
+            if (index >= (uint)((StorageObjectHeader*)self)->Count)
+            {
+                return HResult.InvalidArgument;
+            }
+
+            ref var entry = ref StorageObjects.Entries(self)[index];
+
+            if (Volatile.Read(ref entry.Complete) == 0)
+            {
+                return HResult.Pending;
+            }
+
+            return entry.Result;
         }
-
-        ref var entry = ref StorageObjects.Entries(self)[index];
-
-        if (Volatile.Read(ref entry.Complete) == 0)
+        catch (Exception exception)
         {
-            return HResult.Pending;
-        }
+            UnmanagedGuard.Caught(exception, "StatusArrayMethods.GetHResult");
 
-        return entry.Result;
+            return HResult.Fail;
+        }
     }
 }
