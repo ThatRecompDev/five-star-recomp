@@ -211,6 +211,8 @@ internal sealed class CommandLineParser
                 return true;
             case "--shader-jobs":
                 return SetShaderJobs();
+            case "--shader-backend":
+                return SetShaderBackend();
             default:
                 return ApplyMemory(option);
         }
@@ -247,6 +249,20 @@ internal sealed class CommandLineParser
     private bool SetShaderJobs()
     {
         _options.ShaderJobs = int.Parse(Next(), CultureInfo.InvariantCulture);
+
+        return true;
+    }
+
+    private bool SetShaderBackend()
+    {
+        var backend = Next();
+
+        if (backend is not ("dxil" or "dxc"))
+        {
+            throw new CommandLineException($"--shader-backend {backend}: expected dxil or dxc");
+        }
+
+        _options.DxcBackend = backend == "dxc";
 
         return true;
     }

@@ -138,7 +138,8 @@ public static class FeatureScan
     private const int BitsPerByte = 8;
     private const int SamplerOperand = 2;
 
-    // The texel offset operands of the texture operations (after the opcode, handle, sampler and coordinates).
+    // The texel offset operands of the texture operations (after the opcode, handle, sampler and coordinates). Gathers
+    // are not here: their offsets may be computed since shader model 5, and the validator rejects the flag for them.
     private static readonly Dictionary<DxOpCode, (int First, int Count)> OffsetOperands = new()
     {
         [DxOpCode.Sample] = (7, 3),
@@ -148,8 +149,6 @@ public static class FeatureScan
         [DxOpCode.SampleCmp] = (7, 3),
         [DxOpCode.SampleCmpLevelZero] = (7, 3),
         [DxOpCode.TextureLoad] = (6, 3),
-        [DxOpCode.TextureGather] = (7, 2),
-        [DxOpCode.TextureGatherCmp] = (7, 2),
     };
 
     private static readonly HashSet<DxOpCode> WaveOperations =

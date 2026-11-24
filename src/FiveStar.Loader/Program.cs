@@ -4,6 +4,7 @@
 using FiveStar.Loader.Calls;
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Host;
+using FiveStar.Loader.Shims.D3D12X.Pipelines;
 
 namespace FiveStar.Loader;
 
@@ -12,6 +13,11 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == CompileHostProtocol.Mode)
+        {
+            return CompileHostServer.Run(args);
+        }
+
         var options = Parse(args);
 
         if (options is null)

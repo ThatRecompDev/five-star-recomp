@@ -30,19 +30,52 @@ internal sealed class OnDemandStart
     private const string HlslExtension = ".hlsl";
     private const string GeometryProfile = "gs";
 
-    private readonly Task<string> _identity;
-    private readonly DxcLibraryCompiler _compiler;
+    private const string WarmUpSource = """
+        #define VW_WAVE 64
+        #define VW_EMULATE 1
+        #include "rdna_prelude.hlsli"
+        [numthreads(64, 1, 1)]
+        void main(uint3 id : SV_DispatchThreadID) {
+          uint v0 = WaveActiveSum(id.x);
+          if (v0 > 3u) { v0 = v0 * 2u; }
+        }
+        """;
 
-    private OnDemandStart(string root, DxcLibraryCompiler compiler, int jobs)
+    private const string ComputeProfile = "cs";
+    private const string WarmUpFile = "warm-up.hlsl";
+
+    private readonly Task<string> _identity;
+    private readonly IShaderCompiler _compiler;
+    private readonly DxilBackendCompiler? _backend;
+    private readonly IBackendRunner? _runner;
+
+    private OnDemandStart(string root, IShaderCompiler compiler, DxilBackendCompiler? backend, IBackendRunner? runner, int jobs)
     {
         Root = root;
         Jobs = jobs;
         _compiler = compiler;
+        _backend = backend;
+        _runner = runner;
         _identity = Task.Run(() => Identity(compiler));
+
+        if (runner is not null)
+        {
+            _ = Task.Run(WarmUp);
+        }
+    }
+
+    /// <summary>
+    /// Compiles a small program, so the compile host is running and the backend's code jitted before a game thread
+    /// compiles a program inline.
+    /// </summary>
+    private void WarmUp()
+    {
+        Directory.CreateDirectory(Root);
+        _runner!.Run(new CompileRequest(Path.Combine(Root, WarmUpFile), WarmUpSource, ComputeProfile, DisableOptimizations: false));
     }
 
     /// <summary>The translator and compiler build's identity; programs that trace their stores (--trace-pool-stores) have their own.</summary>
-    private static string Identity(DxcLibraryCompiler compiler)
+    private static string Identity(IShaderCompiler compiler)
     {
         string identity = ContentHash.OfText(ShadersIdentity(), nameof(RdnaDecoder), CorpusOptions.DefaultTranslation.ToString(), compiler.Identity);
 
@@ -74,8 +107,31 @@ internal sealed class OnDemandStart
         return File.ReadAllBytes(request.DxilPath);
     };
 
-    /// <summary>Starts the identity hash; null with a message when no dxcompiler.dll is found.</summary>
-    public static OnDemandStart? Begin(string root, string? dxc, int? jobs, out string message)
+    /// <summary>Programs the backend compiled and handed to dxc, for the summary; empty with dxc alone.</summary>
+    public string BackendCounts
+    {
+        get
+        {
+            if (_backend is null)
+            {
+                return string.Empty;
+            }
+
+            if (_runner is CompileHost host)
+            {
+                return $", {_backend.Summary}, {host.Summary}";
+            }
+
+            return ", " + _backend.Summary;
+        }
+    }
+
+    /// <summary>
+    /// Starts the identity hash; null with a message when no dxcompiler.dll is found. Programs compile with the DXIL
+    /// backend, validated by dxil.dll, and with dxc when it cannot lower them or the validator rejects them; with
+    /// <paramref name="dxcOnly"/> with dxc alone.
+    /// </summary>
+    public static OnDemandStart? Begin(string root, string? dxc, bool dxcOnly, int? jobs, out string message)
     {
         var library = FindLibrary(dxc);
 
@@ -86,10 +142,35 @@ internal sealed class OnDemandStart
             return null;
         }
 
-        message = $"programs made on demand with {library} into {root}";
-        var compiler = new DxcLibraryCompiler(DxcOptions.Defaults(library, retry: false));
+        var dxcCompiler = new DxcLibraryCompiler(DxcOptions.Defaults(library, retry: false));
+        jobs ??= Math.Max(1, Environment.ProcessorCount / ProcessorsPerJob);
 
-        return new OnDemandStart(root, compiler, jobs ?? Math.Max(1, Environment.ProcessorCount / ProcessorsPerJob));
+        if (dxcOnly)
+        {
+            message = $"programs made on demand with {library} into {root}";
+
+            return new OnDemandStart(root, dxcCompiler, null, null, jobs.Value);
+        }
+
+        var validator = DxilBackendCompiler.ValidatorBeside(library);
+        var runner = Runner(validator);
+        var backend = new DxilBackendCompiler(dxcCompiler.Options, dxcCompiler, runner);
+        message = $"programs made on demand with the DXIL backend in a compile host (validated by {validator ?? "nothing: no dxil.dll"}), {library} for the rest, into {root}";
+
+        return new OnDemandStart(root, backend, backend, runner, jobs.Value);
+    }
+
+    /// <summary>The backend in a compile host process (the loader itself), or in this process when the loader's path is unknown.</summary>
+    private static IBackendRunner Runner(string? validator)
+    {
+        var executable = Environment.ProcessPath;
+
+        if (executable is null)
+        {
+            return new InProcessBackend(validator);
+        }
+
+        return new CompileHost(executable, validator);
     }
 
     /// <summary>The identity, waiting for it; <paramref name="waited"/> is the time spent waiting.</summary>
@@ -130,7 +211,7 @@ internal sealed class OnDemandStart
         workers.Start();
         log.Detail($"  [d3d12_xs] programs on demand: {folder}, {Jobs} threads and one for heavy compiles, {slow.Count} sources slow at -O3");
 
-        return new OnDemandPrograms(index, ahead, new ProgramProducer(programs, folder, picker, compiler, slow), workers, warnings);
+        return new OnDemandPrograms(index, ahead, new ProgramProducer(programs, folder, picker, compiler, slow), workers, warnings, () => BackendCounts);
     }
 
     /// <summary>The adapter facts that pick a program's form: shader model, wave lane range, mesh-shader tier.</summary>

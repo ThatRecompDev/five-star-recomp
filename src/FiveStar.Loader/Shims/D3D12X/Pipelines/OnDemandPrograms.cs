@@ -24,6 +24,7 @@ internal sealed class OnDemandPrograms : IProgramLibrary
     private readonly ProgramProducer _producer;
     private readonly ProgramWorkers _workers;
     private readonly OnceLog _warnings;
+    private readonly Func<string>? _compilerCounts;
     private readonly ConcurrentDictionary<string, ProgramJob> _jobs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, int> _failures = new(StringComparer.Ordinal);
     private int _made;
@@ -37,14 +38,17 @@ internal sealed class OnDemandPrograms : IProgramLibrary
     /// <param name="producer">Makes a program's DXIL into the program cache folder.</param>
     /// <param name="workers">Runs the production (started by the caller).</param>
     /// <param name="warnings">Where failures are reported, once per program.</param>
-    public OnDemandPrograms(ProgramIndex index, TranslatedProgramLibrary? translated, ProgramProducer producer, ProgramWorkers workers, OnceLog warnings)
+    /// <param name="compilerCounts">The compiler's own counts for the summary (which compiler made the programs); null for none.</param>
+    public OnDemandPrograms(ProgramIndex index, TranslatedProgramLibrary? translated, ProgramProducer producer, ProgramWorkers workers, OnceLog warnings, Func<string>? compilerCounts)
     {
         _index = index;
         _translated = translated;
         _compiled = new TranslatedProgramLibrary(index, producer.Folder, null);
+
         _producer = producer;
         _workers = workers;
         _warnings = warnings;
+        _compilerCounts = compilerCounts;
 
         Links = new ProducerLinks(producer, workers);
     }
@@ -65,7 +69,7 @@ internal sealed class OnDemandPrograms : IProgramLibrary
             var failed = _failures.Values.Sum();
             var causes = string.Join("; ", _failures.OrderByDescending(entry => entry.Value).Take(CausesShown).Select(entry => $"{entry.Value} {entry.Key}"));
 
-            return $"programs on demand: {_jobs.Count} asked for, {Volatile.Read(ref _made)} translated and compiled, {Volatile.Read(ref _found)} found compiled, ready after {average:F1} s on average and {slowest:F0} s at most, {failed} failed ({causes}), {_workers.Backlog} queued, {_workers.Running} running, {_workers.WaitingForMemory} waiting for memory, {Links.Summary}";
+            return $"programs on demand: {_jobs.Count} asked for, {Volatile.Read(ref _made)} translated and compiled, {Volatile.Read(ref _found)} found compiled{_compilerCounts?.Invoke()}, ready after {average:F1} s on average and {slowest:F0} s at most, {failed} failed ({causes}), {_workers.Backlog} queued, {_workers.Running} running, {_workers.WaitingForMemory} waiting for memory, {Links.Summary}";
         }
     }
 
