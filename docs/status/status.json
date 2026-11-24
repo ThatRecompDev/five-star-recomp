@@ -71,10 +71,17 @@
         },
         {
           "name": "Story load",
+          "done": 1,
+          "partial": 0,
+          "todo": 0,
+          "note": "finishes; the opening cutscene starts"
+        },
+        {
+          "name": "Opening cutscene",
           "done": 0,
           "partial": 1,
           "todo": 0,
-          "note": "runs 300 s without a fault; the load does not finish yet"
+          "note": "art, credit cards and sound; below 2 fps"
         },
         {
           "name": "In game",
@@ -210,7 +217,7 @@
       "items": [
         {
           "name": "Story load",
-          "note": "the story load does not finish within 300 s"
+          "note": "the opening cutscene runs below 2 fps"
         },
         {
           "name": "Brightness symbol",
