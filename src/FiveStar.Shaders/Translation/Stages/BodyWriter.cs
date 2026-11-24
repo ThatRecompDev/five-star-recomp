@@ -23,6 +23,13 @@ internal sealed class BodyWriter
         "    if (pc == PC_END) break;", "    GroupMemoryBarrierWithGroupSync();", "    pc = pc_resume;", "  }",
     ];
 
+    // Phase two when none of its blocks yields: the barrier could never run, and NVIDIA's driver (RTX 5070, 621.40) hangs
+    // the group on dxc's optimized form of the program while it is there.
+    private static readonly string[] PhaseTwoEndWithoutYield =
+    [
+        "    if (pc == PC_END) break;", "    pc = pc_resume;", "  }",
+    ];
+
     // Phase one also stops once the output counts are known.
     private static readonly string[] PhaseOneEnd =
     [
@@ -163,7 +170,8 @@ internal sealed class BodyWriter
     /// <summary>
     /// Phase 1 runs without output writes until the first barrier after GS_ALLOC_REQ; SetMeshOutputCounts then
     /// dominates every output write; phase 2 resumes with direct exports. Barriers stay at the top level of the outer
-    /// loop (a barrier inside the switch, even in a block never re-entered, crashes WARP's shader compiler).
+    /// loop (a barrier inside the switch, even in a block never re-entered, crashes WARP's shader compiler). Phase 2 has
+    /// a barrier only when a block it can run yields (<see cref="PhaseTwoYields"/>).
     /// </summary>
     private List<string> Phases(Func<bool, List<string>> phase)
     {
@@ -174,9 +182,60 @@ internal sealed class BodyWriter
         lines.Add($"  SetMeshOutputCounts(min(g_ms_nv, {_mesh.MaxVertices}u), min(g_ms_np, {_mesh.MaxPrimitives}u));");
         lines.Add("  [loop] for (;;) {");
         lines.AddRange(phase(false));
-        lines.AddRange(PhaseTwoEnd);
+
+        if (PhaseTwoYields())
+        {
+            lines.AddRange(PhaseTwoEnd);
+        }
+        else
+        {
+            lines.AddRange(PhaseTwoEndWithoutYield);
+        }
 
         return lines;
+    }
+
+    /// <summary>
+    /// Whether phase 2 can reach a yield: it starts at the resume points of the yields (phase 1 ends after a barrier),
+    /// and runs from each through the graph to the next yield or the end.
+    /// </summary>
+    private bool PhaseTwoYields()
+    {
+        var graph = new FlowGraph(_state.Blocks);
+        var pending = new Stack<int>();
+        var seen = new HashSet<int>();
+
+        foreach (var block in _state.Blocks.Where(block => block.Exit.Kind == BlockExitKind.Yield))
+        {
+            var resume = block.Exit.Target is null ? null : graph.NodeAt(block.Exit.Target.Value);
+
+            if (resume is not null)
+            {
+                pending.Push(resume.Value);
+            }
+        }
+
+        while (pending.Count > 0)
+        {
+            var node = pending.Pop();
+
+            if (node == graph.End || !seen.Add(node))
+            {
+                continue;
+            }
+
+            if (graph.Blocks[node].Exit.Kind == BlockExitKind.Yield)
+            {
+                return true;
+            }
+
+            foreach (var next in graph.Successors[node])
+            {
+                pending.Push(next);
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
