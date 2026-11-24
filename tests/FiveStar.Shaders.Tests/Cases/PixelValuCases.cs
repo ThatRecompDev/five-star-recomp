@@ -19,6 +19,7 @@ public static class PixelValuCases
             RoundLdexp(),
             Modifiers(),
             HalfArithmetic(),
+            HalfInlineConstants(),
             Multiply24(),
             BitField(),
             AlignPermute(),
@@ -198,6 +199,24 @@ public static class PixelValuCases
             Program,
             [FloatBits.Half(h(0x3C00) + h(0x1200)), FloatBits.Half(h(0x3555) * h(0x1200)), FloatBits.Half((h(0x3C00) * h(0x1200)) + h(0xBC00)), 0x1200],
             0x3C00, 0x1200, 0x3555, 0xBC00);
+    }
+
+    // An inline float constant of an f16 operation is the f16 value (1.0 is 0x3C00), not the low half of the f32 one.
+    private static PixelCase HalfInlineConstants()
+    {
+        const string Program = """
+            v_mov_b32 v20, 0
+            v_mov_b32 v21, 0
+            v_mov_b32 v22, 0
+            v_mov_b32 v10, s0
+            v_add_f16_e32 v20, 1.0, v10
+            v_mul_f16_e32 v21, -2.0, v10
+            v_fma_f16 v22, v10, 0.5, 4.0
+            """;
+        var h = FloatBits.ExactHalf;
+        var x = h(0x3555);
+
+        return PixelCase.Uniform("f16_inline_constants", Program, [FloatBits.Half(h(0x3C00) + x), FloatBits.Half(h(0xC000) * x), FloatBits.Half((x * h(0x3800)) + h(0x4400))], 0x3555);
     }
 
     // 24-bit operands: the high byte is ignored, i24 is sign-extended.
