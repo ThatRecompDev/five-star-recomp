@@ -45,6 +45,7 @@ internal sealed unsafe class DrawTrace
     private readonly ConcurrentDictionary<nint, string> _views = new();
     private readonly ConcurrentDictionary<nint, ulong> _constantBuffers = new();
     private readonly ConcurrentDictionary<nint, (nint Resource, int Home)> _targetViews = new();
+    private readonly ConcurrentDictionary<nint, string> _targetDescriptions = new();
     private readonly ConcurrentDictionary<nint, DrawTraceList> _lists = new();
     private readonly FrameCapture _capture;
     private readonly DrawProbes _probes;
@@ -113,7 +114,11 @@ internal sealed unsafe class DrawTrace
     {
         var wrapper = _d3d12.Objects.AsResource(resource);
         int home = wrapper == null ? States.ResourceStates.RenderTarget : wrapper->HomeState;
-        _targetViews[handle] = (_d3d12.Objects.Unwrap(resource), home);
+        nint desktop = _d3d12.Objects.Unwrap(resource);
+        _targetViews[handle] = (desktop, home);
+
+        // Described while alive: the census reports targets the game may have released since.
+        _targetDescriptions[desktop] = Describe(desktop);
     }
 
     /// <summary>List slot 50 (<paramref name="single"/> ranges are not followed).</summary>
@@ -229,7 +234,7 @@ internal sealed unsafe class DrawTrace
         if (_capture.Wants(present))
         {
             Volatile.Write(ref _windowEnd, Interlocked.Read(ref _draws) + WindowDraws);
-            _census.Report(present, PipelineName, Describe);
+            _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"));
         }
 
         Volatile.Write(ref _lastPresent, present);
