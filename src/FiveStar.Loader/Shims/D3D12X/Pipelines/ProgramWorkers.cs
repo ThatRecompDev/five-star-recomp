@@ -7,13 +7,17 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 
 /// <summary>
 /// The background threads that translate and compile programs on demand (<see cref="OnDemandPrograms"/>), off the
-/// game's threads. Work a command list waits for goes before prefetched work; compiles of huge sources run on a thread
+/// game's threads. Work a command list waits for goes before prefetched work, and only half the threads take prefetched
+/// work at all; compiles of huge sources run on a thread
 /// of their own, so one compile that takes minutes holds up nothing else. Like pipeline builds, work starts only while
 /// the machine has the memory for it (<see cref="WarmMemoryGuard"/>).
 /// </summary>
 internal sealed class ProgramWorkers
 {
     private const int PauseMilliseconds = 2000;
+
+    // One thread in this many also takes prefetched work.
+    private const int PrefetchShare = 2;
 
     private readonly BlockingCollection<Action> _urgent = [];
     private readonly BlockingCollection<Action> _prefetch = [];
@@ -36,6 +40,12 @@ internal sealed class ProgramWorkers
     /// <summary>The threads for ordinary work.</summary>
     public int Workers { get; }
 
+    /// <summary>
+    /// The threads that also take prefetched work, half of them (at least one): at a warm boot the journal queues a
+    /// thousand programs or more at once, and the others stay free for the work the game waits for.
+    /// </summary>
+    public int PrefetchWorkers => Math.Max(1, Workers / PrefetchShare);
+
     /// <summary>Work queued and not started.</summary>
     public int Backlog => _urgent.Count + _prefetch.Count + _heavy.Count;
 
@@ -48,9 +58,19 @@ internal sealed class ProgramWorkers
     /// <summary>Starts the threads; call once.</summary>
     public void Start()
     {
+        BlockingCollection<Action>[] both = [_urgent, _prefetch];
+        BlockingCollection<Action>[] urgentOnly = [_urgent];
+
         for (int i = 0; i < Workers; i++)
         {
-            new Thread(RunOrdinary) { IsBackground = true, Name = "fivestar program compile" }.Start();
+            var queues = urgentOnly;
+
+            if (i < PrefetchWorkers)
+            {
+                queues = both;
+            }
+
+            new Thread(() => RunOrdinary(queues)) { IsBackground = true, Name = "fivestar program compile" }.Start();
         }
 
         new Thread(RunHeavy) { IsBackground = true, Name = "fivestar heavy program compile" }.Start();
@@ -75,10 +95,8 @@ internal sealed class ProgramWorkers
         _heavy.Add(work);
     }
 
-    private void RunOrdinary()
+    private void RunOrdinary(BlockingCollection<Action>[] queues)
     {
-        BlockingCollection<Action>[] queues = [_urgent, _prefetch];
-
         while (true)
         {
             // Memory first, then the work: a thread waiting for memory holds no work, so urgent work queued meanwhile

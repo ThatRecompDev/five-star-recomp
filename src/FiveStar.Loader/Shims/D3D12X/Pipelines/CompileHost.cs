@@ -1,0 +1,370 @@
+// Copyright (c) 2026 Five Star Recomp contributors.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using FiveStar.Shaders.Compilation;
+
+namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
+
+/// <summary>
+/// Runs the DXIL backend in a child process, the loader itself in <see cref="CompileHostProtocol.Mode"/> with server
+/// GC, so the backend's allocations never pause the game's threads and a compiler crash does not end the game. Requests
+/// from any thread go over one pipe and wait for their answers. A host that ends is started again at the next request;
+/// the requests it held go to dxc. A request not answered within the answer limit goes to dxc too, and a host that
+/// answered nothing meanwhile is wedged and is ended. When no host starts, the backend runs in this process. The
+/// machine-wide memory guards see the host like any other process.
+/// </summary>
+internal sealed class CompileHost : IBackendRunner
+{
+    /// <summary>
+    /// How long a request waits for its answer: the slowest program of the dump took 37 s in the backend (a 4-job
+    /// corpus run), so a wait this long means a wedged host, not a slow compile.
+    /// </summary>
+    public static readonly TimeSpan AnswerLimit = TimeSpan.FromSeconds(120);
+
+    private const int StartAttempts = 3;
+    private const int EndsTolerated = 16;
+    private const string ServerGcVariable = "DOTNET_gcServer";
+    private const string Ended = "the compile host ended";
+    private const string EndedTooOften = "the compile host ended too often";
+    private const string TimedOut = "the compile host did not answer in time";
+    private const double BytesPerGigabyte = 1 << 30;
+
+    private readonly string _executable;
+    private readonly string? _validator;
+    private readonly TimeSpan _answerLimit;
+    private readonly InProcessBackend _here;
+    private readonly Lock _gate = new();
+    private Connection? _connection;
+    private int _starts;
+    private int _failedStarts;
+    private int _ends;
+    private int _timeouts;
+    private int _nextId;
+
+    /// <param name="executable">The loader executable.</param>
+    /// <param name="validator">dxil.dll, whose validator checks every container; null checks none.</param>
+    /// <param name="answerLimit">How long a request waits for its answer (<see cref="AnswerLimit"/>).</param>
+    public CompileHost(string executable, string? validator, TimeSpan answerLimit)
+    {
+        _executable = executable;
+        _validator = validator;
+        _answerLimit = answerLimit;
+        _here = new InProcessBackend(validator);
+    }
+
+    public bool Validates => _validator is not null;
+
+    /// <summary>Hosts started, hosts that ended while running, and the private memory of the current one.</summary>
+    public string Summary
+    {
+        get
+        {
+            var connection = _connection;
+            var gigabytes = 0.0;
+
+            if (connection is not null)
+            {
+                gigabytes = connection.PrivateBytes / BytesPerGigabyte;
+            }
+
+            if (Volatile.Read(ref _failedStarts) >= StartAttempts)
+            {
+                return "compile host: did not start, compiling in this process";
+            }
+
+            return $"compile host: {Volatile.Read(ref _starts)} started, {Volatile.Read(ref _ends)} ended, {Volatile.Read(ref _timeouts)} requests not answered in time, {gigabytes:F1} GB private";
+        }
+    }
+
+    public BackendResult Run(CompileRequest request)
+    {
+        if (Volatile.Read(ref _ends) >= EndsTolerated)
+        {
+            return new BackendResult(BackendVerdict.NotLowered, EndedTooOften);
+        }
+
+        for (var attempt = 0; attempt < StartAttempts; attempt++)
+        {
+            var connection = Connect();
+
+            if (connection is null)
+            {
+                return _here.Run(request);
+            }
+
+            var (result, delivery) = connection.Send(Interlocked.Increment(ref _nextId), request, _answerLimit);
+
+            if (delivery == Delivery.Answered)
+            {
+                return result!;
+            }
+
+            if (delivery == Delivery.TimedOut)
+            {
+                Interlocked.Increment(ref _timeouts);
+
+                return new BackendResult(BackendVerdict.NotLowered, TimedOut);
+            }
+
+            // A host that ended while compiling the request may have ended because of it: dxc takes it. One that had
+            // ended before is replaced.
+            if (delivery == Delivery.Ended)
+            {
+                return new BackendResult(BackendVerdict.NotLowered, Ended);
+            }
+        }
+
+        return new BackendResult(BackendVerdict.NotLowered, Ended);
+    }
+
+    /// <summary>The current host's process id, or null; for tests.</summary>
+    internal int? ProcessId => _connection?.ProcessId;
+
+    /// <summary>Whether a host is running; for tests.</summary>
+    internal bool Running
+    {
+        get
+        {
+            var connection = _connection;
+
+            return connection is not null && connection.Alive;
+        }
+    }
+
+    /// <summary>The running host, started when there is none; null when none starts.</summary>
+    private Connection? Connect()
+    {
+        lock (_gate)
+        {
+            var current = _connection;
+
+            if (current is not null && current.Alive)
+            {
+                return current;
+            }
+
+            // A host that ended before it answered anything did not start.
+            if (current is not null && current.Answered)
+            {
+                _ends++;
+            }
+            else if (current is not null)
+            {
+                _failedStarts++;
+            }
+
+            _connection = null;
+
+            if (_failedStarts >= StartAttempts)
+            {
+                return null;
+            }
+
+            _connection = Connection.Start(_executable, _validator);
+
+            if (_connection is null)
+            {
+                _failedStarts++;
+            }
+            else
+            {
+                _starts++;
+            }
+
+            return _connection;
+        }
+    }
+
+    /// <summary>How a request went.</summary>
+    private enum Delivery
+    {
+        /// <summary>The host answered.</summary>
+        Answered,
+
+        /// <summary>The host had ended before the request reached it.</summary>
+        NotSent,
+
+        /// <summary>The host ended while the request waited.</summary>
+        Ended,
+
+        /// <summary>No answer within the limit.</summary>
+        TimedOut,
+    }
+
+    /// <summary>One host process: a writer for requests and a thread that hands each answer to its waiting request.</summary>
+    private sealed class Connection
+    {
+        private readonly Process _process;
+        private readonly Lock _writing = new();
+        private readonly ConcurrentDictionary<int, TaskCompletionSource<BackendResult?>> _pending = new();
+        private volatile bool _alive = true;
+        private volatile bool _answered;
+        private long _lastAnswer;
+
+        private Connection(Process process)
+        {
+            _process = process;
+            var reader = new Thread(Read) { IsBackground = true, Name = "fivestar compile host reader" };
+            reader.Start();
+        }
+
+        public bool Alive => _alive;
+
+        /// <summary>Whether the host answered a request.</summary>
+        public bool Answered => _answered;
+
+        public long PrivateBytes
+        {
+            get
+            {
+                try
+                {
+                    _process.Refresh();
+
+                    return _process.PrivateMemorySize64;
+                }
+                catch (InvalidOperationException)
+                {
+                    return 0;
+                }
+            }
+        }
+
+        public static Connection? Start(string executable, string? validator)
+        {
+            var start = new ProcessStartInfo(executable)
+            {
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true,
+            };
+            start.ArgumentList.Add(CompileHostProtocol.Mode);
+
+            if (validator is not null)
+            {
+                start.ArgumentList.Add(validator);
+            }
+
+            start.Environment[ServerGcVariable] = "1";
+
+            try
+            {
+                var process = Process.Start(start);
+
+                if (process is null)
+                {
+                    return null;
+                }
+
+                return new Connection(process);
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                return null;
+            }
+        }
+
+        public int ProcessId => _process.Id;
+
+        /// <summary>
+        /// The answer to one request and how it went. A request not answered within <paramref name="limit"/> is given
+        /// up; when the host answered nothing since it was sent, the host is wedged and is ended.
+        /// </summary>
+        public (BackendResult? Result, Delivery Delivery) Send(int id, CompileRequest request, TimeSpan limit)
+        {
+            var answer = new TaskCompletionSource<BackendResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pending[id] = answer;
+
+            if (!_alive && _pending.TryRemove(id, out _))
+            {
+                return (null, Delivery.NotSent);
+            }
+
+            long sent = Stopwatch.GetTimestamp();
+
+            try
+            {
+                lock (_writing)
+                {
+                    using var writer = new BinaryWriter(_process.StandardInput.BaseStream, System.Text.Encoding.UTF8, leaveOpen: true);
+                    CompileHostProtocol.WriteRequest(writer, id, Thread.CurrentThread.Priority, request);
+                }
+            }
+            catch (IOException)
+            {
+                End();
+
+                return (null, Delivery.NotSent);
+            }
+
+            if (!answer.Task.Wait(limit) && _pending.TryRemove(id, out _))
+            {
+                if (Interlocked.Read(ref _lastAnswer) < sent)
+                {
+                    End();
+                }
+
+                return (null, Delivery.TimedOut);
+            }
+
+            var result = answer.Task.GetAwaiter().GetResult();
+
+            if (result is null)
+            {
+                return (null, Delivery.Ended);
+            }
+
+            return (result, Delivery.Answered);
+        }
+
+        private void Read()
+        {
+            using var reader = new BinaryReader(_process.StandardOutput.BaseStream);
+
+            try
+            {
+                while (true)
+                {
+                    var (id, result) = CompileHostProtocol.ReadResult(reader);
+                    _answered = true;
+                    Interlocked.Exchange(ref _lastAnswer, Stopwatch.GetTimestamp());
+
+                    if (_pending.TryRemove(id, out var answer))
+                    {
+                        answer.SetResult(result);
+                    }
+                }
+            }
+            catch (Exception exception) when (exception is EndOfStreamException or IOException)
+            {
+                End();
+            }
+        }
+
+        /// <summary>Marks the host ended and answers every waiting request with null; the process is killed if it still runs.</summary>
+        private void End()
+        {
+            _alive = false;
+
+            foreach (var id in _pending.Keys)
+            {
+                if (_pending.TryRemove(id, out var answer))
+                {
+                    answer.TrySetResult(null);
+                }
+            }
+
+            try
+            {
+                _process.Kill();
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                // Already gone.
+            }
+        }
+    }
+}

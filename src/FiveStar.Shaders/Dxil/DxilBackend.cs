@@ -15,7 +15,7 @@ namespace FiveStar.Shaders.Dxil;
 /// </summary>
 public static class DxilBackend
 {
-    // Deep chains of joins make deep SSA lookups; a compile runs on a thread with a large stack.
+    // Deep chains of joins make deep SSA lookups; a compile runs on a thread with a large stack, at the caller's priority.
     private const int StackBytes = 256 * 1024 * 1024;
 
     private static readonly Dictionary<string, DxilShaderKind> Profiles = new(StringComparer.Ordinal)
@@ -72,7 +72,10 @@ public static class DxilBackend
                     failure = exception;
                 }
             },
-            StackBytes);
+            StackBytes)
+        {
+            Priority = Thread.CurrentThread.Priority,
+        };
         thread.Start();
         thread.Join();
 

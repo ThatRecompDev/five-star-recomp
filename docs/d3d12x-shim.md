@@ -388,7 +388,13 @@ dispatch (more runs nothing), mesh dispatches one-dimensional, a first dimension
 game did not fill). A skipped or mistranslated argument pass leaves garbage there, and a dispatch of 0xFFFFFFFF groups
 runs until the driver resets the device. The game's buffers are not touched; the list's compute root signature and
 pipeline are set again after the clamp. Records past a count buffer's count are copied unclamped and never run.
-victory-gta6 has the same clamp with a per-list budget; ours has none.A compute list names only compute states (VERTEX_AND_CONSTANT_BUFFER, UNORDERED_ACCESS, NON_PIXEL_SHADER_RESOURCE,
+A recording also has a budget of 2^27 work items, as victory-gta6's clamp has (a vertex instance counts 1, a compute
+group 64, a mesh group 128): a record that does not fit what is left runs empty and charges nothing (a counter in
+the scratch buffer, zeroed by the recording's first clamp, charged by compare-exchange). Each record alone stayed in
+bounds, but the opening cutscene lost the device at about 300 s (5 s without progress on every queue) once linked
+G-buffer pipelines drew from culling output that skipped passes had left stale.
+
+A compute list names only compute states (VERTEX_AND_CONSTANT_BUFFER, UNORDERED_ACCESS, NON_PIXEL_SHADER_RESOURCE,
 INDIRECT_ARGUMENT, COPY_DEST, COPY_SOURCE, acceleration structure) and a copy list only the copy ones
 (`ResourceStates.Legal`): any other bit fails the desktop Close. Render targets rest in RENDER_TARGET, so a compute
 list's transition of one (or to PIXEL_SHADER_RESOURCE) is left out and the texture keeps its state on that list
@@ -660,13 +666,14 @@ flags), queue Signal and Wait and CPU fence signals, numbering queues and fences
 
 ### Queue progress
 
-Always on (`QueueProgress`): each queue keeps its last 64 calls, ExecuteCommandLists with the draws, dispatches and
+Always on (`QueueProgress`): each queue keeps its last 1,024 calls, ExecuteCommandLists with the draws, dispatches and
 indirect executions its lists recorded and the last pipeline set (named by its translated programs), and Signal and
 Wait (queue slot 17, a handler for this) on game fences. A watch thread reads every queue's shim fence
 ([Resubmitted lists](#boot)) four times a second. A queue whose submitted work has not advanced for 1.5 s is logged
-once per stall as `[gpu] queue #n: executions done up to v of w, no progress for t s`, with its calls since the last
-finished execution (`NOT DONE` marks the ones the GPU has not finished; a Wait shows the fence's value then) and the
-memory line of the thread sampler. A removed device sets every fence to UINT64_MAX; the watch then logs every queue
+once per stall as `[gpu] queue #n: executions done up to v of w, no progress for t s`, with the oldest unfinished
+execution (the one the queue waits on, with its breadcrumbs) when it is older than the last 16 calls, then those 16
+calls (`NOT DONE` marks the ones the GPU has not finished; a Wait shows the fence's value then) and the memory line of
+the thread sampler. With 64 calls kept, the w3 boot's hang showed only executions queued behind the stuck one. A removed device sets every fence to UINT64_MAX; the watch then logs every queue
 as last seen, without the debug layer as well.
 
 `--d3d12-breadcrumbs` (`GpuBreadcrumbs`) adds where each list of an unfinished execution stopped: before every draw,

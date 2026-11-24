@@ -98,6 +98,9 @@ internal sealed record HostOptions
     /// <summary>dxc.exe, dxcompiler.dll or their folder (<c>--dxc</c>); null finds one.</summary>
     public string? Dxc { get; set; }
 
+    /// <summary><c>--shader-backend dxc</c>: programs made on demand compile with dxc instead of the DXIL backend.</summary>
+    public bool DxcBackend { get; set; }
+
     /// <summary>Threads that make programs on demand (<c>--shader-jobs</c>); null for the default.</summary>
     public int? ShaderJobs { get; set; }
 
@@ -163,6 +166,9 @@ internal sealed record HostOptions
 
     /// <summary>Skip the rest of a recording's compute after a skipped dispatch (<c>--skip-compute-chains</c>).</summary>
     public bool SkipComputeChains { get; set; }
+
+    /// <summary>A recording's ExecuteIndirects after a skipped compute dispatch run nothing (<c>--empty-indirect-after-skip</c>).</summary>
+    public bool EmptyIndirectAfterSkip { get; set; }
 
     /// <summary>A submission holding a retire write waits for every other queue (<c>--retire-waits-all-queues</c>).</summary>
     public bool RetireWaitsAllQueues { get; set; }

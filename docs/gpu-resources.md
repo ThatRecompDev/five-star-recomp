@@ -39,8 +39,11 @@ flowchart LR
 ```
 
 - **Registry** (`GpuTextureRegistry`): textures sorted by console address over the span of their XG layout; lookups
-  take no lock. A texture registered over an overlapping range retires the old one, which keeps its reference until
-  shutdown, since descriptors written earlier may still name it.
+  take no lock. A texture registered over an overlapping range retires the old one. One over the same range (another
+  view of the same memory) keeps its reference until shutdown, since descriptors written earlier may still name it;
+  any other is released 120 presents later (the memory went to something else). Keeping them all was a leak: in the
+  opening cutscene the game streams textures through the same memory, about 45,000 were made in 7 minutes, and once
+  video memory was full the process grew by 2 to 3 GB every 30 s until the machine ran out.
 - **Slot 133** (`GpuTextures.CreatePlaced`): a committed desktop texture in its home state ([Barriers](#barriers)).
   With ALLOW_RENDER_TARGET, ALLOW_DEPTH_STENCIL or ALLOW_UNORDERED_ACCESS it is GPU-written and never filled from
   memory; otherwise it is filled at creation.
@@ -51,7 +54,13 @@ flowchart LR
   otherwise (an invalid SRV desc removes the device).
 - **Upload** (`GpuTextureUploader`): every subresource detiled by `XgCopier.From` into an upload buffer at the
   desktop's copyable footprint, copied on a private direct queue between transitions out of and back into the
-  texture's state, waited for.
+  texture's state, waited for. The upload buffer is system memory, the GPU's non-local segment, whose budget is half
+  the machine's physical memory (16.3 GB on a 32 GB machine), and the heaps over the game's XMem sections take from the same
+  budget: the address map opens one over every mapped page's section ([d3d12x-shim.md](d3d12x-shim.md)), about
+  6.2 GiB for the game's largest. On a 16 GB machine that left no room for the upload buffer, whose creation then
+  threw on the game's thread and ended the process (0xE0434352, issue #13). A fill the desktop refuses, or whose copy
+  does not finish, now fails without an exception: the texture keeps what it held (zeros when new) until its next refresh point, the
+  counters count `UploadFailed` and the first eight are logged with the reason. The next fill makes a new upload buffer and queue.
 - **Refresh points**: creation, and every slot-70 view of the texture. The game creates a texture's view once its
   data has arrived, so a view is where new bytes are taken. A 64-bit hash of the bytes skips unchanged memory.
 - **CPU-mapped textures** (`GpuTextures.Watch`): a slot-133 texture the game maps (resource Map returns its memory)
@@ -72,7 +81,8 @@ flowchart LR
   are not seen.
 - Uploads are synchronous on their own queue and do not wait for the game's queues: a texture the GPU is reading in
   flight is overwritten without ordering.
-- Retired textures are never released before shutdown.
+- A descriptor that still names a released texture after its grace period, and is sampled, reads a released resource;
+  the game rewrites its views when it reuses memory, so none has been seen.
 - A texture the game mapped once stays checked every frame (a hash of its bytes); 12 in the intro video.
 - XG layout spans larger than the game's own (128x1 A8 with 4 KB swizzle: 0x2000 computed, views 0x1000 apart)
   make neighbours retire each other.

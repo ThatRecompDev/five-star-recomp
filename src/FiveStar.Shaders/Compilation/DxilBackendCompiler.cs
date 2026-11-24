@@ -2,26 +2,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Shaders.Dxil;
-using FiveStar.Shaders.Translation;
 
 namespace FiveStar.Shaders.Compilation;
 
 /// <summary>
-/// Compiles translated HLSL with the DXIL backend (no dxc; docs/dxil-backend.md). A program the backend does not
-/// handle (another stage, or HLSL it cannot lower) goes to <c>fallback</c> when there is one, else fails with the
-/// backend's reason. The runtime headers come from the source's folder when it has them, else from this assembly.
+/// Compiles translated HLSL with the DXIL backend (no dxc; docs/dxil-backend.md), run by an <see cref="IBackendRunner"/>
+/// in this process or another. A program the backend does not handle (another stage, or HLSL it cannot lower), or
+/// whose container the validator rejects, goes to <c>fallback</c> when there is one, else fails with the backend's
+/// reason. Compiles may run on any threads.
 /// </summary>
 public sealed class DxilBackendCompiler : IShaderCompiler
 {
     private const string Prefix = "dxil backend: ";
+    private const string ValidatorFile = "dxil.dll";
 
     private readonly IShaderCompiler? _fallback;
+    private readonly IBackendRunner _backend;
     private readonly Lazy<string> _identity;
+    private int _compiled;
+    private int _unlowered;
+    private int _invalid;
 
-    public DxilBackendCompiler(DxcOptions options, IShaderCompiler? fallback)
+    /// <param name="options">Limits, passed on to the fallback.</param>
+    /// <param name="fallback">Compiles what the backend cannot; null fails instead.</param>
+    /// <param name="backend">Runs the backend.</param>
+    public DxilBackendCompiler(DxcOptions options, IShaderCompiler? fallback, IBackendRunner backend)
     {
         Options = options;
         _fallback = fallback;
+        _backend = backend;
         _identity = new Lazy<string>(ComputeIdentity);
     }
 
@@ -29,55 +38,67 @@ public sealed class DxilBackendCompiler : IShaderCompiler
 
     public string Identity => _identity.Value;
 
-    public CompileOutcome Compile(CompileRequest request, TimeSpan timeout)
+    /// <summary>Programs the backend compiled, those it could not lower and those the validator rejected (both went to the fallback).</summary>
+    public (int Compiled, int Unlowered, int Invalid) Counts => (Volatile.Read(ref _compiled), Volatile.Read(ref _unlowered), Volatile.Read(ref _invalid));
+
+    /// <summary>The counts as a summary: "DXIL backend N, dxc M (U not lowered, I rejected by validation)".</summary>
+    public string Summary
     {
-        if (!DxilBackend.Supports(request.Profile))
+        get
         {
-            return Fallback(request, timeout, $"profile {request.Profile} is not supported");
-        }
+            var (compiled, unlowered, invalid) = Counts;
 
-        var folder = Path.GetDirectoryName(Path.GetFullPath(request.HlslPath)) ?? ".";
-
-        try
-        {
-            var container = DxilBackend.Compile(request.Hlsl, request.Profile, name => Include(folder, name));
-            File.WriteAllBytes(request.DxilPath, container);
-
-            return CompileOutcome.Success;
-        }
-        catch (DxilBackendException exception)
-        {
-            return Fallback(request, timeout, exception.Message);
+            return $"DXIL backend {compiled}, dxc {unlowered + invalid} ({unlowered} not lowered, {invalid} rejected by validation)";
         }
     }
 
-    private CompileOutcome Fallback(CompileRequest request, TimeSpan timeout, string reason)
+    /// <summary>The dxil.dll beside a dxc.exe, a dxcompiler.dll or in their folder; null when there is none.</summary>
+    public static string? ValidatorBeside(string dxc)
     {
+        var path = Path.Combine(Path.GetDirectoryName(DxcLibraryCompiler.LibraryPath(dxc)) ?? ".", ValidatorFile);
+
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        return path;
+    }
+
+    public CompileOutcome Compile(CompileRequest request, TimeSpan timeout)
+    {
+        var result = _backend.Run(request);
+
+        if (result.Verdict == BackendVerdict.Compiled)
+        {
+            Interlocked.Increment(ref _compiled);
+
+            return CompileOutcome.Success;
+        }
+
+        if (result.Verdict == BackendVerdict.Rejected)
+        {
+            Interlocked.Increment(ref _invalid);
+        }
+        else
+        {
+            Interlocked.Increment(ref _unlowered);
+        }
+
         if (_fallback is null)
         {
-            return CompileOutcome.Failure(Prefix + reason);
+            return CompileOutcome.Failure(Prefix + result.Reason);
         }
 
         return _fallback.Compile(request, timeout);
     }
 
-    private static string? Include(string folder, string name)
-    {
-        var path = Path.Combine(folder, name);
-
-        if (File.Exists(path))
-        {
-            return File.ReadAllText(path);
-        }
-
-        return RuntimeIncludes.Read(name);
-    }
-
-    /// <summary>This build of the backend (its module version id, a hash of the deterministic build) and the fallback's identity.</summary>
+    /// <summary>This build of the backend (its module version id, a hash of the deterministic build), whether it validates, and the fallback's identity.</summary>
     private string ComputeIdentity()
     {
         var assembly = typeof(DxilBackend).Assembly.ManifestModule.ModuleVersionId.ToString();
+        var validated = _backend.Validates ? "validated" : string.Empty;
 
-        return ContentHash.OfText(["dxil-backend", assembly, _fallback?.Identity ?? string.Empty]);
+        return ContentHash.OfText(["dxil-backend", assembly, validated, _fallback?.Identity ?? string.Empty]);
     }
 }

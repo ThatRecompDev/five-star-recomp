@@ -76,7 +76,7 @@ internal static class ShaderTools
 
     /// <summary>
     /// The compiler <c>--backend</c> names: dxc (hlsl, the default); dxil, the DXIL backend with dxc for what it cannot
-    /// lower; dxil-only, no dxc at all.
+    /// lower or dxil.dll rejects; dxil-only, no dxc at all.
     /// </summary>
     public static IShaderCompiler Backend(CommandArguments arguments, bool retry)
     {
@@ -85,8 +85,8 @@ internal static class ShaderTools
         return arguments.Option("backend") switch
         {
             null or "hlsl" => dxc,
-            "dxil" => new DxilBackendCompiler(dxc.Options, dxc),
-            "dxil-only" => new DxilBackendCompiler(dxc.Options, null),
+            "dxil" => new DxilBackendCompiler(dxc.Options, dxc, new InProcessBackend(DxilBackendCompiler.ValidatorBeside(dxc.Options.Path))),
+            "dxil-only" => new DxilBackendCompiler(dxc.Options, null, new InProcessBackend(null)),
             var other => throw new ArgumentException($"--backend {other}: expected hlsl, dxil or dxil-only"),
         };
     }

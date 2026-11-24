@@ -59,7 +59,7 @@ internal static class HostComposition
         {
             var root = options.ProgramCache ?? Path.Combine(WorkDirectory(options), OnDemandStart.FolderName);
             Shims.D3D12X.DebugLayer.PoolStoreTrace.Enabled = options.TracePoolStores;
-            folders = folders with { OnDemand = OnDemandStart.Begin(root, options.Dxc, options.ShaderJobs, out var message), OnDemandNote = message };
+            folders = folders with { OnDemand = OnDemandStart.Begin(root, options.Dxc, options.DxcBackend, options.ShaderJobs, out var message), OnDemandNote = message };
         }
 
         if (!folders.Enabled)

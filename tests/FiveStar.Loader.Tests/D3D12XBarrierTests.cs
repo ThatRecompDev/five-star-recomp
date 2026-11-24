@@ -52,7 +52,7 @@ public sealed unsafe class D3D12XBarrierTests
     private const int CopyTextureRegionXSlot = 85;
 
     /// <summary>The clear color (0.25, 0.5, 0.75, 1) as R8G8B8A8_UNORM bytes.</summary>
-    private const uint ClearedPixel = 0xFFBF7F40;
+    private const uint ClearedPixel = 0xFFBF8040;
     private const string DebugVariable = "FIVESTAR_D3D12_DEBUG";
     private static readonly Guid ResourceIid = new("696442be-a72e-4059-bc79-5b5c98040fad");
     private static readonly Guid HeapIid = new("8efb471d-616c-4f49-90f7-127bb763fa51");
@@ -217,7 +217,8 @@ public sealed unsafe class D3D12XBarrierTests
 
     private static void Clear(nint list, nint view)
     {
-        float* color = stackalloc float[] { 0.25f, 0.5f, 0.75f, 1 };
+        // Each channel is an exact multiple of 1/255, so GPUs and WARP round it alike (0.5 is 127.5 and rounds either way).
+        float* color = stackalloc float[] { 64 / 255f, 128 / 255f, 191 / 255f, 1 };
         ((delegate* unmanaged<nint, nint, float*, uint, void*, void>)XboxDevice.Vtable(list)[ClearRenderTargetViewSlot])(list, view, color, 0, null);
     }
 

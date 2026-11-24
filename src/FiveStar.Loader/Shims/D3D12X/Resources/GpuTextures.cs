@@ -29,6 +29,9 @@ internal sealed unsafe class GpuTextures : IDisposable
     /// <summary>D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | NON_PIXEL_SHADER_RESOURCE, where a texture made for a view rests.</summary>
     private const int ShaderResourceState = 0xC0;
 
+    /// <summary>Failed fills logged one by one; the counters count them all.</summary>
+    private const long LoggedFailures = 8;
+
     private static readonly Guid ResourceIid = new("696442be-a72e-4059-bc79-5b5c98040fad");
 
     private readonly object _watchGate = new();
@@ -135,6 +138,15 @@ internal sealed unsafe class GpuTextures : IDisposable
         {
             texture.UploadedHash = hash;
             Counters.Add(GpuResourceEvent.Upload);
+
+            return;
+        }
+
+        var failure = Uploader.Failure;
+
+        if (failure is not null && Counters.Add(GpuResourceEvent.UploadFailed) <= LoggedFailures)
+        {
+            _log.Warn($"[d3d12_xs] texture at 0x{texture.Address:x} ({texture.Size} bytes) not filled from memory: {failure}");
         }
     }
 
@@ -165,13 +177,18 @@ internal sealed unsafe class GpuTextures : IDisposable
         _log.Detail($"  [d3d12_xs] texture at 0x{address:x} mapped by the CPU: checked for new bytes every frame ({_watched.Length} such)");
     }
 
-    /// <summary>Refreshes the watched textures still registered, once per <paramref name="frame"/> (the present count).</summary>
+    /// <summary>
+    /// Once per <paramref name="frame"/> (the present count): releases retired textures past their grace period and
+    /// refreshes the watched textures still registered.
+    /// </summary>
     public void RefreshWatched(nint device, long frame)
     {
         if (Volatile.Read(ref _checkedFrame) == frame || Interlocked.Exchange(ref _checkedFrame, frame) == frame)
         {
             return;
         }
+
+        Registry.Advance(frame);
 
         foreach (var texture in Volatile.Read(ref _watched))
         {

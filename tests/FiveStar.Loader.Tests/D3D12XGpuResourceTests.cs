@@ -13,6 +13,8 @@ namespace FiveStar.Loader.Tests;
 public sealed unsafe class D3D12XGpuResourceTests
 {
     private const int Size = 64;
+    private const int DefaultHeap = 1;
+    private const ulong TextureBytes = 0x1000;
     private const int Mips = 2;
     private const int Rgba8Unorm = 28;
     private const int Texture2D = 3;
@@ -26,6 +28,27 @@ public sealed unsafe class D3D12XGpuResourceTests
     private const uint Reserve64K = 0x20402000;
     private const uint CpuReadWrite = 0x4;
     private const uint GpuOnly = 0x801;
+
+    [Fact]
+    public void A_texture_whose_memory_went_to_another_is_released_after_its_grace_period()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        var registry = new GpuTextureRegistry();
+
+        // Streamed: B takes part of A's memory. Aliased: C is another texture over exactly B's range.
+        registry.Register(Texture(test, device, 0x10000));
+        registry.Register(Texture(test, device, 0x10800));
+        registry.Register(Texture(test, device, 0x10800));
+
+        registry.Advance(GpuTextureRegistry.GraceFrames - 1);
+        Assert.Equal(0, registry.Released);
+        registry.Advance(GpuTextureRegistry.GraceFrames);
+
+        Assert.Equal(1, registry.Released);
+        Assert.Equal(1, registry.RetiredCount);
+        registry.Dispose();
+    }
 
     [Fact]
     public void A_tiled_texture_written_by_the_cpu_reads_back_linear_through_a_slot_70_view()
@@ -56,6 +79,38 @@ public sealed unsafe class D3D12XGpuResourceTests
 
         // The empty memory at creation, then the tiled bytes the view found changed.
         Assert.Equal(2, counters[GpuResourceEvent.Upload]);
+    }
+
+    [Fact]
+    public void A_texture_whose_upload_buffer_the_desktop_refuses_is_left_unfilled_and_filled_later()
+    {
+        using var test = TestRuntime.Create();
+        var (cpu, gpu) = AliasedPages(test);
+        var device = new XboxDevice(test);
+        var description = Description();
+        var uploader = test.Runtime.D3D12X.Textures.Uploader;
+        var refuse = new SharpGen.Runtime.SharpGenException(SharpGen.Runtime.Result.OutOfMemory);
+
+        var normal = uploader.CreateStaging;
+
+        // An upload buffer is system memory, which the heaps over the game's sections share; on a 16 GB machine they
+        // took it all, the fill threw on the game's thread and the process ended (0xE0434352). Slot 133 succeeds.
+        uploader.CreateStaging = (_, _) => throw refuse;
+        nint placed = PlaceTexture(device, gpu, description);
+        var counters = test.Runtime.D3D12X.Textures.Counters;
+        Assert.NotEqual(0, placed);
+        Assert.Equal(1, counters[GpuResourceEvent.UploadFailed]);
+        Assert.Equal(0, counters[GpuResourceEvent.Upload]);
+
+        // Once the desktop gives the buffer again, the view's refresh fills the texture.
+        uploader.CreateStaging = normal;
+        byte[][] linear = [Pattern(Size, 2), Pattern(Size / 2, 3)];
+        Tile(description, cpu, linear);
+        using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
+        CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
+
+        Assert.Equal(linear[0], probe.Read(Size, Size, 0).SelectMany(BitConverter.GetBytes).ToArray());
+        Assert.Equal(1, counters[GpuResourceEvent.Upload]);
     }
 
     [Fact]
@@ -96,6 +151,15 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.Equal(cpu, map(cpu, 2, pages));
 
         return (cpu, gpu);
+    }
+
+    /// <summary>A registry entry over 0x1000 bytes at <paramref name="address"/>, holding its own reference on a desktop buffer.</summary>
+    private static GpuTexture Texture(TestRuntime test, XboxDevice device, ulong address)
+    {
+        nint desktop = test.Runtime.D3D12X.Objects.Unwrap(device.Buffer(DefaultHeap, Size, 0));
+        _ = ((delegate* unmanaged<nint, uint>)XboxDevice.Vtable(desktop)[1])(desktop);
+
+        return new GpuTexture(address, Description(), desktop, Rgba8Unorm, 0, false, new XgSurface { Size = TextureBytes });
     }
 
     private static ResourceDescription Description()

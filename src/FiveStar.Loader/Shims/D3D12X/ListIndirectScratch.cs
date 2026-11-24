@@ -21,6 +21,12 @@ internal struct ListIndirectScratch
     public ulong Bytes;
     public ulong Used;
 
+    /// <summary>
+    /// One past the offset of this recording's budget counter in <see cref="Buffer"/> (the work its clamped records
+    /// may still ask for, <see cref="IndirectClamp"/>); 0 for none yet.
+    /// </summary>
+    public ulong Budget;
+
     public static unsafe ListIndirectScratch* Of(XboxObject* list)
     {
         return (ListIndirectScratch*)((byte*)list + Offset);

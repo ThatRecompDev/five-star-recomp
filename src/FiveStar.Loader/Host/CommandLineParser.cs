@@ -161,7 +161,7 @@ internal sealed class CommandLineParser
     {
         switch (option)
         {
-            case "--watch-transient" or "--watch-hang" or "--skip-compute-chains" or "--retire-waits-all-queues" or "--no-split-at-waits" or "--trace-pool-stores":
+            case "--watch-transient" or "--watch-hang" or "--skip-compute-chains" or "--empty-indirect-after-skip" or "--retire-waits-all-queues" or "--no-split-at-waits" or "--trace-pool-stores":
                 return SetWatch(option);
             case "--screens":
                 return SetScreensFile();
@@ -211,6 +211,8 @@ internal sealed class CommandLineParser
                 return true;
             case "--shader-jobs":
                 return SetShaderJobs();
+            case "--shader-backend":
+                return SetShaderBackend();
             default:
                 return ApplyMemory(option);
         }
@@ -247,6 +249,20 @@ internal sealed class CommandLineParser
     private bool SetShaderJobs()
     {
         _options.ShaderJobs = int.Parse(Next(), CultureInfo.InvariantCulture);
+
+        return true;
+    }
+
+    private bool SetShaderBackend()
+    {
+        var backend = Next();
+
+        if (backend is not ("dxil" or "dxc"))
+        {
+            throw new CommandLineException($"--shader-backend {backend}: expected dxil or dxc");
+        }
+
+        _options.DxcBackend = backend == "dxc";
 
         return true;
     }
@@ -567,6 +583,10 @@ internal sealed class CommandLineParser
         else if (option == "--skip-compute-chains")
         {
             _options.SkipComputeChains = true;
+        }
+        else if (option == "--empty-indirect-after-skip")
+        {
+            _options.EmptyIndirectAfterSkip = true;
         }
         else
         {

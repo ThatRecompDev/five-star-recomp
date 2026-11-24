@@ -11,10 +11,15 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// creation only while the machine has the memory for it: the driver's compiles of a story load's backlog took a
 /// 64 GB machine to its commit limit, which ended the process (docs/d3d12x-pipelines.md#stand-ins). Urgent creations,
 /// those of pipelines a command list has set, start before all others; a queued creation can be made urgent later.
+/// Only half the threads take the others, and those wait in the driver compile budget while an urgent one does: at a
+/// warm boot the journal's creations held the budget the game's first uses needed.
 /// </summary>
 internal sealed class PipelineBuildQueue
 {
     private const int PauseMilliseconds = 2000;
+
+    // One thread in this many also takes creations no command list waits for.
+    private const int SpeculativeShare = 2;
 
     /// <summary>For <see cref="PipelineBuildQueue(int, Func{int, bool})"/>: creations start whenever a thread is free.</summary>
     public static readonly Func<int, bool> AnyTime = _ => true;
@@ -45,12 +50,28 @@ internal sealed class PipelineBuildQueue
     /// <summary>Starts the threads; call once.</summary>
     public void Start()
     {
+        BlockingCollection<PipelineBuild>[] both = [_urgent, _builds];
+        BlockingCollection<PipelineBuild>[] urgentOnly = [_urgent];
+
         for (int i = 0; i < Workers; i++)
         {
-            var thread = new Thread(Run) { IsBackground = true, Name = "fivestar pipeline build" };
+            var queues = urgentOnly;
+
+            if (i < SpeculativeWorkers)
+            {
+                queues = both;
+            }
+
+            var thread = new Thread(() => Run(queues)) { IsBackground = true, Name = "fivestar pipeline build" };
             thread.Start();
         }
     }
+
+    /// <summary>
+    /// The threads that also take creations no command list waits for yet (the journal's at a warm boot), half of them
+    /// (at least one); the others are kept for urgent ones.
+    /// </summary>
+    public int SpeculativeWorkers => Math.Max(1, Workers / SpeculativeShare);
 
     /// <summary>Queues <paramref name="create"/>; the task ends with its result.</summary>
     public Task<PipelineResult> Enqueue(Func<PipelineResult> create)
@@ -84,10 +105,8 @@ internal sealed class PipelineBuildQueue
         }
     }
 
-    private void Run()
+    private void Run(BlockingCollection<PipelineBuild>[] queues)
     {
-        BlockingCollection<PipelineBuild>[] queues = [_urgent, _builds];
-
         while (true)
         {
             // Memory first, then the work: a thread waiting for memory holds no creation, so an urgent one queued
@@ -97,12 +116,12 @@ internal sealed class PipelineBuildQueue
 
             if (build!.Claim())
             {
-                Execute(build);
+                Execute(build, build.Urgent);
             }
         }
     }
 
-    /// <summary>Runs a queued <paramref name="build"/> on this thread unless a build thread took it; true when this ran it.</summary>
+    /// <summary>Runs a queued <paramref name="build"/> on this thread (a game thread that waits for it) unless a build thread took it; true when this ran it.</summary>
     public bool RunNow(PipelineBuild build)
     {
         if (!build.Claim())
@@ -110,14 +129,17 @@ internal sealed class PipelineBuildQueue
             return false;
         }
 
-        Execute(build);
+        Execute(build, urgent: true);
 
         return true;
     }
 
-    private void Execute(PipelineBuild build)
+    /// <summary>Runs a build; an urgent one goes before the others in the driver compile budget (<see cref="CompileBudget"/>).</summary>
+    private void Execute(PipelineBuild build, bool urgent)
     {
         Interlocked.Increment(ref _running);
+        var previous = CompileBudget.Urgent;
+        CompileBudget.Urgent = urgent;
 
         try
         {
@@ -125,6 +147,7 @@ internal sealed class PipelineBuildQueue
         }
         finally
         {
+            CompileBudget.Urgent = previous;
             Interlocked.Decrement(ref _running);
         }
     }

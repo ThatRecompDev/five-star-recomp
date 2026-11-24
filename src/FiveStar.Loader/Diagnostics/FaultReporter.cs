@@ -118,9 +118,10 @@ internal sealed unsafe class FaultReporter
     }
 
     /// <summary>
-    /// The handler's native entry: <see cref="OnException"/>, except on a thread whose TLS array is gone. A thread
-    /// that faults while it exits (after ntdll's LdrpFreeTls, as on a corrupted heap) cannot enter managed code: the
-    /// runtime finds its thread through that array, and the entry would fault again inside coreclr.
+    /// The handler's native entry: <see cref="OnException"/>, except on a thread whose TLS array is gone, and for a
+    /// fault in managed code (<see cref="FaultEntryCode"/>). A thread that faults while it exits (after ntdll's
+    /// LdrpFreeTls, as on a corrupted heap) cannot enter managed code: the runtime finds its thread through that array,
+    /// and the entry would fault again inside coreclr.
     /// </summary>
     private nint EmitEntry()
     {
@@ -128,8 +129,7 @@ internal sealed unsafe class FaultReporter
         var code = new X64Emitter();
         code.Data(TestTlsArray);
         int toNoThread = code.JzForward();
-        code.MovRax((ulong)handler);
-        code.JmpRax();
+        code.Data(FaultEntryCode.Body((nint)handler, PcToModule(), ModuleBase("coreclr.dll"), ModuleBase("clrjit.dll"), _images.Ranges));
 
         code.PatchJumpHere(toNoThread);
         code.MovEax((uint)ContinueSearch);
@@ -139,6 +139,23 @@ internal sealed unsafe class FaultReporter
         _heap.Seal();
 
         return entry;
+    }
+
+    /// <summary>ntdll's RtlPcToFileHeader.</summary>
+    private static nint PcToModule()
+    {
+        return NativeLibrary.GetExport(NativeLibrary.Load("ntdll.dll"), "RtlPcToFileHeader");
+    }
+
+    /// <summary>The base of a loaded module, 0 when it is not loaded.</summary>
+    private static nint ModuleBase(string name)
+    {
+        if (NativeLibrary.TryLoad(name, out nint module))
+        {
+            return module;
+        }
+
+        return 0;
     }
 
     [UnmanagedCallersOnly]

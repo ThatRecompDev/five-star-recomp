@@ -11,4 +11,5 @@ public enum ExpectedKind
     Near,
     Nan,
     Any,
+    Either,
 }
