@@ -15,6 +15,7 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 internal sealed class DrawCensus
 {
     private const int LinesShown = 60;
+    private const int TargetsShown = 12;
 
     private readonly ConcurrentDictionary<(nint Pipeline, nint Target, bool Skipped), long> _counts = new();
     private readonly LoaderLog _log;
@@ -41,6 +42,14 @@ internal sealed class DrawCensus
         var skipped = counts.Where(entry => entry.Key.Skipped).Sum(entry => entry.Value);
         var text = new StringBuilder($"  [census] presents {_since}-{present}: {recorded} recorded, {skipped} skipped, {counts.Length} pipeline-target pairs");
         _since = present;
+
+        // Per target first: which passes ran at all, then the pairs.
+        foreach (var target in counts.Where(entry => entry.Key.Target != 0).GroupBy(entry => entry.Key.Target).OrderByDescending(group => group.Sum(entry => entry.Value)).Take(TargetsShown))
+        {
+            var ran = target.Where(entry => !entry.Key.Skipped).Sum(entry => entry.Value);
+            var lost = target.Where(entry => entry.Key.Skipped).Sum(entry => entry.Value);
+            text.Append($"\n    target 0x{target.Key:x} {describe(target.Key)}: {ran} recorded, {lost} skipped");
+        }
 
         foreach (var (key, count) in counts.OrderByDescending(entry => entry.Value).Take(LinesShown))
         {
