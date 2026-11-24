@@ -137,7 +137,7 @@ internal sealed partial class ScalarLogicEmitter
         var key = a[Destination].At(0);
         _operands.MarkMask(key);
         _state.Emit($"    {key.MaskName} = _old; }}");
-        _operands.ShadowHighHalf(key);
+        _operands.ShadowInteger(key);
         _operands.SetScc($"{WaveOps.AnyTrue}(active)");
     }
 

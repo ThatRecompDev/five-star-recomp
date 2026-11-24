@@ -123,6 +123,7 @@ internal sealed partial class ScalarArithmeticEmitter
         {
             _state.Touch(key);
             _state.Constants.Remove(key);
+            _operands.WroteInteger(key);
         }
     }
 

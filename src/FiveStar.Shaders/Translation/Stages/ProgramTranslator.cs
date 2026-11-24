@@ -17,7 +17,7 @@ internal static class ProgramTranslator
         // Compute programs pin their wave size instead; geometry programs run one lane per HLSL invocation.
         var emulate = options.EmulateWaveSize && !copyShader && stage is ShaderStage.Pixel or ShaderStage.Vertex or ShaderStage.Mesh;
 
-        return Emit(new TranslationState(program, instructions, stage, copyShader) { EmulateWaves = emulate }, options);
+        return Emit(coherent => new TranslationState(program, instructions, stage, copyShader) { EmulateWaves = emulate, Coherent = coherent }, options);
     }
 
     /// <summary>
@@ -26,16 +26,31 @@ internal static class ProgramTranslator
     /// </summary>
     public static string TranslateSupersteps(ShaderProgram program, TranslationOptions options)
     {
-        var state = new TranslationState(program, program.Instructions, program.Stage, false) { EmulateWaves = true, Supersteps = true };
-
-        return Emit(state, options with { StructuredControlFlow = false });
+        return Emit(
+            coherent => new TranslationState(program, program.Instructions, program.Stage, false)
+            {
+                EmulateWaves = true, Supersteps = true, Coherent = coherent,
+            },
+            options with { StructuredControlFlow = false });
     }
 
-    private static string Emit(TranslationState state, TranslationOptions options)
+    private static string Emit(Func<IReadOnlySet<RegisterKey>, TranslationState> create, TranslationOptions options)
     {
-        var operands = new OperandAccess(state, new ImplicitInputs(state));
-        var translator = new InstructionTranslator(state, operands, InstructionEmitters.Create(state, operands));
-        new ControlFlowTranslator(state, operands, translator).Run();
+        // Mask tracking follows emission order, not paths: a register that is a lane mask on one path and an integer on
+        // another is read in whichever form the last emitted write left. A first translation finds those registers; the
+        // second keeps both forms of them current (OperandAccess.Write, WriteMask).
+        var state = create(new HashSet<RegisterKey>());
+        Run(state);
+        var mixed = state.MasksEver
+            .Where(key => key != SpecialRegisters.Exec)
+            .Where(key => state.IntegerUses.Contains(key) || (state.IsWave64 && state.IntegerUses.Contains(key.Plus(1))))
+            .ToHashSet();
+
+        if (mixed.Count > 0)
+        {
+            state = create(mixed);
+            Run(state);
+        }
 
         if (state.Supersteps)
         {
@@ -51,5 +66,12 @@ internal static class ProgramTranslator
         var emitter = new ProgramEmitter(state, new OutputWriter(state), mesh, body);
 
         return emitter.Emit();
+    }
+
+    private static void Run(TranslationState state)
+    {
+        var operands = new OperandAccess(state, new ImplicitInputs(state));
+        var translator = new InstructionTranslator(state, operands, InstructionEmitters.Create(state, operands));
+        new ControlFlowTranslator(state, operands, translator).Run();
     }
 }
