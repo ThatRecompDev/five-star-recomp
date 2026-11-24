@@ -54,7 +54,13 @@ flowchart LR
   otherwise (an invalid SRV desc removes the device).
 - **Upload** (`GpuTextureUploader`): every subresource detiled by `XgCopier.From` into an upload buffer at the
   desktop's copyable footprint, copied on a private direct queue between transitions out of and back into the
-  texture's state, waited for.
+  texture's state, waited for. The upload buffer is system memory, the GPU's non-local segment, whose budget is half
+  the machine's physical memory (16.3 GB on a 32 GB machine), and the heaps over the game's XMem sections take from the same
+  budget: the address map opens one over every mapped page's section ([d3d12x-shim.md](d3d12x-shim.md)), about
+  6.2 GiB for the game's largest. On a 16 GB machine that left no room for the upload buffer, whose creation then
+  threw on the game's thread and ended the process (0xE0434352, issue #13). A fill the desktop refuses, or whose copy
+  does not finish, now fails without an exception: the texture keeps what it held (zeros when new) until its next refresh point, the
+  counters count `UploadFailed` and the first eight are logged with the reason. The next fill makes a new upload buffer and queue.
 - **Refresh points**: creation, and every slot-70 view of the texture. The game creates a texture's view once its
   data has arrived, so a view is where new bytes are taken. A 64-bit hash of the bytes skips unchanged memory.
 - **CPU-mapped textures** (`GpuTextures.Watch`): a slot-133 texture the game maps (resource Map returns its memory)

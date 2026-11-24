@@ -29,4 +29,7 @@ internal enum GpuResourceEvent
 
     /// <summary>A refresh found the memory unchanged.</summary>
     UploadSkipped,
+
+    /// <summary>A fill failed: the desktop refused its upload buffer or queue, or the copy did not finish.</summary>
+    UploadFailed,
 }

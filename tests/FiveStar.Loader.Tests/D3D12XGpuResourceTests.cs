@@ -82,6 +82,38 @@ public sealed unsafe class D3D12XGpuResourceTests
     }
 
     [Fact]
+    public void A_texture_whose_upload_buffer_the_desktop_refuses_is_left_unfilled_and_filled_later()
+    {
+        using var test = TestRuntime.Create();
+        var (cpu, gpu) = AliasedPages(test);
+        var device = new XboxDevice(test);
+        var description = Description();
+        var uploader = test.Runtime.D3D12X.Textures.Uploader;
+        var refuse = new SharpGen.Runtime.SharpGenException(SharpGen.Runtime.Result.OutOfMemory);
+
+        var normal = uploader.CreateStaging;
+
+        // An upload buffer is system memory, which the heaps over the game's sections share; on a 16 GB machine they
+        // took it all, the fill threw on the game's thread and the process ended (0xE0434352). Slot 133 succeeds.
+        uploader.CreateStaging = (_, _) => throw refuse;
+        nint placed = PlaceTexture(device, gpu, description);
+        var counters = test.Runtime.D3D12X.Textures.Counters;
+        Assert.NotEqual(0, placed);
+        Assert.Equal(1, counters[GpuResourceEvent.UploadFailed]);
+        Assert.Equal(0, counters[GpuResourceEvent.Upload]);
+
+        // Once the desktop gives the buffer again, the view's refresh fills the texture.
+        uploader.CreateStaging = normal;
+        byte[][] linear = [Pattern(Size, 2), Pattern(Size / 2, 3)];
+        Tile(description, cpu, linear);
+        using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
+        CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
+
+        Assert.Equal(linear[0], probe.Read(Size, Size, 0).SelectMany(BitConverter.GetBytes).ToArray());
+        Assert.Equal(1, counters[GpuResourceEvent.Upload]);
+    }
+
+    [Fact]
     public void A_console_sampler_desc_becomes_the_desktop_sampler_it_describes()
     {
         var console = new ConsoleSamplerDescription
