@@ -170,7 +170,7 @@ internal sealed class OnDemandStart
             return new InProcessBackend(validator);
         }
 
-        return new CompileHost(executable, validator);
+        return new CompileHost(executable, validator, CompileHost.AnswerLimit);
     }
 
     /// <summary>The identity, waiting for it; <paramref name="waited"/> is the time spent waiting.</summary>
