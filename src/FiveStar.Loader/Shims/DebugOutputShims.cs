@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims;
@@ -21,24 +22,38 @@ internal static unsafe partial class DebugOutputShims
     [UnmanagedCallersOnly]
     private static void OutputDebugStringA(byte* text)
     {
-        if (text != null && Interlocked.Increment(ref _logged) <= MaxLogged)
+        try
         {
-            Write(Marshal.PtrToStringUTF8((nint)text));
-        }
+            if (text != null && Interlocked.Increment(ref _logged) <= MaxLogged)
+            {
+                Write(Marshal.PtrToStringUTF8((nint)text));
+            }
 
-        Kernel32.OutputDebugStringA(text);
+            Kernel32.OutputDebugStringA(text);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "DebugOutputShims.OutputDebugStringA");
+        }
     }
 
     [Shim("*", "OutputDebugStringW")]
     [UnmanagedCallersOnly]
     private static void OutputDebugStringW(char* text)
     {
-        if (text != null && Interlocked.Increment(ref _logged) <= MaxLogged)
+        try
         {
-            Write(new string(text));
-        }
+            if (text != null && Interlocked.Increment(ref _logged) <= MaxLogged)
+            {
+                Write(new string(text));
+            }
 
-        Kernel32.OutputDebugStringW(text);
+            Kernel32.OutputDebugStringW(text);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "DebugOutputShims.OutputDebugStringW");
+        }
     }
 
     private static void Write(string? text)

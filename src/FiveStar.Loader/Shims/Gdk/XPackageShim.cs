@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Gdk;
@@ -21,15 +22,24 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageGetCurrentProcessPackageIdentifier(nuint bufferSize, byte* buffer)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Packages.GetCurrentProcessPackageIdentifier(bufferSize, buffer);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Packages.GetCurrentProcessPackageIdentifier(bufferSize, buffer);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPackageGetCurrentProcessPackageIdentifier), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPackageGetCurrentProcessPackageIdentifier), e);
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageGetCurrentProcessPackageIdentifier");
+
+            return HResult.Fail;
         }
     }
 
@@ -38,7 +48,16 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageGetUserLocale(nuint size, byte* locale)
     {
-        return PackageService.GetUserLocale(size, locale);
+        try
+        {
+            return PackageService.GetUserLocale(size, locale);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageGetUserLocale");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XPackageEnumeratePackages(XPackageKind, XPackageEnumerationScope, void* context, XPackageEnumerationCallback*).</summary>
@@ -46,15 +65,24 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageEnumeratePackages(uint kind, uint scope, nint context, nint callback)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Packages.EnumeratePackages(kind, context, callback);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Packages.EnumeratePackages(kind, context, callback);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPackageEnumeratePackages), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPackageEnumeratePackages), e);
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageEnumeratePackages");
+
+            return HResult.Fail;
         }
     }
 
@@ -63,23 +91,32 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageMount(byte* id, nint* mount)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
-        if (mount == null)
-        {
-            return HResult.Pointer;
-        }
-
         try
         {
-            int hr = gdk.Packages.Mount(Utf8Text.Read((nint)id), out nint handle);
-            *mount = handle;
+            var gdk = ShimContext.Runtime.Gdk;
 
-            return hr;
+            if (mount == null)
+            {
+                return HResult.Pointer;
+            }
+
+            try
+            {
+                int hr = gdk.Packages.Mount(Utf8Text.Read((nint)id), out nint handle);
+                *mount = handle;
+
+                return hr;
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPackageMount), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPackageMount), e);
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageMount");
+
+            return HResult.Fail;
         }
     }
 
@@ -88,15 +125,24 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageMountWithUiAsync(byte* id, nint async)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Async.BeginManaged(async, PackageService.MountApi, new MountOperation(gdk.Packages, Utf8Text.Read((nint)id)));
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Async.BeginManaged(async, PackageService.MountApi, new MountOperation(gdk.Packages, Utf8Text.Read((nint)id)));
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPackageMountWithUiAsync), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPackageMountWithUiAsync), e);
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageMountWithUiAsync");
+
+            return HResult.Fail;
         }
     }
 
@@ -105,20 +151,29 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageMountWithUiResult(nint async, nint* mount)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
-        if (mount == null)
-        {
-            return HResult.Pointer;
-        }
-
         try
         {
-            return gdk.Async.ManagedResult(async, PackageService.MountApi, (nuint)sizeof(nint), (nint)mount);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            if (mount == null)
+            {
+                return HResult.Pointer;
+            }
+
+            try
+            {
+                return gdk.Async.ManagedResult(async, PackageService.MountApi, (nuint)sizeof(nint), (nint)mount);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPackageMountWithUiResult), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPackageMountWithUiResult), e);
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageMountWithUiResult");
+
+            return HResult.Fail;
         }
     }
 
@@ -126,21 +181,46 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageGetMountPathSize(nint mount, nuint* size)
     {
-        return ShimContext.Runtime.Gdk.Packages.GetMountPathSize(mount, size);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Packages.GetMountPathSize(mount, size);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageGetMountPathSize");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XPackageGetMountPath")]
     [UnmanagedCallersOnly]
     private static int XPackageGetMountPath(nint mount, nuint size, byte* path)
     {
-        return ShimContext.Runtime.Gdk.Packages.GetMountPath(mount, size, path);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Packages.GetMountPath(mount, size, path);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageGetMountPath");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XPackageCloseMountHandle")]
     [UnmanagedCallersOnly]
     private static void XPackageCloseMountHandle(nint mount)
     {
-        ShimContext.Runtime.Gdk.Packages.CloseMount(mount);
+        try
+        {
+            ShimContext.Runtime.Gdk.Packages.CloseMount(mount);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageCloseMountHandle");
+        }
     }
 
     /// <summary>HRESULT XPackageFindChunkAvailability(const char* packageIdentifier, uint32_t selectorCount, XPackageChunkSelector*, XPackageChunkAvailability*).</summary>
@@ -148,7 +228,16 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageFindChunkAvailability(byte* id, uint selectorCount, nint selectors, uint* availability)
     {
-        return ShimContext.Runtime.Gdk.Packages.FindChunkAvailability(id, availability);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Packages.FindChunkAvailability(id, availability);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageFindChunkAvailability");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XPackageCreateInstallationMonitor(const char* id, uint32_t selectorCount, XPackageChunkSelector*, uint32_t minimumUpdateIntervalMs, XTaskQueueHandle, XPackageInstallationMonitorHandle*).</summary>
@@ -156,15 +245,24 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageCreateInstallationMonitor(byte* id, uint selectorCount, nint selectors, uint interval, nint queue, nint* monitor)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Packages.CreateInstallationMonitor(id, queue, monitor);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Packages.CreateInstallationMonitor(id, queue, monitor);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPackageCreateInstallationMonitor), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPackageCreateInstallationMonitor), e);
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageCreateInstallationMonitor");
+
+            return HResult.Fail;
         }
     }
 
@@ -173,7 +271,14 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static void XPackageGetInstallationProgress(nint monitor, byte* progress)
     {
-        ShimContext.Runtime.Gdk.Packages.GetInstallationProgress(monitor, progress);
+        try
+        {
+            ShimContext.Runtime.Gdk.Packages.GetInstallationProgress(monitor, progress);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageGetInstallationProgress");
+        }
     }
 
     [Shim(GdkModule.Name, "XPackageUpdateInstallationMonitor")]
@@ -186,7 +291,14 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static void XPackageCloseInstallationMonitorHandle(nint monitor)
     {
-        ShimContext.Runtime.Gdk.Packages.CloseMonitor(monitor);
+        try
+        {
+            ShimContext.Runtime.Gdk.Packages.CloseMonitor(monitor);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageCloseInstallationMonitorHandle");
+        }
     }
 
     /// <summary>HRESULT XPackageRegisterInstallationProgressChanged(monitor, void* context, XPackageInstallationProgressCallback*, XTaskQueueRegistrationToken*).</summary>
@@ -194,18 +306,27 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageRegisterInstallationProgressChanged(nint monitor, nint context, nint callback, ulong* token)
     {
-        var runtime = ShimContext.Runtime;
-
         try
         {
-            int hr = runtime.Gdk.Packages.RegisterProgressChanged(monitor, context, callback, token);
-            runtime.Log.Info($"  [gdk] XPackageRegisterInstallationProgressChanged(monitor 0x{monitor:x}, callback {runtime.Images.Describe(callback)}, context 0x{context:x}) -> 0x{hr:x8}, called back once (complete)");
+            var runtime = ShimContext.Runtime;
 
-            return hr;
+            try
+            {
+                int hr = runtime.Gdk.Packages.RegisterProgressChanged(monitor, context, callback, token);
+                runtime.Log.Info($"  [gdk] XPackageRegisterInstallationProgressChanged(monitor 0x{monitor:x}, callback {runtime.Images.Describe(callback)}, context 0x{context:x}) -> 0x{hr:x8}, called back once (complete)");
+
+                return hr;
+            }
+            catch (Exception e)
+            {
+                return runtime.Gdk.Boundary.Failed(nameof(XPackageRegisterInstallationProgressChanged), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return runtime.Gdk.Boundary.Failed(nameof(XPackageRegisterInstallationProgressChanged), e);
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageRegisterInstallationProgressChanged");
+
+            return HResult.Fail;
         }
     }
 
@@ -222,7 +343,16 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageEnumerateFeatures(byte* id, nint context, nint callback)
     {
-        return ShimContext.Runtime.Gdk.Packages.EnumerateFeatures(id, callback);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Packages.EnumerateFeatures(id, callback);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageEnumerateFeatures");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XPackageEstimateDownloadSize(const char* id, uint32_t selectorCount, XPackageChunkSelector*, uint64_t* downloadSize, bool* shouldPresentUserConfirmation).</summary>
@@ -230,7 +360,16 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageEstimateDownloadSize(byte* id, uint selectorCount, nint selectors, ulong* size, byte* confirm)
     {
-        return ShimContext.Runtime.Gdk.Packages.EstimateDownloadSize(id, size, confirm);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Packages.EstimateDownloadSize(id, size, confirm);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageEstimateDownloadSize");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XPackageInstallChunks(const char* id, uint32_t selectorCount, XPackageChunkSelector*, uint32_t minimumUpdateIntervalMs, bool suppressUserConfirmation, XTaskQueueHandle, XPackageInstallationMonitorHandle*).</summary>
@@ -238,15 +377,24 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageInstallChunks(byte* id, uint selectorCount, nint selectors, uint interval, byte suppressConfirmation, nint queue, nint* monitor)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Packages.CreateInstallationMonitor(id, queue, monitor);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Packages.CreateInstallationMonitor(id, queue, monitor);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPackageInstallChunks), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPackageInstallChunks), e);
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageInstallChunks");
+
+            return HResult.Fail;
         }
     }
 
@@ -255,18 +403,27 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageInstallChunksAsync(byte* id, uint selectorCount, nint selectors, uint interval, byte suppressConfirmation, nint async)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            nint queue = async == 0 ? 0 : *(nint*)(async + AsyncLayout.BlockQueueOffset);
-            var operation = new InstallChunksOperation(gdk.Packages, Utf8Text.Read((nint)id), queue);
+            var gdk = ShimContext.Runtime.Gdk;
 
-            return gdk.Async.BeginManaged(async, nameof(XPackageInstallChunksAsync), operation);
+            try
+            {
+                nint queue = async == 0 ? 0 : *(nint*)(async + AsyncLayout.BlockQueueOffset);
+                var operation = new InstallChunksOperation(gdk.Packages, Utf8Text.Read((nint)id), queue);
+
+                return gdk.Async.BeginManaged(async, nameof(XPackageInstallChunksAsync), operation);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPackageInstallChunksAsync), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPackageInstallChunksAsync), e);
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageInstallChunksAsync");
+
+            return HResult.Fail;
         }
     }
 
@@ -275,20 +432,29 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageInstallChunksResult(nint async, nint* monitor)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
-        if (monitor == null)
-        {
-            return HResult.Pointer;
-        }
-
         try
         {
-            return gdk.Async.ManagedResult(async, nameof(XPackageInstallChunksAsync), (nuint)sizeof(nint), (nint)monitor);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            if (monitor == null)
+            {
+                return HResult.Pointer;
+            }
+
+            try
+            {
+                return gdk.Async.ManagedResult(async, nameof(XPackageInstallChunksAsync), (nuint)sizeof(nint), (nint)monitor);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XPackageInstallChunksResult), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XPackageInstallChunksResult), e);
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageInstallChunksResult");
+
+            return HResult.Fail;
         }
     }
 
@@ -297,7 +463,16 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageChangeChunkInstallOrder(byte* id, uint selectorCount, nint selectors)
     {
-        return ShimContext.Runtime.Gdk.Packages.ChangeChunkInstallOrder(id);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Packages.ChangeChunkInstallOrder(id);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageChangeChunkInstallOrder");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XPackageUninstallChunks(const char* id, uint32_t selectorCount, XPackageChunkSelector*): the loader never deletes game files.</summary>
@@ -305,9 +480,18 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageUninstallChunks(byte* id, uint selectorCount, nint selectors)
     {
-        ShimContext.Runtime.Gdk.Boundary.Info($"XPackageUninstallChunks({Utf8Text.Read((nint)id)}) not supported");
+        try
+        {
+            ShimContext.Runtime.Gdk.Boundary.Info($"XPackageUninstallChunks({Utf8Text.Read((nint)id)}) not supported");
 
-        return HResult.NotSupported;
+            return HResult.NotSupported;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageUninstallChunks");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>bool XPackageUninstallPackage(const char* packageIdentifier): false, nothing is uninstalled.</summary>
@@ -315,16 +499,34 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static byte XPackageUninstallPackage(byte* id)
     {
-        ShimContext.Runtime.Gdk.Boundary.Info($"XPackageUninstallPackage({Utf8Text.Read((nint)id)}) not supported");
+        try
+        {
+            ShimContext.Runtime.Gdk.Boundary.Info($"XPackageUninstallPackage({Utf8Text.Read((nint)id)}) not supported");
 
-        return GdkModule.False;
+            return GdkModule.False;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageUninstallPackage");
+
+            return default;
+        }
     }
 
     [Shim(GdkModule.Name, "XPackageGetWriteStats")]
     [UnmanagedCallersOnly]
     private static int XPackageGetWriteStats(byte* stats)
     {
-        return PackageService.GetWriteStats(stats);
+        try
+        {
+            return PackageService.GetWriteStats(stats);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageGetWriteStats");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XPackageRegisterPackageInstalled(XTaskQueueHandle, void* context, XPackageInstalledCallback*, XTaskQueueRegistrationToken*): no DLC ever installs.</summary>
@@ -332,13 +534,31 @@ internal static unsafe partial class XPackageShim
     [UnmanagedCallersOnly]
     private static int XPackageRegisterPackageInstalled(nint queue, nint context, nint callback, ulong* token)
     {
-        return ShimContext.Runtime.Gdk.Registrations.Register("XPackageRegisterPackageInstalled", callback, token);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Registrations.Register("XPackageRegisterPackageInstalled", callback, token);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageRegisterPackageInstalled");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XPackageUnregisterPackageInstalled")]
     [UnmanagedCallersOnly]
     private static byte XPackageUnregisterPackageInstalled(ulong token, byte wait)
     {
-        return ShimContext.Runtime.Gdk.Registrations.Unregister(token);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Registrations.Unregister(token);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XPackageShim.XPackageUnregisterPackageInstalled");
+
+            return default;
+        }
     }
 }

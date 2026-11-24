@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
+using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Input;
 
@@ -26,7 +28,16 @@ internal static unsafe class DeviceMethods
     [UnmanagedCallersOnly]
     private static int QueryInterface(nint self, Guid* iid, nint* result)
     {
-        return InputObjects.Query(self, iid, result, GameInputLayout.DeviceIid);
+        try
+        {
+            return InputObjects.Query(self, iid, result, GameInputLayout.DeviceIid);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "DeviceMethods.QueryInterface");
+
+            return HResult.Fail;
+        }
     }
 
     [HotPath]
@@ -40,30 +51,53 @@ internal static unsafe class DeviceMethods
     [UnmanagedCallersOnly]
     private static uint GetDeviceStatus(nint self)
     {
-        return Volatile.Read(ref ((DeviceObject*)self)->Status);
+        try
+        {
+            return Volatile.Read(ref ((DeviceObject*)self)->Status);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "DeviceMethods.GetDeviceStatus");
+
+            return default;
+        }
     }
 
     /// <summary>No source reports a battery: the state is zero with an unknown status.</summary>
     [UnmanagedCallersOnly]
     private static void GetBatteryState(nint self, byte* state)
     {
-        new Span<byte>(state, GameInputLayout.BatteryStateSize).Clear();
-        *(int*)(state + GameInputLayout.BatteryStatusOffset) = GameInputLayout.BatteryUnknown;
+        try
+        {
+            new Span<byte>(state, GameInputLayout.BatteryStateSize).Clear();
+            *(int*)(state + GameInputLayout.BatteryStatusOffset) = GameInputLayout.BatteryUnknown;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "DeviceMethods.GetBatteryState");
+        }
     }
 
     /// <summary>The low- and high-frequency motors go to the source; trigger motors are ignored. Null stops both.</summary>
     [UnmanagedCallersOnly]
     private static void SetRumbleState(nint self, byte* parameters)
     {
-        float low = 0;
-        float high = 0;
-
-        if (parameters != null)
+        try
         {
-            low = *(float*)(parameters + GameInputLayout.RumbleLowFrequencyOffset);
-            high = *(float*)(parameters + GameInputLayout.RumbleHighFrequencyOffset);
-        }
+            float low = 0;
+            float high = 0;
 
-        InputObjects.Session(self).SetRumble(((ObjectHeader*)self)->Index, low, high);
+            if (parameters != null)
+            {
+                low = *(float*)(parameters + GameInputLayout.RumbleLowFrequencyOffset);
+                high = *(float*)(parameters + GameInputLayout.RumbleHighFrequencyOffset);
+            }
+
+            InputObjects.Session(self).SetRumble(((ObjectHeader*)self)->Index, low, high);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "DeviceMethods.SetRumbleState");
+        }
     }
 }

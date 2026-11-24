@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Gdk;
@@ -14,8 +15,17 @@ internal static unsafe partial class XAppCaptureShim
     [UnmanagedCallersOnly]
     private static int XAppCaptureTakeScreenshot(nint user, nint result)
     {
-        ShimContext.Runtime.Gdk.Boundary.Info("XAppCaptureTakeScreenshot not supported");
+        try
+        {
+            ShimContext.Runtime.Gdk.Boundary.Info("XAppCaptureTakeScreenshot not supported");
 
-        return HResult.NotSupported;
+            return HResult.NotSupported;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XAppCaptureShim.XAppCaptureTakeScreenshot");
+
+            return HResult.Fail;
+        }
     }
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X;
@@ -58,21 +59,28 @@ internal static unsafe class PrimitiveTopologies
     [UnmanagedCallersOnly]
     public static void SetPrimitiveTopology(XboxObject* self, uint topology)
     {
-        ShimContext.Runtime.D3D12X.Rectangles.SetTopology(self, topology);
-        topology = Desktop(topology);
-
-        if (!IsDesktop(topology))
+        try
         {
-            Refuse(topology);
+            ShimContext.Runtime.D3D12X.Rectangles.SetTopology(self, topology);
+            topology = Desktop(topology);
 
-            return;
+            if (!IsDesktop(topology))
+            {
+                Refuse(topology);
+
+                return;
+            }
+
+            var state = ListReplayState.Of(self);
+            state->Topology = topology;
+            state->Set |= ListReplayState.TopologyBit;
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, uint, void>)ComObject.Slot(inner, SetPrimitiveTopologySlot))(inner, topology);
         }
-
-        var state = ListReplayState.Of(self);
-        state->Topology = topology;
-        state->Set |= ListReplayState.TopologyBit;
-        nint inner = self->Inner;
-        ((delegate* unmanaged<nint, uint, void>)ComObject.Slot(inner, SetPrimitiveTopologySlot))(inner, topology);
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "PrimitiveTopologies.SetPrimitiveTopology");
+        }
     }
 
     private static void Refuse(uint topology)

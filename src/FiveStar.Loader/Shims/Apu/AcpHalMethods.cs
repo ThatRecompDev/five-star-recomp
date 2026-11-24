@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Apu;
@@ -41,7 +42,16 @@ internal static unsafe class AcpHalMethods
     [UnmanagedCallersOnly]
     private static int SendMessage(nint self, uint type, uint cookie, uint timeout, uint* payload, uint flags)
     {
-        return ShimContext.Runtime.AcpHal.SendMessage(type, cookie, payload);
+        try
+        {
+            return ShimContext.Runtime.AcpHal.SendMessage(type, cookie, payload);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "AcpHalMethods.SendMessage");
+
+            return HResult.Fail;
+        }
     }
 
     [UnmanagedCallersOnly]

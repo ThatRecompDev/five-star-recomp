@@ -161,7 +161,16 @@ internal sealed unsafe class FaultReporter
     [UnmanagedCallersOnly]
     private static int OnException(nint pointers)
     {
-        return ShimContext.Runtime.Faults.Handle(pointers);
+        try
+        {
+            return ShimContext.Runtime.Faults.Handle(pointers);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FaultReporter.OnException");
+
+            return default;
+        }
     }
 
     private static bool IsFault(uint code)

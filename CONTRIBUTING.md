@@ -45,6 +45,9 @@ lists each violation as `path:line: [Rule] message`.
 - A method spans at most 60 lines. Longer work is split into named private steps.
 - Methods on per-frame paths carry `[HotPath]`: no allocation, no locks. Each project declares its own `internal sealed
   class HotPathAttribute : Attribute`; the check matches it by name.
+- An `[UnmanagedCallersOnly]` method in `src` that calls, creates or indexes anything is one `try` statement that
+  catches `Exception` (the loader's call `UnmanagedGuard.Caught`) and returns its failure value: an exception that leaves
+  it ends the process without a managed stack.
 - The loader and the libraries it uses are trim- and NativeAOT-safe (the analyzers run on every build): no member
   reflection, no runtime code generation. A shim type is `partial`; its shims are registered at compile time
   ([docs/aot.md](docs/aot.md)).

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
 
 namespace FiveStar.Loader.Shims.D3D12X.States;
@@ -59,21 +60,28 @@ internal static unsafe class EnhancedBarrierSlots
     [UnmanagedCallersOnly]
     public static void Barrier(XboxObject* self, uint count, byte* groups)
     {
-        ListSegments.Of(self)->Commands++;
-
-        if (groups == null || count == 0)
+        try
         {
-            return;
+            ListSegments.Of(self)->Commands++;
+
+            if (groups == null || count == 0)
+            {
+                return;
+            }
+
+            GpuBreadcrumbs.Before(self, RecordedCommand.EnhancedBarrier);
+
+            var d3d12x = D3D12X;
+            var states = d3d12x.ListStates.For(self);
+
+            for (uint i = 0; i < count; i++)
+            {
+                Group(d3d12x.Objects, self->Inner, states, groups + ((nint)i * GroupSize));
+            }
         }
-
-        GpuBreadcrumbs.Before(self, RecordedCommand.EnhancedBarrier);
-
-        var d3d12x = D3D12X;
-        var states = d3d12x.ListStates.For(self);
-
-        for (uint i = 0; i < count; i++)
+        catch (Exception exception)
         {
-            Group(d3d12x.Objects, self->Inner, states, groups + ((nint)i * GroupSize));
+            UnmanagedGuard.Caught(exception, "EnhancedBarrierSlots.Barrier");
         }
     }
 

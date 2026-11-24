@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Xg;
@@ -21,7 +22,16 @@ internal static unsafe partial class XgModule
     [UnmanagedCallersOnly]
     private static int XGCreateTextureComputer(XgResourceDesc* desc, nint* computer)
     {
-        return ShimContext.Runtime.Xg.Create(desc, computer);
+        try
+        {
+            return ShimContext.Runtime.Xg.Create(desc, computer);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XgModule.XGCreateTextureComputer");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>The second argument is 0 at both call sites; its meaning is unknown.</summary>
@@ -29,6 +39,15 @@ internal static unsafe partial class XgModule
     [UnmanagedCallersOnly]
     private static int XGSuggestSwizzleMode(XgResourceDesc* desc, uint flags, uint* layout)
     {
-        return XgComputers.Suggest(desc, layout);
+        try
+        {
+            return XgComputers.Suggest(desc, layout);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XgModule.XGSuggestSwizzleMode");
+
+            return HResult.Fail;
+        }
     }
 }

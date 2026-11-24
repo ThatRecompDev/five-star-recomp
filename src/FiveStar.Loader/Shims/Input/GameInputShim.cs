@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.Gdk;
 
@@ -21,24 +22,33 @@ internal static unsafe partial class GameInputShim
     [UnmanagedCallersOnly]
     private static int GameInputCreate(nint* gameInput)
     {
-        if (gameInput == null)
-        {
-            return HResult.Pointer;
-        }
-
-        var runtime = ShimContext.Runtime;
-
         try
         {
-            *gameInput = runtime.Input.Create();
+            if (gameInput == null)
+            {
+                return HResult.Pointer;
+            }
 
-            return HResult.Ok;
+            var runtime = ShimContext.Runtime;
+
+            try
+            {
+                *gameInput = runtime.Input.Create();
+
+                return HResult.Ok;
+            }
+            catch (Exception e)
+            {
+                *gameInput = 0;
+
+                return runtime.Gdk.Boundary.Failed(nameof(GameInputCreate), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            *gameInput = 0;
+            UnmanagedGuard.Caught(exception, "GameInputShim.GameInputCreate");
 
-            return runtime.Gdk.Boundary.Failed(nameof(GameInputCreate), e);
+            return HResult.Fail;
         }
     }
 }

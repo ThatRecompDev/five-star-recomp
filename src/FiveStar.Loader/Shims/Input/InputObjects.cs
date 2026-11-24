@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Input;
@@ -22,13 +23,31 @@ internal static unsafe class InputObjects
     [UnmanagedCallersOnly]
     public static uint AddRef(nint self)
     {
-        return (uint)Interlocked.Increment(ref ((ObjectHeader*)self)->References);
+        try
+        {
+            return (uint)Interlocked.Increment(ref ((ObjectHeader*)self)->References);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "InputObjects.AddRef");
+
+            return default;
+        }
     }
 
     [UnmanagedCallersOnly]
     public static uint Release(nint self)
     {
-        return Drop(self);
+        try
+        {
+            return Drop(self);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "InputObjects.Release");
+
+            return default;
+        }
     }
 
     /// <summary>Gives up one reference; a count that would go below 0 stays at 0.</summary>

@@ -180,12 +180,26 @@ public sealed unsafe class DxilValidator : IDisposable
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
     private static nint BufferPointer(nint* self)
     {
-        return self[1];
+        try
+        {
+            return self[1];
+        }
+        catch (Exception)
+        {
+            return 0;
+        }
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
     private static nint BufferSize(nint* self)
     {
-        return self[ReleaseSlot];
+        try
+        {
+            return self[ReleaseSlot];
+        }
+        catch (Exception)
+        {
+            return 0;
+        }
     }
 }

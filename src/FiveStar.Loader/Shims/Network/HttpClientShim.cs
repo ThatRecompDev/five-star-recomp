@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Network;
@@ -21,26 +22,35 @@ internal static unsafe partial class HttpClientShim
     [UnmanagedCallersOnly]
     private static int HCInitialize(nint args)
     {
-        nint install = Export("HCSetHttpCallPerformFunction");
-        nint initialize = Export("HCInitialize");
-
-        if (install == 0 || initialize == 0)
+        try
         {
-            ShimContext.Runtime.Log.Warn("libHttpClient is not mapped: HCInitialize refused, no HTTP stack");
+            nint install = Export("HCSetHttpCallPerformFunction");
+            nint initialize = Export("HCInitialize");
+
+            if (install == 0 || initialize == 0)
+            {
+                ShimContext.Runtime.Log.Warn("libHttpClient is not mapped: HCInitialize refused, no HTTP stack");
+
+                return HResult.Fail;
+            }
+
+            var perform = (delegate* unmanaged<nint, nint, nint, nint, void>)&Perform;
+            int installed = ((delegate* unmanaged<nint, nint, int>)install)((nint)perform, 0);
+            ShimContext.Runtime.Log.Info($"  [network] libHttpClient perform function sealed ({HResult.Format(installed)})");
+
+            if (HResult.Failed(installed))
+            {
+                return installed;
+            }
+
+            return ((delegate* unmanaged<nint, int>)initialize)(args);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "HttpClientShim.HCInitialize");
 
             return HResult.Fail;
         }
-
-        var perform = (delegate* unmanaged<nint, nint, nint, nint, void>)&Perform;
-        int installed = ((delegate* unmanaged<nint, nint, int>)install)((nint)perform, 0);
-        ShimContext.Runtime.Log.Info($"  [network] libHttpClient perform function sealed ({HResult.Format(installed)})");
-
-        if (HResult.Failed(installed))
-        {
-            return installed;
-        }
-
-        return ((delegate* unmanaged<nint, int>)initialize)(args);
     }
 
     /// <summary>void HCCallPerformFunction(HCCallHandle call, XAsyncBlock* asyncBlock, void* context, HCPerformEnv env).</summary>

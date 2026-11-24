@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X;
@@ -29,56 +30,70 @@ internal static unsafe class InputBuffers
     [UnmanagedCallersOnly]
     public static void SetIndexBuffer(XboxObject* self, VertexBufferView* view)
     {
-        nint inner = self->Inner;
-        var set = (delegate* unmanaged<nint, VertexBufferView*, void>)ComObject.Slot(inner, DesktopSetIndexBuffer);
-        var state = ListReplayState.Of(self);
-
-        if (view == null)
+        try
         {
-            state->Set &= ~ListReplayState.IndexBit;
-            set(inner, null);
+            nint inner = self->Inner;
+            var set = (delegate* unmanaged<nint, VertexBufferView*, void>)ComObject.Slot(inner, DesktopSetIndexBuffer);
+            var state = ListReplayState.Of(self);
 
-            return;
+            if (view == null)
+            {
+                state->Set &= ~ListReplayState.IndexBit;
+                set(inner, null);
+
+                return;
+            }
+
+            var desktop = Translated(*view);
+            state->Index = desktop;
+            state->Set |= ListReplayState.IndexBit;
+            set(inner, &desktop);
         }
-
-        var desktop = Translated(*view);
-        state->Index = desktop;
-        state->Set |= ListReplayState.IndexBit;
-        set(inner, &desktop);
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "InputBuffers.SetIndexBuffer");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void SetVertexBuffers(XboxObject* self, uint startSlot, uint count, VertexBufferView* views)
     {
-        nint inner = self->Inner;
-        var set = (delegate* unmanaged<nint, uint, uint, VertexBufferView*, void>)ComObject.Slot(inner, DesktopSetVertexBuffers);
-
-        if (views == null || count == 0 || startSlot >= MaxVertexBuffers)
+        try
         {
-            Unset(ListReplayState.Of(self), startSlot, count);
-            set(inner, startSlot, count, null);
+            nint inner = self->Inner;
+            var set = (delegate* unmanaged<nint, uint, uint, VertexBufferView*, void>)ComObject.Slot(inner, DesktopSetVertexBuffers);
 
-            return;
+            if (views == null || count == 0 || startSlot >= MaxVertexBuffers)
+            {
+                Unset(ListReplayState.Of(self), startSlot, count);
+                set(inner, startSlot, count, null);
+
+                return;
+            }
+
+            uint used = count;
+
+            if (used > MaxVertexBuffers - startSlot)
+            {
+                used = MaxVertexBuffers - startSlot;
+            }
+
+            VertexBufferView* desktop = stackalloc VertexBufferView[(int)MaxVertexBuffers];
+
+            for (uint i = 0; i < used; i++)
+            {
+                desktop[i] = Translated(views[i]);
+            }
+
+            ShimContext.Runtime.D3D12X.DrawTrace?.VertexBuffers(self, startSlot, used, views);
+            Keep(ListReplayState.Of(self), startSlot, used, desktop);
+            set(inner, startSlot, used, desktop);
         }
-
-        uint used = count;
-
-        if (used > MaxVertexBuffers - startSlot)
+        catch (Exception exception)
         {
-            used = MaxVertexBuffers - startSlot;
+            UnmanagedGuard.Caught(exception, "InputBuffers.SetVertexBuffers");
         }
-
-        VertexBufferView* desktop = stackalloc VertexBufferView[(int)MaxVertexBuffers];
-
-        for (uint i = 0; i < used; i++)
-        {
-            desktop[i] = Translated(views[i]);
-        }
-
-        ShimContext.Runtime.D3D12X.DrawTrace?.VertexBuffers(self, startSlot, used, views);
-        Keep(ListReplayState.Of(self), startSlot, used, desktop);
-        set(inner, startSlot, used, desktop);
     }
 
     /// <summary>The desktop views of the slots a split list sets again (<see cref="ListReplayState"/>).</summary>

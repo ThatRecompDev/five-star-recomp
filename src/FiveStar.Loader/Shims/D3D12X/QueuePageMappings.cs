@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X;
@@ -30,15 +31,24 @@ internal static unsafe class QueuePageMappings
     [UnmanagedCallersOnly]
     public static int CopyPageMappings(XboxQueueObject* queue, uint count, PageBatch* batches, ulong pool, uint poolPages, uint flags)
     {
-        if (count > 0 && batches == null)
+        try
         {
-            return HResult.InvalidArgument;
+            if (count > 0 && batches == null)
+            {
+                return HResult.InvalidArgument;
+            }
+
+            WaitForQueue(queue);
+            ShimContext.Runtime.XMemPhysical.CopyPageMappings(count, batches, (nint)pool, poolPages);
+
+            return HResult.Ok;
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "QueuePageMappings.CopyPageMappings");
 
-        WaitForQueue(queue);
-        ShimContext.Runtime.XMemPhysical.CopyPageMappings(count, batches, (nint)pool, poolPages);
-
-        return HResult.Ok;
+            return HResult.Fail;
+        }
     }
 
     /// <summary>Blocks until every execution submitted on <paramref name="queue"/> so far has finished on the GPU.</summary>

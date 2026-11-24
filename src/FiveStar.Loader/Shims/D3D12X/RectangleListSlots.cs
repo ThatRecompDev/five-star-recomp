@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.Binding;
 
@@ -26,28 +27,35 @@ internal static unsafe class RectangleListSlots
     [UnmanagedCallersOnly]
     public static void SetPipelineState(XboxObject* self, nint pipeline)
     {
-        var runtime = ShimContext.Runtime.D3D12X;
-        nint desktop = runtime.Objects.Unwrap(pipeline);
-        bool pending = false;
-        var standIns = runtime.Pipelines?.StandIns;
-
-        if (standIns is not null)
+        try
         {
-            desktop = standIns.Desktop(desktop, out pending);
+            var runtime = ShimContext.Runtime.D3D12X;
+            nint desktop = runtime.Objects.Unwrap(pipeline);
+            bool pending = false;
+            var standIns = runtime.Pipelines?.StandIns;
+
+            if (standIns is not null)
+            {
+                desktop = standIns.Desktop(desktop, out pending);
+            }
+
+            CommandListBindings.Of(self)->PipelinePending = pending ? 1 : 0;
+            var activity = ListActivity.Of(self);
+            activity->Pipeline = desktop;
+            activity->StandIn = pending ? runtime.Objects.Unwrap(pipeline) : 0;
+            runtime.Rectangles.SetPipeline(self, desktop);
+
+            if (pending)
+            {
+                return;
+            }
+
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(inner, SetPipelineStateSlot))(inner, desktop);
         }
-
-        CommandListBindings.Of(self)->PipelinePending = pending ? 1 : 0;
-        var activity = ListActivity.Of(self);
-        activity->Pipeline = desktop;
-        activity->StandIn = pending ? runtime.Objects.Unwrap(pipeline) : 0;
-        runtime.Rectangles.SetPipeline(self, desktop);
-
-        if (pending)
+        catch (Exception exception)
         {
-            return;
+            UnmanagedGuard.Caught(exception, "RectangleListSlots.SetPipelineState");
         }
-
-        nint inner = self->Inner;
-        ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(inner, SetPipelineStateSlot))(inner, desktop);
     }
 }

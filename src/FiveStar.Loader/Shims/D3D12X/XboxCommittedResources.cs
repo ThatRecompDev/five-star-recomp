@@ -89,16 +89,25 @@ internal sealed unsafe class XboxCommittedResources
     [UnmanagedCallersOnly]
     public static uint ReleaseResource(XboxResourceObject* self)
     {
-        nint inner = self->Header.Inner;
-        uint left = ((delegate* unmanaged<nint, uint>)ComObject.Slot(inner, ComObject.ReleaseSlot))(inner);
-
-        if (left == 0)
+        try
         {
-            ShimContext.Runtime.D3D12X.CommittedResources.Release(self);
-            NativeMemory.Free(self);
-        }
+            nint inner = self->Header.Inner;
+            uint left = ((delegate* unmanaged<nint, uint>)ComObject.Slot(inner, ComObject.ReleaseSlot))(inner);
 
-        return left;
+            if (left == 0)
+            {
+                ShimContext.Runtime.D3D12X.CommittedResources.Release(self);
+                NativeMemory.Free(self);
+            }
+
+            return left;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxCommittedResources.ReleaseResource");
+
+            return default;
+        }
     }
 
     private static ulong AllocationSize(nint device, ResourceDescription* description)

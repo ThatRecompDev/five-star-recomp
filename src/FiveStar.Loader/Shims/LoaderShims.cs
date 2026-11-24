@@ -26,24 +26,33 @@ internal static unsafe partial class LoaderShims
     [UnmanagedCallersOnly]
     private static nint RtlPcToFileHeader(nint pc, nint* baseOfImage)
     {
-        var runtime = ShimContext.Runtime;
-        var image = runtime.Images.FindByAddress(pc);
-
-        if (image is null)
+        try
         {
-            return Ntdll.RtlPcToFileHeader(pc, baseOfImage);
+            var runtime = ShimContext.Runtime;
+            var image = runtime.Images.FindByAddress(pc);
+
+            if (image is null)
+            {
+                return Ntdll.RtlPcToFileHeader(pc, baseOfImage);
+            }
+
+            runtime.Counters.CountPcToFileHeader();
+
+            if (runtime.Log.DetailEnabled)
+            {
+                LogHit(runtime, pc, image);
+            }
+
+            *baseOfImage = image.Base;
+
+            return image.Base;
         }
-
-        runtime.Counters.CountPcToFileHeader();
-
-        if (runtime.Log.DetailEnabled)
+        catch (Exception exception)
         {
-            LogHit(runtime, pc, image);
+            UnmanagedGuard.Caught(exception, "LoaderShims.RtlPcToFileHeader");
+
+            return default;
         }
-
-        *baseOfImage = image.Base;
-
-        return image.Base;
     }
 
     private static void LogHit(LoaderRuntime runtime, nint pc, Loading.LoadedImage image)
@@ -59,12 +68,21 @@ internal static unsafe partial class LoaderShims
     [UnmanagedCallersOnly]
     private static nint AddVectoredExceptionHandler(uint first, nint handler)
     {
-        var runtime = ShimContext.Runtime;
-        nint handle = Kernel32.AddVectoredExceptionHandler(first, handler);
-        runtime.Log.Detail($"  [loader] AddVectoredExceptionHandler({first}, {runtime.Images.Describe(handler)}) -> 0x{handle:x}");
-        runtime.Faults.KeepFirst();
+        try
+        {
+            var runtime = ShimContext.Runtime;
+            nint handle = Kernel32.AddVectoredExceptionHandler(first, handler);
+            runtime.Log.Detail($"  [loader] AddVectoredExceptionHandler({first}, {runtime.Images.Describe(handler)}) -> 0x{handle:x}");
+            runtime.Faults.KeepFirst();
 
-        return handle;
+            return handle;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "LoaderShims.AddVectoredExceptionHandler");
+
+            return default;
+        }
     }
 
     /// <summary>
@@ -75,10 +93,17 @@ internal static unsafe partial class LoaderShims
     [UnmanagedCallersOnly]
     private static void Terminate()
     {
-        var runtime = ShimContext.Runtime;
-        runtime.Log.Error("std::terminate() called from mapped code");
-        NativeStack.Log(runtime.Images, runtime.Log, "terminate call stack");
-        var real = (delegate* unmanaged<void>)NativeLibrary.GetExport(NativeLibrary.Load(UcrtLibrary), TerminateExport);
-        real();
+        try
+        {
+            var runtime = ShimContext.Runtime;
+            runtime.Log.Error("std::terminate() called from mapped code");
+            NativeStack.Log(runtime.Images, runtime.Log, "terminate call stack");
+            var real = (delegate* unmanaged<void>)NativeLibrary.GetExport(NativeLibrary.Load(UcrtLibrary), TerminateExport);
+            real();
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "LoaderShims.Terminate");
+        }
     }
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Gdk;
@@ -18,23 +19,32 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveInitializeProvider(nint user, byte* configId, byte syncOnDemand, nint* provider)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
-        if (provider == null)
-        {
-            return HResult.Pointer;
-        }
-
         try
         {
-            int hr = gdk.Saves.InitializeProvider(user, Utf8Text.Read((nint)configId), out nint created);
-            *provider = created;
+            var gdk = ShimContext.Runtime.Gdk;
 
-            return hr;
+            if (provider == null)
+            {
+                return HResult.Pointer;
+            }
+
+            try
+            {
+                int hr = gdk.Saves.InitializeProvider(user, Utf8Text.Read((nint)configId), out nint created);
+                *provider = created;
+
+                return hr;
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveInitializeProvider), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveInitializeProvider), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveInitializeProvider");
+
+            return HResult.Fail;
         }
     }
 
@@ -43,15 +53,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveInitializeProviderAsync(nint user, byte* configId, byte syncOnDemand, nint async)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.InitializeProviderAsync(user, Utf8Text.Read((nint)configId), async);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.InitializeProviderAsync(user, Utf8Text.Read((nint)configId), async);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveInitializeProviderAsync), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveInitializeProviderAsync), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveInitializeProviderAsync");
+
+            return HResult.Fail;
         }
     }
 
@@ -60,14 +79,30 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveInitializeProviderResult(nint async, nint* provider)
     {
-        return ManagedResult(nameof(XGameSaveInitializeProviderResult), async, GameSaveService.InitializeProviderApi, (nuint)sizeof(nint), provider);
+        try
+        {
+            return ManagedResult(nameof(XGameSaveInitializeProviderResult), async, GameSaveService.InitializeProviderApi, (nuint)sizeof(nint), provider);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveInitializeProviderResult");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XGameSaveCloseProvider")]
     [UnmanagedCallersOnly]
     private static void XGameSaveCloseProvider(nint provider)
     {
-        ShimContext.Runtime.Gdk.Saves.CloseProvider(provider);
+        try
+        {
+            ShimContext.Runtime.Gdk.Saves.CloseProvider(provider);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveCloseProvider");
+        }
     }
 
     /// <summary>HRESULT XGameSaveGetRemainingQuota(XGameSaveProviderHandle, int64_t* remainingQuota).</summary>
@@ -75,15 +110,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveGetRemainingQuota(nint provider, long* remaining)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.GetRemainingQuota(provider, remaining);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.GetRemainingQuota(provider, remaining);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveGetRemainingQuota), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveGetRemainingQuota), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveGetRemainingQuota");
+
+            return HResult.Fail;
         }
     }
 
@@ -91,15 +135,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveGetRemainingQuotaAsync(nint provider, nint async)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.GetRemainingQuotaAsync(provider, async);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.GetRemainingQuotaAsync(provider, async);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveGetRemainingQuotaAsync), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveGetRemainingQuotaAsync), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveGetRemainingQuotaAsync");
+
+            return HResult.Fail;
         }
     }
 
@@ -107,7 +160,16 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveGetRemainingQuotaResult(nint async, long* remaining)
     {
-        return ManagedResult(nameof(XGameSaveGetRemainingQuotaResult), async, GameSaveService.RemainingQuotaApi, sizeof(long), remaining);
+        try
+        {
+            return ManagedResult(nameof(XGameSaveGetRemainingQuotaResult), async, GameSaveService.RemainingQuotaApi, sizeof(long), remaining);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveGetRemainingQuotaResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XGameSaveDeleteContainer(XGameSaveProviderHandle, const char* containerName).</summary>
@@ -115,15 +177,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveDeleteContainer(nint provider, byte* name)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.DeleteContainer(provider, name);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.DeleteContainer(provider, name);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveDeleteContainer), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveDeleteContainer), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveDeleteContainer");
+
+            return HResult.Fail;
         }
     }
 
@@ -131,15 +202,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveDeleteContainerAsync(nint provider, byte* name, nint async)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.DeleteContainerAsync(provider, name, async);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.DeleteContainerAsync(provider, name, async);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveDeleteContainerAsync), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveDeleteContainerAsync), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveDeleteContainerAsync");
+
+            return HResult.Fail;
         }
     }
 
@@ -147,7 +227,16 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveDeleteContainerResult(nint async)
     {
-        return ManagedResult(nameof(XGameSaveDeleteContainerResult), async, GameSaveService.DeleteContainerApi, 0, (void*)null);
+        try
+        {
+            return ManagedResult(nameof(XGameSaveDeleteContainerResult), async, GameSaveService.DeleteContainerApi, 0, (void*)null);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveDeleteContainerResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XGameSaveCreateContainer(XGameSaveProviderHandle, const char* containerName, XGameSaveContainerHandle*).</summary>
@@ -155,15 +244,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveCreateContainer(nint provider, byte* name, nint* container)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.CreateContainer(provider, name, container);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.CreateContainer(provider, name, container);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveCreateContainer), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveCreateContainer), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveCreateContainer");
+
+            return HResult.Fail;
         }
     }
 
@@ -171,7 +269,14 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static void XGameSaveCloseContainer(nint container)
     {
-        ShimContext.Runtime.Gdk.Saves.CloseContainer(container);
+        try
+        {
+            ShimContext.Runtime.Gdk.Saves.CloseContainer(container);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveCloseContainer");
+        }
     }
 
     /// <summary>HRESULT XGameSaveGetContainerInfo(XGameSaveProviderHandle, const char* containerName, void* context, XGameSaveContainerInfoCallback*).</summary>
@@ -179,15 +284,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveGetContainerInfo(nint provider, byte* name, nint context, nint callback)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.GetContainerInfo(provider, name, context, callback);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.GetContainerInfo(provider, name, context, callback);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveGetContainerInfo), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveGetContainerInfo), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveGetContainerInfo");
+
+            return HResult.Fail;
         }
     }
 
@@ -195,15 +309,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveEnumerateContainerInfo(nint provider, nint context, nint callback)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.EnumerateContainers(provider, null, context, callback);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.EnumerateContainers(provider, null, context, callback);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveEnumerateContainerInfo), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveEnumerateContainerInfo), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveEnumerateContainerInfo");
+
+            return HResult.Fail;
         }
     }
 
@@ -211,15 +334,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveEnumerateContainerInfoByName(nint provider, byte* prefix, nint context, nint callback)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.EnumerateContainers(provider, Utf8Text.Read((nint)prefix), context, callback);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.EnumerateContainers(provider, Utf8Text.Read((nint)prefix), context, callback);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveEnumerateContainerInfoByName), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveEnumerateContainerInfoByName), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveEnumerateContainerInfoByName");
+
+            return HResult.Fail;
         }
     }
 
@@ -227,15 +359,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveEnumerateBlobInfo(nint container, nint context, nint callback)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.EnumerateBlobs(container, null, context, callback);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.EnumerateBlobs(container, null, context, callback);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveEnumerateBlobInfo), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveEnumerateBlobInfo), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveEnumerateBlobInfo");
+
+            return HResult.Fail;
         }
     }
 
@@ -243,15 +384,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveEnumerateBlobInfoByName(nint container, byte* prefix, nint context, nint callback)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.EnumerateBlobs(container, Utf8Text.Read((nint)prefix), context, callback);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.EnumerateBlobs(container, Utf8Text.Read((nint)prefix), context, callback);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveEnumerateBlobInfoByName), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveEnumerateBlobInfoByName), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveEnumerateBlobInfoByName");
+
+            return HResult.Fail;
         }
     }
 
@@ -260,15 +410,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveReadBlobData(nint container, byte** blobNames, uint* countOfBlobs, nuint blobsSize, byte* blobData)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.ReadBlobData(container, blobNames, countOfBlobs, blobsSize, blobData);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.ReadBlobData(container, blobNames, countOfBlobs, blobsSize, blobData);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveReadBlobData), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveReadBlobData), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveReadBlobData");
+
+            return HResult.Fail;
         }
     }
 
@@ -277,15 +436,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveReadBlobDataAsync(nint container, byte** blobNames, uint countOfBlobs, nint async)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.ReadBlobDataAsync(container, blobNames, countOfBlobs, async);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.ReadBlobDataAsync(container, blobNames, countOfBlobs, async);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveReadBlobDataAsync), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveReadBlobDataAsync), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveReadBlobDataAsync");
+
+            return HResult.Fail;
         }
     }
 
@@ -294,15 +462,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveReadBlobDataResult(nint async, nuint blobsSize, byte* blobData, uint* countOfBlobs)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.ReadBlobDataResult(async, blobsSize, blobData, countOfBlobs);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.ReadBlobDataResult(async, blobsSize, blobData, countOfBlobs);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveReadBlobDataResult), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveReadBlobDataResult), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveReadBlobDataResult");
+
+            return HResult.Fail;
         }
     }
 
@@ -311,15 +488,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveCreateUpdate(nint container, byte* displayName, nint* update)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.CreateUpdate(container, displayName, update);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.CreateUpdate(container, displayName, update);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveCreateUpdate), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveCreateUpdate), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveCreateUpdate");
+
+            return HResult.Fail;
         }
     }
 
@@ -328,15 +514,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveSubmitBlobWrite(nint update, byte* blobName, byte* data, nuint byteCount)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.SubmitBlobWrite(update, blobName, data, byteCount);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.SubmitBlobWrite(update, blobName, data, byteCount);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveSubmitBlobWrite), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveSubmitBlobWrite), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveSubmitBlobWrite");
+
+            return HResult.Fail;
         }
     }
 
@@ -344,15 +539,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveSubmitBlobDelete(nint update, byte* blobName)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.SubmitBlobDelete(update, blobName);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.SubmitBlobDelete(update, blobName);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveSubmitBlobDelete), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveSubmitBlobDelete), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveSubmitBlobDelete");
+
+            return HResult.Fail;
         }
     }
 
@@ -360,15 +564,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveSubmitUpdate(nint update)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.SubmitUpdate(update);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.SubmitUpdate(update);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveSubmitUpdate), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveSubmitUpdate), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveSubmitUpdate");
+
+            return HResult.Fail;
         }
     }
 
@@ -376,15 +589,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveSubmitUpdateAsync(nint update, nint async)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.SubmitUpdateAsync(update, async);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.SubmitUpdateAsync(update, async);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveSubmitUpdateAsync), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveSubmitUpdateAsync), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveSubmitUpdateAsync");
+
+            return HResult.Fail;
         }
     }
 
@@ -392,14 +614,30 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveSubmitUpdateResult(nint async)
     {
-        return ManagedResult(nameof(XGameSaveSubmitUpdateResult), async, GameSaveService.SubmitUpdateApi, 0, (void*)null);
+        try
+        {
+            return ManagedResult(nameof(XGameSaveSubmitUpdateResult), async, GameSaveService.SubmitUpdateApi, 0, (void*)null);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveSubmitUpdateResult");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XGameSaveCloseUpdate")]
     [UnmanagedCallersOnly]
     private static void XGameSaveCloseUpdate(nint update)
     {
-        ShimContext.Runtime.Gdk.Saves.CloseUpdate(update);
+        try
+        {
+            ShimContext.Runtime.Gdk.Saves.CloseUpdate(update);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveCloseUpdate");
+        }
     }
 
     /// <summary>HRESULT XGameSaveFilesGetFolderWithUiAsync(XUserHandle, const char* configurationId, XAsyncBlock*).</summary>
@@ -407,15 +645,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveFilesGetFolderWithUiAsync(nint user, byte* configId, nint async)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.GetFolderWithUiAsync(user, configId, async);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.GetFolderWithUiAsync(user, configId, async);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveFilesGetFolderWithUiAsync), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveFilesGetFolderWithUiAsync), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveFilesGetFolderWithUiAsync");
+
+            return HResult.Fail;
         }
     }
 
@@ -424,15 +671,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveFilesGetFolderWithUiResult(nint async, nuint folderSize, byte* folder)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Async.ManagedResult(async, GameSaveService.SaveFolderApi, folderSize, (nint)folder);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Async.ManagedResult(async, GameSaveService.SaveFolderApi, folderSize, (nint)folder);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveFilesGetFolderWithUiResult), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveFilesGetFolderWithUiResult), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveFilesGetFolderWithUiResult");
+
+            return HResult.Fail;
         }
     }
 
@@ -441,15 +697,24 @@ internal static unsafe partial class XGameSaveShim
     [UnmanagedCallersOnly]
     private static int XGameSaveFilesGetRemainingQuota(nint user, byte* configId, long* remaining)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Saves.GetSaveFilesRemainingQuota(user, configId, remaining);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Saves.GetSaveFilesRemainingQuota(user, configId, remaining);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XGameSaveFilesGetRemainingQuota), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XGameSaveFilesGetRemainingQuota), e);
+            UnmanagedGuard.Caught(exception, "XGameSaveShim.XGameSaveFilesGetRemainingQuota");
+
+            return HResult.Fail;
         }
     }
 

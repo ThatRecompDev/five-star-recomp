@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Apu;
@@ -22,7 +23,16 @@ internal static unsafe partial class AcpHalShim
     [UnmanagedCallersOnly]
     private static int AcpHalCreate(nint* result)
     {
-        return ShimContext.Runtime.AcpHal.Create(result);
+        try
+        {
+            return ShimContext.Runtime.AcpHal.Create(result);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "AcpHalShim.AcpHalCreate");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT AcpHalAllocateShapeContexts(SHAPE_CONTEXTS* contexts): the caller zeroes count * 64 bytes at +0x38 on success.</summary>
@@ -30,7 +40,16 @@ internal static unsafe partial class AcpHalShim
     [UnmanagedCallersOnly]
     private static int AcpHalAllocateShapeContexts(byte* contexts)
     {
-        return ShimContext.Runtime.AcpHal.AllocateContexts(contexts);
+        try
+        {
+            return ShimContext.Runtime.AcpHal.AllocateContexts(contexts);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "AcpHalShim.AcpHalAllocateShapeContexts");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>AcpHalReleaseShapeContexts(): called with no argument at teardown; the result is not read.</summary>
@@ -38,9 +57,18 @@ internal static unsafe partial class AcpHalShim
     [UnmanagedCallersOnly]
     private static int AcpHalReleaseShapeContexts()
     {
-        ShimContext.Runtime.AcpHal.ReleaseContexts();
+        try
+        {
+            ShimContext.Runtime.AcpHal.ReleaseContexts();
 
-        return HResult.Ok;
+            return HResult.Ok;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "AcpHalShim.AcpHalReleaseShapeContexts");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT ApuCreateHeap(UINT32 cachedSizeInBytes, UINT32 nonCachedSizeInBytes).</summary>
@@ -48,7 +76,16 @@ internal static unsafe partial class AcpHalShim
     [UnmanagedCallersOnly]
     private static int ApuCreateHeap(uint cachedBytes, uint nonCachedBytes)
     {
-        return ShimContext.Runtime.Apu.Create(cachedBytes, nonCachedBytes);
+        try
+        {
+            return ShimContext.Runtime.Apu.Create(cachedBytes, nonCachedBytes);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "AcpHalShim.ApuCreateHeap");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT ApuAlloc(void** virtualAddress, APU_ADDRESS* apuAddress, UINT32 size, UINT32 alignment, UINT32 flags).</summary>
@@ -56,7 +93,16 @@ internal static unsafe partial class AcpHalShim
     [UnmanagedCallersOnly]
     private static int ApuAlloc(nint* virtualAddress, uint* apuAddress, uint size, uint alignment, uint flags)
     {
-        return ShimContext.Runtime.Apu.Allocate(virtualAddress, apuAddress, size, alignment);
+        try
+        {
+            return ShimContext.Runtime.Apu.Allocate(virtualAddress, apuAddress, size, alignment);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "AcpHalShim.ApuAlloc");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT ApuFree(void* virtualAddress).</summary>
@@ -64,7 +110,16 @@ internal static unsafe partial class AcpHalShim
     [UnmanagedCallersOnly]
     private static int ApuFree(nint virtualAddress)
     {
-        return ShimContext.Runtime.Apu.Free(virtualAddress);
+        try
+        {
+            return ShimContext.Runtime.Apu.Free(virtualAddress);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "AcpHalShim.ApuFree");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>BOOL ApuIsVirtualAddressValid(const void* virtualAddress, UINT32 requirement); the second argument (0x40, 0x80, 0x800 at the call sites) is not used.</summary>
@@ -72,9 +127,18 @@ internal static unsafe partial class AcpHalShim
     [UnmanagedCallersOnly]
     private static int ApuIsVirtualAddressValid(nint virtualAddress, uint requirement)
     {
-        int valid = ShimContext.Runtime.Apu.IsValid(virtualAddress) ? 1 : 0;
+        try
+        {
+            int valid = ShimContext.Runtime.Apu.IsValid(virtualAddress) ? 1 : 0;
 
-        return valid;
+            return valid;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "AcpHalShim.ApuIsVirtualAddressValid");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>APU_ADDRESS ApuMapVirtualAddress(const void* virtualAddress).</summary>
@@ -82,7 +146,16 @@ internal static unsafe partial class AcpHalShim
     [UnmanagedCallersOnly]
     private static uint ApuMapVirtualAddress(nint virtualAddress)
     {
-        return ShimContext.Runtime.Apu.ToApuAddress(virtualAddress);
+        try
+        {
+            return ShimContext.Runtime.Apu.ToApuAddress(virtualAddress);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "AcpHalShim.ApuMapVirtualAddress");
+
+            return default;
+        }
     }
 
     /// <summary>void* ApuMapApuAddress(APU_ADDRESS apuAddress).</summary>
@@ -90,6 +163,15 @@ internal static unsafe partial class AcpHalShim
     [UnmanagedCallersOnly]
     private static nint ApuMapApuAddress(uint apuAddress)
     {
-        return ShimContext.Runtime.Apu.ToVirtualAddress(apuAddress);
+        try
+        {
+            return ShimContext.Runtime.Apu.ToVirtualAddress(apuAddress);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "AcpHalShim.ApuMapApuAddress");
+
+            return default;
+        }
     }
 }

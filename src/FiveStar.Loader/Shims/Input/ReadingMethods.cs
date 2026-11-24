@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
+using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Input;
 
@@ -44,7 +46,16 @@ internal static unsafe class ReadingMethods
     [UnmanagedCallersOnly]
     private static int QueryInterface(nint self, Guid* iid, nint* result)
     {
-        return InputObjects.Query(self, iid, result, GameInputLayout.ReadingIid);
+        try
+        {
+            return InputObjects.Query(self, iid, result, GameInputLayout.ReadingIid);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "ReadingMethods.QueryInterface");
+
+            return HResult.Fail;
+        }
     }
 
     [HotPath]
@@ -73,9 +84,16 @@ internal static unsafe class ReadingMethods
     [UnmanagedCallersOnly]
     private static void GetDevice(nint self, nint* device)
     {
-        nint value = ((ReadingObject*)self)->Device;
-        Interlocked.Increment(ref ((ObjectHeader*)value)->References);
-        *device = value;
+        try
+        {
+            nint value = ((ReadingObject*)self)->Device;
+            Interlocked.Increment(ref ((ObjectHeader*)value)->References);
+            *device = value;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "ReadingMethods.GetDevice");
+        }
     }
 
     [UnmanagedCallersOnly]
@@ -97,20 +115,29 @@ internal static unsafe class ReadingMethods
     [UnmanagedCallersOnly]
     private static uint GetKeyState(nint self, uint capacity, KeyState* states)
     {
-        var reading = (ReadingObject*)self;
-        int count = reading->KeyCount;
-
-        if (capacity < (uint)count)
+        try
         {
-            count = (int)capacity;
-        }
+            var reading = (ReadingObject*)self;
+            int count = reading->KeyCount;
 
-        for (int i = 0; i < count; i++)
+            if (capacity < (uint)count)
+            {
+                count = (int)capacity;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                states[i] = reading->Keys[i];
+            }
+
+            return (uint)count;
+        }
+        catch (Exception exception)
         {
-            states[i] = reading->Keys[i];
-        }
+            UnmanagedGuard.Caught(exception, "ReadingMethods.GetKeyState");
 
-        return (uint)count;
+            return default;
+        }
     }
 
     [HotPath]

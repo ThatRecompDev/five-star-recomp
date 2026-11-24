@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Gdk;
@@ -17,14 +18,30 @@ internal static unsafe partial class XStoreShim
     [UnmanagedCallersOnly]
     private static int XStoreCreateContext(nint user, nint* context)
     {
-        return ShimContext.Runtime.Gdk.Store.CreateContext(context);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Store.CreateContext(context);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreShim.XStoreCreateContext");
+
+            return HResult.Fail;
+        }
     }
 
     [Shim(GdkModule.Name, "XStoreCloseContextHandle")]
     [UnmanagedCallersOnly]
     private static void XStoreCloseContextHandle(nint context)
     {
-        ShimContext.Runtime.Gdk.Store.CloseContext(context);
+        try
+        {
+            ShimContext.Runtime.Gdk.Store.CloseContext(context);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreShim.XStoreCloseContextHandle");
+        }
     }
 
     /// <summary>HRESULT XStoreQueryGameLicenseAsync(const XStoreContextHandle storeContextHandle, XAsyncBlock* async).</summary>
@@ -32,7 +49,16 @@ internal static unsafe partial class XStoreShim
     [UnmanagedCallersOnly]
     private static int XStoreQueryGameLicenseAsync(nint context, nint async)
     {
-        return AsyncCalls.BeginStore(context, async, StoreService.GameLicenseApi, new GameLicenseOperation(ShimContext.Runtime.Gdk.Store));
+        try
+        {
+            return AsyncCalls.BeginStore(context, async, StoreService.GameLicenseApi, new GameLicenseOperation(ShimContext.Runtime.Gdk.Store));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreShim.XStoreQueryGameLicenseAsync");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreQueryGameLicenseResult(XAsyncBlock* async, XStoreGameLicense* license).</summary>
@@ -40,12 +66,21 @@ internal static unsafe partial class XStoreShim
     [UnmanagedCallersOnly]
     private static int XStoreQueryGameLicenseResult(nint async, byte* license)
     {
-        if (license == null)
+        try
         {
-            return HResult.Pointer;
-        }
+            if (license == null)
+            {
+                return HResult.Pointer;
+            }
 
-        return AsyncCalls.Result(async, StoreService.GameLicenseApi, StoreService.GameLicenseSize, (nint)license);
+            return AsyncCalls.Result(async, StoreService.GameLicenseApi, StoreService.GameLicenseSize, (nint)license);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreShim.XStoreQueryGameLicenseResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreAcquireLicenseForPackageAsync(XStoreContextHandle, const char* packageIdentifier, XAsyncBlock* async).</summary>
@@ -53,7 +88,16 @@ internal static unsafe partial class XStoreShim
     [UnmanagedCallersOnly]
     private static int XStoreAcquireLicenseForPackageAsync(nint context, byte* packageIdentifier, nint async)
     {
-        return AsyncCalls.BeginStoreOffline(context, async, nameof(XStoreAcquireLicenseForPackageAsync));
+        try
+        {
+            return AsyncCalls.BeginStoreOffline(context, async, nameof(XStoreAcquireLicenseForPackageAsync));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreShim.XStoreAcquireLicenseForPackageAsync");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreAcquireLicenseForPackageResult(XAsyncBlock* async, XStoreLicenseHandle* storeLicenseHandle).</summary>
@@ -61,7 +105,16 @@ internal static unsafe partial class XStoreShim
     [UnmanagedCallersOnly]
     private static int XStoreAcquireLicenseForPackageResult(nint async, nint* license)
     {
-        return AsyncCalls.HandleResult(async, nameof(XStoreAcquireLicenseForPackageAsync), license);
+        try
+        {
+            return AsyncCalls.HandleResult(async, nameof(XStoreAcquireLicenseForPackageAsync), license);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreShim.XStoreAcquireLicenseForPackageResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreAcquireLicenseForDurablesAsync(XStoreContextHandle, const char* storeId, XAsyncBlock* async).</summary>
@@ -69,7 +122,16 @@ internal static unsafe partial class XStoreShim
     [UnmanagedCallersOnly]
     private static int XStoreAcquireLicenseForDurablesAsync(nint context, byte* storeId, nint async)
     {
-        return AsyncCalls.BeginStoreOffline(context, async, nameof(XStoreAcquireLicenseForDurablesAsync));
+        try
+        {
+            return AsyncCalls.BeginStoreOffline(context, async, nameof(XStoreAcquireLicenseForDurablesAsync));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreShim.XStoreAcquireLicenseForDurablesAsync");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreAcquireLicenseForDurablesResult(XAsyncBlock* async, XStoreLicenseHandle* storeLicenseHandle).</summary>
@@ -77,7 +139,16 @@ internal static unsafe partial class XStoreShim
     [UnmanagedCallersOnly]
     private static int XStoreAcquireLicenseForDurablesResult(nint async, nint* license)
     {
-        return AsyncCalls.HandleResult(async, nameof(XStoreAcquireLicenseForDurablesAsync), license);
+        try
+        {
+            return AsyncCalls.HandleResult(async, nameof(XStoreAcquireLicenseForDurablesAsync), license);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreShim.XStoreAcquireLicenseForDurablesResult");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>bool XStoreIsLicenseValid(XStoreLicenseHandle): no license handle is ever issued, so none is valid.</summary>
@@ -99,14 +170,23 @@ internal static unsafe partial class XStoreShim
     [UnmanagedCallersOnly]
     private static int XStoreRegisterGameLicenseChanged(nint store, nint queue, nint context, nint callback, ulong* token)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
-        if (!gdk.Store.IsContext(store))
+        try
         {
-            return HResult.InvalidArgument;
-        }
+            var gdk = ShimContext.Runtime.Gdk;
 
-        return gdk.Registrations.Register("XStoreRegisterGameLicenseChanged", callback, token);
+            if (!gdk.Store.IsContext(store))
+            {
+                return HResult.InvalidArgument;
+            }
+
+            return gdk.Registrations.Register("XStoreRegisterGameLicenseChanged", callback, token);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreShim.XStoreRegisterGameLicenseChanged");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>HRESULT XStoreRegisterPackageLicenseLost(XStoreLicenseHandle, XTaskQueueHandle, void* context, callback, XTaskQueueRegistrationToken*).</summary>
@@ -114,7 +194,16 @@ internal static unsafe partial class XStoreShim
     [UnmanagedCallersOnly]
     private static int XStoreRegisterPackageLicenseLost(nint license, nint queue, nint context, nint callback, ulong* token)
     {
-        return ShimContext.Runtime.Gdk.Registrations.Register("XStoreRegisterPackageLicenseLost", callback, token);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Registrations.Register("XStoreRegisterPackageLicenseLost", callback, token);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreShim.XStoreRegisterPackageLicenseLost");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>bool XStoreUnregister*(handle, XTaskQueueRegistrationToken token, bool wait).</summary>
@@ -123,7 +212,16 @@ internal static unsafe partial class XStoreShim
     [UnmanagedCallersOnly]
     private static byte XStoreUnregister(nint handle, ulong token, byte wait)
     {
-        return ShimContext.Runtime.Gdk.Registrations.Unregister(token);
+        try
+        {
+            return ShimContext.Runtime.Gdk.Registrations.Unregister(token);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XStoreShim.XStoreUnregister");
+
+            return default;
+        }
     }
 
     /// <summary>HRESULT XStoreQueryPackageIdentifier(const char* storeId, size_t size, char* packageIdentifier).</summary>
@@ -131,15 +229,24 @@ internal static unsafe partial class XStoreShim
     [UnmanagedCallersOnly]
     private static int XStoreQueryPackageIdentifier(byte* storeId, nuint size, byte* packageIdentifier)
     {
-        var gdk = ShimContext.Runtime.Gdk;
-
         try
         {
-            return gdk.Store.QueryPackageIdentifier(Utf8Text.Read((nint)storeId), size, packageIdentifier);
+            var gdk = ShimContext.Runtime.Gdk;
+
+            try
+            {
+                return gdk.Store.QueryPackageIdentifier(Utf8Text.Read((nint)storeId), size, packageIdentifier);
+            }
+            catch (Exception e)
+            {
+                return gdk.Boundary.Failed(nameof(XStoreQueryPackageIdentifier), e);
+            }
         }
-        catch (Exception e)
+        catch (Exception exception)
         {
-            return gdk.Boundary.Failed(nameof(XStoreQueryPackageIdentifier), e);
+            UnmanagedGuard.Caught(exception, "XStoreShim.XStoreQueryPackageIdentifier");
+
+            return HResult.Fail;
         }
     }
 }

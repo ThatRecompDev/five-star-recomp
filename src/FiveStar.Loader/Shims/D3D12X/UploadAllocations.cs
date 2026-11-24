@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 
 namespace FiveStar.Loader.Shims.D3D12X;
 
@@ -23,6 +24,15 @@ internal static unsafe class UploadAllocations
     [UnmanagedCallersOnly]
     public static byte* Allocate(XboxObject* self, uint size, uint alignment)
     {
-        return ShimContext.Runtime.D3D12X.Uploads.Allocate(size, alignment);
+        try
+        {
+            return ShimContext.Runtime.D3D12X.Uploads.Allocate(size, alignment);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "UploadAllocations.Allocate");
+
+            return default;
+        }
     }
 }

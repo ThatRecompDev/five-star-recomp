@@ -91,19 +91,37 @@ internal static unsafe class MemoryWaits
     [UnmanagedCallersOnly]
     public static int Wait32(XboxObject* self, ulong address, uint comparison, uint value, uint mask, uint flags)
     {
-        Record(self, address, DwordBytes, (int)comparison, value, mask);
+        try
+        {
+            Record(self, address, DwordBytes, (int)comparison, value, mask);
 
-        return HResult.Ok;
+            return HResult.Ok;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "MemoryWaits.Wait32");
+
+            return HResult.Fail;
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static int Wait64(XboxObject* self, ulong address, uint comparison, ulong value, uint flags)
     {
-        RetireWaits.Recorded(self, address, value);
-        Record(self, address, QwordBytes, (int)comparison, value, ulong.MaxValue);
+        try
+        {
+            RetireWaits.Recorded(self, address, value);
+            Record(self, address, QwordBytes, (int)comparison, value, ulong.MaxValue);
 
-        return HResult.Ok;
+            return HResult.Ok;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "MemoryWaits.Wait64");
+
+            return HResult.Fail;
+        }
     }
 
     [HotPath]

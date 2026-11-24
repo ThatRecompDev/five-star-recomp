@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
 
@@ -23,14 +24,21 @@ internal static unsafe class BufferCopies
     [UnmanagedCallersOnly]
     public static void CopyBufferRegion(XboxObject* self, nint destination, ulong destinationOffset, nint source, ulong sourceOffset, ulong bytes)
     {
-        ListSegments.Of(self)->Commands++;
-        nint desktopDestination = Desktop(destination, ref destinationOffset);
-        nint desktopSource = Desktop(source, ref sourceOffset);
-        GpuBreadcrumbs.Before(self, RecordedCommand.CopyBuffer);
+        try
+        {
+            ListSegments.Of(self)->Commands++;
+            nint desktopDestination = Desktop(destination, ref destinationOffset);
+            nint desktopSource = Desktop(source, ref sourceOffset);
+            GpuBreadcrumbs.Before(self, RecordedCommand.CopyBuffer);
 
-        nint inner = self->Inner;
-        var copy = (delegate* unmanaged<nint, nint, ulong, nint, ulong, ulong, void>)ComObject.Slot(inner, DesktopCopyBufferRegion);
-        copy(inner, desktopDestination, destinationOffset, desktopSource, sourceOffset, bytes);
+            nint inner = self->Inner;
+            var copy = (delegate* unmanaged<nint, nint, ulong, nint, ulong, ulong, void>)ComObject.Slot(inner, DesktopCopyBufferRegion);
+            copy(inner, desktopDestination, destinationOffset, desktopSource, sourceOffset, bytes);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "BufferCopies.CopyBufferRegion");
+        }
     }
 
     /// <summary>The desktop buffer holding <paramref name="wrapper"/>'s byte at <paramref name="offset"/>, the offset moved to it.</summary>

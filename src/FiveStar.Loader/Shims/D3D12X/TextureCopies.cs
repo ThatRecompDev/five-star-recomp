@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
 using FiveStar.Loader.Shims.D3D12X.Present;
@@ -44,82 +45,103 @@ internal static unsafe class TextureCopies
     [UnmanagedCallersOnly]
     public static void CopyMemory(XboxObject* self, ulong destination, ulong source, ulong bytes, uint flags)
     {
-        ListSegments.Of(self)->Commands++;
-        var memory = D3D12X.GameMemory;
-
-        if (bytes == 0 || !memory.TryFind(destination, out var to) || !memory.TryFind(source, out var from) || to.Resource == 0 || from.Resource == 0)
+        try
         {
-            WarnOutside(destination, source, bytes);
+            ListSegments.Of(self)->Commands++;
+            var memory = D3D12X.GameMemory;
 
-            return;
+            if (bytes == 0 || !memory.TryFind(destination, out var to) || !memory.TryFind(source, out var from) || to.Resource == 0 || from.Resource == 0)
+            {
+                WarnOutside(destination, source, bytes);
+
+                return;
+            }
+
+            GpuBreadcrumbs.Before(self, RecordedCommand.CopyBuffer);
+            nint inner = self->Inner;
+            var copy = (delegate* unmanaged<nint, nint, ulong, nint, ulong, ulong, void>)ComObject.Slot(inner, DesktopCopyBufferRegion);
+            copy(inner, to.Resource, destination - to.GameAddress, from.Resource, source - from.GameAddress, bytes);
         }
-
-        GpuBreadcrumbs.Before(self, RecordedCommand.CopyBuffer);
-        nint inner = self->Inner;
-        var copy = (delegate* unmanaged<nint, nint, ulong, nint, ulong, ulong, void>)ComObject.Slot(inner, DesktopCopyBufferRegion);
-        copy(inner, to.Resource, destination - to.GameAddress, from.Resource, source - from.GameAddress, bytes);
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "TextureCopies.CopyMemory");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void CopyTextureRegion(XboxObject* self, TextureCopyLocation* destination, uint x, uint y, uint z, TextureCopyLocation* source, CopyBox* box, uint flags)
     {
-        ListSegments.Of(self)->Commands++;
-
-        if (destination == null || source == null)
+        try
         {
-            return;
+            ListSegments.Of(self)->Commands++;
+
+            if (destination == null || source == null)
+            {
+                return;
+            }
+
+            var to = *destination;
+            var from = *source;
+            var states = D3D12X.ListStates.For(self);
+            nint inner = self->Inner;
+            var target = Side(states, ref to, ResourceStates.CopyDest);
+            var origin = Side(states, ref from, ResourceStates.CopySource);
+
+            if (target.Refused || origin.Refused)
+            {
+                WarnRefused();
+
+                return;
+            }
+
+            GpuBreadcrumbs.Before(self, RecordedCommand.CopyBuffer);
+            Enter(inner, target);
+            Enter(inner, origin);
+
+            ((delegate* unmanaged<nint, TextureCopyLocation*, uint, uint, uint, TextureCopyLocation*, CopyBox*, void>)ComObject.Slot(inner, DesktopCopyTextureRegion))(inner, &to, x, y, z, &from, box);
+            Leave(inner, origin);
+            Leave(inner, target);
         }
-
-        var to = *destination;
-        var from = *source;
-        var states = D3D12X.ListStates.For(self);
-        nint inner = self->Inner;
-        var target = Side(states, ref to, ResourceStates.CopyDest);
-        var origin = Side(states, ref from, ResourceStates.CopySource);
-
-        if (target.Refused || origin.Refused)
+        catch (Exception exception)
         {
-            WarnRefused();
-
-            return;
+            UnmanagedGuard.Caught(exception, "TextureCopies.CopyTextureRegion");
         }
-
-        GpuBreadcrumbs.Before(self, RecordedCommand.CopyBuffer);
-        Enter(inner, target);
-        Enter(inner, origin);
-
-        ((delegate* unmanaged<nint, TextureCopyLocation*, uint, uint, uint, TextureCopyLocation*, CopyBox*, void>)ComObject.Slot(inner, DesktopCopyTextureRegion))(inner, &to, x, y, z, &from, box);
-        Leave(inner, origin);
-        Leave(inner, target);
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void CopyResource(XboxObject* self, nint destination, nint source, uint flags)
     {
-        ListSegments.Of(self)->Commands++;
-        var states = D3D12X.ListStates.For(self);
-        var to = new TextureCopyLocation { Resource = destination };
-        var from = new TextureCopyLocation { Resource = source };
-        var target = Side(states, ref to, ResourceStates.CopyDest);
-        var origin = Side(states, ref from, ResourceStates.CopySource);
-
-        if (target.Refused || origin.Refused)
+        try
         {
-            WarnRefused();
+            ListSegments.Of(self)->Commands++;
+            var states = D3D12X.ListStates.For(self);
+            var to = new TextureCopyLocation { Resource = destination };
+            var from = new TextureCopyLocation { Resource = source };
+            var target = Side(states, ref to, ResourceStates.CopyDest);
+            var origin = Side(states, ref from, ResourceStates.CopySource);
 
-            return;
+            if (target.Refused || origin.Refused)
+            {
+                WarnRefused();
+
+                return;
+            }
+
+            nint inner = self->Inner;
+            GpuBreadcrumbs.Before(self, RecordedCommand.CopyBuffer);
+            Enter(inner, target);
+            Enter(inner, origin);
+
+            ((delegate* unmanaged<nint, nint, nint, void>)ComObject.Slot(inner, DesktopCopyResource))(inner, to.Resource, from.Resource);
+            Leave(inner, origin);
+            Leave(inner, target);
         }
-
-        nint inner = self->Inner;
-        GpuBreadcrumbs.Before(self, RecordedCommand.CopyBuffer);
-        Enter(inner, target);
-        Enter(inner, origin);
-
-        ((delegate* unmanaged<nint, nint, nint, void>)ComObject.Slot(inner, DesktopCopyResource))(inner, to.Resource, from.Resource);
-        Leave(inner, origin);
-        Leave(inner, target);
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "TextureCopies.CopyResource");
+        }
     }
 
     /// <summary>

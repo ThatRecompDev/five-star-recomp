@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X;
@@ -43,45 +44,72 @@ internal static unsafe class XboxObjectMethods
     [UnmanagedCallersOnly]
     public static uint Release(XboxObject* self)
     {
-        nint inner = self->Inner;
-        uint left = ((delegate* unmanaged<nint, uint>)ComObject.Slot(inner, ComObject.ReleaseSlot))(inner);
-
-        if (left == 0)
+        try
         {
-            NativeMemory.Free(self);
-        }
+            nint inner = self->Inner;
+            uint left = ((delegate* unmanaged<nint, uint>)ComObject.Slot(inner, ComObject.ReleaseSlot))(inner);
 
-        return left;
+            if (left == 0)
+            {
+                NativeMemory.Free(self);
+            }
+
+            return left;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxObjectMethods.Release");
+
+            return default;
+        }
     }
 
     /// <summary>QueryInterface on the desktop object; an answer that is the desktop object itself becomes the wrapper.</summary>
     [UnmanagedCallersOnly]
     public static int QueryInterface(XboxObject* self, Guid* iid, nint* result)
     {
-        nint inner = self->Inner;
-        int hr = ((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(inner, ComObject.QueryInterfaceSlot))(inner, iid, result);
-
-        if (!HResult.Failed(hr) && result != null && *result == inner)
+        try
         {
-            *result = (nint)self;
-        }
+            nint inner = self->Inner;
+            int hr = ((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(inner, ComObject.QueryInterfaceSlot))(inner, iid, result);
 
-        return hr;
+            if (!HResult.Failed(hr) && result != null && *result == inner)
+            {
+                *result = (nint)self;
+            }
+
+            return hr;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxObjectMethods.QueryInterface");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>GetDevice returns the game's device wrapper, not the desktop device.</summary>
     [UnmanagedCallersOnly]
     public static int GetDevice(XboxObject* self, Guid* iid, nint* device)
     {
-        nint inner = self->Inner;
-        int hr = ((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(inner, DesktopGetDeviceSlot))(inner, iid, device);
-
-        if (!HResult.Failed(hr) && device != null)
+        try
         {
-            *device = ShimContext.Runtime.D3D12X.Objects.DeviceFor(*device);
-        }
+            nint inner = self->Inner;
+            int hr = ((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(inner, DesktopGetDeviceSlot))(inner, iid, device);
 
-        return hr;
+            if (!HResult.Failed(hr) && device != null)
+            {
+                *device = ShimContext.Runtime.D3D12X.Objects.DeviceFor(*device);
+            }
+
+            return hr;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxObjectMethods.GetDevice");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>Resource slot 11: the console address for a resource the game placed (slot 133), else the desktop one.</summary>
@@ -89,14 +117,23 @@ internal static unsafe class XboxObjectMethods
     [UnmanagedCallersOnly]
     public static ulong GetGpuVirtualAddress(XboxResourceObject* self)
     {
-        if (self->GameAddress != 0)
+        try
         {
-            return self->GameAddress;
+            if (self->GameAddress != 0)
+            {
+                return self->GameAddress;
+            }
+
+            nint inner = self->Header.Inner;
+
+            return ((delegate* unmanaged<nint, ulong>)ComObject.Slot(inner, DesktopGetGpuAddressSlot))(inner);
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxObjectMethods.GetGpuVirtualAddress");
 
-        nint inner = self->Header.Inner;
-
-        return ((delegate* unmanaged<nint, ulong>)ComObject.Slot(inner, DesktopGetGpuAddressSlot))(inner);
+            return default;
+        }
     }
 
     /// <summary>
@@ -108,32 +145,41 @@ internal static unsafe class XboxObjectMethods
     [UnmanagedCallersOnly]
     public static int Map(XboxResourceObject* self, uint subresource, void* readRange, void** data)
     {
-        byte* game = GameBytes(self);
-
-        if (game != null)
+        try
         {
-            if (data != null)
+            byte* game = GameBytes(self);
+
+            if (game != null)
             {
-                *data = game;
+                if (data != null)
+                {
+                    *data = game;
+                }
+
+                if (self->Dimension != States.ResourceStates.BufferDimension)
+                {
+                    ShimContext.Runtime.D3D12X.Textures.Watch(self->GameAddress);
+                }
+
+                return HResult.Ok;
             }
 
-            if (self->Dimension != States.ResourceStates.BufferDimension)
+            nint inner = self->Header.Inner;
+            int hr = ((delegate* unmanaged<nint, uint, void*, void**, int>)ComObject.Slot(inner, DesktopMapSlot))(inner, subresource, readRange, data);
+
+            if (HResult.Failed(hr))
             {
-                ShimContext.Runtime.D3D12X.Textures.Watch(self->GameAddress);
+                WarnMapFailed(hr);
             }
 
-            return HResult.Ok;
+            return hr;
         }
-
-        nint inner = self->Header.Inner;
-        int hr = ((delegate* unmanaged<nint, uint, void*, void**, int>)ComObject.Slot(inner, DesktopMapSlot))(inner, subresource, readRange, data);
-
-        if (HResult.Failed(hr))
+        catch (Exception exception)
         {
-            WarnMapFailed(hr);
-        }
+            UnmanagedGuard.Caught(exception, "XboxObjectMethods.Map");
 
-        return hr;
+            return HResult.Fail;
+        }
     }
 
     /// <summary>A failed desktop Map, warned once (a default-heap resource the game expected to reach from the CPU).</summary>
@@ -146,11 +192,20 @@ internal static unsafe class XboxObjectMethods
     [UnmanagedCallersOnly]
     public static int ResetAllocator(XboxObject* self)
     {
-        nint inner = self->Inner;
-        int hr = ((delegate* unmanaged<nint, int>)ComObject.Slot(inner, AllocatorResetSlot))(inner);
-        ShimContext.Runtime.D3D12X.SpareAllocators.ResetSpares(inner);
+        try
+        {
+            nint inner = self->Inner;
+            int hr = ((delegate* unmanaged<nint, int>)ComObject.Slot(inner, AllocatorResetSlot))(inner);
+            ShimContext.Runtime.D3D12X.SpareAllocators.ResetSpares(inner);
 
-        return hr;
+            return hr;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxObjectMethods.ResetAllocator");
+
+            return HResult.Fail;
+        }
     }
 
     /// <summary>Resource slot 9, Unmap(subresource, written range): nothing to do for game memory.</summary>
@@ -158,13 +213,20 @@ internal static unsafe class XboxObjectMethods
     [UnmanagedCallersOnly]
     public static void Unmap(XboxResourceObject* self, uint subresource, void* writtenRange)
     {
-        if (GameBytes(self) != null)
+        try
         {
-            return;
-        }
+            if (GameBytes(self) != null)
+            {
+                return;
+            }
 
-        nint inner = self->Header.Inner;
-        ((delegate* unmanaged<nint, uint, void*, void>)ComObject.Slot(inner, DesktopUnmapSlot))(inner, subresource, writtenRange);
+            nint inner = self->Header.Inner;
+            ((delegate* unmanaged<nint, uint, void*, void>)ComObject.Slot(inner, DesktopUnmapSlot))(inner, subresource, writtenRange);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxObjectMethods.Unmap");
+        }
     }
 
     /// <summary>
@@ -175,12 +237,21 @@ internal static unsafe class XboxObjectMethods
     [UnmanagedCallersOnly]
     public static nint GetCpuHandleForHeapStart(XboxDescriptorHeapObject* self)
     {
-        if (self->GameCpuStart != 0)
+        try
         {
-            return self->GameCpuStart;
-        }
+            if (self->GameCpuStart != 0)
+            {
+                return self->GameCpuStart;
+            }
 
-        return HeapStart(&self->Header, DesktopCpuStartSlot);
+            return HeapStart(&self->Header, DesktopCpuStartSlot);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxObjectMethods.GetCpuHandleForHeapStart");
+
+            return default;
+        }
     }
 
     /// <summary>Descriptor-heap slot 10, the GPU handle, returned like slot 9 (*inferred*); a heap in title memory answers with that memory too.</summary>
@@ -188,12 +259,21 @@ internal static unsafe class XboxObjectMethods
     [UnmanagedCallersOnly]
     public static nint GetGpuHandleForHeapStart(XboxDescriptorHeapObject* self)
     {
-        if (self->GameGpuStart != 0)
+        try
         {
-            return self->GameGpuStart;
-        }
+            if (self->GameGpuStart != 0)
+            {
+                return self->GameGpuStart;
+            }
 
-        return HeapStart(&self->Header, DesktopGpuStartSlot);
+            return HeapStart(&self->Header, DesktopGpuStartSlot);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxObjectMethods.GetGpuHandleForHeapStart");
+
+            return default;
+        }
     }
 
     /// <summary>The CPU address of a placed resource's game memory, or null when it has none mapped.</summary>

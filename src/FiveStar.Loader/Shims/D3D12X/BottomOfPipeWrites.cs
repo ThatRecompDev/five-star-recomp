@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X;
@@ -50,25 +51,43 @@ internal static unsafe class BottomOfPipeWrites
     [UnmanagedCallersOnly]
     public static int Marker(XboxObject* self, ulong address, uint value, ulong flush, uint flags)
     {
-        MemoryWaitWriters.Wrote(self, address, value);
-        Write(self, address, &value, 1);
+        try
+        {
+            MemoryWaitWriters.Wrote(self, address, value);
+            Write(self, address, &value, 1);
 
-        return HResult.Ok;
+            return HResult.Ok;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "BottomOfPipeWrites.Marker");
+
+            return HResult.Fail;
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static int Value64(XboxObject* self, ulong address, ulong value, ulong flush, uint flags)
     {
-        if ((flags & TimestampFlags) != 0)
+        try
         {
-            value = (ulong)(Stopwatch.GetTimestamp() * (ConsoleTicksPerSecond / (double)Stopwatch.Frequency));
+            if ((flags & TimestampFlags) != 0)
+            {
+                value = (ulong)(Stopwatch.GetTimestamp() * (ConsoleTicksPerSecond / (double)Stopwatch.Frequency));
+            }
+
+            MemoryWaitWriters.Wrote(self, address, value);
+            Write64(self, address, value);
+
+            return HResult.Ok;
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "BottomOfPipeWrites.Value64");
 
-        MemoryWaitWriters.Wrote(self, address, value);
-        Write64(self, address, value);
-
-        return HResult.Ok;
+            return HResult.Fail;
+        }
     }
 
     [HotPath]

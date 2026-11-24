@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 
 namespace FiveStar.Loader.Shims.Storage;
 
@@ -33,31 +34,56 @@ internal static unsafe class StorageQueueMethods
     [UnmanagedCallersOnly]
     private static uint AddRef(nint self)
     {
-        return StorageObjects.AddRef(self);
+        try
+        {
+            return StorageObjects.AddRef(self);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StorageQueueMethods.AddRef");
+
+            return default;
+        }
     }
 
     /// <summary>The last reference closes the queue (waiting for the request in progress) and frees it.</summary>
     [UnmanagedCallersOnly]
     private static uint Release(nint self)
     {
-        if (!StorageObjects.Drop(self, out uint left))
+        try
         {
-            return left;
+            if (!StorageObjects.Drop(self, out uint left))
+            {
+                return left;
+            }
+
+            StorageObjects.Owner<StorageQueue>(self).Dispose();
+            StorageObjects.Free(self);
+
+            return 0;
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StorageQueueMethods.Release");
 
-        StorageObjects.Owner<StorageQueue>(self).Dispose();
-        StorageObjects.Free(self);
-
-        return 0;
+            return default;
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     private static void EnqueueRequest(nint self, byte* request)
     {
-        if (request != null)
+        try
         {
-            StorageObjects.Owner<StorageQueue>(self).EnqueueRequest(request);
+            if (request != null)
+            {
+                StorageObjects.Owner<StorageQueue>(self).EnqueueRequest(request);
+            }
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StorageQueueMethods.EnqueueRequest");
         }
     }
 
@@ -65,27 +91,55 @@ internal static unsafe class StorageQueueMethods
     [UnmanagedCallersOnly]
     private static void EnqueueStatus(nint self, nint statusArray, uint index)
     {
-        StorageObjects.Owner<StorageQueue>(self).EnqueueStatus(statusArray, index);
+        try
+        {
+            StorageObjects.Owner<StorageQueue>(self).EnqueueStatus(statusArray, index);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StorageQueueMethods.EnqueueStatus");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     private static void EnqueueSignal(nint self, nint fence, ulong value)
     {
-        StorageObjects.Owner<StorageQueue>(self).EnqueueSignal(fence, value);
+        try
+        {
+            StorageObjects.Owner<StorageQueue>(self).EnqueueSignal(fence, value);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StorageQueueMethods.EnqueueSignal");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     private static void Submit(nint self)
     {
-        StorageObjects.Owner<StorageQueue>(self).Submit();
+        try
+        {
+            StorageObjects.Owner<StorageQueue>(self).Submit();
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StorageQueueMethods.Submit");
+        }
     }
 
     /// <summary>Close: stops the worker; the object stays valid until its last Release.</summary>
     [UnmanagedCallersOnly]
     private static void Close(nint self)
     {
-        StorageObjects.Owner<StorageQueue>(self).Dispose();
+        try
+        {
+            StorageObjects.Owner<StorageQueue>(self).Dispose();
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "StorageQueueMethods.Close");
+        }
     }
 }

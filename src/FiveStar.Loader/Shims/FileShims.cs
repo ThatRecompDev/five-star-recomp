@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims;
@@ -17,108 +18,162 @@ internal static unsafe partial class FileShims
     [UnmanagedCallersOnly]
     private static nint CreateFileW(char* name, uint access, uint share, nint security, uint disposition, uint flags, nint template)
     {
-        var runtime = ShimContext.Runtime;
-        string? target = runtime.Overlay.Redirect(name, nameof(CreateFileW));
-        nint handle;
-
-        fixed (char* redirected = target)
+        try
         {
-            handle = Kernel32.CreateFileW(Choose(name, redirected), access, share, security, disposition, flags, template);
+            var runtime = ShimContext.Runtime;
+            string? target = runtime.Overlay.Redirect(name, nameof(CreateFileW));
+            nint handle;
+
+            fixed (char* redirected = target)
+            {
+                handle = Kernel32.CreateFileW(Choose(name, redirected), access, share, security, disposition, flags, template);
+            }
+
+            runtime.LastError.Set(Marshal.GetLastPInvokeError());
+
+            return handle;
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FileShims.CreateFileW");
 
-        runtime.LastError.Set(Marshal.GetLastPInvokeError());
-
-        return handle;
+            return default;
+        }
     }
 
     [Shim("*", "CreateFileA", SetsLastError = true)]
     [UnmanagedCallersOnly]
     private static nint CreateFileA(byte* name, uint access, uint share, nint security, uint disposition, uint flags, nint template)
     {
-        var runtime = ShimContext.Runtime;
-        string? target = runtime.Overlay.Redirect(name, nameof(CreateFileA));
-        nint handle;
+        try
+        {
+            var runtime = ShimContext.Runtime;
+            string? target = runtime.Overlay.Redirect(name, nameof(CreateFileA));
+            nint handle;
 
-        if (target is null)
-        {
-            handle = Kernel32.CreateFileA(name, access, share, security, disposition, flags, template);
-        }
-        else
-        {
-            fixed (char* redirected = target)
+            if (target is null)
             {
-                handle = Kernel32.CreateFileW(redirected, access, share, security, disposition, flags, template);
+                handle = Kernel32.CreateFileA(name, access, share, security, disposition, flags, template);
             }
+            else
+            {
+                fixed (char* redirected = target)
+                {
+                    handle = Kernel32.CreateFileW(redirected, access, share, security, disposition, flags, template);
+                }
+            }
+
+            runtime.LastError.Set(Marshal.GetLastPInvokeError());
+
+            return handle;
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FileShims.CreateFileA");
 
-        runtime.LastError.Set(Marshal.GetLastPInvokeError());
-
-        return handle;
+            return default;
+        }
     }
 
     [Shim("*", "CreateFile2", SetsLastError = true)]
     [UnmanagedCallersOnly]
     private static nint CreateFile2(char* name, uint access, uint share, uint disposition, nint parameters)
     {
-        var runtime = ShimContext.Runtime;
-        string? target = runtime.Overlay.Redirect(name, nameof(CreateFile2));
-        nint handle;
-
-        fixed (char* redirected = target)
+        try
         {
-            handle = Kernel32.CreateFile2(Choose(name, redirected), access, share, disposition, parameters);
+            var runtime = ShimContext.Runtime;
+            string? target = runtime.Overlay.Redirect(name, nameof(CreateFile2));
+            nint handle;
+
+            fixed (char* redirected = target)
+            {
+                handle = Kernel32.CreateFile2(Choose(name, redirected), access, share, disposition, parameters);
+            }
+
+            runtime.LastError.Set(Marshal.GetLastPInvokeError());
+
+            return handle;
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FileShims.CreateFile2");
 
-        runtime.LastError.Set(Marshal.GetLastPInvokeError());
-
-        return handle;
+            return default;
+        }
     }
 
     [Shim("*", "GetFileAttributesW", SetsLastError = true)]
     [UnmanagedCallersOnly]
     private static uint GetFileAttributesW(char* name)
     {
-        var runtime = ShimContext.Runtime;
-        string? target = runtime.Overlay.Redirect(name, nameof(GetFileAttributesW));
-        uint attributes;
-
-        fixed (char* redirected = target)
+        try
         {
-            attributes = Kernel32.GetFileAttributesW(Choose(name, redirected));
+            var runtime = ShimContext.Runtime;
+            string? target = runtime.Overlay.Redirect(name, nameof(GetFileAttributesW));
+            uint attributes;
+
+            fixed (char* redirected = target)
+            {
+                attributes = Kernel32.GetFileAttributesW(Choose(name, redirected));
+            }
+
+            runtime.LastError.Set(Marshal.GetLastPInvokeError());
+
+            return attributes;
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FileShims.GetFileAttributesW");
 
-        runtime.LastError.Set(Marshal.GetLastPInvokeError());
-
-        return attributes;
+            return default;
+        }
     }
 
     [Shim("*", "GetFileAttributesExW", SetsLastError = true)]
     [UnmanagedCallersOnly]
     private static int GetFileAttributesExW(char* name, int level, void* information)
     {
-        var runtime = ShimContext.Runtime;
-        string? target = runtime.Overlay.Redirect(name, nameof(GetFileAttributesExW));
-        int result;
-
-        fixed (char* redirected = target)
+        try
         {
-            result = Kernel32.GetFileAttributesExW(Choose(name, redirected), level, information);
+            var runtime = ShimContext.Runtime;
+            string? target = runtime.Overlay.Redirect(name, nameof(GetFileAttributesExW));
+            int result;
+
+            fixed (char* redirected = target)
+            {
+                result = Kernel32.GetFileAttributesExW(Choose(name, redirected), level, information);
+            }
+
+            runtime.LastError.Set(Marshal.GetLastPInvokeError());
+
+            return result;
         }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FileShims.GetFileAttributesExW");
 
-        runtime.LastError.Set(Marshal.GetLastPInvokeError());
-
-        return result;
+            return default;
+        }
     }
 
     [Shim("*", "_wfopen")]
     [UnmanagedCallersOnly]
     private static nint WFOpen(char* name, char* mode)
     {
-        string? target = ShimContext.Runtime.Overlay.Redirect(name, "_wfopen");
-
-        fixed (char* redirected = target)
+        try
         {
-            return Ucrt.WFOpen(Choose(name, redirected), mode);
+            string? target = ShimContext.Runtime.Overlay.Redirect(name, "_wfopen");
+
+            fixed (char* redirected = target)
+            {
+                return Ucrt.WFOpen(Choose(name, redirected), mode);
+            }
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FileShims.WFOpen");
+
+            return default;
         }
     }
 
@@ -126,11 +181,20 @@ internal static unsafe partial class FileShims
     [UnmanagedCallersOnly]
     private static nint WFsOpen(char* name, char* mode, int share)
     {
-        string? target = ShimContext.Runtime.Overlay.Redirect(name, "_wfsopen");
-
-        fixed (char* redirected = target)
+        try
         {
-            return Ucrt.WFsOpen(Choose(name, redirected), mode, share);
+            string? target = ShimContext.Runtime.Overlay.Redirect(name, "_wfsopen");
+
+            fixed (char* redirected = target)
+            {
+                return Ucrt.WFsOpen(Choose(name, redirected), mode, share);
+            }
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FileShims.WFsOpen");
+
+            return default;
         }
     }
 
@@ -138,11 +202,20 @@ internal static unsafe partial class FileShims
     [UnmanagedCallersOnly]
     private static int WOpen(char* name, int flags, int mode)
     {
-        string? target = ShimContext.Runtime.Overlay.Redirect(name, "_wopen");
-
-        fixed (char* redirected = target)
+        try
         {
-            return Ucrt.WOpen(Choose(name, redirected), flags, mode);
+            string? target = ShimContext.Runtime.Overlay.Redirect(name, "_wopen");
+
+            fixed (char* redirected = target)
+            {
+                return Ucrt.WOpen(Choose(name, redirected), flags, mode);
+            }
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FileShims.WOpen");
+
+            return default;
         }
     }
 
@@ -150,16 +223,25 @@ internal static unsafe partial class FileShims
     [UnmanagedCallersOnly]
     private static nint FOpen(byte* name, byte* mode)
     {
-        string? target = ShimContext.Runtime.Overlay.Redirect(name, "fopen");
-
-        if (target is null)
+        try
         {
-            return Ucrt.FOpen(name, mode);
+            string? target = ShimContext.Runtime.Overlay.Redirect(name, "fopen");
+
+            if (target is null)
+            {
+                return Ucrt.FOpen(name, mode);
+            }
+
+            fixed (char* redirected = target, wideMode = Marshal.PtrToStringAnsi((nint)mode))
+            {
+                return Ucrt.WFOpen(redirected, wideMode);
+            }
         }
-
-        fixed (char* redirected = target, wideMode = Marshal.PtrToStringAnsi((nint)mode))
+        catch (Exception exception)
         {
-            return Ucrt.WFOpen(redirected, wideMode);
+            UnmanagedGuard.Caught(exception, "FileShims.FOpen");
+
+            return default;
         }
     }
 
@@ -167,16 +249,25 @@ internal static unsafe partial class FileShims
     [UnmanagedCallersOnly]
     private static nint FsOpen(byte* name, byte* mode, int share)
     {
-        string? target = ShimContext.Runtime.Overlay.Redirect(name, "_fsopen");
-
-        if (target is null)
+        try
         {
-            return Ucrt.FsOpen(name, mode, share);
+            string? target = ShimContext.Runtime.Overlay.Redirect(name, "_fsopen");
+
+            if (target is null)
+            {
+                return Ucrt.FsOpen(name, mode, share);
+            }
+
+            fixed (char* redirected = target, wideMode = Marshal.PtrToStringAnsi((nint)mode))
+            {
+                return Ucrt.WFsOpen(redirected, wideMode, share);
+            }
         }
-
-        fixed (char* redirected = target, wideMode = Marshal.PtrToStringAnsi((nint)mode))
+        catch (Exception exception)
         {
-            return Ucrt.WFsOpen(redirected, wideMode, share);
+            UnmanagedGuard.Caught(exception, "FileShims.FsOpen");
+
+            return default;
         }
     }
 
@@ -185,16 +276,25 @@ internal static unsafe partial class FileShims
     [UnmanagedCallersOnly]
     private static int Open(byte* name, int flags, int mode)
     {
-        string? target = ShimContext.Runtime.Overlay.Redirect(name, "_open");
-
-        if (target is null)
+        try
         {
-            return Ucrt.Open(name, flags, mode);
+            string? target = ShimContext.Runtime.Overlay.Redirect(name, "_open");
+
+            if (target is null)
+            {
+                return Ucrt.Open(name, flags, mode);
+            }
+
+            fixed (char* redirected = target)
+            {
+                return Ucrt.WOpen(redirected, flags, mode);
+            }
         }
-
-        fixed (char* redirected = target)
+        catch (Exception exception)
         {
-            return Ucrt.WOpen(redirected, flags, mode);
+            UnmanagedGuard.Caught(exception, "FileShims.Open");
+
+            return default;
         }
     }
 

@@ -26,6 +26,7 @@ public static class RuleCatalog
         new ConstructorSubscriptionRule(),
         new ProjectLayersRule(),
         new ForbiddenWordsRule(),
+        new UnmanagedCallersGuardRule(),
     ];
 
     public static IRule Find(string name) => All.Single(rule => rule.Name == name);

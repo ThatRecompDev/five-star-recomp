@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.Binding;
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
@@ -44,60 +45,76 @@ internal static unsafe class XboxDescriptorMethods
     [UnmanagedCallersOnly]
     public static uint GetDescriptorHandleIncrementSize(XboxObject* self, uint type)
     {
-        if (type >= DesktopHeapTypes)
+        try
         {
-            return 0;
-        }
+            if (type >= DesktopHeapTypes)
+            {
+                return 0;
+            }
 
-        return Increment(self->Inner, (int)type);
+            return Increment(self->Inner, (int)type);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxDescriptorMethods.GetDescriptorHandleIncrementSize");
+
+            return default;
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void CreateConstantBufferView(XboxObject* self, ConstantBufferViewDescription* description, nint handle)
     {
-        nint inner = self->Inner;
-        ulong location = 0;
-
-        if (description != null)
+        try
         {
-            location = ConstantSource(description->Location, description->Size);
-        }
+            nint inner = self->Inner;
+            ulong location = 0;
 
-        // In the game's own heaps a CBV is a V# the programs read as a ByteAddressBuffer: a raw SRV over the same bytes.
-        if (location != 0 && D3D12X.DescriptorHeaps.Find(handle, out _) is not null
-            && D3D12X.AddressBuffers.CreateRaw(inner, location, description->Size, D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.ConstantBuffer(description->Size))))
-        {
-            D3D12X.DrawTrace?.ConstantBufferView(D3D12X.DescriptorHeaps.Source(handle), description->Location, description->Size);
-
-            return;
-        }
-
-        ConstantBufferViewDescription desktop = default;
-        ConstantBufferViewDescription* view = null;
-
-        // The console address becomes a desktop one and the size grows to the desktop's 256-byte granularity.
-        if (description != null)
-        {
-            desktop = *description;
-            desktop.Location = location;
-            desktop.Size = (desktop.Size + ConstantBufferViewDescription.Alignment - 1) & ~(ConstantBufferViewDescription.Alignment - 1);
-            view = &desktop;
-
-            if (desktop.Location != 0 && !D3D12X.GameMemory.TryTranslate(desktop.Location, out desktop.Location))
+            if (description != null)
             {
-                WarnUnknownConstantBuffer(description->Location, description->Size);
-                view = null;
+                location = ConstantSource(description->Location, description->Size);
             }
-            else if ((desktop.Location & (ConstantBufferViewDescription.Alignment - 1)) != 0)
-            {
-                // The console takes constant buffers at 16-byte boundaries; the desktop removes the device for these.
-                D3D12X.Warnings.Warn("cbv-alignment", "[d3d12_xs] CreateConstantBufferView: an address off the desktop's 256-byte alignment, null view written");
-                view = null;
-            }
-        }
 
-        ((delegate* unmanaged<nint, ConstantBufferViewDescription*, nint, void>)ComObject.Slot(inner, CreateConstantBufferViewSlot))(inner, view, Destination(handle));
+            // In the game's own heaps a CBV is a V# the programs read as a ByteAddressBuffer: a raw SRV over the same bytes.
+            if (location != 0 && D3D12X.DescriptorHeaps.Find(handle, out _) is not null
+                && D3D12X.AddressBuffers.CreateRaw(inner, location, description->Size, D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.ConstantBuffer(description->Size))))
+            {
+                D3D12X.DrawTrace?.ConstantBufferView(D3D12X.DescriptorHeaps.Source(handle), description->Location, description->Size);
+
+                return;
+            }
+
+            ConstantBufferViewDescription desktop = default;
+            ConstantBufferViewDescription* view = null;
+
+            // The console address becomes a desktop one and the size grows to the desktop's 256-byte granularity.
+            if (description != null)
+            {
+                desktop = *description;
+                desktop.Location = location;
+                desktop.Size = (desktop.Size + ConstantBufferViewDescription.Alignment - 1) & ~(ConstantBufferViewDescription.Alignment - 1);
+                view = &desktop;
+
+                if (desktop.Location != 0 && !D3D12X.GameMemory.TryTranslate(desktop.Location, out desktop.Location))
+                {
+                    WarnUnknownConstantBuffer(description->Location, description->Size);
+                    view = null;
+                }
+                else if ((desktop.Location & (ConstantBufferViewDescription.Alignment - 1)) != 0)
+                {
+                    // The console takes constant buffers at 16-byte boundaries; the desktop removes the device for these.
+                    D3D12X.Warnings.Warn("cbv-alignment", "[d3d12_xs] CreateConstantBufferView: an address off the desktop's 256-byte alignment, null view written");
+                    view = null;
+                }
+            }
+
+            ((delegate* unmanaged<nint, ConstantBufferViewDescription*, nint, void>)ComObject.Slot(inner, CreateConstantBufferViewSlot))(inner, view, Destination(handle));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxDescriptorMethods.CreateConstantBufferView");
+        }
     }
 
     /// <summary>
@@ -144,63 +161,91 @@ internal static unsafe class XboxDescriptorMethods
     [UnmanagedCallersOnly]
     public static void CreateShaderResourceView(XboxObject* self, nint resource, void* description, nint handle)
     {
-        nint desktop = D3D12X.Objects.Unwrap(resource);
-        D3D12X.DrawTrace?.ShaderResourceView(desktop, Destination(handle));
-        byte* copy = stackalloc byte[DepthViewDescriptions.ShaderResourceViewSize];
-        desktop = BufferViewRanges.Fit(resource, desktop, description, copy, false, out void* fitted);
-        void* view = TargetViewDescriptions.ShaderResourceView(desktop, fitted, copy);
+        try
+        {
+            nint desktop = D3D12X.Objects.Unwrap(resource);
+            D3D12X.DrawTrace?.ShaderResourceView(desktop, Destination(handle));
+            byte* copy = stackalloc byte[DepthViewDescriptions.ShaderResourceViewSize];
+            desktop = BufferViewRanges.Fit(resource, desktop, description, copy, false, out void* fitted);
+            void* view = TargetViewDescriptions.ShaderResourceView(desktop, fitted, copy);
 
-        nint destination = D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.ShaderResource(description));
-        CreateDesktopView(self, CreateShaderResourceViewSlot, desktop, DepthViewDescriptions.ShaderResourceView(desktop, view, copy), destination);
+            nint destination = D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.ShaderResource(description));
+            CreateDesktopView(self, CreateShaderResourceViewSlot, desktop, DepthViewDescriptions.ShaderResourceView(desktop, view, copy), destination);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxDescriptorMethods.CreateShaderResourceView");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void CreateRenderTargetView(XboxObject* self, nint resource, void* description, nint handle)
     {
-        D3D12X.DrawTrace?.RenderTargetView(resource, Destination(handle));
-        nint desktop = D3D12X.Objects.Unwrap(resource);
-        byte* copy = stackalloc byte[TargetViewDescriptions.RenderTargetViewSize];
-        CreateDesktopView(self, CreateRenderTargetViewSlot, desktop, TargetViewDescriptions.RenderTargetView(desktop, description, copy), Destination(handle));
+        try
+        {
+            D3D12X.DrawTrace?.RenderTargetView(resource, Destination(handle));
+            nint desktop = D3D12X.Objects.Unwrap(resource);
+            byte* copy = stackalloc byte[TargetViewDescriptions.RenderTargetViewSize];
+            CreateDesktopView(self, CreateRenderTargetViewSlot, desktop, TargetViewDescriptions.RenderTargetView(desktop, description, copy), Destination(handle));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxDescriptorMethods.CreateRenderTargetView");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void CreateDepthStencilView(XboxObject* self, nint resource, void* description, nint handle)
     {
-        nint desktop = D3D12X.Objects.Unwrap(resource);
-        byte* copy = stackalloc byte[DepthViewDescriptions.DepthStencilViewSize];
-        CreateDesktopView(self, CreateDepthStencilViewSlot, desktop, DepthViewDescriptions.DepthStencilView(desktop, description, copy), Destination(handle));
+        try
+        {
+            nint desktop = D3D12X.Objects.Unwrap(resource);
+            byte* copy = stackalloc byte[DepthViewDescriptions.DepthStencilViewSize];
+            CreateDesktopView(self, CreateDepthStencilViewSlot, desktop, DepthViewDescriptions.DepthStencilView(desktop, description, copy), Destination(handle));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxDescriptorMethods.CreateDepthStencilView");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void CreateUnorderedAccessView(XboxObject* self, nint resource, nint counter, void* description, nint handle)
     {
-        nint inner = self->Inner;
-        var objects = D3D12X.Objects;
-        nint desktop = objects.Unwrap(resource);
-        byte* copy = stackalloc byte[TargetViewDescriptions.UnorderedAccessViewSize];
-        var create = (delegate* unmanaged<nint, nint, nint, void*, nint, void>)ComObject.Slot(inner, CreateUnorderedAccessViewSlot);
-
-        if (!TargetViewDescriptions.TakesUnorderedAccess(desktop, out var desc))
+        try
         {
-            WarnNullUnorderedAccessView(desc);
-            create(inner, 0, 0, TargetViewDescriptions.NullUnorderedAccessView(description, copy), Destination(handle));
+            nint inner = self->Inner;
+            var objects = D3D12X.Objects;
+            nint desktop = objects.Unwrap(resource);
+            byte* copy = stackalloc byte[TargetViewDescriptions.UnorderedAccessViewSize];
+            var create = (delegate* unmanaged<nint, nint, nint, void*, nint, void>)ComObject.Slot(inner, CreateUnorderedAccessViewSlot);
 
-            return;
+            if (!TargetViewDescriptions.TakesUnorderedAccess(desktop, out var desc))
+            {
+                WarnNullUnorderedAccessView(desc);
+                create(inner, 0, 0, TargetViewDescriptions.NullUnorderedAccessView(description, copy), Destination(handle));
+
+                return;
+            }
+
+            desktop = BufferViewRanges.Fit(resource, desktop, description, copy, true, out void* fitted);
+            var record = BufferRecords.UnorderedAccess(description);
+            var destination = D3D12X.DescriptorHeaps.Destination(handle, record);
+
+            if (TransientPoolViews.Enabled)
+            {
+                NoteUnorderedAccess(resource, description, handle, record);
+            }
+
+            create(inner, desktop, objects.Unwrap(counter), TargetViewDescriptions.UnorderedAccessView(desktop, fitted, copy), destination);
         }
-
-        desktop = BufferViewRanges.Fit(resource, desktop, description, copy, true, out void* fitted);
-        var record = BufferRecords.UnorderedAccess(description);
-        var destination = D3D12X.DescriptorHeaps.Destination(handle, record);
-
-        if (TransientPoolViews.Enabled)
+        catch (Exception exception)
         {
-            NoteUnorderedAccess(resource, description, handle, record);
+            UnmanagedGuard.Caught(exception, "XboxDescriptorMethods.CreateUnorderedAccessView");
         }
-
-        create(inner, desktop, objects.Unwrap(counter), TargetViewDescriptions.UnorderedAccessView(desktop, fitted, copy), destination);
     }
 
     /// <summary>With --watch-transient: the game range of a buffer UAV, by the desktop index its record names.</summary>
@@ -232,16 +277,30 @@ internal static unsafe class XboxDescriptorMethods
     [UnmanagedCallersOnly]
     public static void CreateSampler(XboxObject* self, void* description, nint handle)
     {
-        nint inner = self->Inner;
-        ((delegate* unmanaged<nint, void*, nint, void>)ComObject.Slot(inner, CreateSamplerSlot))(inner, description, Destination(handle));
+        try
+        {
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, void*, nint, void>)ComObject.Slot(inner, CreateSamplerSlot))(inner, description, Destination(handle));
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxDescriptorMethods.CreateSampler");
+        }
     }
 
     [HotPath]
     [UnmanagedCallersOnly]
     public static void CopyDescriptorsSimple(XboxObject* self, uint count, nint destination, nint source, int type)
     {
-        nint inner = self->Inner;
-        Copy(inner, count, destination, source, Increment(inner, type), type);
+        try
+        {
+            nint inner = self->Inner;
+            Copy(inner, count, destination, source, Increment(inner, type), type);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxDescriptorMethods.CopyDescriptorsSimple");
+        }
     }
 
     /// <summary>
@@ -252,33 +311,40 @@ internal static unsafe class XboxDescriptorMethods
     [UnmanagedCallersOnly]
     public static void CopyDescriptors(XboxObject* self, uint destinationCount, nint* destinations, uint* destinationSizes, uint sourceCount, nint* sources, uint* sourceSizes, int type)
     {
-        nint inner = self->Inner;
-        uint increment = Increment(inner, type);
-        uint destination = 0;
-        uint source = 0;
-        uint destinationOffset = 0;
-        uint sourceOffset = 0;
-
-        while (destination < destinationCount && source < sourceCount)
+        try
         {
-            uint destinationLeft = RangeSize(destinationSizes, destination) - destinationOffset;
-            uint sourceLeft = RangeSize(sourceSizes, source) - sourceOffset;
-            uint run = Least(destinationLeft, sourceLeft);
-            Copy(inner, run, destinations[destination] + (nint)((ulong)destinationOffset * increment), sources[source] + (nint)((ulong)sourceOffset * increment), increment, type);
-            destinationOffset += run;
-            sourceOffset += run;
+            nint inner = self->Inner;
+            uint increment = Increment(inner, type);
+            uint destination = 0;
+            uint source = 0;
+            uint destinationOffset = 0;
+            uint sourceOffset = 0;
 
-            if (run == destinationLeft)
+            while (destination < destinationCount && source < sourceCount)
             {
-                destination++;
-                destinationOffset = 0;
-            }
+                uint destinationLeft = RangeSize(destinationSizes, destination) - destinationOffset;
+                uint sourceLeft = RangeSize(sourceSizes, source) - sourceOffset;
+                uint run = Least(destinationLeft, sourceLeft);
+                Copy(inner, run, destinations[destination] + (nint)((ulong)destinationOffset * increment), sources[source] + (nint)((ulong)sourceOffset * increment), increment, type);
+                destinationOffset += run;
+                sourceOffset += run;
 
-            if (run == sourceLeft)
-            {
-                source++;
-                sourceOffset = 0;
+                if (run == destinationLeft)
+                {
+                    destination++;
+                    destinationOffset = 0;
+                }
+
+                if (run == sourceLeft)
+                {
+                    source++;
+                    sourceOffset = 0;
+                }
             }
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "XboxDescriptorMethods.CopyDescriptors");
         }
     }
 
