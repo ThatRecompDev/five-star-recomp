@@ -249,7 +249,8 @@ internal sealed unsafe class XboxPlacedResources
             heap = WindowHeap(device, run, out offset);
         }
 
-        if (heap == 0)
+        // A placed resource starts on a 64 KiB boundary of its heap; the runtime refuses others (E_INVALIDARG).
+        if (heap == 0 || offset % XMemPhysicalMemory.PageSize != 0)
         {
             return 0;
         }
