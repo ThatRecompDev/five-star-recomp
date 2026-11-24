@@ -26,6 +26,10 @@ internal sealed unsafe class GameHangWatch
     private const ulong LoadingRenderAddress = 0x14A210D60;
     private const ulong LoadingRenderOtherAddress = 0x14A210D70;
 
+    /// <summary>The game's fence-wait loop (polls a fence's completed-value cell, fence slot 12).</summary>
+    private const ulong FenceWaitStart = 0x144FB0AD0;
+    private const ulong FenceWaitEnd = 0x144FB0E90;
+
     /// <summary>The state machine's current and requested state, 16-bit each (0x1453ebea0).</summary>
     private const int StateOffset = 0x10;
     private const int NextStateOffset = 0x12;
@@ -44,20 +48,25 @@ internal sealed unsafe class GameHangWatch
 
     private readonly ThreadStacks _stacks;
     private readonly Func<string> _counters;
+    private readonly Func<ulong, string> _fenceCell;
     private readonly LoaderLog _log;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
-    private GameHangWatch(ImageTable images, Func<string> counters, LoaderLog log)
+    private GameHangWatch(ImageTable images, Func<string> counters, Func<ulong, string> fenceCell, LoaderLog log)
     {
         _stacks = new ThreadStacks(images, MaxFrames);
         _counters = counters;
+        _fenceCell = fenceCell;
         _log = log;
     }
 
-    /// <summary>Starts the watch thread. <paramref name="counters"/> gives the loader counters logged with stacks.</summary>
-    public static void Start(ImageTable images, Func<string> counters, LoaderLog log)
+    /// <summary>
+    /// Starts the watch thread. <paramref name="counters"/> gives the loader counters logged with stacks,
+    /// <paramref name="fenceCell"/> the fence whose completed-value cell is at an address.
+    /// </summary>
+    public static void Start(ImageTable images, Func<string> counters, Func<ulong, string> fenceCell, LoaderLog log)
     {
-        var watch = new GameHangWatch(images, counters, log);
+        var watch = new GameHangWatch(images, counters, fenceCell, log);
         var thread = new Thread(watch.Run) { IsBackground = true, Name = "fivestar hang watch" };
         thread.Start();
         log.Info($"{Prefix}watching the game's heartbeat, main state and loading-screen flags");
@@ -108,6 +117,27 @@ internal sealed unsafe class GameHangWatch
             dumps++;
             _log.Info($"{Prefix}{now:F1} s: heartbeat still for {now - beatAt:F1} s; {BlockingWaits.Summary()}; {_counters()}");
             _stacks.Log(_log, Prefix);
+            LogFenceWaits();
+        }
+    }
+
+    /// <summary>
+    /// Each thread in the game's fence-wait loop (0x144fb0ad0, which keeps the target value in RSI and the polled cell in
+    /// RDI): the value it waits for, the cell's value now and the fence behind the cell (last Signal, desktop value).
+    /// </summary>
+    private void LogFenceWaits()
+    {
+        var modules = _stacks.Modules();
+        var wait = new CodeRange(FenceWaitStart, FenceWaitEnd);
+
+        foreach (ProcessThread thread in Process.GetCurrentProcess().Threads)
+        {
+            if (!ThreadStackCapture.FrameRegisters((uint)thread.Id, modules, wait, out ulong target, out ulong cell) || !IsReadable(cell))
+            {
+                continue;
+            }
+
+            _log.Info($"{Prefix}  thread {thread.Id} waits at 0x144fb0ad0 for {target} in cell 0x{cell:x} (now {*(ulong*)cell}); {_fenceCell(cell)}");
         }
     }
 

@@ -11,9 +11,8 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// far is closed as a segment (<see cref="ListSegments"/>), and recording goes on in another desktop list on the same
 /// allocator with the state the list had set (<see cref="ListReplayState"/>, the bindless root signatures, the
 /// pipeline). At submission the segments run in order with each wait before the segment it precedes, so the work before
-/// a wait is never held behind it. Open queries and predication are not carried over. Off by default
-/// (<c>--split-at-waits</c>): in the story-load boots the split lists' waits on the frame cells stalled every queue at
-/// one frame for the full timeout, while without them no wait timed out.
+/// a wait is never held behind it. Open queries and predication are not carried over. On by default
+/// (<c>--no-split-at-waits</c> turns it off). The same mechanism as victory-gta6's list cuts (`list.rs::cut`).
 /// </summary>
 internal static unsafe class ListSplits
 {
@@ -44,8 +43,8 @@ internal static unsafe class ListSplits
 
     private static long _splits;
 
-    /// <summary>Whether a wait after work splits its list (<c>--split-at-waits</c>); otherwise such a wait is not kept.</summary>
-    public static bool Enabled { get; set; }
+    /// <summary>Whether a wait after work splits its list (on by default); otherwise such a wait is not kept.</summary>
+    public static bool Enabled { get; set; } = true;
 
     /// <summary>Lists split at a wait so far.</summary>
     public static long Splits => Interlocked.Read(ref _splits);

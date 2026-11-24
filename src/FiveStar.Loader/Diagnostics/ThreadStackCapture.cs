@@ -22,6 +22,11 @@ internal static unsafe class ThreadStackCapture
     private const int ContextFlagsOffset = 0x30;
     private const int RspOffset = 0x98;
     private const int RipOffset = 0xF8;
+    private const int RsiOffset = 0xA8;
+    private const int RdiOffset = 0xB0;
+
+    /// <summary>Frames a register probe walks at most.</summary>
+    private const int MaxProbeFrames = 64;
     private const uint ContextControlInteger = 0x100003;
 
     /// <summary>UNW_FLAG_NHANDLER: unwind without calling handlers.</summary>
@@ -60,7 +65,46 @@ internal static unsafe class ThreadStackCapture
         return count;
     }
 
-    private static int Walk(byte* context, ReadOnlySpan<CodeRange> modules, Span<ulong> pcs)
+    /// <summary>
+    /// The nonvolatile RSI and RDI of the thread's frame in <paramref name="function"/>, as the unwind restores them
+    /// (a wait's arguments the function keeps there); false when no frame of the thread is in it.
+    /// </summary>
+    public static bool FrameRegisters(uint threadId, ReadOnlySpan<CodeRange> modules, CodeRange function, out ulong rsi, out ulong rdi)
+    {
+        rsi = 0;
+        rdi = 0;
+        nint thread = Kernel32.OpenThread(ThreadAccess, 0, threadId);
+
+        if (thread == 0)
+        {
+            return false;
+        }
+
+        byte* raw = stackalloc byte[ContextSize + ContextAlignment];
+        byte* context = (byte*)(((ulong)raw + ContextAlignment - 1) & ~(ulong)(ContextAlignment - 1));
+        *(uint*)(context + ContextFlagsOffset) = ContextControlInteger;
+        Span<ulong> pcs = stackalloc ulong[MaxProbeFrames];
+        bool found = false;
+
+        if (Kernel32.SuspendThread(thread) != SuspendFailed)
+        {
+            if (Kernel32.GetThreadContext(thread, context) != 0)
+            {
+                _ = Walk(context, modules, pcs, function);
+                found = function.Contains(*(ulong*)(context + RipOffset));
+                rsi = *(ulong*)(context + RsiOffset);
+                rdi = *(ulong*)(context + RdiOffset);
+            }
+
+            _ = Kernel32.ResumeThread(thread);
+        }
+
+        _ = Kernel32.CloseHandle(thread);
+
+        return found;
+    }
+
+    private static int Walk(byte* context, ReadOnlySpan<CodeRange> modules, Span<ulong> pcs, CodeRange stopAt = default)
     {
         int count = 0;
 
@@ -69,7 +113,7 @@ internal static unsafe class ThreadStackCapture
             ulong pc = *(ulong*)(context + RipOffset);
             ulong rsp = *(ulong*)(context + RspOffset);
 
-            if (pc == 0)
+            if (pc == 0 || stopAt.Contains(pc))
             {
                 break;
             }

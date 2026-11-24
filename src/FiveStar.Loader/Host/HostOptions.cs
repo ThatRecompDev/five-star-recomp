@@ -167,8 +167,8 @@ internal sealed record HostOptions
     /// <summary>A submission holding a retire write waits for every other queue (<c>--retire-waits-all-queues</c>).</summary>
     public bool RetireWaitsAllQueues { get; set; }
 
-    /// <summary>A memory wait recorded after work splits its list there (<c>--split-at-waits</c>).</summary>
-    public bool SplitAtWaits { get; set; }
+    /// <summary>A memory wait recorded after work splits its list there; <c>--no-split-at-waits</c> turns it off.</summary>
+    public bool SplitAtWaits { get; set; } = true;
 
     /// <summary>Programs made on demand trace stores into the transient pool and the game heap (<c>--trace-pool-stores</c>).</summary>
     public bool TracePoolStores { get; set; }

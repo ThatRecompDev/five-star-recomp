@@ -4,6 +4,7 @@
 using System.Diagnostics;
 using FiveStar.Loader.Shims.D3D12X.Binding;
 using FiveStar.Loader.Tests.Support;
+using FiveStar.Shaders.Translation;
 using Vortice.Direct3D12;
 using Xunit;
 using HeapProperties = FiveStar.Loader.Shims.D3D12X.Binding.HeapProperties;
@@ -11,8 +12,9 @@ using HeapProperties = FiveStar.Loader.Shims.D3D12X.Binding.HeapProperties;
 namespace FiveStar.Loader.Tests;
 
 /// <summary>
-/// Command-list binding through the D3D12.X slot numbers: root signature layouts, and a dispatch whose descriptor table
-/// a program reads the way translated programs do (user SGPR, window record, heap index).
+/// Command-list binding through the D3D12.X slot numbers: root signature layouts, a dispatch whose descriptor table
+/// a program reads the way translated programs do (user SGPR, window record, heap index), and game memory reached
+/// at a console GPU address through the address map with the translator's own runtime (rdna_prelude.hlsli).
 /// </summary>
 public sealed unsafe class D3D12XBindingTests
 {
@@ -73,6 +75,34 @@ public sealed unsafe class D3D12XBindingTests
             destination.Store(0, source.Load(0) + 1);
         }
         """;
+
+    /// <summary>
+    /// Table entry 0 holds a console GPU address (low, high) and a value: the program stores the value there and stores
+    /// the dword 4 bytes further on into table entry 1, both through the address map (PtrStore, PtrLoad).
+    /// </summary>
+    private const string AddressMapProgram = """
+        #include "rdna_prelude.hlsli"
+        [numthreads(1, 1, 1)]
+        void main()
+        {
+            uint table = g_user4[1].x;
+            ByteAddressBuffer window = ResourceDescriptorHeap[0];
+            ByteAddressBuffer source = ResourceDescriptorHeap[window.Load(table)];
+            RWByteAddressBuffer destination = ResourceDescriptorHeap[window.Load(table + 32)];
+            uint3 access = source.Load3(0);
+            PtrStore(access.x, access.y, 0u, access.z);
+            destination.Store(0, PtrLoad(access.x, access.y, 4u));
+        }
+        """;
+
+    /// <summary>One 64 KiB XMem page; MEM_RESERVE | MEM_64K_PAGES with the game's XMem flags and protections for a CPU range and its GPU-only alias.</summary>
+    private const ulong Page = 0x10000;
+    private const uint Reserve64K = 0x20402000;
+    private const ulong CpuFlags = 0x21;
+    private const ulong GpuFlags = 0x3;
+    private const uint CpuReadWrite = 0x4;
+    private const uint GpuOnly = 0x801;
+    private const uint Stored = 0x5EED;
 
     [Fact]
     public void A_root_signature_packs_its_parameters_into_user_sgprs()
@@ -193,20 +223,57 @@ public sealed unsafe class D3D12XBindingTests
         Assert.Equal(Marker + 1, Dispatch(test, device, heap, 0, 1, heap.Gpu, copy: table, views: cpuOnly.Cpu));
     }
 
+    [DxcFact]
+    public void A_program_reaches_the_frame_the_game_remapped_under_a_placed_buffer()
+    {
+        using var test = TestRuntime.Create();
+        var virtualAlloc = (delegate* unmanaged<nint, nuint, uint, ulong, uint, nint>)test.Shim("xmem.dll", "XMemVirtualAlloc");
+        var allocate = (delegate* unmanaged<ulong, ulong*, ulong*, int>)test.Shim("xmem.dll", "XMemAllocatePhysicalPages");
+        var map = (delegate* unmanaged<nint, ulong, ulong*, nint>)test.Shim("xmem.dll", "XMemMapPhysicalPages");
+
+        nint cpu = virtualAlloc(0, (nuint)Page, Reserve64K, CpuFlags, CpuReadWrite);
+        nint gpu = virtualAlloc(0, (nuint)Page, Reserve64K, GpuFlags, GpuOnly);
+        nint other = virtualAlloc(0, (nuint)Page, Reserve64K, CpuFlags, CpuReadWrite);
+
+        ulong* frames = stackalloc ulong[2];
+        ulong count = 2;
+        Assert.Equal(1, allocate(0, &count, frames));
+        Assert.Equal(cpu, map(cpu, 1, &frames[0]));
+
+        // Frame 0 is mapped before the map exists and a buffer is placed over it; the game then maps frame 1 in its
+        // place and frame 0 elsewhere. The program must reach frame 1, as the console GPU does.
+        var device = new XboxDevice(test);
+        var heap = ViewHeap(device, GameViews);
+        Assert.Equal(0, device.PlacedBuffer(gpu, Page, out _));
+
+        Assert.Equal(cpu, map(cpu, 1, &frames[1]));
+        Assert.Equal(other, map(other, 1, &frames[0]));
+        *(ulong*)cpu = (ulong)Marker << 32;
+        *(ulong*)other = 0;
+
+        uint loaded = Dispatch(test, device, heap, 0, 1, heap.Gpu, program: AddressMapProgram, words: [unchecked((uint)gpu), (uint)((ulong)gpu >> 32), Stored]);
+
+        Assert.Equal(Marker, loaded);
+        Assert.Equal(Stored, *(uint*)cpu);
+        Assert.Equal(0UL, *(ulong*)other);
+    }
+
     /// <summary>
     /// Creates an SRV of a marker buffer at game index <paramref name="read"/> and a UAV at <paramref name="write"/>
     /// through the slots, binds the table at <paramref name="table"/> and runs the program; returns what it stored.
     /// </summary>
-    private static uint Dispatch(TestRuntime test, XboxDevice device, (nint Heap, nint Cpu, ulong Gpu, uint Increment) heap, uint read, uint write, ulong table, uint between = 0, nint copy = 0, nint views = 0)
+    private static uint Dispatch(TestRuntime test, XboxDevice device, (nint Heap, nint Cpu, ulong Gpu, uint Increment) heap, uint read, uint write, ulong table, uint between = 0, nint copy = 0, nint views = 0, string program = Program, uint[]? words = null)
     {
         nint at = views == 0 ? heap.Cpu : views;
         nint desktop = test.Runtime.D3D12X.Objects.DesktopDevice;
         nint rootSignature = GameRootSignature(device);
         nint source = Buffer(desktop, new HeapProperties { Type = HeapProperties.Upload }, 0, GenericRead);
         nint destination = Buffer(desktop, new HeapProperties { Type = HeapProperties.Custom, CpuPageProperty = WriteBack, MemoryPool = HeapProperties.SystemPool }, DesktopCalls.UnorderedAccessFlag, 0);
-        *(uint*)DesktopCalls.Map(source) = Marker;
 
-        var view = BufferViewDescription.RawShaderResource(1);
+        words ??= [Marker];
+        words.CopyTo(new Span<uint>(DesktopCalls.Map(source), words.Length));
+
+        var view = BufferViewDescription.RawShaderResource((uint)words.Length);
         var store = BufferViewDescription.RawUnorderedAccess(1);
         var createRead = (delegate* unmanaged<nint, nint, BufferViewDescription*, nint, void>)XboxDevice.Vtable(device.Device)[CreateShaderResourceViewSlot];
         createRead(device.Device, source, &view, at + (nint)((ulong)read * heap.Increment));
@@ -228,7 +295,7 @@ public sealed unsafe class D3D12XBindingTests
         nint* heaps = stackalloc nint[] { heap.Heap };
         ((delegate* unmanaged<nint, uint, nint*, void>)XboxDevice.Vtable(list)[ListSetHeapsSlot])(list, 1, heaps);
 
-        ((delegate* unmanaged<nint, nint, void>)XboxDevice.Vtable(list)[ListSetPipelineSlot])(list, Pipeline(desktop, test.Runtime.D3D12X.Bindings.Root));
+        ((delegate* unmanaged<nint, nint, void>)XboxDevice.Vtable(list)[ListSetPipelineSlot])(list, Pipeline(desktop, test.Runtime.D3D12X.Bindings.Root, program));
         ((delegate* unmanaged<nint, nint, void>)XboxDevice.Vtable(list)[ListSetComputeRootSlot])(list, rootSignature);
         ((delegate* unmanaged<nint, uint, ulong, void>)XboxDevice.Vtable(list)[ListSetComputeTableSlot])(list, 0, table);
         ((delegate* unmanaged<nint, uint, uint, uint, void>)XboxDevice.Vtable(list)[ListDispatchSlot])(list, 1, 1, 1);
@@ -303,8 +370,8 @@ public sealed unsafe class D3D12XBindingTests
         return buffer;
     }
 
-    /// <summary>The program compiled with dxc, as a compute pipeline on the bindless root signature.</summary>
-    private static nint Pipeline(nint device, nint root)
+    /// <summary>A program compiled with dxc (the translator's runtime headers on the include path), as a compute pipeline on the bindless root signature.</summary>
+    private static nint Pipeline(nint device, nint root, string program)
     {
         var folder = Directory.CreateTempSubdirectory("fivestar-binding-");
 
@@ -312,9 +379,10 @@ public sealed unsafe class D3D12XBindingTests
         {
             string source = Path.Combine(folder.FullName, "program.hlsl");
             string output = Path.Combine(folder.FullName, "program.dxil");
-            File.WriteAllText(source, Program);
+            File.WriteAllText(source, program);
+            RuntimeIncludes.WriteTo(folder.FullName);
 
-            using var dxc = Process.Start(new ProcessStartInfo(PipelineFactAttribute.Dxc, ["-T", "cs_6_6", "-E", "main", "-Fo", output, source]) { RedirectStandardError = true })!;
+            using var dxc = Process.Start(new ProcessStartInfo(PipelineFactAttribute.Dxc, ["-T", "cs_6_6", "-E", "main", "-I", folder.FullName, "-Fo", output, source]) { RedirectStandardError = true })!;
             string errors = dxc.StandardError.ReadToEnd();
             dxc.WaitForExit();
             Assert.True(dxc.ExitCode == 0, errors);

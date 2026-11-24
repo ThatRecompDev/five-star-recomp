@@ -23,6 +23,7 @@ internal static unsafe class BufferCopies
     [UnmanagedCallersOnly]
     public static void CopyBufferRegion(XboxObject* self, nint destination, ulong destinationOffset, nint source, ulong sourceOffset, ulong bytes)
     {
+        ListSegments.Of(self)->Commands++;
         nint desktopDestination = Desktop(destination, ref destinationOffset);
         nint desktopSource = Desktop(source, ref sourceOffset);
         GpuBreadcrumbs.Before(self, RecordedCommand.CopyBuffer);

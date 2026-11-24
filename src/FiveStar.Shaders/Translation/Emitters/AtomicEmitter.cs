@@ -135,7 +135,7 @@ internal sealed partial class AtomicEmitter
         var target = _operands.SnapPair($"gpu_rw({full}.x, {full}.y)");
         var result = atomic.Result;
         _state.Emit($"  if (active && {full}.y != 0u) TRACE_ADDR({full}.x, {full}.y, {_operands.Read(data, 0)});");
-        _state.Emit($"  uint {result} = 0; if (active) {{ RWByteAddressBuffer _b{result} = ResourceDescriptorHeap[{target}.x];");
+        _state.Emit($"  uint {result} = 0; if (active) {{ RWByteAddressBuffer _b{result} = ResourceDescriptorHeap[NonUniformResourceIndex({target}.x)];");
         _state.Emit($"    _b{result}.{Operation(atomic, data, $"{target}.y")}; }}");
 
         if (returns)
@@ -165,14 +165,14 @@ internal sealed partial class AtomicEmitter
         var soffset = OperandParser.Parse(arguments[SOffset]);
         var byteAddress = BufferAddress.Build(_operands, vaddr, resource, soffset, modifiers);
         var inRange = BufferAddress.InRange(BufferAddress.Range(_operands, vaddr, resource, soffset, modifiers), 0);
-        var view = BufferAddress.View(_operands, resource, true);
+        var view = BufferAddress.View(_operands, resource, true, byteAddress);
 
         var result = atomic.Result;
 
         // Out of range: no write, and the returned value is 0.
-        _state.Emit($"  if (active && {inRange}) {{ TRACE_VIEW({view}.x, {view}.y + {byteAddress}, {_operands.Read(atomic.Data, 0)}); TRACE_VSTORE({_operands.Read(resource, 0)}, {_operands.Read(resource, 1)}, {byteAddress}, {_operands.Read(atomic.Data, 0)}); }}");
-        _state.Emit($"  uint {result} = 0; if (active && {inRange}) {{ RWByteAddressBuffer _b{result} = ResourceDescriptorHeap[{view}.x];");
-        _state.Emit($"    _b{result}.{Operation(atomic, atomic.Data, $"({view}.y + {byteAddress})")}; }}");
+        _state.Emit($"  if (active && {inRange}) {{ TRACE_VIEW({view}.x, {view}.y, {_operands.Read(atomic.Data, 0)}); TRACE_VSTORE({_operands.Read(resource, 0)}, {_operands.Read(resource, 1)}, {byteAddress}, {_operands.Read(atomic.Data, 0)}); }}");
+        _state.Emit($"  uint {result} = 0; if (active && {inRange}) {{ RWByteAddressBuffer _b{result} = ResourceDescriptorHeap[NonUniformResourceIndex({view}.x)];");
+        _state.Emit($"    _b{result}.{Operation(atomic, atomic.Data, $"{view}.y")}; }}");
     }
 
     /// <summary>image_atomic_*: false when the result is already written (cmpswap).</summary>

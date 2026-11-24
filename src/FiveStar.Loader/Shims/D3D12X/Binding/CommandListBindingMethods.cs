@@ -46,6 +46,7 @@ internal static unsafe class CommandListBindingMethods
     private const int DesktopSetComputeRootConstantBufferView = 37;
     private const int DesktopSetGraphicsRootConstantBufferView = 38;
     private const int DesktopExecuteIndirect = 59;
+    private const int DesktopSetPipelineState = 25;
 
     /// <summary>Root parameters of BindlessRootSignature: the user-data CBV and the mesh fallback table.</summary>
     private const uint UserDataParameter = BindlessRootSignature.UserDataParameter;
@@ -265,7 +266,44 @@ internal static unsafe class CommandListBindingMethods
 
         nint argumentBuffer = BufferCopies.Desktop(arguments, ref argumentOffset);
         nint countBuffer = BufferCopies.Desktop(count, ref countOffset);
+
+        if (IndirectClamp.Record(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
+        {
+            RestoreCompute(self);
+            inner = self->Inner;
+            execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
+            execute(inner, objects.Unwrap(signature), maxCount, scratch, scratchOffset, countBuffer, countOffset);
+            IndirectClamp.Done(self, scratch);
+
+            return;
+        }
+
         execute(inner, objects.Unwrap(signature), maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+    }
+
+    /// <summary>After the argument clamp's dispatch: the list's compute root signature, user data and pipeline again.</summary>
+    [HotPath]
+    private static void RestoreCompute(XboxObject* self)
+    {
+        if (CommandListBindings.Of(self)->ComputeRoot != 0)
+        {
+            SetBindlessRoot(self, true);
+            Flush(self, true);
+        }
+
+        var rectangles = RectangleListState.Of(self);
+        rectangles->VariantBound = 0;
+
+        if (CommandListBindings.Of(self)->PipelinePending == 0 && rectangles->Pipeline != 0)
+        {
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(inner, DesktopSetPipelineState))(inner, rectangles->Pipeline);
+        }
+
+        if (rectangles->Topology == PrimitiveTopologies.RectangleList)
+        {
+            ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
+        }
     }
 
     /// <summary>The console address of an ExecuteIndirect argument, 0 for a buffer without one.</summary>
@@ -348,6 +386,7 @@ internal static unsafe class CommandListBindingMethods
 
         ListSegments.Of(self)->Reset(ShimContext.Runtime.D3D12X.Objects.Unwrap(allocator));
         ListReplayState.Of(self)->Set = 0;
+        ListIndirectScratch.Of(self)->Used = 0;
         ListReplayState.Of(self)->VertexMask = 0;
         ListActivity.Reset(self);
         ShimContext.Runtime.D3D12X.DrawTrace?.Reset(self);

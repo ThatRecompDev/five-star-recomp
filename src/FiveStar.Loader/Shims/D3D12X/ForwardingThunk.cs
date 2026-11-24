@@ -14,11 +14,18 @@ internal static class ForwardingThunk
     /// <summary>
     /// Unwraps the listed argument registers (<see cref="EmitUnwrap"/>), then <c>mov rcx,[rcx+inner]; mov rax,[rcx];
     /// jmp [rax+desktop*8]</c>, or for a struct-returning slot (object in rdx) <c>mov rdx,[rdx+inner]; mov rax,[rdx];
-    /// xchg rcx,rdx; jmp [rax+desktop*8]</c>. Stack arguments stay in place.
+    /// xchg rcx,rdx; jmp [rax+desktop*8]</c>. Stack arguments stay in place. With <paramref name="counter"/> (a byte
+    /// offset in the wrapper, 0 for none) the thunk first counts the call there: <c>inc dword [rcx+counter]</c>.
     /// </summary>
-    public static nint Emit(CodeHeap heap, ForwardedSlot slot, nint vtables, int vtableBytes)
+    public static nint Emit(CodeHeap heap, ForwardedSlot slot, nint vtables, int vtableBytes, int counter)
     {
         var emitter = new X64Emitter();
+
+        if (counter != 0 && !slot.StructReturn)
+        {
+            emitter.IncDwordAtRcx(counter);
+        }
+
         EmitUnwraps(emitter, slot.Unwrap, vtables, vtableBytes);
 
         if (slot.StructReturn)

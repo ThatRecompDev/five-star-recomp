@@ -19,6 +19,14 @@ internal unsafe struct ListSegments
     /// <summary>Segments a recording can close; a wait past them is not kept.</summary>
     public const int Capacity = 4;
 
+    /// <summary>
+    /// Offset of <see cref="Commands"/> in the wrapper: the forwarding thunks of command lists count every call there
+    /// (<see cref="ForwardingThunk"/>), handlers that record work count themselves.
+    /// </summary>
+    public const int CommandsOffset = Offset;
+
+    /// <summary>Commands recorded since the last Reset (forwarded calls and work-recording handlers).</summary>
+    public int Commands;
     public int Count;
     public int Spares;
     public nint Allocator;
@@ -46,6 +54,7 @@ internal unsafe struct ListSegments
     public void Reset(nint allocator)
     {
         Allocator = allocator;
+        Commands = 0;
 
         for (int i = 0; i < Count && Spares < Capacity; i++)
         {

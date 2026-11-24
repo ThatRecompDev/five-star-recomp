@@ -59,6 +59,22 @@ metadata operands, the mesh state property, and declaring every output dependent
 instead of tracing dependencies. Register packing, the order of signature rows and names, and the remaining layouts
 were checked against dxc's containers (`fivestar shader dxil --compare`); the code is our own.
 
+## victory-gta6
+
+https://github.com/fxceless/victory-gta6, GPL-3.0-or-later, a fork of VIctory that reaches the prologue's gameplay. Its
+changes were a source of mechanisms, each written anew in our design:
+
+- Queue synchronisation (docs/d3d12x-shim.md, Memory waits): command lists cut at the Wait32/Wait64 slots and the
+  parts run in order once the value is in memory (list.rs::cut, queue.rs::submit_cut / release_held), held waits
+  released at a present, indirect arguments copied and clamped on the GPU before they run (indirect.rs, its
+  bounds), and memory values read without VirtualQuery (its measurement of about 8 ms per query in the
+  game's 1.1 GB allocation).
+- Shader translation (docs/shader-translation.md): that `image_gather4_l` must read the named mip level (four loads in
+  gather order), that an f16 operation reads an inline float constant as its f16 value, and per-stage loop caps
+  against runaway loops.
+
+Its `console_insn*.rs` files are GPL-2.0-only code from XCL and were not used. No code was copied.
+
 ## XCL
 
 https://github.com/xcl-dev/xcl, GPL-2.0-only. Because that licence does not combine with ours, only facts from its

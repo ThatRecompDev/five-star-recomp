@@ -36,6 +36,8 @@ internal static unsafe class ResourceBarrierSlots
     [UnmanagedCallersOnly]
     public static void ResourceBarrier(XboxObject* self, uint count, TransitionBarrier* barriers)
     {
+        ListSegments.Of(self)->Commands++;
+
         if (barriers == null || count == 0)
         {
             return;

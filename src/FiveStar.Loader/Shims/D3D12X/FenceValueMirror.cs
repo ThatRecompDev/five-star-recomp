@@ -81,6 +81,34 @@ internal sealed unsafe class FenceValueMirror : IDisposable
         return text.ToString();
     }
 
+    /// <summary>
+    /// The fence whose cell is at <paramref name="cell"/> (a game wait's target, --watch-hang): its wrapper, the cell, the
+    /// desktop completed value and the last value a queue Signal asked for; empty when no tracked fence has that cell.
+    /// </summary>
+    public string DescribeCell(ulong cell)
+    {
+        lock (_gate)
+        {
+            foreach (nint fence in _fences)
+            {
+                var wrapper = (XboxFenceObject*)fence;
+
+                if ((ulong)&wrapper->CompletedValue != cell)
+                {
+                    continue;
+                }
+
+                nint inner = wrapper->Header.Inner;
+                ulong completed = ((delegate* unmanaged<nint, ulong>)ComObject.Slot(inner, GetCompletedValueSlot))(inner);
+                double ago = Stopwatch.GetElapsedTime(Volatile.Read(ref wrapper->SignaledAt)).TotalSeconds;
+
+                return $"fence 0x{fence:x}: cell {Volatile.Read(ref wrapper->CompletedValue)}, desktop completed {completed}, last Signal {Volatile.Read(ref wrapper->SignaledValue)} ({ago:F1} s ago)";
+            }
+        }
+
+        return string.Empty;
+    }
+
     public void Dispose()
     {
         _stopping = true;

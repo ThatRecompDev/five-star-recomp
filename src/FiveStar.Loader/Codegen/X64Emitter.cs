@@ -48,6 +48,7 @@ internal sealed class X64Emitter
     private static readonly byte[] AddRspImm8 = [0x48, 0x83, 0xC4];
     private static readonly byte[] MovRaxImm64 = [0x48, 0xB8];
     private static readonly byte[] MovRcxImm64 = [0x48, 0xB9];
+    private static readonly byte[] IncDwordRcxDisp32 = [0xFF, 0x81];
     private static readonly byte[] MovR11Imm64 = [0x49, 0xBB];
     private static readonly byte[] CallRaxEncoding = [0xFF, 0xD0];
     private static readonly byte[] JmpRaxEncoding = [0xFF, 0xE0];
@@ -141,6 +142,13 @@ internal sealed class X64Emitter
     public void LockXaddR10R11()
     {
         Emit(LockXaddR10MemR11);
+    }
+
+    /// <summary><c>inc dword [rcx+disp32]</c> (flags change; no argument register does).</summary>
+    public void IncDwordAtRcx(int displacement)
+    {
+        Emit(IncDwordRcxDisp32);
+        Emit32((uint)displacement);
     }
 
     /// <summary><c>lock inc qword [r10]</c>.</summary>

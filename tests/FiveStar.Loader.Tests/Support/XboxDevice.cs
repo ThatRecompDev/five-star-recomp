@@ -144,6 +144,17 @@ internal sealed unsafe class XboxDevice
         return ((delegate* unmanaged<nint, ulong>)Vtable(fence)[8])(fence);
     }
 
+    /// <summary>Runs a closed <paramref name="list"/> on a new direct queue (X slot 35) and blocks until the GPU is done.</summary>
+    public void Run(nint list)
+    {
+        nint queue = Queue();
+        nint fence = Fence();
+        nint* lists = stackalloc nint[] { list };
+        Assert.Equal(0, ((delegate* unmanaged<nint, uint, nint*, nint, uint, int>)Vtable(queue)[35])(queue, 1, lists, 0, 3));
+        Assert.Equal(0, ((delegate* unmanaged<nint, nint, ulong, int>)Vtable(queue)[16])(queue, fence, 1));
+        Assert.Equal(0, ((delegate* unmanaged<nint, ulong, nint, int>)Vtable(fence)[9])(fence, 1, 0));
+    }
+
     /// <summary>Resource slots 8 and 9 (Map, Unmap): the first dword of a CPU-visible buffer.</summary>
     public static uint ReadFirst(nint resource)
     {

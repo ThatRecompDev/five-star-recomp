@@ -34,6 +34,34 @@ public static partial class OperandParser
         ["0.15915494"] = 0x3E22F983,
     };
 
+    // The same constants as an f16 operation reads them (in the low half of the operand).
+    private static readonly IReadOnlyDictionary<uint, uint> HalfConstants = new Dictionary<uint, uint>
+    {
+        [0x3F000000] = 0x3800,
+        [0xBF000000] = 0xB800,
+        [0x3F800000] = 0x3C00,
+        [0xBF800000] = 0xBC00,
+        [0x40000000] = 0x4000,
+        [0xC0000000] = 0xC000,
+        [0x40800000] = 0x4400,
+        [0xC0800000] = 0xC400,
+        [0x3E22F983] = 0x3118,
+    };
+
+    /// <summary>
+    /// The bits an f16 operation reads for an inline float constant (1.0 is 0x3C00, not the low half of 0x3F800000),
+    /// or null for any other operand.
+    /// </summary>
+    public static uint? HalfConstant(Operand operand)
+    {
+        if (!operand.IsImmediate || !operand.Text.Contains('.', StringComparison.Ordinal) || !HalfConstants.TryGetValue(operand.Value, out var bits))
+        {
+            return null;
+        }
+
+        return bits;
+    }
+
     /// <summary>Parses one operand; throws <see cref="UnsupportedProgramException"/> for anything else.</summary>
     public static Operand Parse(string text)
     {

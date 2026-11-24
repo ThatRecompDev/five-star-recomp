@@ -121,9 +121,10 @@ internal static unsafe class MemoryWaits
         }
 
         var activity = ListActivity.Of(list);
-        int work = activity->Draws + activity->Dispatches + activity->Indirect + waits->Writes;
+        int work = activity->Draws + activity->Dispatches + activity->Indirect + waits->Writes + ListSegments.Of(list)->Commands;
 
-        // Work recorded since the last split runs before the wait: it goes into a segment of its own.
+        // Any command recorded since the last split runs before the wait: it goes into a segment of its own. A wait right
+        // after another, or at the list's start, joins the waits before the current segment.
         if (work != waits->WorkAtSplit)
         {
             if (!ListSplits.Split(list))
@@ -262,6 +263,33 @@ internal static unsafe class MemoryWaits
 
                 released = state.Pending.Count;
                 state.ReleaseNow = true;
+            }
+        }
+
+        if (released != 0)
+        {
+            Interlocked.Add(ref _releasedForCpu, released);
+            Wake.Set();
+        }
+
+        return released;
+    }
+
+    /// <summary>
+    /// At every present, and when the present throttle has waited a while (<see cref="Present.GpuFrameThrottle"/>):
+    /// every queue's pending waits are released, as the writers they need may come from the presenting thread after
+    /// the present. Returns how many were released.
+    /// </summary>
+    public static int ReleaseAll()
+    {
+        int released = 0;
+
+        lock (Gate)
+        {
+            foreach (var state in Queues.Values)
+            {
+                released += state.Pending.Count;
+                state.ReleaseNow |= state.Pending.Count != 0;
             }
         }
 
@@ -467,18 +495,23 @@ internal static unsafe class MemoryWaits
         public ulong Ticket;
         public long Deadline;
 
-        /// <summary>Finds where the CPU reads the address; false when nothing readable is there.</summary>
+        /// <summary>
+        /// Finds where the CPU reads the address; false when nothing readable is there. No VirtualQuery: in a large
+        /// allocation one takes milliseconds (victory-gta6 measured about 8 ms in the game's 1.1 GB one), and every
+        /// submission of a waiting list asks. A page in a mappable reservation must be mapped; other memory must be
+        /// game memory the GPU sees (the address table, whose allocations are committed).
+        /// </summary>
         public bool Resolve()
         {
-            Cpu = ShimContext.Runtime.XMemPhysical.CpuAddress((nint)Address);
-            MemoryBasicInformation info;
+            var physical = ShimContext.Runtime.XMemPhysical;
+            Cpu = physical.CpuAddress((nint)Address);
 
-            if (Kernel32.VirtualQueryEx(Kernel32.GetCurrentProcess(), Cpu, &info, (nuint)sizeof(MemoryBasicInformation)) == 0 || info.State != Win32Constants.MemCommit || (info.Protect & Win32Constants.PageNoAccess) != 0)
+            if (physical.IsReserved(Cpu))
             {
-                return false;
+                return physical.IsMapped(Cpu);
             }
 
-            return true;
+            return ShimContext.Runtime.D3D12X.GameMemory.TryFind(Address, out _);
         }
 
         public readonly ulong Current()

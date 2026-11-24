@@ -15,8 +15,8 @@ namespace FiveStar.Shaders.Translation.Structure;
 /// that do not join before it is emitted once per path. When that copying makes a scope (the region's top level or a
 /// loop body) larger than its limit, the scope is emitted guarded instead: its blocks in topological order, each under
 /// <c>if (flowN == k)</c>, each setting <c>flowN</c> to its successor; nested loops stay structured. Every branch condition
-/// is wave-uniform, so all lanes take the same arm, exactly as with the dispatch loop. Every loop leaves after
-/// <see cref="LoopGuard"/> iterations (through its first exit).
+/// is wave-uniform, so all lanes take the same arm, exactly as with the dispatch loop. Every loop iteration spends one of
+/// the invocation's <c>loop_budget</c> (<see cref="LoopGuard"/>); once it is spent, a loop leaves through its first exit.
 /// </summary>
 internal sealed class RegionEmitter
 {
@@ -35,6 +35,7 @@ internal sealed class RegionEmitter
     private readonly LoopForest _forest;
     private readonly ScopeGraph _top;
     private readonly Func<string, bool> _keep;
+    private readonly string _cap;
     private readonly Dictionary<int, ScopeGraph> _scopes = [];
     private readonly List<string> _lines = [];
     private readonly List<ScopeFrame> _frames = [];
@@ -45,11 +46,15 @@ internal sealed class RegionEmitter
     private int _frameCount;
     private bool _earlyEnd;
 
-    /// <summary>A region from <paramref name="entry"/>; lines failing <paramref name="keep"/> are left out.</summary>
-    public RegionEmitter(FlowGraph graph, int entry, Func<string, bool> keep)
+    /// <summary>
+    /// A region from <paramref name="entry"/>; lines failing <paramref name="keep"/> are left out, and loops stop once
+    /// <c>loop_budget</c> passes <paramref name="cap"/> (an HLSL literal).
+    /// </summary>
+    public RegionEmitter(FlowGraph graph, int entry, Func<string, bool> keep, string cap)
     {
         _graph = graph;
         _keep = keep;
+        _cap = cap;
         var dominators = new DominatorTree(graph.Successors, entry);
         _forest = new LoopForest(graph.Successors, dominators);
         _top = new ScopeGraph(graph, _forest, null, entry);
@@ -374,12 +379,11 @@ internal sealed class RegionEmitter
             Add(depth, $"uint {selector} = 0;");
         }
 
-        string guard = "loop_guard" + Hlsl.Number(_loopGuards);
+        var guard = Hlsl.Number(_loopGuards);
         _loopGuards++;
-        Add(depth, $"uint {guard} = 0;");
 
         Add(depth, "[loop] for (;;) {");
-        Add(depth + 1, $"if (++{guard} > {LoopGuard.Hex}) {{ TRACE_GUARD({Hlsl.Number(_loopGuards - 1)}); break; }}");
+        Add(depth + 1, $"if (++loop_budget > {_cap}) {{ TRACE_GUARD({guard}, {_cap}); break; }}");
         EmitScope(scope, selector, depth + 1);
         Add(depth, "}");
 

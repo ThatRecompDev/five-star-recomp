@@ -161,7 +161,7 @@ internal sealed class CommandLineParser
     {
         switch (option)
         {
-            case "--watch-transient" or "--watch-hang" or "--skip-compute-chains" or "--retire-waits-all-queues" or "--split-at-waits" or "--trace-pool-stores":
+            case "--watch-transient" or "--watch-hang" or "--skip-compute-chains" or "--retire-waits-all-queues" or "--no-split-at-waits" or "--trace-pool-stores":
                 return SetWatch(option);
             case "--screens":
                 return SetScreensFile();
@@ -572,9 +572,9 @@ internal sealed class CommandLineParser
         {
             _options.RetireWaitsAllQueues = true;
         }
-        else if (option == "--split-at-waits")
+        else if (option == "--no-split-at-waits")
         {
-            _options.SplitAtWaits = true;
+            _options.SplitAtWaits = false;
         }
         else if (option == "--skip-compute-chains")
         {
