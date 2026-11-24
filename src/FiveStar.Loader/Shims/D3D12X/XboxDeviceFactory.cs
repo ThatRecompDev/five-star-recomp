@@ -553,6 +553,8 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
 
         ResourceBarrierSlots.Bind(Objects);
         EnhancedBarrierSlots.Bind(Objects);
+        TextureCopies.Bind(Objects);
+
         UploadAllocations.Bind(Objects);
         BottomOfPipeWrites.Bind(Objects);
         MemoryWaits.Bind(Objects, _log);

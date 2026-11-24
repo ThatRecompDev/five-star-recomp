@@ -46,7 +46,16 @@ internal static unsafe class PlaneReader
             format = SwapChainFormats.Rgba8Unorm;
         }
 
-        return new PlaneSource(resource, HomeState(objects, plane->Resources[0]), box, format, SwapChainFormats.ColorSpace(format, plane->ColorSpace), copyable);
+        return new PlaneSource(
+            resource,
+            HomeState(objects, plane->Resources[0]),
+            box,
+            format,
+            SwapChainFormats.ColorSpace(format, plane->ColorSpace),
+            copyable,
+            SwapChainFormats.ViewFormat(description.Format),
+            (uint)description.Width,
+            description.Height);
     }
 
     /// <summary>The source rect inside the resource; the whole resource without one, or when it is empty.</summary>

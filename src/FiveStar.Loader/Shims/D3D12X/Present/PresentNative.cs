@@ -35,6 +35,19 @@ internal static unsafe class PresentNative
     [DllImport(User)]
     public static extern int GetClientRect(nint window, PlaneRect* rect);
 
+    [DllImport(User)]
+    public static extern int GetWindowRect(nint window, PlaneRect* rect);
+
+    /// <summary>MonitorFromWindow; <paramref name="flags"/> MONITOR_DEFAULTTONEAREST (2) always gives one.</summary>
+    [DllImport(User)]
+    public static extern nint MonitorFromWindow(nint window, uint flags);
+
+    [DllImport(User)]
+    public static extern int GetMonitorInfoW(nint monitor, MonitorInfo* info);
+
+    [DllImport(User)]
+    public static extern int SetWindowPos(nint window, nint insertAfter, int x, int y, int width, int height, uint flags);
+
     [DllImport(Kernel)]
     public static extern uint GetCurrentProcessId();
 

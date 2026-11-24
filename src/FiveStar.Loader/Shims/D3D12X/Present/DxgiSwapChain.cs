@@ -7,7 +7,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Present;
 
 /// <summary>
 /// A flip-model swap chain on a window, through raw IDXGIFactory2 / IDXGISwapChain3 slots (dxgi1_2.h, dxgi1_4.h).
-/// The buffers have the plane's size and DXGI stretches them to the window, so a window resize needs no resize here.
+/// The presenter keeps the buffers at the window's client size (<see cref="Resize"/>); STRETCH covers the frames between a
+/// window resize and the next present.
 /// </summary>
 internal sealed unsafe class DxgiSwapChain : IDisposable
 {

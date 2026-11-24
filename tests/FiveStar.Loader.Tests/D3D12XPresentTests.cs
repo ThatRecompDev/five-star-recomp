@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Five Star Recomp contributors.
+﻿// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Diagnostics;
@@ -24,6 +24,7 @@ public sealed unsafe class D3D12XPresentTests
     private const int AllowRenderTarget = 1;
     private const int RenderTargetState = 4;
     private const uint PopupStyle = 0x80000000;
+    private const uint NoMoveNoZOrder = 0x0002 | 0x0004;
     private const uint Infinite = 0xFFFFFFFF;
     private static readonly Guid ResourceIid = new("696442be-a72e-4059-bc79-5b5c98040fad");
 
@@ -60,6 +61,61 @@ public sealed unsafe class D3D12XPresentTests
         {
             _ = DestroyWindow(window);
         }
+    }
+
+    [Fact]
+    public void Present_scales_the_plane_into_a_window_of_another_size_and_follows_its_resizes()
+    {
+        nint window = CreateHiddenWindow(100, 80);
+        var log = new StringWriter();
+
+        try
+        {
+            using var test = TestRuntime.Create(log: log);
+            var device = new XboxDevice(test);
+            nint queue = device.Queue();
+            nint texture = RenderTarget(device, 64, 32);
+            test.Runtime.D3D12X.Presenter.Window = window;
+
+            nint* resources = stackalloc nint[] { texture };
+            var rect = new PlaneRect { Right = 64, Bottom = 32 };
+            float* destination = stackalloc float[] { 0, 0, 1, 1 };
+            var plane = new PresentPlane { Token = 1, ResourceCount = 1, Resources = resources, SourceRect = &rect, DestinationRect = destination };
+            uint* parameters = stackalloc uint[8];
+            var present = (delegate* unmanaged<nint, uint, PresentPlane*, uint*, int>)XboxDevice.Vtable(queue)[PresentSlot];
+
+            Assert.Equal(0, present(queue, 1, &plane, parameters));
+            Assert.True(SetWindowPos(window, 0, 0, 0, 40, 90, NoMoveNoZOrder) != 0);
+            Assert.Equal(0, present(queue, 1, &plane, parameters));
+            Assert.Equal(2, test.Runtime.D3D12X.Presenter.Presents);
+
+            string text = log.ToString();
+            Assert.Contains("100x80 (plane 64x32)", text);
+            Assert.Contains("back buffers now 40x90", text);
+            Assert.DoesNotContain("[present] no scal", text);
+        }
+        finally
+        {
+            _ = DestroyWindow(window);
+        }
+    }
+
+    [Fact]
+    public void A_window_larger_than_the_work_area_is_fitted_at_the_planes_aspect_ratio()
+    {
+        // The game's 3840x2160 window (frame included) on a 4K monitor whose taskbar leaves 2088 rows.
+        var outer = new PlaneRect { Left = 26, Top = 26, Right = 3866, Bottom = 2186 };
+        var client = new PlaneRect { Right = 3814, Bottom = 2113 };
+        var work = new PlaneRect { Right = 3840, Bottom = 2088 };
+
+        var placed = GameWindowFit.Place(outer, client, work, 3840, 2160);
+
+        Assert.NotNull(placed);
+        var (x, y, width, height) = placed.Value;
+        Assert.True(width <= 3840 && height <= 2088);
+        Assert.Equal(16.0 / 9.0, (width - 26) / (double)(height - 47), 2);
+        Assert.InRange(3840 - (x + width) - x, -1, 1);
+        Assert.Null(GameWindowFit.Place(new PlaneRect { Right = 1000, Bottom = 600 }, client, work, 3840, 2160));
     }
 
     [Fact]
@@ -150,16 +206,19 @@ public sealed unsafe class D3D12XPresentTests
         return resource;
     }
 
-    private static nint CreateHiddenWindow()
+    private static nint CreateHiddenWindow(int width = 64, int height = 32)
     {
         fixed (char* className = "STATIC")
         {
-            nint window = CreateWindowExW(0, className, null, PopupStyle, 0, 0, 64, 32, 0, 0, 0, 0);
+            nint window = CreateWindowExW(0, className, null, PopupStyle, 0, 0, width, height, 0, 0, 0, 0);
             Assert.NotEqual(0, window);
 
             return window;
         }
     }
+
+    [DllImport("user32")]
+    private static extern int SetWindowPos(nint window, nint insertAfter, int x, int y, int width, int height, uint flags);
 
     [DllImport("user32")]
     private static extern nint CreateWindowExW(uint exStyle, char* className, char* title, uint style, int x, int y, int width, int height, nint parent, nint menu, nint instance, nint parameter);
