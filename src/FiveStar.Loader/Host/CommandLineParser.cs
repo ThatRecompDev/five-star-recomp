@@ -253,6 +253,22 @@ internal sealed class CommandLineParser
         return true;
     }
 
+    private bool SetCompileLimit(string option)
+    {
+        var value = double.Parse(Next(), CultureInfo.InvariantCulture);
+
+        if (option == "--max-driver-compiles")
+        {
+            _options.MaxDriverCompiles = (int)value;
+        }
+        else
+        {
+            _options.CompileCeilingBytes = (long)(value * BytesPerGigabyte);
+        }
+
+        return true;
+    }
+
     private bool SetShaderBackend()
     {
         var backend = Next();
@@ -486,6 +502,8 @@ internal sealed class CommandLineParser
                 _options.SectionHeapBudget = Gigabytes(Next());
 
                 return true;
+            case "--max-driver-compiles" or "--compile-ceiling":
+                return SetCompileLimit(option);
             default:
                 throw new CommandLineException($"unknown argument {option}");
         }

@@ -101,6 +101,12 @@ internal sealed record HostOptions
     /// <summary><c>--shader-backend dxc</c>: programs made on demand compile with dxc instead of the DXIL backend.</summary>
     public bool DxcBackend { get; set; }
 
+    /// <summary>The most driver compiles of 256 KB of DXIL or more at once (<c>--max-driver-compiles</c>).</summary>
+    public int MaxDriverCompiles { get; set; } = Shims.D3D12X.Pipelines.CompileBudget.DefaultMaxCompiles;
+
+    /// <summary>The private bytes driver compiles are kept under (<c>--compile-ceiling</c>, given in GB).</summary>
+    public long CompileCeilingBytes { get; set; } = Shims.D3D12X.Pipelines.CompileBudget.DefaultCeilingBytes;
+
     /// <summary>Threads that make programs on demand (<c>--shader-jobs</c>); null for the default.</summary>
     public int? ShaderJobs { get; set; }
 

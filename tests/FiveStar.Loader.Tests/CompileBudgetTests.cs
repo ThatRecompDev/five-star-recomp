@@ -27,4 +27,22 @@ public sealed class CompileBudgetTests
         Assert.False(CompileBudget.Room(mesh, 30UL * Gigabyte, 100UL * Gigabyte, 24 * Gigabyte));
         Assert.False(CompileBudget.Room(mesh, 30UL * Gigabyte, 16UL * Gigabyte, 0));
     }
+
+    [Fact]
+    public void The_loader_ceilings_bound_compiles_in_flight_and_private_bytes_but_never_stop_the_first()
+    {
+        long small = CompileBudget.Estimate(4096);
+        long ceiling = CompileBudget.DefaultCeilingBytes;
+        int most = CompileBudget.DefaultMaxCompiles;
+
+        // 20 GB private, two running that still need 4 GB: a third (2 GB) fits under 28 GB.
+        Assert.True(CompileBudget.UnderCeiling(small, 2, 20 * Gigabyte, 4 * Gigabyte, most, ceiling));
+
+        // Not past the most in flight, nor past the ceiling.
+        Assert.False(CompileBudget.UnderCeiling(small, most, 10 * Gigabyte, 0, most, ceiling));
+        Assert.False(CompileBudget.UnderCeiling(small, 2, 24 * Gigabyte, 4 * Gigabyte, most, ceiling));
+
+        // With none running one always starts, even a 12 GB mesh compile at 26 GB private.
+        Assert.True(CompileBudget.UnderCeiling(CompileBudget.Estimate(3L << 20), 0, 26 * Gigabyte, 0, most, ceiling));
+    }
 }
