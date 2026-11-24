@@ -159,6 +159,8 @@ internal sealed unsafe class SpareAllocators
             return 0;
         }
 
+        CommandObjectCounts.SpareMade();
+
         return allocator;
     }
 }

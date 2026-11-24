@@ -17,7 +17,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// the loader itself (<see cref="Configure"/>): at most <see cref="MaxCompiles"/> larger compiles at once, and none
 /// starts while the private bytes of the process and the compile host, the running ones' remaining need and its own
 /// estimate would pass <see cref="CeilingBytes"/>; one always may when none runs, so builds go on. Program work waits
-/// for the same ceiling (<see cref="RoomForPrograms"/>), in a boot and in the warm-up alike. A cold boot to 450 s reached 40 GB
+/// while the compile host is large (<see cref="RoomForPrograms"/>), in a boot and in the warm-up alike. A cold boot to 450 s reached 40 GB
 /// private, 8 GB of it in the arenas of the 7 compiles that started at the story load.
 /// </summary>
 internal static unsafe class CompileBudget
@@ -75,13 +75,18 @@ internal static unsafe class CompileBudget
     /// <summary>Private bytes of helper processes that count toward the ceiling: the compile host (<see cref="CompileHost"/>).</summary>
     public static Func<long> HelperPrivateBytes { get; set; } = static () => 0;
 
+    /// <summary>The compile host's private bytes above which program work runs one at a time.</summary>
+    public const long HostCeilingBytes = 8L << 30;
+
     /// <summary>
     /// Whether program work may start beside <paramref name="running"/> others (<see cref="ProgramWorkers"/>, the
-    /// warm-up's programs too): the loader's and its helpers' private bytes are under the ceiling, or none runs.
+    /// warm-up's programs too): the compile host, where the programs' memory goes, is under
+    /// <see cref="HostCeilingBytes"/>, or none runs. The loader's own private bytes do not hold programs back: they are
+    /// the driver's and the game's, and a cold boot passes the compile ceiling while stand-ins still wait for programs.
     /// </summary>
     public static bool RoomForPrograms(int running)
     {
-        return ProgramRoom(running, PrivateBytes() + HelperPrivateBytes(), CeilingBytes);
+        return ProgramRoom(running, HelperPrivateBytes(), HostCeilingBytes);
     }
 
     /// <summary>The decision of <see cref="RoomForPrograms"/>.</summary>

@@ -115,8 +115,14 @@ internal static unsafe class XboxDeviceCreation
         {
             nint inner = self->Inner;
             var create = (delegate* unmanaged<nint, int, Guid*, nint*, int>)ComObject.Slot(inner, CreateCommandAllocatorSlot);
+            int hr = create(inner, type, iid, allocator);
 
-            return Objects.WrapResult(create(inner, type, iid, allocator), XboxInterfaceKind.CommandAllocator, allocator);
+            if (!HResult.Failed(hr))
+            {
+                CommandObjectCounts.AllocatorMade();
+            }
+
+            return Objects.WrapResult(hr, XboxInterfaceKind.CommandAllocator, allocator);
         }
         catch (Exception exception)
         {
