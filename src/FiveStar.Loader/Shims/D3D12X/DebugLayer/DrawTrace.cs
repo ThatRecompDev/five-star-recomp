@@ -19,7 +19,8 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// fixed-function state), render targets, viewport, scissor and depth view, the vertex buffers with their first
 /// vertices, the graphics user SGPRs and the first records of every descriptor table with the view each names (and a
 /// constant buffer's first values). After each such draw the first render target is copied inside the game's list
-/// (<see cref="DrawProbes"/>) and reported <see cref="ReportDelay"/> presents later. Debug only: it allocates and locks.
+/// (<see cref="DrawProbes"/>) and reported <see cref="ReportDelay"/> presents later. With <see cref="PipelineFilter"/>,
+/// the matching draws of the frame after a captured present are logged too (no probes). Debug only: it allocates and locks.
 /// </summary>
 internal sealed unsafe class DrawTrace
 {
@@ -30,6 +31,9 @@ internal sealed unsafe class DrawTrace
     private const uint VerticesShown = 3;
     private const int UserDwordsShown = 32;
     private const int ConstantsShown = 16;
+
+    /// <summary>Draws matching <see cref="PipelineFilter"/> logged per traced frame.</summary>
+    private const int FilterDraws = 64;
 
     /// <summary>Floats of a D3D12_VIEWPORT and ints of a D3D12_RECT (d3d12.h).</summary>
     private const int ViewportFloats = 6;
@@ -57,6 +61,8 @@ internal sealed unsafe class DrawTrace
     private long _windowEnd = FirstDraws;
     private long _reportAt;
     private long _lastPresent;
+    private bool _filterOpen;
+    private int _filtered;
 
     public DrawTrace(FrameCapture capture, GameMemorySource memory, XboxDeviceFactory d3d12, LoaderLog log)
     {
@@ -67,6 +73,9 @@ internal sealed unsafe class DrawTrace
         _d3d12 = d3d12;
         _log = log;
     }
+
+    /// <summary>Also logs, in the frame after each captured present, the draws whose pipeline name holds this text.</summary>
+    public string? PipelineFilter { get; init; }
 
     /// <summary>A view was written at desktop CPU handle <paramref name="handle"/>.</summary>
     public void View(nint handle, string text)
@@ -170,14 +179,14 @@ internal sealed unsafe class DrawTrace
     public void Draw(XboxObject* list, uint vertices, uint instances)
     {
         long draw = Interlocked.Increment(ref _draws);
+        var rectangles = RectangleListState.Of(list);
 
-        if (draw > Volatile.Read(ref _windowEnd))
+        if (draw > Volatile.Read(ref _windowEnd) && !Matches(rectangles->Pipeline))
         {
             return;
         }
 
         var state = List(list);
-        var rectangles = RectangleListState.Of(list);
         string pipeline = _d3d12.Rectangles.Pipelines?.Describe(rectangles->Pipeline) ?? "unknown";
         var text = new StringBuilder($"  [draws] draw {draw}: list 0x{(nint)list:x}, {vertices} vertices x {instances}");
         text.Append($"\n      pipeline 0x{rectangles->Pipeline:x} topology {rectangles->Topology} variant {rectangles->VariantBound}: {pipeline}");
@@ -231,7 +240,11 @@ internal sealed unsafe class DrawTrace
     /// <summary>Called after every present; true when probes are due (the caller then waits for the GPU and calls <see cref="Report"/>).</summary>
     public bool ReportDue(long present)
     {
-        if (_capture.Wants(present))
+        bool wanted = _capture.Wants(present);
+        Volatile.Write(ref _filterOpen, wanted);
+        Interlocked.Exchange(ref _filtered, 0);
+
+        if (wanted)
         {
             Volatile.Write(ref _windowEnd, Interlocked.Read(ref _draws) + WindowDraws);
             _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"));
@@ -247,6 +260,22 @@ internal sealed unsafe class DrawTrace
     {
         _probes.Report(Resets);
         Volatile.Write(ref _reportAt, 0);
+    }
+
+    /// <summary>
+    /// In the frame after a captured present, true for at most <see cref="FilterDraws"/> draws whose pipeline name holds
+    /// <see cref="PipelineFilter"/> (<c>--d3d12-trace-pipeline</c>): the frame's UI draws come long after its first.
+    /// </summary>
+    private bool Matches(nint pipeline)
+    {
+        if (PipelineFilter is null || !Volatile.Read(ref _filterOpen) || Volatile.Read(ref _filtered) >= FilterDraws)
+        {
+            return false;
+        }
+
+        string name = _d3d12.Rectangles.Pipelines?.Describe(pipeline) ?? string.Empty;
+
+        return name.Contains(PipelineFilter, StringComparison.Ordinal) && Interlocked.Increment(ref _filtered) <= FilterDraws;
     }
 
     private long Resets(nint list)

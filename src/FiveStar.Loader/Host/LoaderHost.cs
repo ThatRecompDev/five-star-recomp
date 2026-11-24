@@ -151,7 +151,7 @@ internal sealed class LoaderHost
         if (_options.CaptureDirectory is not null || _options.D3D12TraceDraws)
         {
             capture = new FrameCapture(_options.CaptureDirectory, _options.CapturePresents, _log);
-            _runtime.D3D12X.EnableCapture(capture, _options.D3D12TraceDraws);
+            _runtime.D3D12X.EnableCapture(capture, _options.D3D12TraceDraws, _options.D3D12TracePipeline);
         }
 
         if (_options.InputScript is not null)

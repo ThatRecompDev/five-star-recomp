@@ -176,6 +176,9 @@ internal sealed record HostOptions
     /// <summary>What draws bind and what their targets hold, in the log (<c>--d3d12-trace-draws</c>).</summary>
     public bool D3D12TraceDraws { get; set; }
 
+    /// <summary>Pipelines whose draws the trace also logs after each captured present (<c>--d3d12-trace-pipeline</c>).</summary>
+    public string? D3D12TracePipeline { get; set; }
+
     /// <summary>Where captured presents go as PNG files (<c>--capture-dir</c>); null captures nothing to disk.</summary>
     public string? CaptureDirectory { get; set; }
 
