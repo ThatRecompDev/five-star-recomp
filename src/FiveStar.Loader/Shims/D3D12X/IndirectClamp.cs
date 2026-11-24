@@ -4,6 +4,7 @@
 using System.Text;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.Binding;
+using FiveStar.Loader.Shims.D3D12X.Present;
 using FiveStar.Loader.Shims.D3D12X.States;
 
 namespace FiveStar.Loader.Shims.D3D12X;
@@ -16,7 +17,10 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// buffer (<see cref="ListIndirectScratch"/>) and clamps them, and the list executes the copy; the game's buffers are
 /// not touched. Bounds: 2^24 vertices and 2^26 vertex instances per draw, 65,535 groups per dimension and 2^20 per
 /// dispatch (more runs nothing), mesh dispatches one-dimensional with a first dimension over 65,535 run empty (a record
-/// the game did not fill). The same mechanism as victory-gta6's argument clamp (`indirect.rs`); no per-list budget.
+/// the game did not fill). A recording also has a budget of 2^27 work items (a vertex instance 1, a compute group
+/// 64, a mesh group 128): records past it run empty. Each record alone stays within the bounds, but a list of
+/// thousands of stale records (culling passes skipped for stand-ins) passed the driver's 5 s timeout (TDR at about
+/// 300 s into a boot). The same mechanism and budget as victory-gta6's argument clamp (`indirect.rs`, `bound_ahead`).
 /// </summary>
 internal static unsafe class IndirectClamp
 {
@@ -31,7 +35,9 @@ internal static unsafe class IndirectClamp
     private const uint ArgumentsParameter = 1;
     private const uint CountParameter = 2;
     private const uint ClampedParameter = 3;
+    private const uint BudgetParameter = 4;
     private const uint Constants = 4;
+    private const uint ZeroKind = 255;
     private const uint GroupThreads = 64;
 
     /// <summary>ID3D12Device::CreateComputePipelineState and CreateRootSignature (d3d12.h).</summary>
@@ -54,19 +60,41 @@ internal static unsafe class IndirectClamp
     /// <summary>D3D12_HEAP_TYPE_DEFAULT.</summary>
     private const int DefaultHeap = 1;
 
+    // Work is counted as victory-gta6 does: a vertex instance is 1, a compute group 64, a mesh group 128. A record
+    // whose work does not fit what is left of the list's budget runs empty and charges nothing; the charge is a
+    // compare-exchange so the count never wraps. Kind 255 zeroes the list's counter.
     private const string Source = """
-        #define RS "RootConstants(num32BitConstants=4, b0), SRV(t0), SRV(t1), UAV(u0)"
+        #define RS "RootConstants(num32BitConstants=4, b0), SRV(t0), SRV(t1), UAV(u0), UAV(u1)"
         cbuffer Clamp : register(b0) { uint kind; uint stride; uint records; uint counted; };
         ByteAddressBuffer arguments : register(t0);
         ByteAddressBuffer countBuffer : register(t1);
         RWByteAddressBuffer clamped : register(u0);
+        RWByteAddressBuffer budget : register(u1);
         static const uint MaxVertices = 1u << 24;
         static const uint MaxVertexInstances = 1u << 26;
         static const uint MaxGroupsPerDimension = 65535u;
         static const uint MaxGroups = 1u << 20;
+        static const uint ListBudget = 1u << 27;
+        static const uint ZeroKind = 255u;
+        static const uint Tries = 64u;
+        bool Charge(uint work) {
+            if (work == 0u) return true;
+            if (work > ListBudget) return false;
+            uint seen;
+            budget.InterlockedAdd(0, 0u, seen);
+            [loop] for (uint i = 0; i < Tries; i++) {
+                if (seen > ListBudget - work) return false;
+                uint original;
+                budget.InterlockedCompareExchange(0, seen, seen + work, original);
+                if (original == seen) return true;
+                seen = original;
+            }
+            return false;
+        }
         [RootSignature(RS)]
         [numthreads(64, 1, 1)]
         void main(uint3 id : SV_DispatchThreadID) {
+            if (kind == ZeroKind) { if (id.x == 0u) budget.Store(0, 0u); return; }
             if (id.x >= records) return;
             uint at = id.x * stride;
             for (uint word = 0; word < stride; word += 4) clamped.Store(at + word, arguments.Load(at + word));
@@ -76,15 +104,20 @@ internal static unsafe class IndirectClamp
             if (kind <= 1u) {
                 uint2 asked = arguments.Load2(at);
                 uint vertices = min(asked.x, MaxVertices);
-                clamped.Store2(at, uint2(vertices, min(asked.y, MaxVertexInstances / max(vertices, 1u))));
+                uint instances = min(asked.y, MaxVertexInstances / max(vertices, 1u));
+                if (!Charge(vertices * instances)) instances = 0u;
+                clamped.Store2(at, uint2(vertices, instances));
             } else if (kind == 2u) {
                 uint3 groups = min(arguments.Load3(at), uint3(MaxGroupsPerDimension, MaxGroupsPerDimension, MaxGroupsPerDimension));
                 if (groups.z != 0u && groups.x * groups.y > MaxGroups / groups.z) groups = uint3(0u, 0u, 0u);
+                if (!Charge(groups.x * groups.y * groups.z * 64u)) groups = uint3(0u, 0u, 0u);
                 clamped.Store3(at, groups);
             } else {
                 uint3 groups = arguments.Load3(at);
                 if (groups.x > MaxGroupsPerDimension) groups = uint3(0u, 0u, 0u);
-                clamped.Store3(at, uint3(groups.x, min(groups.y, 1u), min(groups.z, 1u)));
+                groups = uint3(groups.x, min(groups.y, 1u), min(groups.z, 1u));
+                if (!Charge(groups.x * groups.y * groups.z * 128u)) groups = uint3(0u, 0u, 0u);
+                clamped.Store3(at, groups);
             }
         }
         """;
@@ -122,11 +155,22 @@ internal static unsafe class IndirectClamp
 
         ulong bytes = (ulong)stride * maxCount;
 
-        if (bytes > uint.MaxValue || !Take(self, bytes, out scratch, out scratchOffset))
+        // Each piece leaves room in front for the list's budget counter, used when the list has none in this buffer.
+        if (bytes > uint.MaxValue || !Take(self, bytes + Alignment, out scratch, out scratchOffset))
         {
             return false;
         }
 
+        var state = ListIndirectScratch.Of(self);
+        bool zero = state->Budget == 0;
+
+        if (zero)
+        {
+            state->Budget = scratchOffset + 1;
+        }
+
+        ulong budget = DesktopCalls.GpuAddress(scratch) + state->Budget - 1;
+        scratchOffset += Alignment;
         ulong destination = DesktopCalls.GpuAddress(scratch) + scratchOffset;
         uint counted = 0;
         ulong countAddress = DesktopCalls.GpuAddress(arguments) + argumentOffset;
@@ -141,17 +185,34 @@ internal static unsafe class IndirectClamp
         ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetRootSignatureSlot))(list, _root);
         ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetPipelineSlot))(list, _pipeline);
 
-        uint* constants = stackalloc uint[] { (uint)kind, stride, maxCount, counted };
-        ((delegate* unmanaged<nint, uint, uint, uint*, uint, void>)ComObject.Slot(list, SetConstantsSlot))(list, ConstantsParameter, Constants, constants, 0);
         ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetShaderResourceSlot))(list, ArgumentsParameter, DesktopCalls.GpuAddress(arguments) + argumentOffset);
         ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetShaderResourceSlot))(list, CountParameter, countAddress);
         ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetUnorderedAccessSlot))(list, ClampedParameter, destination);
+        ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetUnorderedAccessSlot))(list, BudgetParameter, budget);
 
+        if (zero)
+        {
+            ZeroBudget(list, scratch);
+        }
+
+        uint* constants = stackalloc uint[] { (uint)kind, stride, maxCount, counted };
+        ((delegate* unmanaged<nint, uint, uint, uint*, uint, void>)ComObject.Slot(list, SetConstantsSlot))(list, ConstantsParameter, Constants, constants, 0);
         ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(list, DispatchSlot))(list, (maxCount + GroupThreads - 1) / GroupThreads, 1, 1);
         BarrierWriter.Transition(list, scratch, ResourceStates.UnorderedAccess, IndirectArgumentState);
         Interlocked.Increment(ref _clamped);
 
         return true;
+    }
+
+    /// <summary>The list's first clamp in this buffer zeroes the budget counter, then waits for the store (UAV barrier).</summary>
+    private static void ZeroBudget(nint list, nint scratch)
+    {
+        uint* zero = stackalloc uint[] { ZeroKind, 0, 0, 0 };
+        ((delegate* unmanaged<nint, uint, uint, uint*, uint, void>)ComObject.Slot(list, SetConstantsSlot))(list, ConstantsParameter, Constants, zero, 0);
+        ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(list, DispatchSlot))(list, 1, 1, 1);
+
+        var barrier = new TransitionBarrier { Type = TransitionBarrier.UavType, Resource = scratch };
+        BarrierWriter.Write(list, &barrier);
     }
 
     /// <summary>After the ExecuteIndirect that read the scratch: back to COMMON, where the next clamp expects it.</summary>
@@ -188,9 +249,10 @@ internal static unsafe class IndirectClamp
                 return false;
             }
 
-            // The outgrown buffer stays alive: commands already recorded may read it.
+            // The outgrown buffer stays alive: commands already recorded may read it. The budget starts over in the new one.
             scratch->Buffer = grown;
             scratch->Bytes = size;
+            scratch->Budget = 0;
             offset = 0;
         }
 

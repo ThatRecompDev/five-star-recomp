@@ -51,6 +51,45 @@ public sealed unsafe class D3D12XIndirectClampTests
         Assert.Equal([65535u, 2u, 1u], new Span<uint>(clamped + 6, 3).ToArray());
     }
 
+    [Fact]
+    public void Records_past_the_list_budget_run_empty()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        var objects = ShimContext.Runtime.D3D12X.Objects;
+
+        var argument = new IndirectArgument { Type = IndirectArgument.DispatchType };
+        var description = new CommandSignatureDescription { ByteStride = Stride, ArgumentCount = 1, Arguments = &argument };
+        nint signature = 0x5161;
+        CommandSignatures.Created(signature, &description, 0);
+
+        // Four dispatches of 2^20 groups (2^26 work items each): the 2^27 budget of a recording holds two of them.
+        const uint many = 4;
+        nint upload = device.Buffer(XboxDevice.UploadHeap, 256, XboxDevice.GenericRead);
+        uint* args = Map(upload);
+
+        for (int i = 0; i < many; i++)
+        {
+            args[i * 3] = 1024;
+            args[(i * 3) + 1] = 1024;
+            args[(i * 3) + 2] = 1;
+        }
+
+        nint list = device.DirectList();
+        Assert.True(IndirectClamp.Record((XboxObject*)list, signature, many, objects.Unwrap(upload), 0, 0, 0, out nint scratch, out ulong offset));
+        IndirectClamp.Done((XboxObject*)list, scratch);
+
+        nint readback = device.Buffer(XboxDevice.ReadbackHeap, 256, XboxDevice.CopyDest);
+        nint inner = ((XboxObject*)list)->Inner;
+        ((delegate* unmanaged<nint, nint, ulong, nint, ulong, ulong, void>)XboxDevice.Vtable(inner)[CopyBufferRegionSlot])(inner, objects.Unwrap(readback), 0, scratch, offset, Stride * many);
+        Assert.Equal(0, ((delegate* unmanaged<nint, int>)XboxDevice.Vtable(list)[CloseSlot])(list));
+        device.Run(list);
+
+        uint* clamped = Map(readback);
+        int ran = Enumerable.Range(0, (int)many).Count(i => clamped[i * 3] != 0);
+        Assert.Equal(2, ran);
+    }
+
     private static uint* Map(nint resource)
     {
         void* data = null;

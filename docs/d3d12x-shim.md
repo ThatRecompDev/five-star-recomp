@@ -388,7 +388,13 @@ dispatch (more runs nothing), mesh dispatches one-dimensional, a first dimension
 game did not fill). A skipped or mistranslated argument pass leaves garbage there, and a dispatch of 0xFFFFFFFF groups
 runs until the driver resets the device. The game's buffers are not touched; the list's compute root signature and
 pipeline are set again after the clamp. Records past a count buffer's count are copied unclamped and never run.
-victory-gta6 has the same clamp with a per-list budget; ours has none.A compute list names only compute states (VERTEX_AND_CONSTANT_BUFFER, UNORDERED_ACCESS, NON_PIXEL_SHADER_RESOURCE,
+A recording also has a budget of 2^27 work items, as victory-gta6's clamp has (a vertex instance counts 1, a compute
+group 64, a mesh group 128): a record that does not fit what is left runs empty and charges nothing (a counter in
+the scratch buffer, zeroed by the recording's first clamp, charged by compare-exchange). Each record alone stayed in
+bounds, but the opening cutscene lost the device at about 300 s (5 s without progress on every queue) once linked
+G-buffer pipelines drew from culling output that skipped passes had left stale.
+
+A compute list names only compute states (VERTEX_AND_CONSTANT_BUFFER, UNORDERED_ACCESS, NON_PIXEL_SHADER_RESOURCE,
 INDIRECT_ARGUMENT, COPY_DEST, COPY_SOURCE, acceleration structure) and a copy list only the copy ones
 (`ResourceStates.Legal`): any other bit fails the desktop Close. Render targets rest in RENDER_TARGET, so a compute
 list's transition of one (or to PIXEL_SHADER_RESOURCE) is left out and the texture keeps its state on that list
