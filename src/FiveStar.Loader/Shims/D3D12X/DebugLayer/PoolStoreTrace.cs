@@ -36,6 +36,9 @@ internal static unsafe class PoolStoreTrace
 
     /// <summary>Loop numbers a program can have, and the sizes an s_buffer_load reads (one to sixteen dwords).</summary>
     private const uint MaxGuard = 4096;
+
+    /// <summary>The largest loop cap a stage has (LoopGuard).</summary>
+    private const uint MaxCap = 1u << 16;
     private const uint MinConstantBytes = 4;
     private const uint MaxConstantBytes = 64;
     private const int HighShift = 32;
@@ -232,8 +235,8 @@ internal static unsafe class PoolStoreTrace
     }
 
     /// <summary>
-    /// Whether an entry has the shape its kind's writer gives it (rdna_prelude trace_entry): a guard has no address or
-    /// value and a loop number below <see cref="MaxGuard"/>, a constant load reads 4 to 64 bytes. The ring lies in the
+    /// Whether an entry has the shape its kind's writer gives it (rdna_prelude trace_entry): a guard has no address, a
+    /// loop number below <see cref="MaxGuard"/> and a cap of at most <see cref="MaxCap"/>, a constant load reads 4 to 64 bytes. The ring lies in the
     /// GPU-memory window, where programs storing through 32-bit pointers also write: such words are skipped, not read
     /// as loops in the millions or loads of 500 MB.
     /// </summary>
@@ -244,7 +247,7 @@ internal static unsafe class PoolStoreTrace
 
         if (kind == GuardKind)
         {
-            return entry[LowWord] == 0 && entry[ValueWord] == 0 && field < MaxGuard;
+            return entry[LowWord] == 0 && field < MaxGuard && entry[ValueWord] <= MaxCap;
         }
 
         if (kind == ConstantKind)
@@ -266,7 +269,10 @@ internal static unsafe class PoolStoreTrace
         }
     }
 
-    /// <summary>A loop that ran into the loop guard (65,536 iterations): logged on the first hit per program, counted after.</summary>
+    /// <summary>
+    /// A loop that spent its invocation's loop cap (the stage's, in the value word; LoopGuard): logged on the first hit
+    /// per program, counted after.
+    /// </summary>
     private static void LogGuard(LoaderLog log, uint* entry)
     {
         long hits = Guards.AddOrUpdate(entry[0], 1, static (_, seen) => seen + 1);
@@ -274,7 +280,7 @@ internal static unsafe class PoolStoreTrace
         if (hits == 1 || hits == GuardHitsLoggedAgain)
         {
             string program = Programs.GetValueOrDefault(entry[0], $"program {entry[0]}");
-            log.Warn($"[store trace] loop {entry[HighWord] & ~KindMask} reached the loop guard in {program} ({hits} hits)");
+            log.Warn($"[store trace] loop {entry[HighWord] & ~KindMask} reached the loop cap of {entry[ValueWord]} iterations in {program} ({hits} hits)");
         }
     }
 

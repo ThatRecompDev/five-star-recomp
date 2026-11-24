@@ -4,20 +4,37 @@
 namespace FiveStar.Shaders.Translation.Core;
 
 /// <summary>
-/// The bound on every translated loop. A console program's loops end on the data the console gives them; on the PC a
-/// wrong input (a NaN or huge float step count, a garbage loop bound) can keep one going until the driver removes the
-/// device (docs/shader-translation.md#loop-guard). A structured loop leaves through its first exit after
-/// <see cref="Iterations"/> iterations, the block dispatch after <see cref="DispatchSteps"/> blocks.
+/// The bound on translated loops. A console program's loops end on the data the console gives them; on the PC a wrong
+/// input (a NaN or huge float step count, a garbage loop bound) can keep one going until the driver removes the device
+/// (docs/shader-translation.md#loop-guard). The cap counts the iterations of every structured loop of one invocation
+/// together, so nested loops cannot multiply it; once spent, each loop leaves through its first exit. The block dispatch
+/// stops after <see cref="DispatchSteps"/> blocks.
 /// </summary>
 public static class LoopGuard
 {
-    public const long Iterations = 1 << 16;
-
     public const long DispatchSteps = 1 << 24;
 
-    /// <summary><see cref="Iterations"/> as an HLSL literal.</summary>
-    public static string Hex => Hlsl.HexUint(Iterations);
+    /// <summary>Pixel, vertex, geometry and mesh invocations run by the million a draw; a compute thread is one of fewer.</summary>
+    private const long GraphicsIterations = 1 << 12;
+    private const long ComputeIterations = 1 << 16;
 
     /// <summary><see cref="DispatchSteps"/> as an HLSL literal.</summary>
     public static string DispatchHex => Hlsl.HexUint(DispatchSteps);
+
+    /// <summary>Loop iterations one invocation of a <paramref name="stage"/> program may run.</summary>
+    public static long Iterations(ShaderStage stage)
+    {
+        if (stage == ShaderStage.Compute)
+        {
+            return ComputeIterations;
+        }
+
+        return GraphicsIterations;
+    }
+
+    /// <summary><see cref="Iterations"/> as an HLSL literal.</summary>
+    public static string Hex(ShaderStage stage)
+    {
+        return Hlsl.HexUint(Iterations(stage));
+    }
 }

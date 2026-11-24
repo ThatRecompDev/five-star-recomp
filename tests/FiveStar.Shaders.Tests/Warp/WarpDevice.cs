@@ -10,12 +10,16 @@ namespace FiveStar.Shaders.Tests.Warp;
 
 /// <summary>
 /// A D3D12 device on the WARP software adapter with one direct queue. A shader that removes the device (WARP detects
-/// some descriptor mismatches) only fails its own run: the next run recreates the device.
+/// some descriptor mismatches) only fails its own run: the next run recreates the device. With FIVESTAR_TEST_ADAPTER
+/// set to <c>hardware</c> the device is made on the first hardware adapter instead, to run the same cases on a real GPU.
 /// </summary>
 public sealed class WarpDevice : IDisposable
 {
     // Large real programs (differential tests) run for minutes on WARP.
     private static readonly TimeSpan GpuTimeout = TimeSpan.FromMinutes(5);
+
+    private const string AdapterVariable = "FIVESTAR_TEST_ADAPTER";
+    private const string Hardware = "hardware";
 
     private ID3D12Device _device = null!;
     private ID3D12CommandQueue _queue = null!;
@@ -74,13 +78,25 @@ public sealed class WarpDevice : IDisposable
     private void Create()
     {
         using var factory = DXGI.CreateDXGIFactory2<IDXGIFactory4>(false);
-        using var adapter = factory.EnumWarpAdapter<IDXGIAdapter>();
+        using var adapter = Adapter(factory);
         D3D12.D3D12CreateDevice(adapter, FeatureLevel.Level_11_0, out ID3D12Device? device).CheckError();
 
         _device = device!;
         _queue = _device.CreateCommandQueue(new CommandQueueDescription(CommandListType.Direct));
         _fence = _device.CreateFence(0);
         _fenceValue = 0;
+    }
+
+    private static IDXGIAdapter Adapter(IDXGIFactory4 factory)
+    {
+        if (!string.Equals(Environment.GetEnvironmentVariable(AdapterVariable), Hardware, StringComparison.OrdinalIgnoreCase))
+        {
+            return factory.EnumWarpAdapter<IDXGIAdapter>();
+        }
+
+        factory.EnumAdapters1(0, out IDXGIAdapter1? adapter).CheckError();
+
+        return adapter!;
     }
 
     private void Release()

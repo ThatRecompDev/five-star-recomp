@@ -266,9 +266,17 @@ internal sealed unsafe class XboxObjects
             vtable[slot] = _stubs.Create(D3D12XLayout.Module, $"{type.Name}.X::Slot{slot}", HResult.NotImplemented, true, false);
         }
 
+        // Command lists count their forwarded calls: a memory wait after any command splits the list (ListSplits).
+        int counter = 0;
+
+        if (type.Kind == XboxInterfaceKind.CommandList)
+        {
+            counter = ListSegments.CommandsOffset;
+        }
+
         foreach (var forwarded in type.Forwards)
         {
-            vtable[forwarded.Slot] = ForwardingThunk.Emit(_heap, forwarded, (nint)_vtables, _vtableBytes);
+            vtable[forwarded.Slot] = ForwardingThunk.Emit(_heap, forwarded, (nint)_vtables, _vtableBytes, counter);
         }
 
         delegate* unmanaged<XboxObject*, Guid*, nint*, int> queryInterface = &XboxObjectMethods.QueryInterface;

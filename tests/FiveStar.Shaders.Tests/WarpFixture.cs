@@ -21,6 +21,7 @@ public sealed class WarpFixture : IDisposable
     private readonly Lazy<ShaderWorkbench> _workbench;
     private readonly Lazy<WarpDevice> _device;
     private readonly Lazy<PixelContext[]> _pixelLanes;
+    private readonly Lazy<PixelContext[]> _halfCoverageLanes;
     private readonly Lazy<int> _computeWaveSize;
     private readonly Dictionary<string, byte[]> _helpers = [];
 
@@ -29,7 +30,8 @@ public sealed class WarpFixture : IDisposable
         _folder = new Lazy<string>(() => Directory.CreateTempSubdirectory("fivestar-warp-").FullName);
         _workbench = new Lazy<ShaderWorkbench>(() => new ShaderWorkbench(ShaderToolchain.Find(), _folder.Value));
         _device = new Lazy<WarpDevice>(() => new WarpDevice());
-        _pixelLanes = new Lazy<PixelContext[]>(ProbePixels);
+        _pixelLanes = new Lazy<PixelContext[]>(() => ProbePixels("fullscreen_vs.hlsl"));
+        _halfCoverageLanes = new Lazy<PixelContext[]>(() => ProbePixels("half_vs.hlsl"));
         _computeWaveSize = new Lazy<int>(ProbeComputeWave);
     }
 
@@ -40,8 +42,11 @@ public sealed class WarpFixture : IDisposable
 
     public WarpRunner Runner => new(_device.Value);
 
-    /// <summary>Per pixel of an 8x8 fullscreen draw (row-major): its PC lane, quad slot and wave size.</summary>
+    /// <summary>Per pixel of an 8x8 fullscreen draw (row-major): its PC lane, quad slot, wave size and wave.</summary>
     public IReadOnlyList<PixelContext> PixelLanes => _pixelLanes.Value;
+
+    /// <summary>As <see cref="PixelLanes"/> for the half-coverage draw (x + y &lt;= 6); uncovered pixels have no wave.</summary>
+    public IReadOnlyList<PixelContext> HalfCoverageLanes => _halfCoverageLanes.Value;
 
     /// <summary>The PC compute wave size (WARP: 4 lanes).</summary>
     public int ComputeWaveSize => _computeWaveSize.Value;
@@ -71,24 +76,44 @@ public sealed class WarpFixture : IDisposable
         }
     }
 
-    private PixelContext[] ProbePixels()
+    private PixelContext[] ProbePixels(string vertexShader)
     {
-        var vertex = Helper("fullscreen_vs.hlsl", "vs");
+        var vertex = Helper(vertexShader, "vs");
         var pixel = Helper("probe_ps.hlsl", "ps");
         var size = PixelCase.Size;
         var result = Runner.Graphics(new GraphicsJob(vertex, pixel, Framebuffer.Fullscreen(1, size, size, isFloat: false), new Bindings()));
-        var lanes = new PixelContext[size * size];
+        var words = Enumerable.Range(0, size * size).Select(index => result.Pixel(0, index % size, index / size)).ToArray();
+        var waves = new Dictionary<uint, (int X, int Y)?[]>();
 
-        for (var y = 0; y < size; y++)
+        for (var index = 0; index < words.Length; index++)
         {
-            for (var x = 0; x < size; x++)
+            if (words[index][1] == Framebuffer.ClearUint)
             {
-                var words = result.Pixel(0, x, y);
-                lanes[(y * size) + x] = new PixelContext(x, y, (int)words[0], (int)words[2], (int)words[1]);
+                continue;
             }
+
+            if (!waves.TryGetValue(words[index][3], out var wave))
+            {
+                wave = new (int X, int Y)?[words[index][1]];
+                waves[words[index][3]] = wave;
+            }
+
+            wave[words[index][0]] = (index % size, index / size);
         }
 
-        return lanes;
+        return [.. Enumerable.Range(0, words.Length).Select(index => Context(index % size, index / size, words[index], waves))];
+    }
+
+    private static PixelContext Context(int x, int y, uint[] words, Dictionary<uint, (int X, int Y)?[]> waves)
+    {
+        var context = new PixelContext(x, y, (int)words[0], (int)words[2], (int)words[1]);
+
+        if (waves.TryGetValue(words[3], out var wave))
+        {
+            context = context with { Wave = wave };
+        }
+
+        return context;
     }
 
     private int ProbeComputeWave()

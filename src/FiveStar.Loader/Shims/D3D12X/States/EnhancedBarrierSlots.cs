@@ -59,6 +59,8 @@ internal static unsafe class EnhancedBarrierSlots
     [UnmanagedCallersOnly]
     public static void Barrier(XboxObject* self, uint count, byte* groups)
     {
+        ListSegments.Of(self)->Commands++;
+
         if (groups == null || count == 0)
         {
             return;

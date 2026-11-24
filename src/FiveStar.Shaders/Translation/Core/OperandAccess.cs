@@ -99,10 +99,17 @@ internal sealed partial class OperandAccess
         return $"asint({Read(operand, component)})";
     }
 
-    /// <summary>One f16 half of an operand as float, with neg/abs.</summary>
+    /// <summary>One f16 half of an operand as float, with neg/abs; an inline float constant is its f16 value, in the low half.</summary>
     public string ReadHalf(Operand operand, bool high)
     {
         var value = Read(operand);
+        var constant = OperandParser.HalfConstant(operand);
+
+        if (constant is not null)
+        {
+            value = Hlsl.HexUint(constant.Value);
+        }
+
         var half = high ? $"f16tof32({value} >> 16)" : $"f16tof32({value})";
 
         return ApplyModifiers(operand, half);
