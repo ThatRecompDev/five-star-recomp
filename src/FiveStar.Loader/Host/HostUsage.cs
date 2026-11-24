@@ -68,6 +68,7 @@ internal static class HostUsage
           --d3d12-trace-queues   log the first queue submissions, signals and waits (cross-queue protocol)
           --d3d12-breadcrumbs    a GPU marker after every draw and dispatch: a stalled queue names the one it hangs in
           --watch-transient      check the game's transient-memory pool and log the first corrupted node
+          --watch-pool-pages     check the game's small-block pool pages for headers its allocator did not write
           --skip-compute-chains  skip the rest of a command list's dispatches after one skipped for a stand-in
           --empty-indirect-after-skip  a command list's ExecuteIndirects after a compute dispatch skipped for a stand-in run nothing
           --retire-waits-all-queues  a submission holding the game's retire write waits for every other queue

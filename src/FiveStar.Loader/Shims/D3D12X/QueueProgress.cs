@@ -131,6 +131,77 @@ internal static unsafe class QueueProgress
         }
     }
 
+    /// <summary>Every followed queue's completed shim-fence value, by queue number - 1.</summary>
+    public static ulong[] Completed()
+    {
+        int count = Volatile.Read(ref _count);
+        var values = new ulong[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            var queue = Queues[i];
+            nint fence = 0;
+
+            if (queue is not null)
+            {
+                fence = Volatile.Read(ref ((XboxQueueObject*)queue.Wrapper)->Fence);
+            }
+
+            if (fence != 0)
+            {
+                values[i] = Completed(fence);
+            }
+        }
+
+        return values;
+    }
+
+    /// <summary>
+    /// Appends, per queue, the executions retired after <paramref name="since"/> (<see cref="Completed()"/> earlier;
+    /// missing queues from 0), at most <see cref="Printed"/> each, newest first, with their breadcrumbs when on.
+    /// </summary>
+    public static void DescribeSince(StringBuilder text, ulong[] since)
+    {
+        long now = Stopwatch.GetTimestamp();
+        var completed = Completed();
+
+        for (int q = 0; q < completed.Length; q++)
+        {
+            var queue = Queues[q];
+            ulong from = q < since.Length ? since[q] : 0;
+
+            if (queue is null || completed[q] <= from)
+            {
+                continue;
+            }
+
+            text.Append(CultureInfo.InvariantCulture, $"\n      queue #{queue.Number}: executions {from + 1} to {completed[q]}");
+            AppendRetired(text, queue, from, completed[q], now);
+        }
+    }
+
+    private static void AppendRetired(StringBuilder text, Queue queue, ulong from, ulong to, long now)
+    {
+        var wrapper = (XboxQueueObject*)queue.Wrapper;
+        long next = Volatile.Read(ref queue.Next);
+        long first = Math.Max(0, next - History);
+        int shown = 0;
+
+        for (long i = next - 1; i >= first && shown < Printed; i--)
+        {
+            var entry = queue.Events[i % History];
+
+            if (entry.Kind != QueueEventKind.Execute || entry.Value <= from || entry.Value > to)
+            {
+                continue;
+            }
+
+            text.Append("\n        ").Append(Format(entry, to, now));
+            GpuBreadcrumbs.Describe(text, Volatile.Read(ref wrapper->Fence), entry.Value, PipelineName);
+            shown++;
+        }
+    }
+
     [HotPath]
     private static void Add(XboxQueueObject* queue, QueueEvent entry)
     {
