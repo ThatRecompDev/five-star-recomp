@@ -204,8 +204,11 @@ loads the driver refused.
 
 ### Warm-up
 
-`fivestar-loader --warm-pipelines <shaders.rpf | cache blob> --shader-dir <fssm> --translated-dir <dxil>
-[--pipeline-cache <dir>] [--warm-jobs N] [--warm-step K] [--warm-match text] [--warm-used-only]` runs no game. On the
+`fivestar-loader --warm-pipelines <shaders.rpf | cache blob> --shader-dir <fssm> [--translated-dir <dxil>]
+[--program-cache <dir>] [--pipeline-cache <dir>] [--warm-jobs N] [--warm-step K] [--warm-match text] [--warm-used-only]`
+runs no game. Programs come from the translation and the program cache, and those both lack are made on demand
+first, as in the game ([Programs on demand](#programs-on-demand)), so the game's next boot finds programs and
+pipelines ready. On the
 default adapter it first takes the pipelines earlier boots asked for (the journal, below) in the order the game first
 asked, then (unless `--warm-used-only`) reads the console pipeline cache ([pipeline-cache.md](pipeline-cache.md)) and
 turns every compute and graphics record into the description slots 67 and 57 would get, and builds each through the same factory as the game, on

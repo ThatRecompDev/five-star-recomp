@@ -30,9 +30,9 @@ internal static unsafe class WarmPipelinesCommand
     {
         var folders = HostComposition.CreatePipelineFolders(options);
 
-        if (folders.Programs is null || folders.Translated is null || folders.Cache is null)
+        if (folders.Programs is null || (folders.Translated is null && folders.OnDemand is null) || folders.Cache is null)
         {
-            log.Error("--warm-pipelines needs --shader-dir, --translated-dir and a pipeline cache (not --no-pipeline-cache)");
+            log.Error("--warm-pipelines needs --shader-dir, --translated-dir or a compiler for programs on demand, and a pipeline cache (not --no-pipeline-cache)");
 
             return LoaderHost.UsageError;
         }

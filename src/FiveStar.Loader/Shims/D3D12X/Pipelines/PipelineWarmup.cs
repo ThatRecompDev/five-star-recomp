@@ -162,10 +162,15 @@ internal sealed unsafe class PipelineWarmup
 
     private PipelineRecipe? Prepare(WarmTarget target)
     {
+        // Programs neither translated nor in the program cache are made first, when there is a compiler.
         if (target.Compute is not null)
         {
+            _factory.MakePrograms([target.Compute.Shader]);
+
             return _factory.PrepareCompute(target.Compute);
         }
+
+        _factory.MakePrograms(target.Graphics!.Shaders);
 
         return _factory.PrepareGraphics(target.Graphics!);
     }

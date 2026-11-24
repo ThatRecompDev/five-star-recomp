@@ -358,6 +358,24 @@ internal sealed unsafe class PipelineFactory
     }
 
     /// <summary>
+    /// Makes the programs of <paramref name="shaders"/> the library lacks and waits for them (the warm-up); true when
+    /// none is missing now.
+    /// </summary>
+    public bool MakePrograms(IEnumerable<ShaderSource> shaders)
+    {
+        var lacking = Lacking(shaders);
+
+        if (lacking is null)
+        {
+            return true;
+        }
+
+        var made = Task.WhenAll(lacking.Select(names => OnDemand!.Request(names, urgent: true))).GetAwaiter().GetResult();
+
+        return made.All(ready => ready);
+    }
+
+    /// <summary>
     /// The work that makes the linked producer of a description whose programs are all loadable, when the pair needs one
     /// that is not made yet; else null.
     /// </summary>

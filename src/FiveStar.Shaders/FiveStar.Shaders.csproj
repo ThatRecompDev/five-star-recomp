@@ -5,6 +5,11 @@
     <IsAotCompatible>true</IsAotCompatible>
     <!-- DxcLibraryCompiler and the DXIL validator wrapper call DXC and dxil.dll through COM vtables. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!--
+      The loader's program cache is keyed by a hash of this assembly's bytes (docs/d3d12x-pipelines.md). With the
+      commit id in the informational version every commit started an empty cache, so programs stay keyed by code only.
+    -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
