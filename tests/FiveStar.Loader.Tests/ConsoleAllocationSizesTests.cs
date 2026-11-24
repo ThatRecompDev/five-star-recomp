@@ -15,6 +15,13 @@ public sealed unsafe class ConsoleAllocationSizesTests
     private const int Rgba16Unorm = 11;
     private const int ConsoleFlags = 0x300000;
     private const int AllowRenderTarget = 1;
+    private const int Rgba8Unorm = 28;
+    private const ulong RenderTargetRegion = 64ul << 20;
+    private const ulong RegionSlack = 2ul << 20;
+
+    /// <summary>A 64 KiB block holds 128x128 four-byte elements (docs/xg.md); 3840x2160 takes 30 x 17 of them.</summary>
+    private const ulong LargeBlockBytes = 0x10000;
+    private const ulong Blocks4kTarget = 30 * 17;
 
     [Fact]
     public void A_console_layout_texture_gets_its_xg_size_and_a_buffer_keeps_the_desktop_answer()
@@ -47,5 +54,21 @@ public sealed unsafe class ConsoleAllocationSizesTests
 
         desc.Flags |= AllowRenderTarget;
         Assert.False(ConsoleAllocationSizes.TryApply(&desc, 1, &result, null));
+    }
+
+    [Fact]
+    public void Two_4k_render_targets_fill_the_region_the_game_hands_out_for_them()
+    {
+        // 0x14247ad10 creates two 3840x2160 RGBA8 targets from a 64 MiB region and breaks unless they fill all but
+        // 2 MiB of it; an RDNA3 desktop driver asks 0x2010000 bytes for each, which overruns it.
+
+        var desc = new ResourceDescription { Dimension = Texture2D, Width = 3840, Height = 2160, DepthOrArraySize = 1, MipLevels = 1, Format = Rgba8Unorm, SampleCount = 1, Flags = ConsoleFlags | AllowRenderTarget };
+
+        Assert.True(ConsoleAllocationSizes.TryCommittedTextureSize(&desc, out ulong size));
+        Assert.Equal(Blocks4kTarget * LargeBlockBytes, size);
+        Assert.InRange(2 * size, RenderTargetRegion - RegionSlack, RenderTargetRegion);
+
+        desc.Dimension = ResourceDescription.BufferDimension;
+        Assert.False(ConsoleAllocationSizes.TryCommittedTextureSize(&desc, out _));
     }
 }
