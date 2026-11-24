@@ -49,10 +49,13 @@ internal sealed class GpuMemoryBudget : IDisposable
         }
     }
 
-    /// <summary>The system-memory segment group's budget and the process's use of it; false when DXGI fails.</summary>
+    /// <summary>
+    /// The system-memory segment group's budget and the process's use of it; false when DXGI fails or reports no such
+    /// segment (a budget of 0: WARP and unified-memory adapters keep everything in the local group).
+    /// </summary>
     public bool TryReadSystem(out ulong budget, out ulong usage)
     {
-        return TryRead(MemorySegmentGroup.NonLocal, out budget, out usage);
+        return TryRead(MemorySegmentGroup.NonLocal, out budget, out usage) && budget != 0;
     }
 
     /// <summary>Both segment groups, for the log.</summary>
