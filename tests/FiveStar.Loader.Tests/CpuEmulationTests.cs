@@ -23,6 +23,7 @@ public sealed unsafe class CpuEmulationTests
     private const int ContextFlags = 0x30;
     private const uint ContextFull = 0x0010000B;
     private const int Rax = 0x78;
+    private const int R9 = 0x78 + (9 * 8);
     private const int R10 = 0x78 + (10 * 8);
     private const int Rip = 0xF8;
     private const int Xmm0 = 0x1A0;
@@ -115,6 +116,26 @@ public sealed unsafe class CpuEmulationTests
         Assert.False(new Span<byte>(buffer, 64).ContainsAnyExcept((byte)0xFF));
         Assert.False(new Span<byte>(buffer + 320, 192).ContainsAnyExcept((byte)0xFF));
         NativeMemory.AlignedFree(buffer);
+    }
+
+    [Fact]
+    public void The_rex_b_clwb_loop_of_the_game_runs_in_two_faults()
+    {
+        // clwb [r9]; add r9,64; cmp r9,rax; jbe back: the bytes at game RVA 0x4ecc84a (issue #13).
+        using var frame = new Frame([0x66, 0x41, 0x0F, 0xAE, 0x31, 0x49, 0x83, 0xC1, 0x40, 0x49, 0x39, 0xC1, 0x76, 0xF2], IllegalInstruction);
+        const ulong start = 0x10000;
+        *(ulong*)(frame.Context + R9) = start;
+        *(ulong*)(frame.Context + Rax) = start + 255;
+        var handler = Handler();
+
+        Assert.True(handler.TryEmulate(frame.Pointers));
+        Assert.Equal(3, handler.SkippedPasses);
+        Assert.Equal(start + (3 * 64), *(ulong*)(frame.Context + R9));
+        Assert.Equal(frame.Code, *(nint*)(frame.Context + Rip));
+
+        Assert.True(handler.TryEmulate(frame.Pointers));
+        Assert.Equal(frame.Code + 5, *(nint*)(frame.Context + Rip));
+        Assert.Equal(2, handler.Count(AmdInstructionKind.Clwb));
     }
 
     [Fact]
