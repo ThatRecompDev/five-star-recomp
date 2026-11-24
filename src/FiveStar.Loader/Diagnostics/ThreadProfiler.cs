@@ -39,6 +39,7 @@ internal sealed unsafe class ThreadProfiler
 
     private readonly ImageTable _images;
     private readonly LoaderLog _log;
+    private readonly Dictionary<string, string> _ours = new(StringComparer.Ordinal);
 
     public ThreadProfiler(ImageTable images, LoaderLog log)
     {
@@ -150,7 +151,7 @@ internal sealed unsafe class ThreadProfiler
     /// Where a running stack is: "game" in the main image; "ours: managed" in JIT or loader code; "ours: m" in module m
     /// called from the loader's code; otherwise the innermost module (called by the game or the OS).
     /// </summary>
-    private static string Place(LoadedImage main, ReadOnlySpan<ulong> stack, CodeRange[] modules, (CodeRange Range, string Name)[] names)
+    private string Place(LoadedImage main, ReadOnlySpan<ulong> stack, CodeRange[] modules, (CodeRange Range, string Name)[] names)
     {
         string inner = NameOf(stack[0], names);
 
@@ -161,14 +162,14 @@ internal sealed unsafe class ThreadProfiler
 
         if (inner == Managed)
         {
-            return $"ours: {Managed}";
+            return Ours(Managed);
         }
 
         foreach (ulong pc in stack)
         {
             if (!InRanges(pc, modules) || NameOf(pc, names) == Managed)
             {
-                return $"ours: {inner}";
+                return Ours(inner);
             }
 
             if (main.Contains((nint)pc))
@@ -178,6 +179,18 @@ internal sealed unsafe class ThreadProfiler
         }
 
         return inner;
+    }
+
+    /// <summary>"ours: m", made once per module: the burst allocates as little as it can inside its no-GC region.</summary>
+    private string Ours(string module)
+    {
+        if (!_ours.TryGetValue(module, out var place))
+        {
+            place = $"ours: {module}";
+            _ours[module] = place;
+        }
+
+        return place;
     }
 
     private static bool Reaches(LoadedImage main, ReadOnlySpan<ulong> stack)
@@ -269,6 +282,8 @@ internal sealed unsafe class ThreadProfiler
     {
         if (GCSettings.LatencyMode != GCLatencyMode.NoGCRegion)
         {
+            // A region whose budget ran out has left the latency mode but is still open until it is ended.
+            EndNoGcRegion();
             _ = GC.TryStartNoGCRegion(NoGcBudget);
         }
 
@@ -280,9 +295,13 @@ internal sealed unsafe class ThreadProfiler
 
     private static void EndNoGcRegion()
     {
-        if (GCSettings.LatencyMode == GCLatencyMode.NoGCRegion)
+        try
         {
             GC.EndNoGCRegion();
+        }
+        catch (InvalidOperationException)
+        {
+            // No region open, or it ended by a collection: either way none is open now.
         }
     }
 
