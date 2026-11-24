@@ -466,6 +466,10 @@ internal sealed class CommandLineParser
                 return SetMemoryFloor();
             case "--max-commit":
                 return SetCommitCeiling();
+            case "--section-heap-budget":
+                _options.SectionHeapBudget = Gigabytes(Next());
+
+                return true;
             default:
                 throw new CommandLineException($"unknown argument {option}");
         }

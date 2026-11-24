@@ -60,8 +60,8 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         MemorySource = new GameMemorySource(memory);
         Textures = new GpuTextures(MemorySource, Descriptions, log);
 
-        var heaps = new SectionHeaps(log);
-        PlacedResources = new XboxPlacedResources(memory, heaps, Objects, Textures, log);
+        SectionHeaps = new SectionHeaps(log);
+        PlacedResources = new XboxPlacedResources(memory, SectionHeaps, Objects, Textures, log);
         GameMemory = new XboxGameMemoryBuffers(Objects, PlacedResources.Addresses, memory.Graphics, log);
         PlacedResources.GameMemory = GameMemory;
 
@@ -71,7 +71,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         Uploads = new UploadArena(Objects, PlacedResources.Addresses, log);
         AddressBuffers = new AddressBufferViews(GameMemory);
         AddressViews = new AddressShaderViews(Textures, AddressBuffers, Warnings, log);
-        MemoryViews = new GameMemoryViews(memory, heaps, Warnings, log);
+        MemoryViews = new GameMemoryViews(memory, SectionHeaps, Warnings, log);
         PlacedResources.Addresses.Observe(MemoryViews.Add);
         memory.ObservePages(MemoryViews.PageChanged);
 
@@ -132,6 +132,9 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
     /// <summary>Device slot 127 and the title memory behind its resources.</summary>
     public XboxCommittedResources CommittedResources { get; }
 
+    /// <summary>The heaps over the game's page sections, which slot 133 and the address map share.</summary>
+    public SectionHeaps SectionHeaps { get; }
+
     /// <summary>Device slot 133 and the console-to-desktop GPU address table.</summary>
     public XboxPlacedResources PlacedResources { get; }
 
@@ -191,6 +194,9 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         }
 
         Debugging.AttachDevice(inner);
+        SectionHeaps.Budget = GpuMemoryBudget.Open(inner, _log);
+        SectionHeaps.WindowOpened = MemoryViews.WindowOpened;
+
         QueueProgress.Start(_log);
         GpuBreadcrumbs.Attach(inner, _log);
         *device = Objects.WrapDevice(inner);

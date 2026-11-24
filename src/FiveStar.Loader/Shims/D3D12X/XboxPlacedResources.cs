@@ -231,7 +231,7 @@ internal sealed unsafe class XboxPlacedResources
     {
         // A run stays inside one heap (a window of a large section), and a placed resource starts on a 64 KiB boundary of
         // its heap; the runtime refuses others (E_INVALIDARG).
-        nint heap = _heaps.Heap(device, run.Chunk!, run.Offset, out ulong offset, out ulong heapBytes);
+        nint heap = _heaps.Heap(device, run.Chunk!, run.Offset, SectionHeapUse.Placed, out ulong offset, out ulong heapBytes);
 
         if (heap == 0 || offset + run.Length > heapBytes || offset % XMemPhysicalMemory.PageSize != 0)
         {

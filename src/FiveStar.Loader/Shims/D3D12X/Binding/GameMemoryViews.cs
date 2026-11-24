@@ -15,7 +15,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Binding;
 /// raw view's element count reaches), and the map names for each 64 KiB page the views of its chunk. XMem pages follow
 /// the page tables as the console GPU's do: every map, remap or unmap (<see cref="XMemPhysicalMemory.ObservePages"/>)
 /// points the page where the GPU addresses it (its GPU-only alias when it has one, else its CPU address) into views
-/// over the section that holds its frame now, chunk by chunk as above, or at the null views. Buffers placed over pages
+/// over the section that holds its frame now, chunk by chunk of its heap window, or at the null views; a page whose
+/// window has no heap (<see cref="SectionHeaps"/>: over budget, or refused) waits for one there. Buffers placed over pages
 /// keep their frames; the map does not. The map lives in write-combined system memory read at heap slot
 /// <see cref="DescriptorWindow.AddressMapSlot"/>; the views take whole remap pages of the desktop heap. Ranges and
 /// pages mapped before the game's view heap exists wait for it.
@@ -45,7 +46,9 @@ internal sealed unsafe class GameMemoryViews
 
     private readonly object _gate = new();
     private readonly List<AddressRange> _pending = [];
-    private readonly Dictionary<(nint Section, ulong Chunk), uint> _sectionViews = [];
+    private readonly Dictionary<(nint Section, ulong Window, ulong Chunk), uint> _sectionViews = [];
+    private readonly Dictionary<(nint Section, ulong Start), HashSet<ulong>> _waiting = [];
+    private readonly Queue<(nint Section, ulong Start)> _opened = new();
     private readonly XMemPhysicalMemory _memory;
     private readonly SectionHeaps _heaps;
     private readonly AddressMap _map = new(MapSpans, DescriptorWindow.UnmappedSlot);
@@ -57,6 +60,7 @@ internal sealed unsafe class GameMemoryViews
     private byte* _data;
     private uint _next;
     private uint _end;
+    private bool _following;
 
     public GameMemoryViews(XMemPhysicalMemory memory, SectionHeaps heaps, OnceLog warnings, LoaderLog log)
     {
@@ -156,15 +160,65 @@ internal sealed unsafe class GameMemoryViews
     {
         nint page = (nint)((ulong)address & ~PageMask);
         nint alias = _memory.GpuAlias(page);
+        ulong gpuPage = (ulong)page;
 
         if (alias != 0)
         {
-            MapPage((ulong)alias);
-
-            return;
+            gpuPage = (ulong)alias;
         }
 
-        MapPage((ulong)page);
+        // A window this page opens (or another thread opened) maps its waiting pages after this one.
+        bool outer = !_following;
+        _following = true;
+        MapPage(gpuPage);
+
+        if (outer)
+        {
+            FollowOpened();
+            _following = false;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="SectionHeaps.WindowOpened"/>: the pages that waited for a heap in that window (a section backed
+    /// lazily, or a placed buffer that opened it) now get their entries; from the window's thread, or after the page
+    /// being mapped when the map opened it itself.
+    /// </summary>
+    public void WindowOpened(nint section, ulong start, ulong bytes)
+    {
+        lock (_gate)
+        {
+            if (_data == null)
+            {
+                return;
+            }
+
+            _opened.Enqueue((section, start));
+
+            if (!_following)
+            {
+                _following = true;
+                FollowOpened();
+                _following = false;
+            }
+        }
+    }
+
+    /// <summary>Maps the pages that waited for the windows opened meanwhile, at the frames mapped there now.</summary>
+    private void FollowOpened()
+    {
+        while (_opened.TryDequeue(out var window))
+        {
+            if (!_waiting.Remove(window, out var pages))
+            {
+                continue;
+            }
+
+            foreach (ulong page in pages)
+            {
+                MapPage(page);
+            }
+        }
     }
 
     /// <summary>One page's entry: the section view of the frame mapped there now, else the null views.</summary>
@@ -176,7 +230,7 @@ internal sealed unsafe class GameMemoryViews
 
         if (_memory.TryLocate((nint)page, out var chunk, out ulong offset))
         {
-            pair = SectionView(chunk, offset, out ulong inView);
+            pair = SectionView(page, chunk, offset, out ulong inView);
             viewStart = page - inView;
         }
 
@@ -192,28 +246,41 @@ internal sealed unsafe class GameMemoryViews
     }
 
     /// <summary>
-    /// The view pair over the chunk of <paramref name="chunk"/>'s section that holds byte <paramref name="offset"/>, made
-    /// on first use, and the byte's offset in it; the null views when none can be made.
+    /// The view pair over the chunk of the section heap window that holds byte <paramref name="offset"/> of
+    /// <paramref name="chunk"/>'s section, made on first use, and the byte's offset in it. The null views when the
+    /// window has no heap: <paramref name="page"/> then waits for one (<see cref="WindowOpened"/>).
     /// </summary>
-    private uint SectionView(XMemPageChunk chunk, ulong offset, out ulong inView)
+    private uint SectionView(ulong page, XMemPageChunk chunk, ulong offset, out ulong inView)
     {
-        ulong index = offset / ChunkBytes;
-        inView = offset - (index * ChunkBytes);
+        inView = 0;
+        nint heap = _heaps.Heap(_device, chunk, offset, SectionHeapUse.Map, out ulong heapOffset, out ulong heapBytes);
+        (nint Section, ulong Start) window = (chunk.Section, offset - heapOffset);
 
-        if (_sectionViews.TryGetValue((chunk.Section, index), out uint pair))
+        if (heap == 0)
+        {
+            Wait(window, page);
+            _warnings.Warn("address-map-sections", $"[d3d12_xs] address map: no heap over part of section 0x{chunk.Section:x}; its pages read as zeros until one opens");
+
+            return DescriptorWindow.UnmappedSlot;
+        }
+
+        // A view starts at a chunk of its heap and ends with the heap.
+        ulong index = heapOffset / ChunkBytes;
+        ulong viewOffset = index * ChunkBytes;
+        inView = heapOffset - viewOffset;
+
+        if (_sectionViews.TryGetValue((window.Section, window.Start, index), out uint pair))
         {
             return pair;
         }
 
-        // A chunk starts inside one heap (a window of a large section, SectionHeaps), and its view ends with that heap.
-        nint heap = _heaps.Heap(_device, chunk, index * ChunkBytes, out ulong heapOffset, out ulong heapBytes);
-        ulong bytes = Math.Min(ViewBytes, heapBytes - heapOffset);
-        nint buffer = heap == 0 ? 0 : DesktopCalls.CreatePlacedBuffer(_device, heap, heapOffset, bytes, SectionBufferFlags, CommonState);
+        ulong bytes = Math.Min(ViewBytes, heapBytes - viewOffset);
+        nint buffer = DesktopCalls.CreatePlacedBuffer(_device, heap, viewOffset, bytes, SectionBufferFlags, CommonState);
         pair = DescriptorWindow.UnmappedSlot;
 
         if (buffer == 0 || _next + PairSize > _end)
         {
-            _warnings.Warn("address-map-sections", $"[d3d12_xs] address map: no view over section 0x{chunk.Section:x}; its pages read as zeros");
+            _warnings.Warn("address-map-section-views", $"[d3d12_xs] address map: no view over section 0x{chunk.Section:x}; its pages read as zeros");
         }
         else
         {
@@ -223,9 +290,20 @@ internal sealed unsafe class GameMemoryViews
             WriteViews(buffer, 0, bytes, pair, true);
         }
 
-        _sectionViews[(chunk.Section, index)] = pair;
+        _sectionViews[(window.Section, window.Start, index)] = pair;
 
         return pair;
+    }
+
+    private void Wait((nint Section, ulong Start) window, ulong page)
+    {
+        if (!_waiting.TryGetValue(window, out var pages))
+        {
+            pages = [];
+            _waiting[window] = pages;
+        }
+
+        pages.Add(page);
     }
 
     /// <summary>Views over each chunk of the range's buffer and the map entries of its pages.</summary>
