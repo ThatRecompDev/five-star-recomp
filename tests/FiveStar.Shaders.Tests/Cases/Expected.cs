@@ -7,8 +7,9 @@ using FiveStar.Shaders.Tests.Reference;
 namespace FiveStar.Shaders.Tests.Cases;
 
 /// <summary>
-/// The expected value of one result dword: exact bits, f32 within n ULPs, f32 within an absolute tolerance, any NaN, or
-/// don't care (a result the modelled wave cannot define).
+/// The expected value of one result dword: exact bits, f32 within n ULPs, f32 within an absolute tolerance, any NaN,
+/// either of two exact values (a result the HLSL leaves to the device), or don't care (a result the modelled wave cannot
+/// define).
 /// </summary>
 public sealed record Expected
 {
@@ -47,6 +48,15 @@ public sealed record Expected
         return new Expected(ExpectedKind.Near, 0, value, tolerance);
     }
 
+    /// <summary>
+    /// <paramref name="bits"/> or <paramref name="alternative"/>: for a result HLSL leaves to the device, such as mad(),
+    /// which AMD and NVIDIA fuse and WARP does not.
+    /// </summary>
+    public static Expected Either(uint bits, uint alternative)
+    {
+        return new Expected(ExpectedKind.Either, bits, alternative, 0);
+    }
+
     /// <summary>Exact bits, or don't care for null.</summary>
     public static Expected Maybe(uint? bits)
     {
@@ -80,6 +90,8 @@ public sealed record Expected
                 return Math.Abs(FloatBits.Value(actual) - Value) <= Tolerance;
             case ExpectedKind.Nan:
                 return double.IsNaN(FloatBits.Value(actual));
+            case ExpectedKind.Either:
+                return actual == Bits || actual == (uint)Value;
             default:
                 return true;
         }
@@ -97,6 +109,8 @@ public sealed record Expected
                 return string.Create(CultureInfo.InvariantCulture, $"~{Value:G7}(+-{Tolerance:G})");
             case ExpectedKind.Nan:
                 return "NaN";
+            case ExpectedKind.Either:
+                return $"{Hex(Bits)} or {Hex((uint)Value)}";
             default:
                 return "-";
         }

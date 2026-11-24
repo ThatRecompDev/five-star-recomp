@@ -25,15 +25,15 @@ internal static class ValuExpressions
             "v_mul_f32" => $"{f(Source0)} * {f(Source1)}",
             "v_mul_legacy_f32" => $"mul_legacy({f(Source0)}, {f(Source1)})",
             "v_fma_f32" => $"{FusedMultiplyAdd}({f(Source0)}, {f(Source1)}, {f(Source2)})",
-            "v_mad_f32" => $"{f(Source0)} * {f(Source1)} + {f(Source2)}",
+            "v_mad_f32" => $"mad_unfused({f(Source0)}, {f(Source1)}, {f(Source2)})",
             "v_fma_legacy_f32" or "v_mad_legacy_f32" => $"mad_legacy({f(Source0)}, {f(Source1)}, {f(Source2)})",
             "v_fmac_f32" => $"{FusedMultiplyAdd}({f(Source0)}, {f(Source1)}, asfloat({u(Destination)}))",
-            "v_mac_f32" => $"{f(Source0)} * {f(Source1)} + asfloat({u(Destination)})",
+            "v_mac_f32" => $"mad_unfused({f(Source0)}, {f(Source1)}, asfloat({u(Destination)}))",
             "v_fmac_legacy_f32" or "v_mac_legacy_f32" => $"mad_legacy({f(Source0)}, {f(Source1)}, asfloat({u(Destination)}))",
 
             // llvm-objdump order: fmaak = vdst, src0, vsrc1, K; fmamk = vdst, src0, K, vsrc1 (src0 * K + vsrc1).
             "v_fmaak_f32" or "v_fmamk_f32" => $"mad({f(Source0)}, {f(Source1)}, {f(Source2)})",
-            "v_madak_f32" or "v_madmk_f32" => $"{f(Source0)} * {f(Source1)} + {f(Source2)}",
+            "v_madak_f32" or "v_madmk_f32" => $"mad_unfused({f(Source0)}, {f(Source1)}, {f(Source2)})",
             "v_min_f32" => $"min({f(Source0)}, {f(Source1)})",
             "v_max_f32" => $"max({f(Source0)}, {f(Source1)})",
             "v_min3_f32" => $"min(min({f(Source0)}, {f(Source1)}), {f(Source2)})",
@@ -56,7 +56,7 @@ internal static class ValuExpressions
             // v_sin/v_cos take the angle in revolutions.
             "v_sin_f32" => $"sin({f(Source0)} * 6.2831853)",
             "v_cos_f32" => $"cos({f(Source0)} * 6.2831853)",
-            "v_fract_f32" => $"frac({f(Source0)})",
+            "v_fract_f32" => $"fract_f32({f(Source0)})",
             "v_floor_f32" => $"floor({f(Source0)})",
             "v_ceil_f32" => $"ceil({f(Source0)})",
             "v_trunc_f32" => $"trunc({f(Source0)})",
