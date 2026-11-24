@@ -5,10 +5,13 @@ using System.Runtime.InteropServices;
 
 namespace FiveStar.Loader.Shims.D3D12X.Present;
 
-/// <summary>D3D12_TEXTURE_COPY_LOCATION of type SUBRESOURCE_INDEX (d3d12.h); the union is a placed footprint wide.</summary>
+/// <summary>D3D12_TEXTURE_COPY_LOCATION (d3d12.h): a subresource index, or a placed footprint (offset, then the footprint).</summary>
 [StructLayout(LayoutKind.Explicit, Size = 48)]
 internal struct TextureCopyLocation
 {
+    /// <summary>D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT.</summary>
+    public const int FootprintType = 1;
+
     [FieldOffset(0)]
     public nint Resource;
 
@@ -17,4 +20,7 @@ internal struct TextureCopyLocation
 
     [FieldOffset(16)]
     public uint Subresource;
+
+    [FieldOffset(16)]
+    public ulong FootprintOffset;
 }

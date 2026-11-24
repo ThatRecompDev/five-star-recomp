@@ -158,7 +158,8 @@ method follows from the arguments and from the inline packet written instead:
 | 50 | 46 | OMSetRenderTargets | (count, handles, FALSE, DSV*) |
 | 51, 52 | 47, 48 | ClearDepthStencilView (*inferred*), ClearRenderTargetView | (handle, color*, 0, null) |
 | 61 | 59 | ExecuteIndirect | (signature, 1, argument buffer, offset, null, 0); 8 sites |
-| 62 | | X | (pointer, pointer, dword, 0) |
+| 62 | | X: CopyMemoryToMemoryX (destination, source, bytes, flags) | (GPU address, GPU address, dword, 0) (0x1409796a0, after the game makes a texture); a CopyBufferRegion between the desktop buffers over game memory |
+| 85, 86 | | X: CopyTextureRegionX, CopyResourceX (the desktop arguments, then flags) | the game's texture copy 0x1404F4210 (texture to texture, buffer to texture from its upload ring); textures move to COPY_DEST / COPY_SOURCE and back (`TextureCopies`). Names after victory-gta6, whose older list layout has them two slots lower (60, 83, 84) |
 | 70 | 62 | OMSetDepthBounds | floats in xmm1, xmm2 |
 | 71 | | X: Write32BitValueBottomOfPipeX (address, value, flush, flags) | (address, dword, 0, 0) (0x144ed46a3): a per-frame array of 18 dwords at [0x1475DF268] |
 | 72 | | X: Write64BitValueBottomOfPipeX (address, value, flush, flags); flags 1 or 2 write the GPU timestamp | (address in a type-2 query record's result array, 0, 0, 1) (0x142482b31) |
@@ -762,7 +763,7 @@ which any change of timing exposed.
 - Device slot 71; what slot 74's output is; whether list slot 139's third argument is flags. The open points of
   slots 61, 70 and 133 are in [gpu-resources.md](gpu-resources.md).
 - CBVs at addresses the desktop cannot express (16-byte aligned); the allocator's slot 9 (callback, context).
-- List slots 27, 31, 53 to 60, 62 and above 70 apart from those named; the list slots that take wrapped resources
+- List slots 27, 31, 53 to 60 and above 70 apart from those named; the list slots that take wrapped resources
   inside structures (texture copies) and GPU addresses.
 - Whether root constants take one SGPR per value (they are always the last parameter, so the metadata cannot tell),
   and what graphics s0 to s7 and compute s0 to s3 hold.
