@@ -34,7 +34,7 @@ internal unsafe struct CommandListBindings
     /// <summary>1 once a dispatch or ExecuteIndirect of this recording was skipped: every later one is skipped too.</summary>
     public int ComputeSkipped;
 
-    /// <summary>1 when the recording holds a slot-74 write the game retires transient memory by (<see cref="RetireWaits"/>).</summary>
+    /// <summary>1 when the recording holds a slot-74 memory wait (<see cref="RetireWaits"/>).</summary>
     public int RetireWrite;
     public fixed uint Graphics[UserDataDwords];
     public fixed uint Compute[UserDataDwords];

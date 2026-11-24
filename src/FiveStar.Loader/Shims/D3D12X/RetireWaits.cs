@@ -9,11 +9,9 @@ namespace FiveStar.Loader.Shims.D3D12X;
 
 /// <summary>
 /// <c>--retire-waits-all-queues</c>: a test of whether the game recycles transient memory while another queue's work
-/// still writes to it. The game retires its transient blocks by a 64-bit value a list writes at its end (slot 74,
-/// <see cref="BottomOfPipeWrites"/>), which on the desktop waits only for that list's own queue. With this on, a
-/// submission holding such a write first waits on the GPU (desktop queue Wait) for every other queue's work submitted
-/// so far. Each such write is also logged, every <see cref="LogEvery"/>, with each queue's signalled and completed
-/// shim fence values.
+/// still writes to it. With this on, a submission holding a 64-bit memory wait (slot 74, <see cref="MemoryWaits"/>)
+/// first waits on the GPU (desktop queue Wait) for every other queue's work submitted so far. Each such wait is also
+/// logged, every <see cref="LogEvery"/>, with each queue's signalled and completed shim fence values.
 /// </summary>
 internal static unsafe class RetireWaits
 {
@@ -32,7 +30,7 @@ internal static unsafe class RetireWaits
     private static ulong _lastAddress;
     private static LoaderLog? _log;
 
-    /// <summary>Whether submissions with a retire write wait for the other queues.</summary>
+    /// <summary>Whether submissions with a slot-74 wait also wait for the other queues.</summary>
     public static bool Enabled { get; private set; }
 
     public static void Enable(bool enabled, LoaderLog log)
@@ -70,10 +68,10 @@ internal static unsafe class RetireWaits
         return 0;
     }
 
-    /// <summary>The value of the last slot-74 write and where it went, for reports.</summary>
+    /// <summary>The value of the last slot-74 wait and its address, for reports.</summary>
     public static (ulong Value, ulong Address) LastWrite => (Volatile.Read(ref _lastValue), Volatile.Read(ref _lastAddress));
 
-    /// <summary>A slot-74 write of <paramref name="value"/> to <paramref name="address"/> recorded in <paramref name="list"/>.</summary>
+    /// <summary>A slot-74 wait for <paramref name="address"/> to reach <paramref name="value"/> recorded in <paramref name="list"/>.</summary>
     [HotPath]
     public static void Recorded(XboxObject* list, ulong address, ulong value)
     {
@@ -96,7 +94,7 @@ internal static unsafe class RetireWaits
 
     private static void Log(long count, ulong address, ulong value)
     {
-        _log?.Info($"  [retire] write #{count}: 0x{value:x} to 0x{address:x}; queues (signalled/completed):{Describe()}; {Interlocked.Read(ref _waits)} cross-queue waits so far");
+        _log?.Info($"  [retire] wait #{count}: 0x{value:x} to 0x{address:x}; queues (signalled/completed):{Describe()}; {Interlocked.Read(ref _waits)} cross-queue waits so far");
     }
 
     /// <summary>Before <paramref name="queue"/> runs <paramref name="lists"/>: waits for the other queues when one holds a retire write.</summary>

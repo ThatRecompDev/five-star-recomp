@@ -52,6 +52,16 @@ the last block, `2 × bytes + 1` last), the unabbreviated LLVM 3.7 records DXIL 
 metadata kinds a module declares, the PSV0 runtime-info layout of validator 1.6, and its note that the AMD driver
 wants a loop's exiting block to be its latch (docs/dxil-backend.md lists it as open). The backend's design (a compiler for the translator's HLSL, SSA built while lowering) and its code are
 our own.
+
+## XCL
+
+https://github.com/xcl-dev/xcl, GPL-2.0-only. Because that licence does not combine with ours, only facts from its
+notes were used, never its code, structure or tables: that the newer D3D12.X list layout puts
+Write32/64BitValueBottomOfPipeX at slots 71 and 72 and Wait32/64BitValueX at 73 and 74, that Wait64BitValueX's
+argument after the value is flags and not a mask, the timestamp flags of the bottom-of-pipe writes, and that the
+console GPU writes only to memory allocated as graphics memory (MEM_GRAPHICS, PAGE_GRAPHICS_*). Each was checked
+against the game's executable (docs/d3d12x-shim.md); the implementation is our own.
+
 ## GTA6-Asset-Info
 
 https://github.com/TrinitronClient/GTA6-Asset-Info, revision `0f649eba78cdd6e053d7aefd333fb6e3abe9739a`, GPL-3.0.

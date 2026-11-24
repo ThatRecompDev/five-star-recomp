@@ -160,9 +160,10 @@ method follows from the arguments and from the inline packet written instead:
 | 61 | 59 | ExecuteIndirect | (signature, 1, argument buffer, offset, null, 0); 8 sites |
 | 62 | | X | (pointer, pointer, dword, 0) |
 | 70 | 62 | OMSetDepthBounds | floats in xmm1, xmm2 |
-| 71 | | X: bottom-of-pipe dword (*inferred*) | (address, dword, 0, 0) (0x144ed46a3): a per-frame array of 18 dwords at [0x1475DF268] |
-| 72 | | X: bottom-of-pipe timestamp (*inferred*) | (address in a type-2 query record's result array, 0, 0, 1) (0x142482b31) |
-| 74 | | X: bottom-of-pipe qword (*inferred*) | (address, 7, qword, 1) (0x142484b0c): the frame number into a pending record's +0x50 address (0x144e39e77), a counter at [0x1475E75D0] that the CPU otherwise writes itself (0x14044b6c3) |
+| 71 | | X: Write32BitValueBottomOfPipeX (address, value, flush, flags) | (address, dword, 0, 0) (0x144ed46a3): a per-frame array of 18 dwords at [0x1475DF268] |
+| 72 | | X: Write64BitValueBottomOfPipeX (address, value, flush, flags); flags 1 or 2 write the GPU timestamp | (address in a type-2 query record's result array, 0, 0, 1) (0x142482b31) |
+| 73 | | X: Wait32BitValueX (address, comparison, value, mask, flags) (*inferred*, no call site identified) | |
+| 74 | | X: Wait64BitValueX (address, comparison, value, flags) | (address, 7 = GREATER_EQUAL, qword, 1) (0x142484b0c): wait until a pending record's +0x50 cell reaches the frame number (0x144e39e77), or until the cell at [0x1475E75D0] reaches the counter 0x146891a00 that the CPU writes there itself (0x14044b6c3) |
 | 75, 126, 142 | | X: state writes (*inferred*) | one byte (0x14003281a); (byte, packed dword pair) (0x140032638); one qword (0x1400329e3) |
 | 146 | | X: Barrier (ID3D12GraphicsCommandList7) | (group count, D3D12_BARRIER_GROUP*) (0x14003210d, 0x144da61d1), below |
 | 148 | | X: upload allocation | (size, alignment) returns a pointer the caller also uses as a GPU address; XboxBvhBuilder.dll only (0x180020ed6), no call in the exe |
@@ -303,6 +304,11 @@ protection) is GPU memory on the console too. The first console GPU address ther
 whole VirtualAlloc allocation as a heap (OpenExistingHeapFromAddress) with one placed buffer over it
 (`XboxGameMemoryBuffers`). CBVs (slot 17) translate their address this way and grow to 256 bytes; an address
 outside known memory or off the desktop's 256-byte alignment (the console takes 16) gets a null CBV, logged once.
+The console GPU writes only to graphics memory: an allocation made with PAGE_GRAPHICS_READWRITE or
+_EXECUTE_READWRITE, or MEM_GRAPHICS (`GraphicsAllocations`, from the XMemVirtualAlloc flags). Any other allocation,
+or one not made through XMemVirtualAlloc, gets a buffer without unordered access, so the address map names a null
+UAV for its pages and program writes there are dropped; it is warned once per allocation. In 40 boots every
+allocation covered this way was graphics read-write (0x2404, 0x22004, 0x42404).
 
 **Resource descs.** Before the desktop sees one: flag bits above 0x1FF dropped (0x20000 on GPU-memory buffers,
 0x300000 on textures), a console layout (0x100 + XG swizzle mode, set at 0x1403440f7) made UNKNOWN, and
@@ -337,11 +343,19 @@ game breaks at 0x142474ce1. The list then records on a spare allocator kept for 
 later Reset, on any allocator, with E_INVALIDARG; such a list gets a new desktop list behind the same wrapper (the old
 one is kept, as the GPU may still run it), and the failed Close is warned once. Barriers leave out write states the
 desktop resource has no flag for (ResourceStates.Allowed; error #523 on a depth texture moved to UNORDERED_ACCESS).
-**Bottom-of-pipe writes (list slots 71, 72, 74; `BottomOfPipeWrites`).** Each is a desktop WriteBufferImmediate in
-MARKER_OUT mode (after the list's earlier work) at the desktop address of the game address: 71 one dword, 74 a
-qword, 72 a timestamp taken from the CPU clock at recording, in the console's 100 MHz units. They were E_NOTIMPL
-stubs before, so those values never reached memory. None of them feeds the transient pool's retire tokens, which
-complete through the queue fences (0x144dad000, 0x142474880).
+**Bottom-of-pipe writes (list slots 71, 72; `BottomOfPipeWrites`).** Each is a desktop WriteBufferImmediate in
+MARKER_OUT mode (after the list's earlier work) at the desktop address of the game address: 71 one dword, 72 a
+qword, or with flags 1 or 2 a timestamp taken from the CPU clock at recording, in the console's 100 MHz units. None
+of them feeds the transient pool's retire tokens, which complete through the queue fences (0x144dad000, 0x142474880).
+
+**Memory waits (list slots 73, 74; `MemoryWaits`).** The queue does not go on until `(memory & mask) op value` holds
+(op a D3D12_COMPARISON_FUNC; slot 74 compares all 64 bits, and its fourth argument is flags, not a mask). Slot 74
+was taken for a qword write until XCL's notes and the call arguments showed it is a wait: it wrote the value the
+queue should wait for. The desktop has no memory wait. A list records its waits (`ListMemoryWaits`; a wait on an
+address the same list wrote before is met in order and dropped, as are NEVER and ALWAYS). At submission the batch is
+split before such a list; when a wait does not hold yet, the desktop queue waits on a fence that a watcher thread
+signals once memory holds, or after 2 s (logged with the value found). The whole list waits, not only the commands
+after the wait. The device's Dispose logs how many waits were met at once, waited for and timed out.
 A compute list names only compute states (VERTEX_AND_CONSTANT_BUFFER, UNORDERED_ACCESS, NON_PIXEL_SHADER_RESOURCE,
 INDIRECT_ARGUMENT, COPY_DEST, COPY_SOURCE, acceleration structure) and a copy list only the copy ones
 (`ResourceStates.Legal`): any other bit fails the desktop Close. Render targets rest in RENDER_TARGET, so a compute
