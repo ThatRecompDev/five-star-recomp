@@ -18,10 +18,9 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// </summary>
 internal sealed unsafe class XboxPlacedResources
 {
-    /// <summary>ID3D12Device slots in desktop order and ID3D12Device3::OpenExistingHeapFromAddress (d3d12.h).</summary>
+    /// <summary>ID3D12Device slots in desktop order (d3d12.h); the section heaps come from <see cref="SectionHeaps"/>.</summary>
     private const int DesktopCreateCommittedResourceSlot = 27;
     private const int DesktopCreatePlacedResourceSlot = 29;
-    private const int OpenHeapFromAddressSlot = 48;
 
     /// <summary>ID3D12Resource::GetGPUVirtualAddress (d3d12.h).</summary>
     private const int GetGpuAddressSlot = 11;
@@ -39,28 +38,23 @@ internal sealed unsafe class XboxPlacedResources
     private const int DefaultHeapType = 1;
     private const int AllowCrossAdapter = 0x10;
 
-    /// <summary>Bytes of section one heap opens at most: OpenExistingHeapFromAddress refuses the view of a 6 GiB section.</summary>
-    private const ulong HeapWindowBytes = 1UL << 30;
-
     /// <summary>D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, the one desktop flag the game's buffers carry (d3d12.h).</summary>
     private const int AllowUnorderedAccess = 0x4;
 
-    private static readonly Guid Device3Iid = new("81dadc15-2bad-4392-93c5-101345c4aa98");
-    private static readonly Guid HeapIid = new("6b3b2502-6e51-45b3-90ee-9884265e8df3");
     private static readonly Guid ResourceIid = new("696442be-a72e-4059-bc79-5b5c98040fad");
 
     private readonly object _gate = new();
-    private readonly Dictionary<nint, nint> _heaps = [];
-    private readonly Dictionary<(nint Section, ulong Window), nint> _windowHeaps = [];
     private readonly List<nint> _runBuffers = [];
     private readonly XMemPhysicalMemory _memory;
+    private readonly SectionHeaps _heaps;
     private readonly XboxObjects _objects;
     private readonly GpuTextures _textures;
     private readonly LoaderLog _log;
 
-    public XboxPlacedResources(XMemPhysicalMemory memory, XboxObjects objects, GpuTextures textures, LoaderLog log)
+    public XboxPlacedResources(XMemPhysicalMemory memory, SectionHeaps heaps, XboxObjects objects, GpuTextures textures, LoaderLog log)
     {
         _memory = memory;
+        _heaps = heaps;
         _objects = objects;
         _textures = textures;
         _log = log;
@@ -235,16 +229,11 @@ internal sealed unsafe class XboxPlacedResources
 
     private nint CreatePlaced(nint device, PageRun run, ResourceDescription* description)
     {
-        nint heap = Heap(device, run.Chunk!);
-        ulong offset = run.Offset;
+        // A run stays inside one heap (a window of a large section), and a placed resource starts on a 64 KiB boundary of
+        // its heap; the runtime refuses others (E_INVALIDARG).
+        nint heap = _heaps.Heap(device, run.Chunk!, run.Offset, out ulong offset, out ulong heapBytes);
 
-        if (heap == 0)
-        {
-            heap = WindowHeap(device, run, out offset);
-        }
-
-        // A placed resource starts on a 64 KiB boundary of its heap; the runtime refuses others (E_INVALIDARG).
-        if (heap == 0 || offset % XMemPhysicalMemory.PageSize != 0)
+        if (heap == 0 || offset + run.Length > heapBytes || offset % XMemPhysicalMemory.PageSize != 0)
         {
             return 0;
         }
@@ -301,88 +290,6 @@ internal sealed unsafe class XboxPlacedResources
         }
 
         return resource;
-    }
-
-    /// <summary>
-    /// A heap over the <see cref="HeapWindowBytes"/> window of the run's section that holds the run, through a view of
-    /// that window: the store makes one section per contiguous allocation, and its whole-section view of a 6 GiB one is
-    /// refused (E_INVALIDARG). <paramref name="offset"/> is the run's offset in that heap; 0 when the run crosses a
-    /// window's end or the view cannot be made.
-    /// </summary>
-    private nint WindowHeap(nint device, PageRun run, out ulong offset)
-    {
-        var chunk = run.Chunk!;
-        ulong window = run.Offset / HeapWindowBytes;
-        ulong start = window * HeapWindowBytes;
-        ulong bytes = Math.Min(HeapWindowBytes, (chunk.Pages * XMemPhysicalMemory.PageSize) - start);
-        offset = run.Offset - start;
-
-        if (offset + run.Length > bytes)
-        {
-            return 0;
-        }
-
-        if (_windowHeaps.TryGetValue((chunk.Section, window), out nint existing))
-        {
-            return existing;
-        }
-
-        nint view = KernelBase.MapViewOfFile3(chunk.Section, Kernel32.GetCurrentProcess(), 0, start, (nuint)bytes, 0, Win32Constants.PageReadWrite, null, 0);
-        nint heap = 0;
-
-        if (view != 0)
-        {
-            heap = OpenHeap(device, view);
-        }
-
-        _windowHeaps[(chunk.Section, window)] = heap;
-        _log.Detail($"  [d3d12_xs] heap over section 0x{chunk.Section:x} window {window} (0x{bytes:x} bytes at 0x{view:x}) -> 0x{heap:x}");
-
-        return heap;
-    }
-
-    private nint OpenHeap(nint device, nint view)
-    {
-        Guid device3Iid = Device3Iid;
-        nint device3 = 0;
-        int hr = ((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(device, ComObject.QueryInterfaceSlot))(device, &device3Iid, &device3);
-
-        if (HResult.Failed(hr))
-        {
-            LogFailure("QueryInterface(ID3D12Device3)", hr);
-
-            return 0;
-        }
-
-        Guid heapIid = HeapIid;
-        nint heap = 0;
-        hr = ((delegate* unmanaged<nint, nint, Guid*, nint*, int>)ComObject.Slot(device3, OpenHeapFromAddressSlot))(device3, view, &heapIid, &heap);
-        ComObject.Release(device3);
-        LogFailure($"OpenExistingHeapFromAddress(0x{view:x})", hr);
-
-        return heap;
-    }
-
-    /// <summary>
-    /// The heap over a page section (through the store's whole-section view), opened once; 0 for a section larger than
-    /// <see cref="HeapWindowBytes"/>, which takes heaps by window (<see cref="WindowHeap"/>).
-    /// </summary>
-    private nint Heap(nint device, XMemPageChunk chunk)
-    {
-        if (chunk.Pages * XMemPhysicalMemory.PageSize > HeapWindowBytes)
-        {
-            return 0;
-        }
-
-        if (_heaps.TryGetValue(chunk.Section, out nint existing))
-        {
-            return existing;
-        }
-
-        nint heap = OpenHeap(device, chunk.Window);
-        _heaps[chunk.Section] = heap;
-
-        return heap;
     }
 
     private void LogFailure(string call, int hr)
