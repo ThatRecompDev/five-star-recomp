@@ -45,9 +45,10 @@ public sealed class CompileBudgetTests
         // With none running one always starts, even a 12 GB mesh compile at 26 GB private.
         Assert.True(CompileBudget.UnderCeiling(CompileBudget.Estimate(3L << 20), 0, 26 * Gigabyte, 0, most, ceiling));
 
-        // Program work (boot and warm-up) waits above the ceiling unless none runs.
-        Assert.True(CompileBudget.ProgramRoom(3, 20 * Gigabyte, ceiling));
-        Assert.False(CompileBudget.ProgramRoom(3, 30 * Gigabyte, ceiling));
-        Assert.True(CompileBudget.ProgramRoom(0, 30 * Gigabyte, ceiling));
+        // Program work (boot and warm-up) waits while the compile host is over its ceiling, unless none runs.
+        long host = CompileBudget.HostCeilingBytes;
+        Assert.True(CompileBudget.ProgramRoom(3, 2 * Gigabyte, host));
+        Assert.False(CompileBudget.ProgramRoom(3, 9 * Gigabyte, host));
+        Assert.True(CompileBudget.ProgramRoom(0, 9 * Gigabyte, host));
     }
 }
