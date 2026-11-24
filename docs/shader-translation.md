@@ -139,10 +139,15 @@ The D3D12.X layer creates the views and samplers, so it decides what descriptor 
 
 The **address map** (`ResourceDescriptorHeap[GPU_MAP_HEAP]`, slot 7; `AddressMap` writes it) holds a dword per 4 GiB
 span of the address space (the address's high dword) naming the span's page table, and per 64 KiB page the heap index
-of a raw SRV over the page (its UAV follows) and the page's byte offset in that view. A V# base is looked up once per
-access and the access offset added inside the view; a pointer is looked up at the address it reads, without carrying
-out of the low dword. The D3D12.X shim fills the map from its address table ([d3d12x-shim.md](d3d12x-shim.md#binding));
-an address it does not know names a null view and reads 0.
+of a raw SRV over the page (its UAV follows) and the page's byte offset in that view. Every access is looked up at its
+own address, added in 64 bits: base + offset for a V# (`buf_view`), the pointer plus its offsets for `global_*` and
+`s_load`. The hardware translates each page, so the pages after a V#'s base need not continue its view (a neighbouring
+buffer, or frames the game remapped); an access's later dwords continue in the view of its first byte's page. Lanes
+of one wave can reach different views, so the heap index of each such access is `NonUniformResourceIndex`. The
+D3D12.X shim fills the map from its address table ([d3d12x-shim.md](d3d12x-shim.md#binding)) and from the XMem page
+tables: a mapped XMem page names a view over the section that holds its frame, rewritten on every remap
+([physical-memory.md](physical-memory.md#the-streaming-pool)); an address it does not know names a null view and
+reads 0.
 
 **Range checking.** Buffer accesses keep the RDNA rule: out of range, a load reads 0 and a store or atomic is dropped
 (an atomic returns 0). Console programs rely on it: an argument or append writer runs past its allocation, and a loop

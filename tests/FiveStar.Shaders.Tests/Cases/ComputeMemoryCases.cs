@@ -17,6 +17,16 @@ public static class ComputeMemoryCases
     private const int AuxiliaryHeap = 4;
     private const int Threads = 64;
 
+    // cs_root_descriptor: its two game addresses, the buffers their pages map to, and the lanes left in the first page.
+    private const ulong RootRead = 0x27E_0003_FFC0;
+    private const ulong RootWritten = 0x27E_0006_FFC0;
+    private const int RootReadHeap = 10;
+    private const int RootWrittenHeap = 12;
+    private const int RootNextReadHeap = 14;
+    private const int RootNextWrittenHeap = 16;
+    private const int RootLanesInFirstPage = 16;
+    private const ulong RootNextPageOffset = 0x80;
+
     private const string BufferAtomicProgram = """
         v_lshlrev_b32_e32 v1, 2, v0
         v_mov_b32 v2, 0
@@ -68,7 +78,9 @@ public static class ComputeMemoryCases
 
     // Root descriptors as VS_Clear uses them: a console GPU address in s[8:9] becomes a V# built in the program (stride
     // in dword 1, the hardware dword 3 0x11014fac: 32_UINT, x y z w) and a 64-bit pointer; s[10:11] a second address
-    // written through. Both reach their buffers through the address map at heap slot 7.
+    // written through. Both reach their buffers through the address map at heap slot 7. Both addresses lie 0x40 bytes
+    // before the end of a page whose successor maps to another buffer: lanes 16 and up read and write there, as the
+    // hardware translates every page (pages of different buffers, or frames the game remapped).
     private static ComputeCase RootDescriptors()
     {
         const string Program = """
@@ -90,32 +102,89 @@ public static class ComputeMemoryCases
             s_mov_b32 s31, 0x11014fac
             buffer_store_dword v20, v1, s[28:31], 0 offen
             """;
-        const ulong Read = 0x27E_0003_0040;
-        const ulong Written = 0x27E_0004_0010;
-        const int ReadHeap = 10;
-        const int WrittenHeap = 12;
+        uint[] moved = [.. Input.Select(value => ~value)];
+        var values = RootDescriptorValues(moved);
+        var (stored, storedNext) = RootDescriptorStores(values);
+
+        return new ComputeCase("cs_root_descriptor", Program, 4, thread => [values[thread.Id], values[thread.Id], Input[17], Input[18]])
+        {
+            User = [unchecked((uint)RootRead), (uint)(RootRead >> 32), unchecked((uint)RootWritten), (uint)(RootWritten >> 32)],
+            Buffers =
+            [
+                new BufferResource((int)AddressMap.HeapSlot, RootDescriptorMap(), Writable: false),
+                new BufferResource(RootReadHeap, Input, Writable: false),
+                new BufferResource(RootNextReadHeap, moved, Writable: false),
+                new BufferResource(RootWrittenHeap, new uint[256], Writable: true),
+                new BufferResource(RootNextWrittenHeap, new uint[256], Writable: true),
+            ],
+            Check = buffers => Differences($"heap{RootWrittenHeap}", stored, buffers[RootWrittenHeap])
+                .Concat(Differences($"heap{RootNextWrittenHeap}", storedNext, buffers[RootNextWrittenHeap])),
+        };
+    }
+
+    /// <summary>
+    /// RootRead is byte 0x40 of RootReadHeap and the next page starts at byte 0x80 of RootNextReadHeap; RootWritten is
+    /// byte 0xC0 of RootWrittenHeap and the next page starts at byte 0x80 of RootNextWrittenHeap (the map names a UAV's
+    /// SRV, one below).
+    /// </summary>
+    private static uint[] RootDescriptorMap()
+    {
+        const ulong Page = 0x10000;
         const int NullView = 8;
+        ulong readPage = RootRead & ~(Page - 1);
+        ulong writtenPage = RootWritten & ~(Page - 1);
 
         var map = new AddressMap(1, NullView);
         var bytes = new byte[map.Bytes];
         map.Clear(bytes);
-        map.Map(bytes, Read & ~0xFFFFUL, 0x10000, ReadHeap, Read & ~0xFFFFUL);
-        map.Map(bytes, Written & ~0xFFFFUL, 0x10000, WrittenHeap - 1, (Written & ~0xFFFFUL) - 0x100);
 
-        var stored = new uint[256];
-        Input.AsSpan(16, Threads).CopyTo(stored.AsSpan((0x100 + 0x10) / 4));
+        map.Map(bytes, readPage, Page, RootReadHeap, RootRead - 0x40);
+        map.Map(bytes, readPage + Page, Page, RootNextReadHeap, readPage + Page - RootNextPageOffset);
+        map.Map(bytes, writtenPage, Page, RootWrittenHeap - 1, RootWritten - 0xC0);
+        map.Map(bytes, writtenPage + Page, Page, RootNextWrittenHeap - 1, writtenPage + Page - RootNextPageOffset);
 
-        return new ComputeCase("cs_root_descriptor", Program, 4, thread => [Input[16 + thread.Id], Input[16 + thread.Id], Input[17], Input[18]])
+        return MemoryMarshal.Cast<byte, uint>(bytes).ToArray();
+    }
+
+    /// <summary>What each lane reads: Input from the first page, the moved values from the next.</summary>
+    private static uint[] RootDescriptorValues(uint[] moved)
+    {
+        var values = new uint[Threads];
+
+        for (var lane = 0; lane < Threads; lane++)
         {
-            User = [unchecked((uint)Read), (uint)(Read >> 32), unchecked((uint)Written), (uint)(Written >> 32)],
-            Buffers =
-            [
-                new BufferResource((int)AddressMap.HeapSlot, MemoryMarshal.Cast<byte, uint>(bytes).ToArray(), Writable: false),
-                new BufferResource(ReadHeap, Input, Writable: false),
-                new BufferResource(WrittenHeap, new uint[256], Writable: true),
-            ],
-            Check = buffers => Differences($"heap{WrittenHeap}", stored, buffers[WrittenHeap]),
-        };
+            if (lane < RootLanesInFirstPage)
+            {
+                values[lane] = Input[16 + lane];
+            }
+            else
+            {
+                values[lane] = moved[16 + lane];
+            }
+        }
+
+        return values;
+    }
+
+    /// <summary>Where each lane's store lands: the written buffer for the first page, the next buffer after it.</summary>
+    private static (uint[] Stored, uint[] StoredNext) RootDescriptorStores(uint[] values)
+    {
+        var stored = new uint[256];
+        var storedNext = new uint[256];
+
+        for (var lane = 0; lane < Threads; lane++)
+        {
+            if (lane < RootLanesInFirstPage)
+            {
+                stored[(0xC0 / 4) + lane] = values[lane];
+            }
+            else
+            {
+                storedNext[(int)(RootNextPageOffset / 4) + lane - RootLanesInFirstPage] = values[lane];
+            }
+        }
+
+        return (stored, storedNext);
     }
 
     private static IEnumerable<string> Differences(string name, uint[] expected, uint[] actual)

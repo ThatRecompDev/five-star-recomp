@@ -96,25 +96,24 @@ internal sealed partial class BufferEmitter
         if (op.StartsWith("buffer_load", StringComparison.Ordinal))
         {
             var writable = resource.Kind == OperandKind.Scalar && WrittenResources().Contains(resource.Low);
-            var view = BufferAddress.View(_operands, resource, writable);
-            var byteAddress = _operands.SnapOne($"{view}.y + {address}");
+            var view = BufferAddress.View(_operands, resource, writable, address);
             var function = writable ? "BufLoadRW" : "BufLoad";
 
             for (var dword = 0; dword < count; dword++)
             {
                 var inRange = BufferAddress.InRange(range, dword * BytesPerDword);
-                _operands.Write(a[Data], $"select({inRange}, {function}({view}.x, {byteAddress} + {dword * BytesPerDword}u), 0u)", dword);
+                _operands.Write(a[Data], $"select({inRange}, {function}({view}.x, {view}.y + {dword * BytesPerDword}u), 0u)", dword);
             }
 
             return;
         }
 
-        var target = BufferAddress.View(_operands, resource, true);
+        var target = BufferAddress.View(_operands, resource, true, address);
 
         for (var dword = 0; dword < count; dword++)
         {
             var inRange = BufferAddress.InRange(range, dword * BytesPerDword);
-            _state.Emit($"  if (active && {inRange}) {{ TRACE_VSTORE({_operands.Read(resource, 0)}, {_operands.Read(resource, 1)}, {address} + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); BufStore({target}.x, {target}.y + {address} + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); }}");
+            _state.Emit($"  if (active && {inRange}) {{ TRACE_VSTORE({_operands.Read(resource, 0)}, {_operands.Read(resource, 1)}, {address} + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); BufStore({target}.x, {target}.y + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); }}");
         }
     }
 
@@ -133,8 +132,8 @@ internal sealed partial class BufferEmitter
 
         var address = BufferAddress.Build(_operands, a[Address], resource, a[SOffset], modifiers);
         var inRange = BufferAddress.InRange(BufferAddress.Range(_operands, a[Address], resource, a[SOffset], modifiers), 0);
-        var view = BufferAddress.View(_operands, resource, store);
-        var byteAddress = _operands.SnapOne($"{view}.y + {address}");
+        var view = BufferAddress.View(_operands, resource, store, address);
+        var byteAddress = $"{view}.y";
         var format = _operands.SnapOne(code);
         var swizzle = _operands.SnapOne(dword3);
 

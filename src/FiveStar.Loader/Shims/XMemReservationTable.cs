@@ -52,6 +52,12 @@ internal sealed class XMemReservationTable
         return null;
     }
 
+    /// <summary>The reservations now, sorted by address.</summary>
+    public XMemReservation[] Snapshot()
+    {
+        return Volatile.Read(ref _sorted);
+    }
+
     /// <summary>Empties the table and returns what it held.</summary>
     public XMemReservation[] TakeAll()
     {
