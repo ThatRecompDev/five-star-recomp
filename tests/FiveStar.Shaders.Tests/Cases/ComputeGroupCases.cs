@@ -6,7 +6,7 @@ using System.Globalization;
 
 namespace FiveStar.Shaders.Tests.Cases;
 
-/// <summary>Compute cases for thread / group ids, user SGPRs and LDS (plain accesses and atomics).</summary>
+/// <summary>Compute cases for thread / group ids, user SGPRs, LDS (plain accesses and atomics) and the loop cap.</summary>
 public static class ComputeGroupCases
 {
     private const int GroupThreads = 64;
@@ -76,7 +76,32 @@ public static class ComputeGroupCases
             UserSgprs(),
             Lds(),
             LdsAtomics(),
+            LoopCap(),
         ];
+    }
+
+    // Two nested loops of 1,000 iterations each, bounds from a user SGPR (a bound read from data). The compute cap of
+    // 65,536 iterations holds for the invocation's loops together: 65 outer rounds (1,001 iterations each) and 470 inner
+    // iterations of the 66th, then every loop leaves. A cap per loop let nested loops multiply it (65,536 squared).
+    private static ComputeCase LoopCap()
+    {
+        const string Program = """
+            v_mov_b32 v20, 0
+            s_mov_b32 s20, 0
+            .Louter:
+            s_mov_b32 s21, 0
+            .Linner:
+            v_add_nc_u32_e32 v20, 1, v20
+            s_add_u32 s21, s21, 1
+            s_cmp_lt_u32 s21, s8
+            s_cbranch_scc1 .Linner
+            s_add_u32 s20, s20, 1
+            s_cmp_lt_u32 s20, s8
+            s_cbranch_scc1 .Louter
+            """;
+        const uint Counted = (65 * 1000) + 470;
+
+        return new ComputeCase("cs_loop_cap", Program, 1, _ => [Counted]) { User = [1000] };
     }
 
     // numthreads(8, 2, 2) x Dispatch(2, 3, 2): thread ids x / y / z in v0 / v1 / v2 (TIDIG_COMP_CNT 2), TGID_X/Y/Z_EN to s12 / s13 / s14.

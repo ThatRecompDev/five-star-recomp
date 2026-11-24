@@ -100,10 +100,25 @@ side: their outputs are equal apart from fast-math rounding in dxc.
 
 ### Loop guard
 
-Every loop is bounded (`LoopGuard`): a structured loop counts its iterations in `uint loop_guardN` and leaves after
-65,536 through `break` (a loop with several exits then takes the one numbered 0), and the dispatch `while` stops after
-2^24 blocks. A console program's loops end on the data the console gives it; on the PC one wrong input keeps a loop
-going until the driver removes the device. In the story load, `InstanceCulling~CS_Prop_BatchCull` (counted loops that
+Every loop is bounded (`LoopGuard`): every iteration of a structured loop spends one of the invocation's
+`loop_budget`, and once the stage's cap is spent each loop leaves at its next iteration through `break` (a loop with
+several exits then takes the one numbered 0). The dispatch `while` stops after 2^24 blocks. A console program's loops end
+on the data the console gives it; on the PC one wrong input keeps a loop going until the driver removes the device.
+
+The console has no cap, so a cap is only a safety net against our own wrong inputs and must not bind for a correct
+program. The caps count all loops of one invocation together (a cap per loop let nested loops multiply it, 65,536² in
+`CS_InitDepthPyramidWithCpuOcclusion3x3`):
+
+| Stage | Cap | Why |
+|---|---|---|
+| pixel, vertex, geometry, mesh | 4,096 | invocations come by the million a draw. A Series X frame at 30 fps is about 2·10^11 lane instructions; a full-screen pass of 3.7 M pixels at 4,096 iterations of a 4-instruction loop would take a third of it, so a correct program stays far below. A runaway draw stops after about 1.5·10^10 iterations, well under the driver's 2 s timeout on a 4090 |
+| compute | 65,536 | a thread is one of fewer, and single-thread passes walk whole lists |
+
+victory-gta6 caps each loop at 128 (pixel), 256 (vertex, mesh) and 4,096 (compute) and kills the lane at the cap. Those
+values can cut real loops (light lists, blur kernels); ours trade a little more GPU time for not doing so.
+`--trace-pool-stores` logs the first hit per program with the loop's number and the cap. The previous lanes' boot logs
+show hits only in programs reading wrong data (`CS_InitDepthPyramidWithCpuOcclusion3x3`, below). The caps are literals
+in the HLSL, so every cache keyed on the text or on the translator keys on them. In the story load, `InstanceCulling~CS_Prop_BatchCull` (counted loops that
 end when a counter equals a bound read from a buffer) and then `scattering_transmittance_system~CS_DensityShadowMapCheckerboard`
 (a ray march whose float step counter, incremented by 1.0, must reach a step count converted from a float) never
 finished. The guard turns such a hang into wrong output for that dispatch. In CS_DensityShadowMapCheckerboard and
