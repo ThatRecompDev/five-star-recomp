@@ -113,7 +113,7 @@ internal sealed unsafe class XboxDescriptorHeaps
     [HotPath]
     private static void Forget(nint handle)
     {
-        if (DebugLayer.ViewLiveness.Enabled)
+        if (DebugLayer.ViewLiveness.Noting)
         {
             DebugLayer.ViewLiveness.Forget(handle);
         }
