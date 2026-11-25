@@ -73,7 +73,51 @@ public static class ComputeMemoryCases
             GlobalNegativeOffset(),
             GlobalAtomic(),
             RootDescriptors(),
+            TableBufferBase(),
         ];
+    }
+
+    // A V# in a descriptor table of the window whose base is a console GPU address, as the D3D12.X shim's records hold it
+    // (MS_VS_Transform_PositionOnly s_loads one and loads through its base + 0x40): the program builds a pointer from the
+    // base and loads through it, and loads through the V#; both reach the buffer through the address map.
+    private static ComputeCase TableBufferBase()
+    {
+        const string Program = """
+            s_load_dwordx4 s[12:15], s[8:9], 0x40
+            s_waitcnt lgkmcnt(0)
+            s_mov_b32 s16, s12
+            s_and_b32 s17, s13, 0xffff
+            s_load_dword s20, s[16:17], 0x4
+            v_lshlrev_b32_e32 v1, 2, v41
+            buffer_load_dword v21, v1, s[12:15], 0 offen
+            s_waitcnt vmcnt(0) lgkmcnt(0)
+            v_mov_b32_e32 v20, s20
+            v_mov_b32_e32 v22, s17
+            """;
+        const ulong Page = 0x10000;
+        const ulong Base = 0x27E_0005_0010;
+        const int TableRecord = 0x40 / 4;
+        const int NullView = 8;
+        const uint Bytes = 256;
+
+        var window = new uint[64];
+        (window[TableRecord], window[TableRecord + 1], window[TableRecord + 2], window[TableRecord + 3]) = (unchecked((uint)Base), (uint)(Base >> 32), Bytes, 0x31014fac);
+
+        var map = new AddressMap(1, NullView);
+        var bytes = new byte[map.Bytes];
+        map.Clear(bytes);
+        map.Map(bytes, Base & ~(Page - 1), Page, RootReadHeap, Base & ~(Page - 1));
+
+        return new ComputeCase("cs_table_buffer_base", Program, 3, thread => [Expected.Exact(Input[5]), Expected.Exact(Input[4 + thread.Id]), Expected.Exact((uint)(Base >> 32))])
+        {
+            User = [0, 0, 0, 0],
+            Buffers =
+            [
+                new BufferResource(0, window, Writable: false),
+                new BufferResource((int)AddressMap.HeapSlot, MemoryMarshal.Cast<byte, uint>(bytes).ToArray(), Writable: false),
+                new BufferResource(RootReadHeap, Input, Writable: false),
+            ],
+        };
     }
 
     // Root descriptors as VS_Clear uses them: a console GPU address in s[8:9] becomes a V# built in the program (stride

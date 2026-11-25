@@ -28,6 +28,45 @@ internal static unsafe class BufferRecords
     /// <summary>Bytes of an element of a raw view.</summary>
     private const uint RawElement = 4;
 
+    /// <summary>
+    /// <c>--buffer-records-heap-index</c>: buffer records keep the desktop heap index in dword 0 instead of the console
+    /// base address (<see cref="BufferRecord.At"/>), as before.
+    /// </summary>
+    public static bool HeapIndexOnly { get; set; }
+
+    /// <summary>The console GPU address of a resource the game placed (slot 133); 0 for one the desktop placed.</summary>
+    [HotPath]
+    public static ulong GameAddress(nint resource)
+    {
+        var wrapper = ShimContext.Runtime.D3D12X.Objects.AsResource(resource);
+
+        if (wrapper == null)
+        {
+            return 0;
+        }
+
+        return wrapper->GameAddress;
+    }
+
+    /// <summary>The first element of a D3D12_SHADER_RESOURCE_VIEW_DESC or (<paramref name="unordered"/>) UAV desc of a buffer; 0 otherwise.</summary>
+    [HotPath]
+    public static ulong FirstElement(void* description, bool unordered)
+    {
+        var view = (BufferViewDescription*)description;
+
+        if (view == null || view->Dimension != BufferViewDescription.BufferDimension)
+        {
+            return 0;
+        }
+
+        if (unordered)
+        {
+            return view->UavFirstElement;
+        }
+
+        return view->SrvFirstElement;
+    }
+
     /// <summary>The record of a constant buffer of <paramref name="size"/> bytes.</summary>
     [HotPath]
     public static BufferRecord ConstantBuffer(uint size)

@@ -78,7 +78,7 @@ internal static unsafe class XboxDescriptorMethods
 
             // In the game's own heaps a CBV is a V# the programs read as a ByteAddressBuffer: a raw SRV over the same bytes.
             if (location != 0 && D3D12X.DescriptorHeaps.Find(handle, out _) is not null
-                && D3D12X.AddressBuffers.CreateRaw(inner, location, description->Size, D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.ConstantBuffer(description->Size))))
+                && D3D12X.AddressBuffers.CreateRaw(inner, location, description->Size, D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.ConstantBuffer(description->Size).At(location, 0))))
             {
                 D3D12X.DrawTrace?.ConstantBufferView(D3D12X.DescriptorHeaps.Source(handle), description->Location, description->Size);
 
@@ -169,7 +169,8 @@ internal static unsafe class XboxDescriptorMethods
             desktop = BufferViewRanges.Fit(resource, desktop, description, copy, false, out void* fitted);
             void* view = TargetViewDescriptions.ShaderResourceView(desktop, fitted, copy);
 
-            nint destination = D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.ShaderResource(description));
+            var record = BufferRecords.ShaderResource(description).At(BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: false));
+            nint destination = D3D12X.DescriptorHeaps.Destination(handle, record);
             CreateDesktopView(self, CreateShaderResourceViewSlot, desktop, DepthViewDescriptions.ShaderResourceView(desktop, view, copy), destination);
         }
         catch (Exception exception)
@@ -233,7 +234,7 @@ internal static unsafe class XboxDescriptorMethods
             }
 
             desktop = BufferViewRanges.Fit(resource, desktop, description, copy, true, out void* fitted);
-            var record = BufferRecords.UnorderedAccess(description);
+            var record = BufferRecords.UnorderedAccess(description).At(BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: true));
             var destination = D3D12X.DescriptorHeaps.Destination(handle, record);
 
             if (TransientPoolViews.Enabled)

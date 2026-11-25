@@ -92,6 +92,8 @@ internal static class HostUsage
           --skip-compute-chains  skip the rest of a command list's dispatches after one skipped for a stand-in
           --empty-indirect-after-skip  a command list's ExecuteIndirects after a compute dispatch skipped for a stand-in run nothing
           --retire-waits-all-queues  a submission holding the game's retire write waits for every other queue
+          --buffer-records-heap-index  buffer descriptor records hold the desktop heap index where the console has the
+                                 view's base address (the behaviour before; programs that build pointers from a V# break)
           --user-data-constants  draws pass their user data as root constants, not a root CBV in upload memory (needs
                                  programs made on demand)
           --trace-pool-stores    programs made on demand log their stores into the transient pool and the game heap
