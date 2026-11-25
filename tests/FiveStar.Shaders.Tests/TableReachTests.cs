@@ -53,6 +53,21 @@ public sealed class TableReachTests
         Assert.Equal(new Dictionary<int, uint> { [14] = 0x14 }, reach);
     }
 
+    [Fact]
+    public void A_load_at_a_computed_offset_reaches_the_whole_table()
+    {
+        // TL_PS_PBR_MATERIAL_STANDARD: a probe's T# at the table in s14 plus 32 x an index it computed.
+        string[] program =
+        [
+            "s_mov_b32 s15, 0",
+            "s_lshl_b32 s1, s2, 5",
+            "s_load_dwordx8 s[16:23], s[14:15], s1",
+            "s_endpgm",
+        ];
+
+        Assert.Equal(new Dictionary<int, uint> { [14] = TableReach.DynamicReach }, TableReach.Find(Instructions(program)));
+    }
+
     private static List<Instruction> Instructions(string[] lines)
     {
         return [.. lines.Select((text, index) => new Instruction(index * 8, 8, text))];
