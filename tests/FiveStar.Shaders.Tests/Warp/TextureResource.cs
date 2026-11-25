@@ -21,7 +21,7 @@ public sealed record TextureResource(int HeapIndex, Format Format, int Width, in
 
     public bool Writable { get; init; }
 
-    /// <summary>Bytes per texel: 4 for the one-channel 32-bit formats, else 16 (RGBA32).</summary>
+    /// <summary>Bytes per texel: 4 for the one-channel 32-bit formats, 8 for the two-channel ones (64-bit atomics), else 16 (RGBA32).</summary>
     public int TexelBytes
     {
         get
@@ -29,6 +29,11 @@ public sealed record TextureResource(int HeapIndex, Format Format, int Width, in
             if (Format is Format.R32_UInt or Format.R32_SInt or Format.R32_Float)
             {
                 return 4;
+            }
+
+            if (Format is Format.R32G32_UInt or Format.R32G32_SInt)
+            {
+                return 8;
             }
 
             return 16;

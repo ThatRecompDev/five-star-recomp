@@ -21,6 +21,10 @@ internal sealed partial class AtomicEmitter
     private const int ScalarBaseAfterAddress = 2;
     private const int CompareValue = 1;
     private const long AddressMask = 0xffffffff;
+    private const int WideMask = 0x3;
+    private const int WideCompareMask = 0xf;
+    private const int CompareLow = 2;
+    private const int CompareHigh = 3;
 
     private readonly TranslationState _state;
     private readonly OperandAccess _operands;
@@ -188,10 +192,18 @@ internal sealed partial class AtomicEmitter
         var coordinates = ImageDimensions.ReadAddress(_operands, arguments[Address]);
         var index = ImageDimensions.IntegerCoordinates(coordinates, components);
 
+        var texture = _operands.Read(OperandParser.Parse(arguments[Resource]), 0);
+
+        if (Wide(atomic.Kind, modifiers))
+        {
+            WideImage(atomic, type, index, texture, modifiers.Has("glc"));
+
+            return false;
+        }
+
         // Needs an integer-typed UAV view (R32_UINT/SINT) of the image.
         var element = atomic.Signed ? "int" : "uint";
         var result = atomic.Result;
-        var texture = _operands.Read(OperandParser.Parse(arguments[Resource]), 0);
         _state.Emit($"  uint {result} = 0; if (active) {{ {type}<{element}> _u{result} = ResourceDescriptorHeap[{texture}];");
 
         if (atomic.Kind == "cmpswap")
@@ -211,6 +223,47 @@ internal sealed partial class AtomicEmitter
         _state.Emit($"    {atomic.Function}(_u{result}[{index}], {value}, {result}); }}");
 
         return true;
+    }
+
+    /// <summary>
+    /// A 64-bit image atomic: dmask 0x3 (0xf for cmpswap, whose data is the new value then the comparand), on a 64-bit
+    /// texel (an R32G32_UINT/SINT view, uint64_t in HLSL, SM 6.6 typed 64-bit atomics). Its data is two VGPRs, low
+    /// dword first. Translated as a 32-bit atomic on the low dword before (MS/CS visibility passes' image_atomic_umax).
+    /// </summary>
+    private static bool Wide(string kind, InstructionModifiers modifiers)
+    {
+        var mask = modifiers.Hex("dmask", 1);
+
+        if (kind == "cmpswap")
+        {
+            return mask == WideCompareMask;
+        }
+
+        return mask == WideMask;
+    }
+
+    private void WideImage(AtomicOperation atomic, string type, string index, string texture, bool returns)
+    {
+        var element = atomic.Signed ? "int64_t" : "uint64_t";
+        var result = atomic.Result;
+        var value = $"(({element})((uint64_t({_operands.Read(atomic.Data, 1)}) << 32) | {_operands.Read(atomic.Data, 0)}))";
+        _state.Emit($"  {element} {result} = 0; if (active) {{ {type}<{element}> _u{result} = ResourceDescriptorHeap[{texture}];");
+
+        if (atomic.Kind == "cmpswap")
+        {
+            var compare = $"(({element})((uint64_t({_operands.Read(atomic.Data, CompareHigh)}) << 32) | {_operands.Read(atomic.Data, CompareLow)}))";
+            _state.Emit($"    InterlockedCompareExchange(_u{result}[{index}], {compare}, {value}, {result}); }}");
+        }
+        else
+        {
+            _state.Emit($"    {atomic.Function}(_u{result}[{index}], {value}, {result}); }}");
+        }
+
+        if (returns)
+        {
+            _operands.Write(atomic.Data, $"(uint)((uint64_t){result})", 0);
+            _operands.Write(atomic.Data, $"(uint)(((uint64_t){result}) >> 32)", 1);
+        }
     }
 
     [GeneratedRegex(@"^(buffer|image|global)_atomic_")]

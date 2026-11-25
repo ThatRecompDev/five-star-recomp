@@ -402,6 +402,13 @@ public sealed class TextureLowerer
 
             Shape = shape;
             Element = target.Type.Element ?? HlslType.Vector(ScalarKind.Float, MaxCoordinates);
+
+            // 64-bit texels (typed 64-bit atomics) are lowered as 32-bit ones here: dxc compiles those programs.
+            if (Element.Kind is ScalarKind.Int64 or ScalarKind.Uint64)
+            {
+                throw SourceError.At(call, $"{target.Type.Name} of 64-bit elements is not supported");
+            }
+
             var floating = Conversions.IsFloat(Element.Kind);
             ScalarType = Choice.Of(floating, context.Module.Types.Float, context.Module.Types.Int32);
             ResultType = Choice.Of(floating, context.Ops.FloatResult, context.Ops.Int32Result);
