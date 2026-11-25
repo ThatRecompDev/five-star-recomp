@@ -92,6 +92,9 @@ internal sealed class TranslationState
     /// <summary>2D samples filter shared-exponent light themselves (TranslationOptions.SharedExponentSamples).</summary>
     public bool SharedExponentSamples { get; init; }
 
+    /// <summary>The program filters shared-exponent light: it gets rdna_shared_exponent.hlsli written into it.</summary>
+    public bool UsesSharedExponent { get; set; }
+
     /// <summary>The loop caps (TranslationOptions.Loops, else the translator's own).</summary>
     public LoopCaps Loops { get; init; } = LoopCaps.Default;
 

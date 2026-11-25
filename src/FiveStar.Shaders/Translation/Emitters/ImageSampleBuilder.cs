@@ -18,6 +18,10 @@ internal sealed class ImageSampleBuilder
     // A 2D array's address: x, y, then the slice.
     private const int ArraySlice = 2;
 
+    /// <summary>The coordinates of a 2D and of a 3D sample.</summary>
+    private const int PlaneAxes = 2;
+    private const int VolumeAxes = 3;
+
     private static readonly HashSet<string> SampleOperations =
     [
         "sample", "sample_lz", "sample_l", "sample_b", "sample_c", "sample_c_lz", "sample_c_l", "sample_d", "sample_c_d",
@@ -79,25 +83,31 @@ internal sealed class ImageSampleBuilder
         }
     }
 
-    /// <summary>Whether <see cref="SharedExponentSample"/> takes a request: a 2D sample without compare or clamp.</summary>
+    /// <summary>Whether <see cref="SharedExponentSample"/> takes a request: a 2D or 3D sample without compare or clamp.</summary>
     public static bool TakesSharedExponent(ImageRequest request)
     {
-        return SampleOperations.Contains(request.Operation) && !request.HasCompare && !request.HasClamp && request.Dimension == "2D";
+        return SampleOperations.Contains(request.Operation) && !request.HasCompare && !request.HasClamp && request.Dimension is "2D" or "3D";
     }
 
     /// <summary>
-    /// A filtered 2D sample of shared-exponent light through <paramref name="bits"/> (the uint declaration), the S#
-    /// words <paramref name="sampler"/>: the coordinates and the level the hardware takes (0 for _lz and outside a pixel
-    /// program, the explicit LOD, else log2 of the footprint from the gradients or the pixel's derivatives, plus a bias),
-    /// as an <c>se_sample</c> call (<see cref="TakesSharedExponent"/> requests only).
+    /// A filtered 2D or 3D sample of shared-exponent light through <paramref name="bits"/> (the uint declaration), the
+    /// sampler word <paramref name="sampler"/>: the coordinates and the level the hardware takes (0 for _lz and outside a
+    /// pixel program, the explicit LOD, else log2 of the footprint from the gradients or the pixel's derivatives, plus a
+    /// bias), as an <c>se_sample</c> / <c>se_sample3</c> call (<see cref="TakesSharedExponent"/> requests only).
     /// </summary>
     public string SharedExponentSample(ImageRequest request, string bits, string sampler)
     {
         var address = new SampleAddress(request);
         var n = request.Number;
         var uv = $"_seuv{n}";
-        _state.Emit($"  float2 {uv} = {address.Coordinates}; uint _sew{n}, _seh{n}, _sen{n}; {bits}.GetDimensions(0u, _sew{n}, _seh{n}, _sen{n});");
-        var size = $"float2(_sew{n}, _seh{n})";
+
+        var volume = request.Dimension == "3D";
+        var axes = volume ? VolumeAxes : PlaneAxes;
+        var depth = volume ? $"_sed{n}, " : string.Empty;
+        _state.Emit($"  float{axes} {uv} = {address.Coordinates}; uint _sew{n}, _seh{n}, {depth}_sen{n}; {bits}.GetDimensions(0u, _sew{n}, _seh{n}, {depth}_sen{n});");
+
+        var size = volume ? $"float3(_sew{n}, _seh{n}, _sed{n})" : $"float2(_sew{n}, _seh{n})";
+        var lod = volume ? "se_lod3" : "se_lod";
         var level = "0.0";
 
         if (address.Lod is not null)
@@ -106,11 +116,11 @@ internal sealed class ImageSampleBuilder
         }
         else if (address.DerivativeX is not null)
         {
-            level = $"se_lod({address.DerivativeX}, {address.DerivativeY}, {size})";
+            level = $"{lod}({address.DerivativeX}, {address.DerivativeY}, {size})";
         }
         else if (_state.Stage == ShaderStage.Pixel && !request.Operation.EndsWith("_lz", StringComparison.Ordinal))
         {
-            level = $"se_lod(ddx({uv}), ddy({uv}), {size})";
+            level = $"{lod}(ddx({uv}), ddy({uv}), {size})";
         }
 
         if (address.Bias is not null)
@@ -118,9 +128,11 @@ internal sealed class ImageSampleBuilder
             level = $"{level} + {address.Bias}";
         }
 
-        var offset = request.Offsets ?? "int2(0, 0)";
+        var offset = request.Offsets ?? $"int{axes}({string.Join(", ", Enumerable.Repeat("0", axes))})";
+        var call = volume ? "se_sample3" : "se_sample";
+        _state.UsesSharedExponent = true;
 
-        return $"se_sample({bits}, {uv}, {level}, {sampler}, {offset})";
+        return $"{call}({bits}, {uv}, {level}, {sampler}, {offset})";
     }
 
     private string Sample(ImageRequest request)

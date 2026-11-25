@@ -34,7 +34,40 @@ public static class TypedViewCases
 
     public static IEnumerable<ComputeCase> All()
     {
-        return [UintLoad(), SintLoad(), FloatLoad(), HalfLoad(), UintStore(), SharedExponentLoad(), SharedExponentBilinear(), SharedExponentPoint(), SharedExponentLevel()];
+        return [UintLoad(), SintLoad(), FloatLoad(), HalfLoad(), UintStore(), SharedExponentLoad(), SharedExponentBilinear(), SharedExponentPoint(), SharedExponentLevel(), SharedExponentVolume()];
+    }
+
+    // sample_lz of a 4x2x2 volume midway between texels x and x + 1 (clamped at the edge) and between its two slices:
+    // trilinear over the eight texels, each decoded, at the row's centre.
+    private static ComputeCase SharedExponentVolume()
+    {
+        var texels = SharedExponentTexels(2 * Texels, 11);
+        var program = Address + "\n" + """
+            v_cvt_f32_u32_e32 v3, v1
+            v_add_f32_e32 v3, 1.0, v3
+            v_mul_f32_e32 v3, 0.25, v3
+            v_cvt_f32_u32_e32 v4, v2
+            v_add_f32_e32 v4, 0.5, v4
+            v_mul_f32_e32 v4, 0.5, v4
+            v_mov_b32 v5, 0.5
+            """ + "\n" + Sampler(BilinearWord) + "\n" + """
+            image_sample_lz v[20:22], v[3:5], s[8:15], s[20:23] dmask:0x7 dim:SQ_RSRC_IMG_3D
+            s_waitcnt vmcnt(0)
+            """;
+
+        return new ComputeCase("cs_typed_rgb9e5_sample_volume", program, 3, thread =>
+        {
+            int x = thread.Id & 3;
+            int row = ((thread.Id >> 2) & 1) * Width;
+            int right = Math.Min(x + 1, Width - 1);
+            float[][] corners = [Colour(texels[row + x]), Colour(texels[row + right]), Colour(texels[Texels + row + x]), Colour(texels[Texels + row + right])];
+
+            return [.. Enumerable.Range(0, 3).Select(channel => Expected.Near(corners.Average(corner => corner[channel]), 1e-3))];
+        })
+        {
+            User = [TextureHeap, 0, 0, SharedExponent],
+            Textures = [new TextureResource(TextureHeap, Format.R32_UInt, Width, Height, texels) { Kind = TextureKind.Texture3D, Layers = 2 }],
+        };
     }
 
     /// <summary>A literal S# in s[20:23]: clamp to the edge, max LOD 12, and word 2 (filters and mip filter).</summary>

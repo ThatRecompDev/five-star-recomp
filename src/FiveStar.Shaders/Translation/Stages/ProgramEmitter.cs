@@ -19,6 +19,7 @@ internal sealed partial class ProgramEmitter
 
     private const string OutStruct = "struct Out {";
     private const string SuperstepHeader = "rdna_superstep.hlsli";
+    private const string SharedExponentHeader = "rdna_shared_exponent.hlsli";
     private const int DefaultComputeThreads = 64;
     private const int BytesPerDword = 4;
     private const int CodeLoadLine = 2;
@@ -75,6 +76,12 @@ internal sealed partial class ProgramEmitter
         {
             // Written into the program, not included: the headers every program includes stay as they are.
             lines[0] += "\n" + RuntimeIncludes.Read(SuperstepHeader).TrimEnd('\n');
+        }
+
+        if (_state.UsesSharedExponent)
+        {
+            // Written into the listed programs only (TranslationOptions.SharedExponentPrograms), as the superstep header.
+            lines[0] += "\n" + RuntimeIncludes.Read(SharedExponentHeader).TrimEnd('\n');
         }
 
         if (_state.UsesBvh)
