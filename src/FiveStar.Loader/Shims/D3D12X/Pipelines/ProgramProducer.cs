@@ -4,6 +4,7 @@
 using System.Text;
 using FiveStar.Graphics.Programs;
 using FiveStar.Shaders.Analysis;
+using FiveStar.Shaders.Cache;
 using FiveStar.Shaders.Compilation;
 using FiveStar.Shaders.Containers;
 using FiveStar.Shaders.Disassembly;
@@ -83,6 +84,12 @@ internal sealed class ProgramProducer
 
         return header.ToString();
     }
+
+    /// <summary>
+    /// Compiled programs by what they were compiled from (<see cref="ProgramContentStore"/>): a program a new
+    /// translator build translates to the same HLSL is copied from there, not compiled again; null keeps none.
+    /// </summary>
+    public ProgramContentStore? ContentStore { get; init; }
 
     /// <summary>The folder the DXIL goes to.</summary>
     public string Folder => _folder;
@@ -218,6 +225,32 @@ internal sealed class ProgramProducer
     public string? Compile(ProgramForm form, bool dxcOnly)
     {
         var request = form.Request!;
+
+        if (ContentStore is null || !ContentStore.TryRestore(request))
+        {
+            var failure = CompileNow(form, request, dxcOnly);
+
+            if (failure is not null)
+            {
+                return failure;
+            }
+
+            ContentStore?.Keep(request);
+        }
+
+        var target = DxilPath(form.Name);
+
+        if (!string.Equals(request.DxilPath, target, StringComparison.OrdinalIgnoreCase))
+        {
+            File.Move(request.DxilPath, target, overwrite: true);
+        }
+
+        return null;
+    }
+
+    /// <summary>Runs the compiler on <paramref name="request"/>; null when it compiled, else why not (a source or validation error is kept).</summary>
+    private string? CompileNow(ProgramForm form, CompileRequest request, bool dxcOnly)
+    {
         CompileOutcome outcome;
 
         if (dxcOnly && Hosting is not null)
@@ -229,26 +262,19 @@ internal sealed class ProgramProducer
             outcome = _compiler.Compile(request, _compiler.Options.CompileTimeout);
         }
 
-        if (!outcome.Succeeded)
+        if (outcome.Succeeded)
         {
-            var failure = $"{ProgramStatus.CompileFailure}: {DxcCompiler.FirstError(outcome.Error)}";
-
-            if (outcome.Error.Contains(SourceError, StringComparison.Ordinal) || outcome.Error.Contains(ValidationError, StringComparison.Ordinal))
-            {
-                Keep(form.Name, failure);
-            }
-
-            return failure;
+            return null;
         }
 
-        var target = DxilPath(form.Name);
+        var failure = $"{ProgramStatus.CompileFailure}: {DxcCompiler.FirstError(outcome.Error)}";
 
-        if (!string.Equals(request.DxilPath, target, StringComparison.OrdinalIgnoreCase))
+        if (outcome.Error.Contains(SourceError, StringComparison.Ordinal) || outcome.Error.Contains(ValidationError, StringComparison.Ordinal))
         {
-            File.Move(request.DxilPath, target, overwrite: true);
+            Keep(form.Name, failure);
         }
 
-        return null;
+        return failure;
     }
 
     /// <summary>
@@ -316,10 +342,18 @@ internal sealed class ProgramProducer
         }
 
         var linkedRequest = request with { HlslPath = Path.ChangeExtension(dxilPath, HlslExtension), Hlsl = linked };
+
+        if (ContentStore is not null && ContentStore.TryRestore(linkedRequest))
+        {
+            return null;
+        }
+
         var outcome = _compiler.Compile(linkedRequest, _compiler.Options.CompileTimeout);
 
         if (outcome.Succeeded)
         {
+            ContentStore?.Keep(linkedRequest);
+
             return null;
         }
 
