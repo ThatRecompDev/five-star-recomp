@@ -68,6 +68,15 @@ internal static class VirtualGamepad
             }
         }
 
+        // An input script's pad keys (PadA and the rest) press their button whatever the bindings say.
+        for (int i = 0; i < KeyNames.PadButtons.Length; i++)
+        {
+            if (keys.IsDown(KeyNames.FirstPadKey + i))
+            {
+                buttons |= KeyNames.PadButtons[i];
+            }
+        }
+
         return buttons;
     }
 
