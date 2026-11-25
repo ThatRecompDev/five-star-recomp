@@ -443,8 +443,8 @@ public static class PixelMemoryCases
         };
     }
 
-    // A compressed export into a uint target: the colour buffer converts the FP16 channels to integers (the console's
-    // PS_ClearUint32 clears a uint target this way), negatives to 0.
+    // A compressed export into a uint target: the pipeline exports it 32-bit (32_ABGR), so the target takes the values
+    // the FP16 pairs were packed from, as bits (PS_VfxVBuffer's 32-bit fields).
     private static PixelCase CompressedUintExport()
     {
         const string Program = """
@@ -453,10 +453,11 @@ public static class PixelMemoryCases
             exp mrt0 v0, v0, v1, v1 done compr vm
             s_endpgm
             """;
+        uint[] fields = [0x12345678, 0xFF00ABCD, 300, 0xFFFFFFFC];
 
-        return new PixelCase("export_compressed_uint", Program, 4, _ => [1, 2, 300, 0])
+        return new PixelCase("export_compressed_uint", Program, 4, _ => [.. fields.Select(Expected.Exact)])
         {
-            Bindings = new Bindings { UserSgprs = [F(1), F(2), F(300), F(-4)] },
+            Bindings = new Bindings { UserSgprs = fields },
             Raw = true,
         };
     }
