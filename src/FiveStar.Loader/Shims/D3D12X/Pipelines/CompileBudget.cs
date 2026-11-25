@@ -310,7 +310,7 @@ internal static unsafe class CompileBudget
 
         long grown = Math.Max(measure.Peak, RamBackedBytes()) - measure.StartBytes;
         double seconds = System.Diagnostics.Stopwatch.GetElapsedTime(measure.Started).TotalSeconds;
-        ShimContext.Runtime.Log.Detail($"  [budget] {what}: {measure.ShaderBytes / BytesPerMegabyte:F2} MB of DXIL, estimate {Estimate(measure.ShaderBytes) / BytesPerGigabyte:F1} GB, RAM-backed private peak +{grown / BytesPerGigabyte:F2} GB over {seconds:F0} s, {measure.Running} compiles running at its start");
+        ShimContext.Log?.Detail($"  [budget] {what}: {measure.ShaderBytes / BytesPerMegabyte:F2} MB of DXIL, estimate {Estimate(measure.ShaderBytes) / BytesPerGigabyte:F1} GB, RAM-backed private peak +{grown / BytesPerGigabyte:F2} GB over {seconds:F0} s, {measure.Running} compiles running at its start");
     }
 
     private static void Sample()

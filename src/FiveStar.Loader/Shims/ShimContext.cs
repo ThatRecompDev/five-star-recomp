@@ -11,9 +11,23 @@ namespace FiveStar.Loader.Shims;
 internal static class ShimContext
 {
     private static LoaderRuntime? _runtime;
+    private static Diagnostics.LoaderLog? _log;
 
     /// <summary>The runtime whose images are mapped; the most recently created one.</summary>
     public static LoaderRuntime Runtime => Volatile.Read(ref _runtime) ?? throw new InvalidOperationException("no loader runtime is active");
+
+    /// <summary>
+    /// The log of the active runtime, else the one a mode without a game set (<see cref="Host.WarmPipelinesCommand"/>):
+    /// pipeline builds log through it in both. The warm-up ended on the first [budget] line it wrote while it asked
+    /// <see cref="Runtime"/>, which has no runtime there.
+    /// </summary>
+    public static Diagnostics.LoaderLog? Log => Volatile.Read(ref _runtime)?.Log ?? Volatile.Read(ref _log);
+
+    /// <summary>Sets the log of a mode without a runtime.</summary>
+    public static void UseLog(Diagnostics.LoaderLog log)
+    {
+        Volatile.Write(ref _log, log);
+    }
 
     public static void Activate(LoaderRuntime runtime)
     {
