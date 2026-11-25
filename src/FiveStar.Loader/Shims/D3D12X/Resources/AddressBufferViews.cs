@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Five Star Recomp contributors.
+// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Loader.Native;
@@ -11,7 +11,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// Device slot 70 with a buffer desc: a buffer SRV (raw, structured or typed) at a console GPU address. The address
 /// lies in a desktop buffer over game memory (<see cref="XboxGameMemoryBuffers.TryFind"/>); the view's first element
 /// moves by the address's offset in that buffer. An address outside known memory, off the element size or past the
-/// buffer's end gets no view (the caller writes a null one).
+/// buffer's end gets no view (the caller writes a null one), as does a raw view whose first byte is off the 16 bytes
+/// D3D12 requires (D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT): such a view is invalid, and a driver may move it.
 /// </summary>
 internal sealed unsafe class AddressBufferViews
 {
@@ -20,6 +21,9 @@ internal sealed unsafe class AddressBufferViews
 
     /// <summary>Bytes of a raw view's element (R32_TYPELESS).</summary>
     private const uint RawElementBytes = sizeof(uint);
+
+    /// <summary>D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT.</summary>
+    private const uint RawAlignment = 16;
 
     private readonly XboxGameMemoryBuffers _memory;
 
@@ -50,6 +54,12 @@ internal sealed unsafe class AddressBufferViews
         }
 
         desktop.SrvFirstElement += offset / element;
+
+        if ((desktop.SrvFlags & BufferViewDescription.RawFlag) != 0 && (desktop.SrvFirstElement * RawElementBytes) % RawAlignment != 0)
+        {
+            return false;
+        }
+
         var create = (delegate* unmanaged<nint, nint, BufferViewDescription*, nint, void>)ComObject.Slot(device, DesktopShaderResourceViewSlot);
         create(device, range.Resource, &desktop, handle);
 
@@ -59,7 +69,7 @@ internal sealed unsafe class AddressBufferViews
     /// <summary>
     /// A raw SRV of <paramref name="size"/> bytes at console address <paramref name="address"/>, written for a
     /// constant-buffer view in one of the game's title-memory heaps: translated programs read every V#, a CBV's too, as
-    /// a ByteAddressBuffer. False when the address has no desktop buffer or the range leaves it.
+    /// a ByteAddressBuffer. False when the address has no desktop buffer, the range leaves it or it starts off 16 bytes.
     /// </summary>
     [HotPath]
     public bool CreateRaw(nint device, ulong address, uint size, nint handle)
@@ -77,7 +87,7 @@ internal sealed unsafe class AddressBufferViews
             bytes = size;
         }
 
-        if (offset % RawElementBytes != 0 || bytes < RawElementBytes)
+        if (offset % RawAlignment != 0 || bytes < RawElementBytes)
         {
             return false;
         }

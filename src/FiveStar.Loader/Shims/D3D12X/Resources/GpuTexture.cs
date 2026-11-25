@@ -50,6 +50,12 @@ internal sealed class GpuTexture
     /// <summary>Whether the CPU maps the texture's memory, so it is checked for new bytes every frame (<see cref="GpuTextures.Watch"/>).</summary>
     public bool Watched { get; set; }
 
+    /// <summary>
+    /// Whether a GPU copy (list slots 85, 86) wrote the desktop texture. Its contents are then on the desktop, not in
+    /// the console memory (on the console the copy wrote that memory), so a refresh from memory would undo the copy.
+    /// </summary>
+    public bool CopiedInto { get; set; }
+
     /// <summary>The content hash of the bytes last uploaded; 0 before the first upload.</summary>
     public ulong UploadedHash { get; set; }
 

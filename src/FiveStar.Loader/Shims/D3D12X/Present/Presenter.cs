@@ -247,6 +247,7 @@ internal sealed unsafe class Presenter : IDisposable
         if (plane)
         {
             DebugLayer.MeshProbes.Report(_presents, _log);
+            Binding.WindowGuard.Report(_presents, _log);
         }
     }
 

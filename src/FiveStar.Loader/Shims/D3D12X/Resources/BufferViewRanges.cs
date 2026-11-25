@@ -25,6 +25,9 @@ internal static unsafe class BufferViewRanges
     private const int RawFlag = 1;
     private const uint RawElementBytes = sizeof(uint);
 
+    /// <summary>D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT: a raw view's first byte is a multiple of 16.</summary>
+    private const uint RawAlignment = 16;
+
     /// <summary>D3D12_BUFFER_SRV fields: FirstElement, NumElements, StructureByteStride, Flags (byte offsets).</summary>
     private const int SrvFirst = 16;
     private const int SrvCount = 24;
@@ -120,13 +123,14 @@ internal static unsafe class BufferViewRanges
 
     /// <summary>
     /// Writes into <paramref name="copy"/> the view as a raw one over <paramref name="bytes"/> from byte
-    /// <paramref name="offset"/>: R32_TYPELESS, the RAW flag, no stride, no counter. False for a start off a dword: a
-    /// view that starts anywhere else would be written in the wrong place, so there is none.
+    /// <paramref name="offset"/>: R32_TYPELESS, the RAW flag, no stride, no counter. False for a start off 16 bytes
+    /// (D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT): such a view is invalid and a driver may move it, so its writes would land in
+    /// the wrong place; there is none.
     /// </summary>
     [HotPath]
     internal static bool AsRaw(byte* description, byte* copy, ulong offset, ulong bytes, bool unordered)
     {
-        if (offset % RawElementBytes != 0)
+        if (offset % RawAlignment != 0)
         {
             return false;
         }

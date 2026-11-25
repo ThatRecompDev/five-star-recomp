@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Five Star Recomp contributors.
+// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Loader.Diagnostics;
@@ -86,6 +86,9 @@ internal sealed unsafe class XboxDescriptorHeaps
 
         if (heap is null)
         {
+            // A desktop heap's descriptor: its buffer fields are kept by handle for the copies into the game's heaps.
+            DesktopRecords.Note(handle, buffer);
+
             return handle;
         }
 

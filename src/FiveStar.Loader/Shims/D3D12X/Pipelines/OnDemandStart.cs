@@ -100,6 +100,11 @@ internal sealed class OnDemandStart
             identity = ContentHash.OfText(identity, Binding.WindowFeedback.Header);
         }
 
+        if (Binding.WindowGuard.Enabled)
+        {
+            identity = ContentHash.OfText(identity, Binding.WindowGuard.Header);
+        }
+
         return identity;
     }
 
@@ -222,6 +227,7 @@ internal sealed class OnDemandStart
         Directory.CreateDirectory(folder);
         WriteIncludes(folder);
         DebugLayer.MeshProbes.Folder = folder;
+        Binding.WindowGuard.Index = index;
 
         var ownLog = Path.Combine(Root, TimedCompiler.LogName);
         List<string> logs = [ownLog];

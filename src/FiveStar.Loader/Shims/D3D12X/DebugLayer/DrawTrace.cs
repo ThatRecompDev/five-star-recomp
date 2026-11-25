@@ -352,7 +352,7 @@ internal sealed unsafe class DrawTrace
         if (wanted)
         {
             Volatile.Write(ref _windowEnd, Interlocked.Read(ref _draws) + WindowDraws);
-            _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"));
+            _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"), standIn => _d3d12.Pipelines?.StandIns.State(standIn) ?? "unknown");
         }
 
         // Targets are dumped during the one frame after a captured present.
@@ -593,7 +593,7 @@ internal sealed unsafe class DrawTrace
         for (uint record = 0; record < RecordsShown; record++)
         {
             uint offset = pointer + (record * DescriptorWindow.ViewRecordBytes);
-            uint index = *(uint*)(window.Data + offset);
+            uint index = ((uint*)(window.Data + offset))[Binding.DescriptorWindow.MirroredDesktopDword];
             nint handle = start + (nint)((ulong)index * increment);
             string view = _views.TryGetValue(handle, out var known) ? known : "not a view this trace saw";
 
@@ -625,7 +625,7 @@ internal sealed unsafe class DrawTrace
     {
         var heap = _d3d12.DescriptorHeaps.Views;
 
-        if (heap is null || windowOffset < DescriptorWindow.ViewBase)
+        if (heap is null || windowOffset >= DescriptorWindow.NullTableBase)
         {
             return;
         }

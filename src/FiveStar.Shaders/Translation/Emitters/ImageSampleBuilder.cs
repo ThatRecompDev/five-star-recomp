@@ -126,7 +126,7 @@ internal sealed class ImageSampleBuilder
     private string CompareCall(ImageRequest request, SampleAddress address)
     {
         var state = $"_smpc{request.Number}";
-        _state.Emit($"  SamplerComparisonState {state} = SamplerDescriptorHeap[{SamplerIndex(request)}];");
+        _state.Emit($"  SamplerComparisonState {state} = SamplerDescriptorHeap[sampler_slot({SamplerIndex(request)})];");
         var texture = request.Texture;
         var coordinates = address.Coordinates;
 
@@ -192,7 +192,7 @@ internal sealed class ImageSampleBuilder
         if (request.HasCompare)
         {
             var state = $"_smpc{request.Number}";
-            _state.Emit($"  SamplerComparisonState {state} = SamplerDescriptorHeap[{SamplerIndex(request)}];");
+            _state.Emit($"  SamplerComparisonState {state} = SamplerDescriptorHeap[sampler_slot({SamplerIndex(request)})];");
             var location = request.FloatVector(coordinates.Skip(1).Take(request.Components).ToList());
 
             return $"{request.Texture}.GatherCmp{channel}({state}, {location}, asfloat({coordinates[0]}){offsetTail})";

@@ -75,6 +75,16 @@ changes were a source of mechanisms, each written anew in our design:
 
 Its `console_insn*.rs` files are GPL-2.0-only code from XCL and were not used. No code was copied.
 
+## victory-fork
+
+https://github.com/fxceless/victory-fork, revision `a26859fc5f512e0db0d7522d3da821c038378ab7`, GPL-3.0, a fork of VIctory
+(its README credits upstream VIctory and its contributors). Facts from it, each written anew in our design
+(docs/d3d12x-shim.md, Descriptor window; docs/shader-translation.md): the view and the sampler heap are separate
+spaces each based at 0, a table's value is its handle minus the start of its own heap, and which heap a descriptor
+load reads depends on the instruction's use (a sampler slot or a resource slot), not on the address; descriptor
+indices clamped to the heaps (a view past the end to a null one, a sampler to the last), without which NVIDIA hung
+and AMD faulted; and that a raw view's first byte must be a multiple of 16. No code was copied.
+
 ## XCL
 
 https://github.com/xcl-dev/xcl, GPL-2.0-only. Because that licence does not combine with ours, only facts from its

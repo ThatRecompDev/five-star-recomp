@@ -131,7 +131,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs":
                 return SetBreadcrumbs();
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-dump-targets" or "--probe-pipeline":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes":
                 return SetTraceDraws(option);
             case "--capture-dir":
                 return SetCaptureDirectory();
@@ -159,7 +159,7 @@ internal sealed class CommandLineParser
     {
         switch (option)
         {
-            case "--watch-transient" or "--watch-hang" or "--skip-compute-chains" or "--empty-indirect-after-skip" or "--retire-waits-all-queues" or "--no-split-at-waits" or "--user-data-constants" or "--trace-pool-stores" or "--watch-pool-pages":
+            case "--watch-transient" or "--watch-hang" or "--skip-compute-chains" or "--empty-indirect-after-skip" or "--retire-waits-all-queues" or "--no-split-at-waits" or "--user-data-constants" or "--buffer-records-heap-index" or "--no-window-guard" or "--trace-pool-stores" or "--watch-pool-pages":
                 return SetWatch(option);
             case "--screens":
                 return SetScreensFile();
@@ -546,6 +546,10 @@ internal sealed class CommandLineParser
                 _options.PlacedTextures = true;
 
                 return true;
+            case "--committed-textures":
+                _options.PlacedTextures = false;
+
+                return true;
             default:
                 throw new CommandLineException($"unknown argument {option}");
         }
@@ -670,6 +674,14 @@ internal sealed class CommandLineParser
         {
             _options.UserDataConstants = true;
         }
+        else if (option == "--buffer-records-heap-index")
+        {
+            _options.BufferRecordsHeapIndex = true;
+        }
+        else if (option == "--no-window-guard")
+        {
+            _options.NoWindowGuard = true;
+        }
         else if (option == "--skip-compute-chains")
         {
             _options.SkipComputeChains = true;
@@ -698,6 +710,11 @@ internal sealed class CommandLineParser
         }
 
         _options.D3D12TraceDraws = true;
+
+        if (option == "--census-passes")
+        {
+            _options.CensusPasses = [.. Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+        }
 
         if (option == "--d3d12-trace-pipeline")
         {

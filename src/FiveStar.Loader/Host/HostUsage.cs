@@ -60,8 +60,8 @@ internal static class HostUsage
                                  free memory and 10 minutes; one past a limit stays a stand-in (off by default)
           --plain-supersteps     superstep forms made on demand keep every register live around one dispatch
                                  switch (the form before the liveness carry); part of the cache identity
-          --placed-textures      read-only console textures share large placed heaps instead of a committed
-                                 resource each (the driver's write-combined memory grew about 0.55 MB per texture)
+          --committed-textures   a committed resource for each read-only console texture instead of the shared
+                                 placed heaps (the default, also --placed-textures), whose released ranges stay mapped
           --max-driver-compiles <n>  driver pipeline compiles of 256 KB of DXIL or more at once (default 4)
           --compile-ceiling <GB> no such compile starts while private bytes and the running ones' expected arenas
                                  would pass this (default none: free RAM less the game's growth decides); one
@@ -97,6 +97,10 @@ internal static class HostUsage
           --skip-compute-chains  skip the rest of a command list's dispatches after one skipped for a stand-in
           --empty-indirect-after-skip  a command list's ExecuteIndirects after a compute dispatch skipped for a stand-in run nothing
           --retire-waits-all-queues  a submission holding the game's retire write waits for every other queue
+          --no-window-guard      programs' stores and atomics through 32-bit pointers reach the descriptor window (by
+                                 default they are dropped and counted per program at each captured present)
+          --buffer-records-heap-index  buffer descriptor records hold the desktop heap index where the console has the
+                                 view's base address (the behaviour before; programs that build pointers from a V# break)
           --user-data-constants  draws pass their user data as root constants, not a root CBV in upload memory (needs
                                  programs made on demand)
           --trace-pool-stores    programs made on demand log their stores into the transient pool and the game heap

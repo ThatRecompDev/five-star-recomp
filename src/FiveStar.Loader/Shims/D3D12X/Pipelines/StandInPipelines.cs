@@ -453,6 +453,30 @@ internal sealed unsafe class StandInPipelines
         return $"{total} lists ran work after a skipped one ({top})";
     }
 
+    /// <summary>Where a stand-in's build is, for the census: built since, waiting for its programs, still building, or released.</summary>
+    public string State(nint standIn)
+    {
+        lock (_gate)
+        {
+            if (!_live.Contains(standIn))
+            {
+                return "released";
+            }
+
+            if (Volatile.Read(ref ((StandInPipelineObject*)standIn)->Desktop) != 0)
+            {
+                return "built since";
+            }
+
+            if (_waiting.ContainsKey(standIn))
+            {
+                return "waiting for its programs";
+            }
+
+            return "still building";
+        }
+    }
+
     /// <summary>The programs of a stand-in, or "unnamed".</summary>
     public string Name(nint standIn)
     {

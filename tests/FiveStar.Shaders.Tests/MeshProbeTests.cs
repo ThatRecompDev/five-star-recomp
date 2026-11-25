@@ -40,6 +40,7 @@ public sealed class MeshProbeTests : IClassFixture<WarpFixture>
         int goodBuffer = Site(sites, "buf_fits", 1);
         int pointer = Site(sites, "PtrLoad", 0);
         int nullRecord = Site(sites, "buf_fits", 2);
+        int window = Site(sites, "PtrLoad", 1);
 
         Assert.True(mismatches.Count == 0, string.Join("\n", mismatches.Take(8)));
         var record = Assert.Single(records);
@@ -57,6 +58,12 @@ public sealed class MeshProbeTests : IClassFixture<WarpFixture>
 
         // The failed check reads 0; the others what memory holds there.
         Assert.Equal<uint?>([0, DataValue, PointerValue, NullRecordValue], [record.Values[unmappedBuffer], record.Values[goodBuffer], record.Values[pointer], record.Values[nullRecord]]);
+
+        // The 32-bit pointer reads the window, its address noted per site.
+        Assert.Equal(Bit(window), record.WindowLoads);
+        Assert.Equal<uint?>([MeshStageRunner.WindowAddress, MeshStageRunner.WindowAddress], [record.WindowAddress, record.WindowAddresses[window]]);
+        Assert.Equal(MeshStageRunner.WindowFill + (MeshStageRunner.WindowAddress / 4), record.Values[window]);
+        Assert.Null(record.WindowAddresses[pointer]);
     }
 
     /// <summary>The number of the <paramref name="nth"/> site whose text has <paramref name="call"/> (a buffer load's site is its check, buf_fits).</summary>

@@ -9,8 +9,10 @@ namespace FiveStar.Loader.Shims.D3D12X.Binding;
 
 /// <summary>
 /// One of the game's shader-visible heaps, or one of its CPU-only view heaps. Its descriptors live in title memory as
-/// on the console, one record per descriptor whose dword 0 is the index in the desktop shader-visible heap standing
-/// behind it and dwords 1 to 3 a buffer view's V# fields as the hardware lays them out (<see cref="BufferRecords"/>); the game copies these
+/// on the console, one record per descriptor: a buffer view's V# as the hardware lays it out, its console base address
+/// in dword 0 and dword 1 bits 0-15 (<see cref="BufferRecord"/>), else the index in the desktop shader-visible heap
+/// standing behind it in dword 0. A record with a base address keeps that desktop index in dword 4 (the shim's copies to
+/// desktop heaps read it); the window mirror holds it in dword 4 for every record, for the debug readers. The game copies these
 /// records itself (its per-draw tables, 0x144d9efc0, also from CPU-only heaps), so a table in title memory names
 /// desktop descriptors wherever the game put it. For a shader-visible heap the <see cref="DescriptorWindow"/> holds a
 /// mirror of dwords 0 to 3 of every record, which programs read through a table's pointer; a record is mirrored when
@@ -26,6 +28,10 @@ internal sealed unsafe class ShaderVisibleHeap
     private const int StrideDword = 1;
     private const int RecordsDword = 2;
     private const int FormatDword = 3;
+
+    /// <summary>The desktop index of every record, past the V#, in records of 32 bytes (view heaps).</summary>
+    private const int DesktopDword = DescriptorWindow.MirroredDesktopDword;
+    private const uint HighMask = 0xFFFF;
 
     private readonly byte* _title;
     private readonly nint _desktopStart;
@@ -114,7 +120,20 @@ internal sealed unsafe class ShaderVisibleHeap
     [HotPath]
     public nint Source(uint index)
     {
-        return _desktopStart + (nint)((ulong)Valid(*Record(index)) * Increment);
+        return _desktopStart + (nint)((ulong)Valid(Desktop(Record(index))) * Increment);
+    }
+
+    /// <summary>
+    /// Writes <paramref name="buffer"/>'s V# fields into the record at <paramref name="index"/>, keeping the desktop
+    /// descriptor it names (a copy from a desktop heap, <see cref="DesktopRecords"/>).
+    /// </summary>
+    [HotPath]
+    public void SetFields(uint index, BufferRecord buffer)
+    {
+        if (index < Count)
+        {
+            WriteRecord(index, Desktop(Record(index)), buffer);
+        }
     }
 
     /// <summary>Descriptors from <paramref name="index"/> that one desktop run holds.</summary>
@@ -145,7 +164,11 @@ internal sealed unsafe class ShaderVisibleHeap
         Mirror(destination, count);
     }
 
-    /// <summary>A table at <paramref name="index"/> of up to <paramref name="extent"/> descriptors: its records mirrored, its window pointer returned.</summary>
+    /// <summary>
+    /// A table at <paramref name="index"/> of up to <paramref name="extent"/> descriptors: its records mirrored, its
+    /// pointer returned, relative to its heap as on the console (the view records start at window offset 0; a program
+    /// reads an S# through a 32-bit pointer from the sampler records, prelude SamplerPtrLoad).
+    /// </summary>
     [HotPath]
     public uint Table(uint index, uint extent)
     {
@@ -158,7 +181,7 @@ internal sealed unsafe class ShaderVisibleHeap
 
         Mirror(index, extent);
 
-        return _layout.Base + (index * _layout.RecordBytes);
+        return index * _layout.RecordBytes;
     }
 
     [HotPath]
@@ -182,7 +205,12 @@ internal sealed unsafe class ShaderVisibleHeap
     {
         uint* record = Record(index);
         new Span<byte>(record, (int)Increment).Clear();
-        record[0] = desktop;
+        record[0] = buffer.Word0(desktop);
+
+        if (HasDesktopDword)
+        {
+            record[DesktopDword] = desktop;
+        }
 
         record[StrideDword] = buffer.Word1;
         record[RecordsDword] = buffer.Records;
@@ -228,12 +256,48 @@ internal sealed unsafe class ShaderVisibleHeap
     private void Write(uint index, uint* record, ref UInt128 seen, byte* window)
     {
         seen = *(UInt128*)record;
-        uint* mirror = (uint*)(window + _layout.Base + ((ulong)index * _layout.RecordBytes));
-        mirror[0] = Valid(record[0]);
+        MirrorTo((uint*)(window + _layout.Base + ((ulong)index * _layout.RecordBytes)), record);
+    }
+
+    /// <summary>
+    /// A record's V# into its window mirror: dword 0 as it is for a record holding a console base address (base_hi in
+    /// dword 1, the desktop index then in dword 4), else the desktop index it names (the null descriptor for none); and
+    /// the desktop index after the V#.
+    /// </summary>
+    [HotPath]
+    private void MirrorTo(uint* mirror, uint* record)
+    {
+        uint desktop = Valid(Desktop(record));
+        mirror[0] = desktop;
+
+        if ((record[StrideDword] & HighMask) != 0)
+        {
+            mirror[0] = record[0];
+        }
+
         mirror[StrideDword] = record[StrideDword];
         mirror[RecordsDword] = record[RecordsDword];
         mirror[FormatDword] = record[FormatDword];
+
+        if (_layout.RecordBytes > DesktopDword * sizeof(uint))
+        {
+            mirror[DesktopDword] = desktop;
+        }
     }
+
+    /// <summary>The desktop index a record names: dword 4 of one holding a console base address, else dword 0.</summary>
+    [HotPath]
+    private uint Desktop(uint* record)
+    {
+        if (HasDesktopDword && (record[StrideDword] & HighMask) != 0)
+        {
+            return record[DesktopDword];
+        }
+
+        return record[0];
+    }
+
+    private bool HasDesktopDword => Increment > DesktopDword * sizeof(uint);
 
     [HotPath]
     private void MirrorOne(uint index)
@@ -248,11 +312,7 @@ internal sealed unsafe class ShaderVisibleHeap
         }
 
         _shadow[index] = value;
-        uint* mirror = (uint*)(window + _layout.Base + ((ulong)index * _layout.RecordBytes));
-        mirror[0] = Valid(record[0]);
-        mirror[StrideDword] = record[StrideDword];
-        mirror[RecordsDword] = record[RecordsDword];
-        mirror[FormatDword] = record[FormatDword];
+        MirrorTo((uint*)(window + _layout.Base + ((ulong)index * _layout.RecordBytes)), record);
     }
 
     /// <summary>A record's desktop index, or the null descriptor for one that names none (a null or unwritten descriptor).</summary>
