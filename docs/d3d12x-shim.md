@@ -599,7 +599,12 @@ frame-rate setting (0x142482780), 0x14247ab10 picks a refresh divider (refresh r
 calls slot 78 with the interval from a table at 0x1461ece60 (16667, 16667, 33333, 50000, 66667 µs at 60 Hz;
 8333, 8333, 16667, 25000, 33333 at 120 Hz) and period 3 (2 in one mode), then slot 79 (type 0, offset). Device
 creation also schedules type 2 at offset 0 (0x142478de4). Boot logs interval 33333 µs, period 3: 30 frames per
-second at 60 Hz. Slot 80 is called three ways:
+second at 60 Hz. The 30 fps cap is the game's own: each frame record (16 entries at 0x1475de4b0, 0x90 bytes) carries
+a target rate at +0x1C and a mode byte at +0x20; 0x1424845b0 calls 0x14247ab10 when either changes, and only in mode 2
+(vsync-locked) does the main loop wait for the frame origin. The divider table, the 120 Hz row and the unlocked mode
+mean the engine runs at more than one rate, so it measures its frame time rather than counting fixed 33.3 ms steps
+(*inferred*: the timestep code itself is not traced). `--frame-rate 60` keeps one 60 Hz refresh as the interval,
+`uncapped` a 1 ms grid and presents with sync interval 0; the default keeps the game's interval. Slot 80 is called three ways:
 
 | Site | Arguments | Use (*inferred*) |
 |---|---|---|
