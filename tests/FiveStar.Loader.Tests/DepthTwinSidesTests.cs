@@ -18,7 +18,7 @@ namespace FiveStar.Loader.Tests;
 /// whatever queue the list runs on.
 /// </summary>
 [Collection("DepthTwins")]
-public sealed unsafe class DepthTwinSidesTests
+public sealed unsafe class DepthTwinSidesTests : IDisposable
 {
     private const int Size = 8;
     private const float Written = 0.25f;
@@ -28,6 +28,14 @@ public sealed unsafe class DepthTwinSidesTests
 
     /// <summary>Bytes a row of the depth's copy takes in the readback (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT).</summary>
     private const int Pitch = 256;
+
+    /// <summary>The twins, the copy's and the prelude's device objects are dropped: later tests make another device.</summary>
+    public void Dispose()
+    {
+        DepthTwins.Detach();
+        DepthTwinCopy.Detach();
+        DepthTwinPrelude.Detach();
+    }
 
     [Fact]
     public void A_list_needs_the_side_it_uses_first_as_the_lists_before_it_left_it()

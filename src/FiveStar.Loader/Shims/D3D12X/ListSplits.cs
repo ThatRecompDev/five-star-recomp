@@ -189,7 +189,7 @@ internal static unsafe class ListSplits
 
         if ((state->Set & ListReplayState.TargetsBit) != 0)
         {
-            States.RenderTargetStates.Ensure(self, list, state->TargetCount, (nint*)state->Targets, state->SingleHandle != 0);
+            ShimContext.Runtime.D3D12X.RenderTargets.Ensure(self, list, state->TargetCount, (nint*)state->Targets, state->SingleHandle != 0);
         }
     }
 
