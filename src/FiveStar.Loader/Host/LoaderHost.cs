@@ -460,6 +460,7 @@ internal sealed class LoaderHost
         Shims.D3D12X.DebugLayer.DrawTrace.WatchLimit = _options.D3D12WatchLimit;
         Shims.D3D12X.DebugLayer.DrawTrace.WatchRendered = _options.D3D12WatchRendered;
         Shims.D3D12X.DebugLayer.DrawTrace.CaptureWhenWorld = _options.CaptureWhenWorld;
+        Shims.D3D12X.DebugLayer.DrawTrace.LogDraws = _options.LogDraws;
     }
 
     /// <summary>Pipeline and binding options the D3D12.X shim reads as static settings.</summary>
