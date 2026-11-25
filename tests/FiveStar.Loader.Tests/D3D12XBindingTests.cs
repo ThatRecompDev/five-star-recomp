@@ -91,6 +91,23 @@ public sealed unsafe class D3D12XBindingTests
         }
         """;
 
+    /// <summary>
+    /// As <see cref="PreludeProgram"/> with heap-relative addresses the program makes itself, as the game's root
+    /// constants carry them (MS_VS_Transform_PositionOnly: base 0 + index * 32): game indices 3 and 4.
+    /// </summary>
+    private const string HeapRelativeProgram = """
+        #include "rdna_prelude.hlsli"
+        [numthreads(1, 1, 1)]
+        void main()
+        {
+            ByteAddressBuffer source = ResourceDescriptorHeap[PtrLoad(0u, 0u, 3u * 32u)];
+            RWByteAddressBuffer destination = ResourceDescriptorHeap[PtrLoad(0u, 0u, 4u * 32u)];
+            destination.Store(0, source.Load(0) + 1);
+        }
+        """;
+
+    private const uint HeapRelativeRead = 3;
+
     private const int DwordsPerVector = 4;
 
     /// <summary>
@@ -338,6 +355,18 @@ public sealed unsafe class D3D12XBindingTests
                 UserDataConstants.Enabled = false;
             }
         }
+    }
+
+    [DxcFact]
+    public void A_heap_relative_descriptor_address_reaches_the_view_of_its_game_index()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        var heap = ViewHeap(device, SmallHeap);
+
+        // The window's view records start at 0, so 32 x a game index is that descriptor's record, as on the console.
+        Assert.Equal(0u, test.Runtime.D3D12X.DescriptorHeaps.TableAddress(heap.Gpu, 1));
+        Assert.Equal(Marker + 1, Dispatch(test, device, heap, HeapRelativeRead, HeapRelativeRead + 1, heap.Gpu, program: HeapRelativeProgram));
     }
 
     [DxcFact]

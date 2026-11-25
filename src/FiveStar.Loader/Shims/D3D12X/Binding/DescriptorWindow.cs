@@ -9,9 +9,13 @@ namespace FiveStar.Loader.Shims.D3D12X.Binding;
 /// The GPU-memory window of the translated programs (heap slots 0 and 1, docs/shader-translation.md, Resources) as far
 /// as descriptor tables need it. A program reads a table through a 32-bit pointer in a user SGPR: descriptor k of the
 /// table at pointer + k * 32 (T# size; buffers and samplers use the first 16 bytes), and dword 0 of that descriptor is
-/// the desktop heap index. The window holds one 16-byte record per sampler of the game's sampler heap, a null table,
-/// then one 32-byte record per descriptor of the game's view heap, in game order; <see cref="ShaderVisibleHeap"/>
-/// keeps dword 0 of each record equal to the desktop index the game's descriptor stands for.
+/// the desktop heap index. The window holds one 32-byte record per descriptor of the game's view heap from 0, in game
+/// order, then a null table and one 16-byte record per sampler of the game's sampler heap; <see cref="ShaderVisibleHeap"/>
+/// keeps dword 0 of each record equal to the desktop index the game's descriptor stands for. A 32-bit descriptor
+/// address is relative to its heap on the console: the game passes heap-relative addresses of its own in root constants
+/// (MS_VS_Transform_PositionOnly reads its V# at root constant 2, which the game sets to 0, + index * 32), so the view
+/// records start at window offset 0 and such an address reaches the record of its game index. (victory, a GPL-3.0 port
+/// of the same game, gives tables their byte offset in the heap and the heap pointer 0 the same way.)
 /// </summary>
 internal sealed unsafe class DescriptorWindow
 {
@@ -62,10 +66,13 @@ internal sealed unsafe class DescriptorWindow
     /// <summary>rdna_prelude STATIC_SAMPLER_BASE: samplers for the literal S#s of a program.</summary>
     public const uint StaticSamplerBase = 2032;
 
-    /// <summary>Window layout: sampler records, a null table (for a table handle outside the heaps), view records.</summary>
-    public const uint SamplerBase = 0;
-    public const uint NullTableBase = SamplerBase + (MaxSamplers * SamplerRecordBytes);
-    public const uint ViewBase = NullTableBase + (MaxTableRecords * ViewRecordBytes);
+    /// <summary>
+    /// Window layout: view records from 0 (heap-relative addresses, see the class), a null table (for a table handle
+    /// outside the heaps), sampler records.
+    /// </summary>
+    public const uint ViewBase = 0;
+    public const uint NullTableBase = ViewBase + (MaxWindowViews * ViewRecordBytes);
+    public const uint SamplerBase = NullTableBase + (MaxTableRecords * ViewRecordBytes);
 
     /// <summary>
     /// Game view records the window has room for: the game's main view heap holds 1,245,184 descriptors, more than the
@@ -76,8 +83,8 @@ internal sealed unsafe class DescriptorWindow
     /// </summary>
     public const uint MaxWindowViews = 1u << 21;
 
-    /// <summary>The end of the room for view records.</summary>
-    public const uint RecordsEnd = ViewBase + (MaxWindowViews * ViewRecordBytes);
+    /// <summary>The end of the records: the regions past them (<see cref="WindowGuard"/>, the debug rings) start here.</summary>
+    public const uint RecordsEnd = SamplerBase + (MaxSamplers * SamplerRecordBytes);
 
     /// <summary>The mesh fallback table: u0..u2 then t0 (BindlessRootSignature).</summary>
     private const uint FallbackTableSize = 4;
@@ -131,11 +138,9 @@ internal sealed unsafe class DescriptorWindow
         if (views > MaxWindowViews)
         {
             _log.Warn($"[d3d12_xs] descriptor window: a view heap of {views} descriptors; records past {MaxWindowViews} are not mirrored");
-            views = MaxWindowViews;
         }
 
-        uint records = ViewBase + (views * ViewRecordBytes);
-        uint bytes = records;
+        uint bytes = RecordsEnd;
 
         // The window guard's counters past the room for records (rdna_prelude FIVESTAR_WINDOW_GUARD).
         if (WindowGuard.Enabled && bytes < WindowGuard.Bytes)
@@ -172,7 +177,7 @@ internal sealed unsafe class DescriptorWindow
             return false;
         }
 
-        FillRecords(data, bytes, records);
+        FillRecords(data, bytes);
         WriteReserved(device, buffer, bytes, DesktopCalls.HeapCpuStart(heap), increment);
 
         Buffer = buffer;
@@ -212,19 +217,19 @@ internal sealed unsafe class DescriptorWindow
         return new HeapRecords(SamplerBase, SamplerRecordBytes, 0, Math.Min(desktopCount, MaxSamplers), 0);
     }
 
-    /// <summary>Null view records everywhere, sampler records naming their own index.</summary>
-    private static void FillRecords(byte* data, uint bytes, uint records)
+    /// <summary>Null view records everywhere (the null table included), sampler records naming their own index.</summary>
+    private static void FillRecords(byte* data, uint bytes)
     {
         new Span<byte>(data, (int)bytes).Clear();
+
+        for (uint offset = ViewBase; offset < SamplerBase; offset += ViewRecordBytes)
+        {
+            *(uint*)(data + offset) = NullViewSlot;
+        }
 
         for (uint sampler = 0; sampler < MaxSamplers; sampler++)
         {
             *(uint*)(data + SamplerBase + (sampler * SamplerRecordBytes)) = sampler;
-        }
-
-        for (uint offset = NullTableBase; offset < records; offset += ViewRecordBytes)
-        {
-            *(uint*)(data + offset) = NullViewSlot;
         }
     }
 
