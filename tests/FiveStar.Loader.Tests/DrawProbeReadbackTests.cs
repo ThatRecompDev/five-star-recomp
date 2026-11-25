@@ -81,6 +81,13 @@ public sealed unsafe class DrawProbeReadbackTests
         Assert.Equal(18u, DrawProbes.PlaneSubresource(1, 3, 6));
     }
 
+    /// <summary>The world trigger captures three frames 100 presents apart, starting with the present after the first world one.</summary>
+    [Fact]
+    public void The_world_trigger_captures_three_frames_after_the_world_arrives()
+    {
+        Assert.Equal([4231L, 4331L, 4431L], DrawTrace.WorldFrames(4230));
+    }
+
     /// <summary>The watched target's shape: the lit HDR (2560x1440 RGBA16F) and nothing else of its size.</summary>
     [Fact]
     public void A_watched_target_shape_parses_and_matches_only_its_size_and_format()

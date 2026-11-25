@@ -341,6 +341,9 @@ internal sealed record HostOptions
     /// <summary>Watched-target readbacks per frame (<c>--d3d12-watch-limit n</c>).</summary>
     public int D3D12WatchLimit { get; set; } = Shims.D3D12X.DebugLayer.DrawTrace.DefaultWatchLimit;
 
+    /// <summary>Captures 3 frames 100 presents apart from the first present that draws the world (<c>--capture-when-world</c>).</summary>
+    public bool CaptureWhenWorld { get; set; }
+
     /// <summary>Passes held while a producer is missing this frame (<c>--hold-passes consumer=producer|...;...</c>).</summary>
     public string? HoldPasses { get; set; }
 
