@@ -82,6 +82,7 @@ internal static class HostComposition
         Shims.D3D12X.Resources.GpuTextureRegistry.KeptAliases = options.KeptAliases;
         Shims.D3D12X.Pipelines.PipelineWaits.Current = Shims.D3D12X.Pipelines.PipelineWaits.Parse(options.WaitPipelines);
         Shims.D3D12X.SectionHeaps.InPlaceWindow = InPlaceWindow(options.InPlaceWindowMegabytes);
+        Shims.D3D12X.Resources.TypelessTargets.Enabled = options.TypelessTargets;
         Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
 
         ApplyBindingSwitches(options);
