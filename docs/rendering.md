@@ -86,6 +86,9 @@ t13 at dword 0 and t0 at dword 16 (PS), t7 at dword 8 and b0 at dword 24 (VS); s
   integer targets are exported 32-bit (`PS_VfxVBuffer` 32_ABGR into R32G32B32A32_UINT, the tiled lighting's
   R9G9B9E5 light 32_R into R32_UINT), so a uint or int target takes the values the pairs were packed from, as bits
   (rounded halves only when those registers changed before the export); shadPS4 unpacks by export format the same way.
+  A pixel program's stage data carries that export sequence in every colour format's form; the translator now takes
+  its 32_ABGR form (`ExportPatches`, after VIctory), so every target gets the program's 32-bit values unconverted and the
+  output merger converts them, and the rules above remain for programs without patches.
 - VS / PS linkage: D3D12 links stages by semantic and register. Vertex shaders now declare their parameters in
   number order before the unpacked f16 copies, and pixel shaders declare every input register of their signature,
   read or not, with the f16 halves last.

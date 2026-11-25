@@ -40,6 +40,8 @@ public static class PixelMemoryCases
             CompressedExport(),
             CompressedUintExport(),
             SharedExponentImplicitSample(),
+            PatchedFloatExport(),
+            PatchedRedExport(),
         ];
     }
 
@@ -441,6 +443,52 @@ public static class PixelMemoryCases
             Bindings = new Bindings { UserSgprs = [F(1.5), F(0.25), F(-2), F(0.5)] },
             FloatTargets = true,
             Raw = true,
+        };
+    }
+
+    /// <summary>
+    /// The export as TL_PS_PBR_MATERIAL_STANDARD stores render target 0's: two nops, the FP16 pairs and a compressed
+    /// export (its FP16 form), over which <see cref="PixelCase.ExportPatch"/> goes.
+    /// </summary>
+    private const string StoredFp16Export = """
+        v_mov_b32 v14, s0
+        v_mov_b32 v11, s1
+        v_mov_b32 v16, s2
+        v_mov_b32 v9, s3
+        s_nop 0
+        s_nop 0
+        v_cvt_pkrtz_f16_f32_e32 v2, v14, v11
+        v_cvt_pkrtz_f16_f32_e32 v3, v16, v9
+        exp mrt0 v2, v2, v3, v3 done compr vm
+        s_endpgm
+        """;
+
+    // The 32_ABGR form (TL_PS's own: four nops, exp mrt0 v14, v11, v16, v9) into an RGBA32F target: the values arrive
+    // unconverted (1/3, 1e-8, 70000 and -0.0, which the FP16 pairs round, flush and clamp to 65504).
+    private static PixelCase PatchedFloatExport()
+    {
+        uint[] values = [0x3EAAAAAB, F(1e-8), F(70000), F(-0.0)];
+
+        return new PixelCase("export_patch_abgr32", StoredFp16Export, 4, _ => [.. values.Select(Expected.Exact)])
+        {
+            Bindings = new Bindings { UserSgprs = values },
+            FloatTargets = true,
+            Raw = true,
+            ExportPatch = [0xBF800000, 0xBF800000, 0xBF800000, 0xBF800000, 0xF800180F, 0x09100B0E],
+        };
+    }
+
+    // A 32_R form (exp mrt0 v14, off, off, off: TL_PS's light target) into a uint target: red's bits as they are, the
+    // other channels not written.
+    private static PixelCase PatchedRedExport()
+    {
+        uint[] values = [0x12345678, 0xDEADBEEF, 7, 0x80000000];
+
+        return new PixelCase("export_patch_r32", StoredFp16Export, 4, _ => [0x12345678, 0, 0, 0])
+        {
+            Bindings = new Bindings { UserSgprs = values },
+            Raw = true,
+            ExportPatch = [0xBF800000, 0xBF800000, 0xBF800000, 0xBF800000, 0xF8001801, 0x0000000E],
         };
     }
 
