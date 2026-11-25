@@ -763,6 +763,7 @@ internal static unsafe class CommandListBindingMethods
     private static void Flush(XboxObject* self, bool compute)
     {
         var bindings = CommandListBindings.Of(self);
+        MirrorReach(self, bindings, compute);
         var ring = Bindings.Ring;
         int root = compute ? bindings->ComputeRoot : bindings->GraphicsRoot;
         int dirty = compute ? bindings->ComputeDirty : bindings->GraphicsDirty;
@@ -795,6 +796,32 @@ internal static unsafe class CommandListBindingMethods
         else
         {
             bindings->GraphicsDirty = 0;
+        }
+    }
+
+    /// <summary>
+    /// Before a draw or dispatch: the tables the bound pipeline's programs read past what their binds mirrored, mirrored
+    /// that far (<see cref="TableReaches"/>), as the game may have copied descriptors there since.
+    /// </summary>
+    [HotPath]
+    private static void MirrorReach(XboxObject* self, CommandListBindings* bindings, bool compute)
+    {
+        var entries = TableReaches.Of(RectangleListState.Of(self)->Pipeline);
+
+        if (entries.Length == 0)
+        {
+            return;
+        }
+
+        uint* data = compute ? bindings->Compute : bindings->Graphics;
+        var heaps = ShimContext.Runtime.D3D12X.DescriptorHeaps;
+
+        foreach (var entry in entries)
+        {
+            if (entry.Sgpr < CommandListBindings.UserDataDwords)
+            {
+                heaps.MirrorTable(data[entry.Sgpr], entry.Records);
+            }
         }
     }
 

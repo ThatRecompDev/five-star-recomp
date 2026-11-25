@@ -184,6 +184,9 @@ internal sealed record HostOptions
     /// <summary>Records every descriptor-table bind mirrors (<c>--mirror-table-records full|&lt;n&gt;</c>).</summary>
     public uint MirrorTableRecords { get; set; } = Shims.D3D12X.Binding.DescriptorWindow.DefaultTableRecords;
 
+    /// <summary>Draws also mirror as far as their programs read past each table pointer (<c>--mirror-table-records reach</c>).</summary>
+    public bool MirrorTableReach { get; set; }
+
     /// <summary>Loop caps of programs made on demand (<c>--loop-caps victory|default|compute,geometry,pixel</c>); null for the translator's own.</summary>
     public FiveStar.Shaders.Translation.Core.LoopCaps? LoopCaps { get; set; }
 
