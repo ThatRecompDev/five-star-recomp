@@ -721,7 +721,9 @@ once per stall as `[gpu] queue #n: executions done up to v of w, no progress for
 execution (the one the queue waits on, with its breadcrumbs) when it is older than the last 16 calls, then those 16
 calls (`NOT DONE` marks the ones the GPU has not finished; a Wait shows the fence's value then) and the memory line of
 the thread sampler. With 64 calls kept, the w3 boot's hang showed only executions queued behind the stuck one. A removed device sets every fence to UINT64_MAX; the watch then logs every queue
-as last seen, without the debug layer as well.
+as last seen, without the debug layer as well, after the removal reason (GetDeviceRemovedReason through the fence's
+device: DEVICE_HUNG 0x887a0006 is a GPU timeout). Boot w39 lacked the reason: all five queues stopped within 0.3 s of
+an execution of 2 dispatches and 103 ExecuteIndirects, and the device went 5 s later.
 
 `--d3d12-breadcrumbs` (`GpuBreadcrumbs`) adds where each list of an unfinished execution stopped: before every draw,
 dispatch, ExecuteIndirect, CopyBufferRegion, ResourceBarrier and Barrier, and at Close, a list writes its recording's
