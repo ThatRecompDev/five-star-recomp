@@ -37,7 +37,10 @@ internal sealed class GpuMemoryBudget : IDisposable
             using var desktop = new ID3D12Device(device);
             using var factory = DXGI.CreateDXGIFactory2<IDXGIFactory4>(false);
             var budget = new GpuMemoryBudget(factory.EnumAdapterByLuid<IDXGIAdapter3>(AdapterLuid(desktop.AdapterLuid)));
-            log.Info($"  [d3d12_xs] GPU memory: {budget.Describe()}");
+
+            uint vendor = budget._adapter.Description.VendorId;
+            Pipelines.CompileBudget.UseAdapter(vendor);
+            log.Info($"  [d3d12_xs] GPU memory: {budget.Describe()}; driver compile estimates for vendor 0x{vendor:x4}");
 
             return budget;
         }
