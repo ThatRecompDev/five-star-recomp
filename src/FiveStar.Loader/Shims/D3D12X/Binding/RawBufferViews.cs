@@ -20,11 +20,23 @@ internal static unsafe class RawBufferViews
     private static long _nulled;
     private static long _readOnly;
 
+    /// <summary>Null views by why: off the 16-byte raw alignment (read-only, writable), no element size, no desktop buffer (not fitted), a constant-buffer view.</summary>
+    private static readonly long[] NullReasons = new long[(int)NullReason.Count];
+
     /// <summary>Whether kept-index buffer views are written raw (default on).</summary>
     public static bool Enabled { get; set; } = true;
 
     /// <summary>Views made raw or null, and read-only kept-index slots a program's write could reach (it writes at the same index).</summary>
-    public static string Summary => $"kept-index buffer views: {Interlocked.Read(ref _raw)} made raw, {Interlocked.Read(ref _nulled)} null, {Interlocked.Read(ref _readOnly)} read-only slots a write could reach";
+    public static string Summary => $"kept-index buffer views: {Interlocked.Read(ref _raw)} made raw, {Interlocked.Read(ref _nulled)} null ({NullSummary()}), {Interlocked.Read(ref _readOnly)} read-only slots a write could reach";
+
+    /// <summary>Read-only views made null for a start off the 16-byte raw alignment, so far.</summary>
+    internal static long MisalignedReadOnly => Read(NullReason.MisalignedReadOnly);
+
+    /// <summary>The null views by reason, for the summary.</summary>
+    internal static string NullSummary()
+    {
+        return $"{Read(NullReason.MisalignedReadOnly)} read-only and {Read(NullReason.MisalignedWritable)} writable off 16 bytes, {Read(NullReason.NoElementSize)} without an element size, {Read(NullReason.NoBuffer)} without a buffer, {Read(NullReason.ConstantBuffer)} constant-buffer";
+    }
 
     /// <summary>
     /// The view to write for a buffer <paramref name="description"/> (SRV or, with <paramref name="unordered"/>, UAV) whose
@@ -58,7 +70,9 @@ internal static unsafe class RawBufferViews
             return description;
         }
 
-        if (resource != 0 && TryRaw(view, copy, unordered))
+        var reason = NullReason.NoBuffer;
+
+        if (resource != 0 && TryRaw(view, copy, unordered, out reason))
         {
             Interlocked.Increment(ref _raw);
 
@@ -66,6 +80,7 @@ internal static unsafe class RawBufferViews
         }
 
         Interlocked.Increment(ref _nulled);
+        Interlocked.Increment(ref NullReasons[(int)reason]);
         resource = 0;
         Null(copy, unordered);
 
@@ -73,8 +88,9 @@ internal static unsafe class RawBufferViews
     }
 
     /// <summary>The view as a raw one over the same bytes in <paramref name="copy"/>; false when it cannot be.</summary>
-    private static bool TryRaw(BufferViewDescription* view, byte* copy, bool unordered)
+    private static bool TryRaw(BufferViewDescription* view, byte* copy, bool unordered, out NullReason reason)
     {
+        reason = NullReason.NoElementSize;
         uint element = BufferViewRanges.ElementBytes((byte*)view, unordered);
         ulong first = view->SrvFirstElement;
         ulong count = view->SrvElements;
@@ -89,6 +105,8 @@ internal static unsafe class RawBufferViews
             return false;
         }
 
+        reason = unordered ? NullReason.MisalignedWritable : NullReason.MisalignedReadOnly;
+
         return BufferViewRanges.AsRaw((byte*)view, copy, first * element, count * element, unordered);
     }
 
@@ -97,6 +115,7 @@ internal static unsafe class RawBufferViews
     public static BufferViewDescription NullConstantBuffer()
     {
         Interlocked.Increment(ref _nulled);
+        Interlocked.Increment(ref NullReasons[(int)NullReason.ConstantBuffer]);
 
         return BufferViewDescription.RawShaderResource(0);
     }
@@ -111,5 +130,21 @@ internal static unsafe class RawBufferViews
         }
 
         *(BufferViewDescription*)copy = view;
+    }
+
+    private static long Read(NullReason reason)
+    {
+        return Interlocked.Read(ref NullReasons[(int)reason]);
+    }
+
+    /// <summary>Why a kept-index view became null.</summary>
+    private enum NullReason
+    {
+        MisalignedReadOnly,
+        MisalignedWritable,
+        NoElementSize,
+        NoBuffer,
+        ConstantBuffer,
+        Count,
     }
 }
