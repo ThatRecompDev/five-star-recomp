@@ -101,7 +101,9 @@ internal sealed partial class GlobalMemoryEmitter
 
             if (_state.UsesCode)
             {
-                value = $"({high} == CODE_TAG ? CodeLoad({low} + {byteOffset}u) : {value})";
+                // A per-lane address: only the data words are indexed (CodeLoadLane, CodeData).
+                _state.UsesCodeLanes = true;
+                value = $"({high} == CODE_TAG ? CodeLoadLane({low} + {byteOffset}u) : {value})";
             }
 
             _operands.Write(data, value, dword);
