@@ -39,6 +39,11 @@ object layout (state written up to +0x564) were leads for docs/d3d12x-shim.md, c
 executable. Its CopyPageMappingsBatchX (`crates/victory-gpu/src/queue.rs`) gave the name and argument layouts of
 queue slot 31 (docs/physical-memory.md); the implementation is our own. No code was copied.
 
+Its command-list table named the console copy slots (CopyMemoryToMemoryX, CopyTextureRegionX, CopyResourceX; docs/d3d12x-shim.md),
+and its rule that a texture the host GPU copied into keeps the host's contents was the lead for `GpuTexture.CopiedInto`
+(docs/gpu-resources.md). Its report that dead-code removal and constant folding cut its host instruction count by
+about 43% led to the DXIL backend's folding and value numbering (docs/dxil-backend.md). The code is our own.
+
 Its audio modules were leads for the loader's audio (docs/audio-runtime.md): the xapu.dll command and 0x50-byte result
 layout (identity echo, samples written, the first-frame and frame-count fields), the note that the game's mixer sleeps
 about 4 ms per 5.3 ms block and needs millisecond timers (and that Windows 11 drops them for a hidden window unless
