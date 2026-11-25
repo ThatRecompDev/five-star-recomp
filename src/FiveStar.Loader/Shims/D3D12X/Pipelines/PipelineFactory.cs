@@ -481,6 +481,7 @@ internal sealed unsafe class PipelineFactory
             CompileBudget.Enter(stream.ShaderBytes);
             Compiling.Begin(PipelineCreationsInFlight.NoSlot);
             Compiling.Describe($"{what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL)");
+            var measure = CompileBudget.Measure(stream.ShaderBytes);
 
             try
             {
@@ -497,6 +498,7 @@ internal sealed unsafe class PipelineFactory
             finally
             {
                 Compiling.End();
+                CompileBudget.Measured(measure, what);
                 CompileBudget.Exit(stream.ShaderBytes);
             }
         }
