@@ -33,11 +33,19 @@ internal static unsafe class CompileBudget
     /// <summary>The default of <see cref="CeilingBytes"/> (<c>--compile-ceiling</c>, in GB).</summary>
     public const long DefaultCeilingBytes = 28L << 30;
 
-    /// <summary>Driver memory expected per byte of DXIL: 3 MB of mesh-shader DXIL passed 8 GB.</summary>
-    private const long BytesPerShaderByte = 4096;
+    /// <summary>
+    /// Driver memory expected per byte of DXIL. Boot v3 measured 101 compiles of 256 KB to 1.94 MB (the private peak
+    /// over each one's start, sampled every 250 ms): alone, at most 0.40 GB; with others running, at most 4.70 GB for
+    /// 1.75 MB, 2.69 GB per MB at the most and 0.79 at the 90th percentile. The most per MB, with concurrent growth
+    /// counted, keeps a margin, and puts 3 MB at the 8 GB an earlier mesh-shader compile passed.
+    /// </summary>
+    private const long BytesPerShaderByte = 2816;
 
-    private const long MinimumEstimate = 2L << 30;
-    private const long MaximumEstimate = 32L << 30;
+    /// <summary>The least a compile is expected to take: alone, none measured passed 0.40 GB.</summary>
+    private const long MinimumEstimate = 512L << 20;
+
+    /// <summary>The most one compile is expected to take: the largest seen, 8 GB (4.70 GB in v3).</summary>
+    private const long MaximumEstimate = 8L << 30;
     private const int PauseMilliseconds = 500;
     private const double BytesPerGigabyte = 1L << 30;
     private const double BytesPerMegabyte = 1L << 20;
