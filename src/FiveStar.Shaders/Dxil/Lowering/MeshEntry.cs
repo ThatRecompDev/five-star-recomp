@@ -19,6 +19,8 @@ public sealed class MeshEntry
     private const string VerticesModifier = "vertices";
     private const string IndicesModifier = "indices";
     private const string PrimitivesModifier = "primitives";
+    private const string PayloadModifier = "payload";
+    private const int ScalarBytes = 4;
 
     // DXIL MeshOutputTopology: 1 line, 2 triangle; an index vector has one index per corner.
     private const int LineTopology = 1;
@@ -50,6 +52,9 @@ public sealed class MeshEntry
 
     public int Topology { get; private set; } = TriangleTopology;
 
+    /// <summary>Bytes of the <c>in payload</c> parameter (an amplification shader's payload, never read here); 0 for none.</summary>
+    public int PayloadBytes { get; private set; }
+
     private DxilModule Module => _context.Module;
 
     /// <summary>Builds and packs the vertex and primitive signatures from the output parameters.</summary>
@@ -57,6 +62,13 @@ public sealed class MeshEntry
     {
         foreach (var parameter in Parameters(main))
         {
+            if (parameter.HasModifier(PayloadModifier))
+            {
+                PayloadBytes = ScalarBytes * Scalars(Resolve(parameter));
+
+                continue;
+            }
+
             var modifier = OutputModifier(parameter);
 
             if (modifier is null)
@@ -83,6 +95,12 @@ public sealed class MeshEntry
     {
         foreach (var parameter in Parameters(main))
         {
+            // The payload is declared for its size alone; translated programs never read it.
+            if (parameter.HasModifier(PayloadModifier))
+            {
+                continue;
+            }
+
             var type = Resolve(parameter);
 
             if (_arrays.ContainsKey(parameter.Text))
@@ -191,6 +209,22 @@ public sealed class MeshEntry
     private static IEnumerable<SyntaxNode> Parameters(SyntaxNode main)
     {
         return main.Children.Where(child => child.Kind == SyntaxKind.Parameter);
+    }
+
+    /// <summary>The 32-bit scalars of <paramref name="type"/> (a payload of uints and floats).</summary>
+    private static int Scalars(HlslType type)
+    {
+        if (type.Shape == TypeShape.Array)
+        {
+            return type.Length * Scalars(type.Element!);
+        }
+
+        if (type.Fields.Count > 0)
+        {
+            return type.Fields.Sum(field => Scalars(field.Type));
+        }
+
+        return type.Columns * type.Rows;
     }
 
     private static string? OutputModifier(SyntaxNode parameter)

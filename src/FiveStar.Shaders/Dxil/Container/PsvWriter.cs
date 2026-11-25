@@ -20,10 +20,11 @@ public static class PsvWriter
     private const int BitsPerWord = 32;
 
     // PSVRuntimeInfo0..2 (DxilPipelineStateValidation.h): the stage union @0 (VS: output position present; PS: depth
-    // output, sample frequency; MS: shared bytes, then max vertices and primitives @12; GS: input primitive, output
+    // output, sample frequency; MS: shared bytes, payload bytes @8, then max vertices and primitives @12; GS: input primitive, output
     // topology, stream mask, output position present @12), wave sizes @16 and @20, stage @24, the union @26 (GS: max
     // vertex count; MS: primitive vectors, topology), element counts @28, input vectors @31, output vectors @32, threads @36.
     private const int SampleFrequencyOffset = 1;
+    private const int MeshPayloadOffset = 8;
     private const int MeshVerticesOffset = 12;
     private const int GeometryPositionOffset = 12;
     private const int MinimumWaveOffset = 16;
@@ -134,8 +135,10 @@ public static class PsvWriter
     {
         var mesh = description.Mesh!;
         BinaryPrimitives.WriteUInt32LittleEndian(info, (uint)mesh.SharedBytes);
+        BinaryPrimitives.WriteUInt32LittleEndian(info.AsSpan(MeshPayloadOffset), (uint)mesh.PayloadBytes);
         BinaryPrimitives.WriteUInt16LittleEndian(info.AsSpan(MeshVerticesOffset), (ushort)mesh.MaxVertices);
         BinaryPrimitives.WriteUInt16LittleEndian(info.AsSpan(MeshVerticesOffset + sizeof(ushort)), (ushort)mesh.MaxPrimitives);
+
         info[UnionOffset] = (byte)ViewIdState.Vectors(description.Primitives);
         info[UnionOffset + 1] = (byte)mesh.Topology;
     }

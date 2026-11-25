@@ -92,6 +92,9 @@ internal sealed class TranslationState
     /// <summary>2D samples filter shared-exponent light themselves (TranslationOptions.SharedExponentSamples).</summary>
     public bool SharedExponentSamples { get; init; }
 
+    /// <summary>Mesh programs declare the launch payload (TranslationOptions.MeshPayload).</summary>
+    public bool MeshPayload { get; init; }
+
     /// <summary>The program filters shared-exponent light: it gets rdna_shared_exponent.hlsli written into it.</summary>
     public bool UsesSharedExponent { get; set; }
 

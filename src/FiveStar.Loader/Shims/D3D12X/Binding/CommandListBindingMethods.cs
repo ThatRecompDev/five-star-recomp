@@ -468,37 +468,84 @@ internal static unsafe class CommandListBindingMethods
             var trace = ShimContext.Runtime.D3D12X.DrawTrace;
             trace?.Indirect(self, maxCount, ArgumentAddress(arguments, argumentOffset), CommandSignatures.Clampable(signature).Stride, count != 0, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind);
 
-            nint inner = self->Inner;
-            var execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
-
-            nint argumentBuffer = BufferCopies.Desktop(arguments, ref argumentOffset);
-            nint countBuffer = BufferCopies.Desktop(count, ref countOffset);
-
-            if (NullAddressCheck.Enabled && IndirectUnsafe(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset))
-            {
-                return;
-            }
-
-            if (IndirectClamp.Record(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
-            {
-                RestoreCompute(self);
-                inner = self->Inner;
-                execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
-                execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, scratch, scratchOffset, countBuffer, countOffset);
-                IndirectClamp.Done(self, scratch);
-                trace?.AfterIndirect(self);
-
-                return;
-            }
-
-            TimeIndirect(self, signature);
-            execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+            RunIndirect(self, signature, maxCount, BufferCopies.Desktop(arguments, ref argumentOffset), argumentOffset, BufferCopies.Desktop(count, ref countOffset), countOffset);
             trace?.AfterIndirect(self);
         }
         catch (Exception exception)
         {
             UnmanagedGuard.Caught(exception, "CommandListBindingMethods.ExecuteIndirect");
         }
+    }
+
+    /// <summary>
+    /// An ExecuteIndirect over its desktop argument and count buffers: dropped by the null-address check, launched by the
+    /// mesh launch stage when the bound pipeline has it (<see cref="MeshLaunch"/>), or run on the clamped copy of its
+    /// records (<see cref="IndirectClamp"/>), or as it is when the clamp cannot run.
+    /// </summary>
+    [HotPath]
+    private static void RunIndirect(XboxObject* self, nint signature, uint maxCount, nint argumentBuffer, ulong argumentOffset, nint countBuffer, ulong countOffset)
+    {
+        if (NullAddressCheck.Enabled && IndirectUnsafe(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset))
+        {
+            return;
+        }
+
+        if (ListActivity.Of(self)->Launches != 0 && CommandSignatures.Clampable(signature).Kind == IndirectClamp.MeshKind)
+        {
+            Launch(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+
+            return;
+        }
+
+        nint inner = self->Inner;
+        var execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
+
+        if (IndirectClamp.Record(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
+        {
+            RestoreCompute(self);
+            inner = self->Inner;
+            execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
+            execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, scratch, scratchOffset, countBuffer, countOffset);
+            IndirectClamp.Done(self, scratch);
+
+            return;
+        }
+
+        TimeIndirect(self, signature);
+        execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+    }
+
+    /// <summary>
+    /// A mesh ExecuteIndirect on a pipeline with the mesh launch stage, which an ExecuteIndirect would launch wrongly (its
+    /// records would count stage groups): one record without a count buffer is read by the stage where the game wrote it;
+    /// any other call is clamped and its clamped records launched one by one. Dropped (counted) when the clamp cannot run.
+    /// </summary>
+    [HotPath]
+    private static void Launch(XboxObject* self, nint signature, uint maxCount, nint argumentBuffer, ulong argumentOffset, nint countBuffer, ulong countOffset)
+    {
+        if (maxCount == 1 && countBuffer == 0 && argumentBuffer != 0)
+        {
+            ulong budget = IndirectClamp.LaunchBudget(self);
+
+            if (budget != 0)
+            {
+                TimeIndirect(self, signature);
+                MeshLaunch.Record(self->Inner, MeshLaunch.ChargedRecord, DesktopCalls.GpuAddress(argumentBuffer) + argumentOffset, budget);
+
+                return;
+            }
+        }
+
+        if (!IndirectClamp.Record(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
+        {
+            MeshLaunch.Drop();
+
+            return;
+        }
+
+        RestoreCompute(self);
+        IndirectClamp.LaunchClamped(self, scratch, scratchOffset, maxCount, CommandSignatures.Clampable(signature).Stride);
+        IndirectClamp.Done(self, scratch);
     }
 
     /// <summary>
@@ -732,6 +779,7 @@ internal static unsafe class CommandListBindingMethods
 
         ListIndirectScratch.Of(self)->Used = 0;
         ListIndirectScratch.Of(self)->Budget = 0;
+        ListIndirectScratch.Of(self)->LaunchSegment = 0;
         ListActivity.Reset(self);
         ShimContext.Runtime.D3D12X.DrawTrace?.Reset(self);
 
@@ -752,6 +800,7 @@ internal static unsafe class CommandListBindingMethods
         }
 
         ShimContext.Runtime.D3D12X.Rectangles.Reset(self, pipeline);
+        ListActivity.Of(self)->Launches = MeshLaunch.Enabled && MeshLaunch.Has(pipeline) ? 1 : 0;
         nint desktop = objects.Unwrap(allocator);
         int hr = reset(inner, desktop, pipeline);
 
