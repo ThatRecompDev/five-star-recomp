@@ -404,6 +404,62 @@ internal static unsafe class QueueProgress
         }
     }
 
+    /// <summary>
+    /// The work a wait for <paramref name="fence"/> (a game fence wrapper) to reach <paramref name="target"/> depends on:
+    /// the queue asked to signal it there and its executions before that Signal (<see cref="StallCulprit"/>), or, when
+    /// no queue was asked yet, the fence's last Signal.
+    /// </summary>
+    public static string DescribeFenceWait(nint fence, ulong target)
+    {
+        if (fence == 0)
+        {
+            return "fence unknown";
+        }
+
+        var completed = Completed();
+        string? last = null;
+
+        for (int q = 0; q < completed.Length; q++)
+        {
+            var queue = Queues[q];
+
+            if (queue is null)
+            {
+                continue;
+            }
+
+            var events = Kept(queue);
+            var culprit = StallCulprit.Describe(queue.Number, events, fence, target, completed[q], PipelineName);
+
+            if (culprit is not null)
+            {
+                return culprit;
+            }
+
+            if (StallCulprit.LastSignal(events, fence) is ulong value)
+            {
+                last = string.Create(CultureInfo.InvariantCulture, $"its last Signal was to {value} on queue #{queue.Number}");
+            }
+        }
+
+        return $"no queue was asked to signal it to {target} yet ({last ?? "no Signal kept"})";
+    }
+
+    /// <summary>A queue's kept calls, oldest first.</summary>
+    private static List<QueueEvent> Kept(Queue queue)
+    {
+        long next = Volatile.Read(ref queue.Next);
+        long first = Math.Max(0, next - History);
+        var events = new List<QueueEvent>((int)(next - first));
+
+        for (long i = first; i < next; i++)
+        {
+            events.Add(queue.Events[i % History]);
+        }
+
+        return events;
+    }
+
     /// <summary>A desktop pipeline by the programs it was built from, or its address.</summary>
     public static string PipelineName(nint pipeline)
     {

@@ -384,7 +384,7 @@ internal sealed class LoaderHost
 
         if (_options.WatchHang)
         {
-            GameHangWatch.Start(_runtime.Images, SampledCounters, _runtime.D3D12X.Fences.DescribeCell, _log);
+            GameHangWatch.Start(_runtime.Images, SampledCounters, _runtime.D3D12X.Fences.DescribeWait, _log);
         }
 
         StartAudioCapture();
