@@ -432,8 +432,11 @@ internal sealed unsafe class StandInPipelines
 
     private string SkippedBeforeSummary()
     {
-        var total = _skippedBefore.Values.Sum();
-        var top = string.Join(", ", _skippedBefore.OrderByDescending(entry => entry.Value).Take(SkipsShown).Select(entry => $"{entry.Key} x{entry.Value}"));
+        // A snapshot: LINQ over the dictionary itself sizes an array by Count, then copies while lists add entries
+        // (ArgumentException on the sampler thread, which ended a boot at 4,200 presents).
+        var entries = _skippedBefore.ToArray();
+        var total = entries.Sum(entry => entry.Value);
+        var top = string.Join(", ", entries.OrderByDescending(entry => entry.Value).Take(SkipsShown).Select(entry => $"{entry.Key} x{entry.Value}"));
 
         return $"{total} lists ran work after a skipped one ({top})";
     }
