@@ -56,13 +56,14 @@ internal static class HostUsage
                                  DXIL backend, a quarter with dxc)
           --loop-caps <caps>     loop caps of programs made on demand: victory (4096 compute, 256 vertex/mesh, 128 pixel),
                                  default, or compute,geometry,pixel; part of the program cache identity
-          --superstep-carry      superstep forms made on demand pass registers between steps by liveness, in a
-                                 tree of small switches (about a quarter of the DXIL); part of the cache identity
+          --plain-supersteps     superstep forms made on demand keep every register live around one dispatch
+                                 switch (the form before the liveness carry); part of the cache identity
           --placed-textures      read-only console textures share large placed heaps instead of a committed
                                  resource each (the driver's write-combined memory grew about 0.55 MB per texture)
           --max-driver-compiles <n>  driver pipeline compiles of 256 KB of DXIL or more at once (default 4)
           --compile-ceiling <GB> no such compile starts while private bytes and the running ones' expected arenas
-                                 would pass this (default 28); one always may when none runs
+                                 would pass this (default none: free RAM less the game's growth decides); one
+                                 always may when none runs
           --shader-backend <b>   dxil (default): programs made on first use compile with the DXIL backend, dxc
                                  for those it cannot lower or dxil.dll rejects; dxc: dxc for all
           --pipeline-cache <dir> disk cache of built pipelines (default: <work-dir>\pipeline-cache)

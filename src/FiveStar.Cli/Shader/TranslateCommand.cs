@@ -26,16 +26,16 @@ internal static class TranslateCommand
     private const string StructuredFlag = "structured";
     private const string NativeWavesFlag = "native-waves";
     private const string MeshFallbacksFlag = "mesh-fallbacks";
-    private const string SuperstepCarryFlag = "superstep-carry";
+    private const string PlainSuperstepsFlag = "plain-supersteps";
 
     public static int Run(IReadOnlyList<string> args)
     {
-        var arguments = new CommandArguments(args, new HashSet<string> { NoCompileFlag, DispatchFlag, StructuredFlag, NativeWavesFlag, MeshFallbacksFlag, SuperstepCarryFlag, ShaderTools.LlvmDisassemblerFlag });
+        var arguments = new CommandArguments(args, new HashSet<string> { NoCompileFlag, DispatchFlag, StructuredFlag, NativeWavesFlag, MeshFallbacksFlag, PlainSuperstepsFlag, ShaderTools.LlvmDisassemblerFlag });
 
         if (arguments.Positional.Count != TwoPaths)
         {
             throw new ArgumentException(
-                "translate <fssm-or-folder> <out> [--cache <dir>] [--retry results.json] [--stages ps,vs,cs,ms,gs] [--jobs N] [--dispatch] [--native-waves] [--mesh-fallbacks] [--superstep-carry] [--waves min-max,...] [--first-used pipelines-used.bin] [--llvm-disassembler] [--backend hlsl|dxil|dxil-only]");
+                "translate <fssm-or-folder> <out> [--cache <dir>] [--retry results.json] [--stages ps,vs,cs,ms,gs] [--jobs N] [--dispatch] [--native-waves] [--mesh-fallbacks] [--plain-supersteps] [--waves min-max,...] [--first-used pipelines-used.bin] [--llvm-disassembler] [--backend hlsl|dxil|dxil-only]");
         }
 
         var programs = Programs(arguments);
@@ -45,7 +45,7 @@ internal static class TranslateCommand
         {
             Translation = new TranslationOptions(!arguments.Flag(DispatchFlag), PinWaveSize: true, EmulateWaveSize: !arguments.Flag(NativeWavesFlag))
             {
-                SuperstepCarry = arguments.Flag(SuperstepCarryFlag),
+                SuperstepCarry = !arguments.Flag(PlainSuperstepsFlag),
             },
             MeshFallbacks = arguments.Flag(MeshFallbacksFlag),
             Waves = Waves(arguments.Option("waves")),

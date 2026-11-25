@@ -15,6 +15,9 @@ internal static class HostComposition
     private const string DataFolder = "FiveStar";
     private const string GdkDataFolder = "GdkData";
 
+    /// <summary>How long after the pipelines are set up large compiles count as in the game's load window.</summary>
+    private static readonly TimeSpan LoadWindowSpan = TimeSpan.FromSeconds(120);
+
     /// <summary>The shipped MSVC runtime, mapped from the target's directory unless --system-crt is given.</summary>
     public static readonly IReadOnlyList<string> ShippedCrt =
     [
@@ -47,6 +50,8 @@ internal static class HostComposition
     public static PipelineFolders CreatePipelineFolders(HostOptions options)
     {
         CompileBudget.Configure(options.MaxDriverCompiles, options.CompileCeilingBytes);
+        var boot = System.Diagnostics.Stopwatch.StartNew();
+        CompileBudget.LoadWindow = () => Diagnostics.GameHangWatch.Loading(boot.Elapsed, LoadWindowSpan);
         Shims.D3D12X.Resources.PlacedTextureHeaps.Enabled = options.PlacedTextures;
         Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
         string? cache = null;

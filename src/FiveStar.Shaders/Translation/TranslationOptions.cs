@@ -18,7 +18,8 @@ public sealed record TranslationOptions(bool StructuredControlFlow, bool PinWave
 
     /// <summary>
     /// The superstep form passes registers between its dispatch cases through carry slots, by liveness
-    /// (<see cref="Waves.SuperstepCarry"/>), instead of keeping every register live around the loop. Off by default.
+    /// (<see cref="Waves.SuperstepCarry"/>), in a tree of small switches, instead of keeping every register live around
+    /// one switch. On by default; false gives the plain form.
     /// </summary>
-    public bool SuperstepCarry { get; init; }
+    public bool SuperstepCarry { get; init; } = true;
 }
