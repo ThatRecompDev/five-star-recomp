@@ -28,6 +28,8 @@ internal static unsafe class WarmPipelinesCommand
 
     public static int Run(HostOptions options, LoaderLog log)
     {
+        ShimContext.UseLog(log);
+
         // --min-free-memory and --max-commit end the warm-up as they end a boot, its helper processes with it.
         if (options.MinimumFreeMemory != 0 || options.MaximumCommit != 0)
         {

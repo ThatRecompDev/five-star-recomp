@@ -10,9 +10,11 @@ using FiveStar.Shaders.Translation;
 namespace FiveStar.Shaders.Tests.Cases;
 
 /// <summary>
-/// A 128-thread wave64 NGG group (two console waves) whose results need whole console waves: v_readfirstlane under
-/// EXEC (lanes above thread 40: thread 41 in wave 0, 64 in wave 1), v_readlane of lane 63, a ballot count, and in wave 1
+/// A 128-thread wave64 NGG group (two console waves) whose results need whole console waves: two v_readfirstlanes under
+/// EXEC (lanes above thread 40: thread 41 in wave 0, 64 in wave 1; one step in the superstep form), v_readlane of lane 63, a ballot count, and in wave 1
 /// only (an SCC branch on the wave index) a region that windows above thread 71 skip with a v_readlane of lane 5 in it.
+/// Threads above 100 then add their index to the count in an execz region without wave operations, which the
+/// superstep form branches into per lane (no round; threads 64 to 100 skip what wave 1 runs with them inactive).
 /// Each thread stores the four values. The superstep form runs it on WARP's 4-lane waves.
 /// </summary>
 public sealed class MeshSuperstepRunner
@@ -32,7 +34,9 @@ public sealed class MeshSuperstepRunner
         v_cmp_lt_u32_e32 vcc, 40, v5
         s_and_saveexec_b64 s[22:23], vcc
         v_readfirstlane_b32 s30, v5
+        v_readfirstlane_b32 s36, v2
         s_mov_b64 exec, s[22:23]
+        s_add_u32 s30, s30, s36
         v_readlane_b32 s31, v2, 63
         v_and_b32_e32 v3, 4, v5
         v_cmp_ne_u32_e64 s[34:35], 0, v3
@@ -51,6 +55,13 @@ public sealed class MeshSuperstepRunner
         v_mov_b32 v21, s31
         v_mov_b32 v22, s32
         v_mov_b32 v23, s33
+        v_cmp_lt_u32_e32 vcc, 100, v5
+        s_and_saveexec_b64 s[26:27], vcc
+        s_cbranch_execz .Lskip
+        v_add_nc_u32_e32 v22, v22, v5
+        s_mov_b32 s40, 5
+        .Lskip:
+        s_mov_b64 exec, s[26:27]
         v_lshlrev_b32_e32 v40, 4, v5
         buffer_store_dword v20, v40, s[8:11], 0 offen
         buffer_store_dword v21, v40, s[8:11], 0 offen offset:4
@@ -125,10 +136,12 @@ public sealed class MeshSuperstepRunner
     private static uint[] Expected(int thread)
     {
         var wave = thread / Wave;
-        uint first = wave == 0 ? 41u : 64u;
+        uint first = wave == 0 ? 41u * 4u : 64u * 4u;
         uint last = (uint)(((wave * Wave) + Wave - 1) * 3);
         uint fifth = wave == 1 ? (uint)((Wave + 5) * 3) : 0u;
 
-        return [first, last, 32, fifth];
+        uint count = thread > 100 ? 32u + (uint)thread : 32u;
+
+        return [first, last, count, fifth];
     }
 }

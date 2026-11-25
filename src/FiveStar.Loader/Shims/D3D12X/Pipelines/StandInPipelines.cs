@@ -162,12 +162,12 @@ internal sealed unsafe class StandInPipelines
 
     /// <summary>
     /// Writes a stand-in whose programs are made on demand (<see cref="OnDemandPrograms"/>): <paramref name="programs"/>
-    /// starts making them (told whether a command list waits) and, once they are ready, <paramref name="prepare"/> gives
+    /// starts making them (given the stand-in's use when a command list waits, null for a prefetch) and, once they are ready, <paramref name="prepare"/> gives
     /// the build, queued as in <see cref="Create"/>; null leaves the stand-in unbuilt. With <paramref name="used"/> this
     /// starts when a command list first sets the stand-in (as <see cref="Deferred"/>), else now. A small compute
     /// stand-in has <paramref name="programsNow"/>, which makes its programs on the thread of its first use.
     /// </summary>
-    public int Waiting(Func<bool, Task> programs, Func<PendingBuild?> prepare, nint* result, Action? used, string what = "", Func<bool>? programsNow = null)
+    public int Waiting(Func<StandInUse?, Task> programs, Func<PendingBuild?> prepare, nint* result, Action? used, string what = "", Func<bool>? programsNow = null)
     {
         nint standIn = NewStandIn(what, programsNow is not null);
         Track(standIn, new StandInWork { Programs = programs, ProgramsNow = programsNow });
@@ -177,7 +177,14 @@ internal sealed unsafe class StandInPipelines
         void Start(bool firstUse)
         {
             long started = Stopwatch.GetTimestamp();
-            programs(firstUse).ContinueWith(_ => Queue(standIn, prepare, started), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            StandInUse? use = null;
+
+            if (firstUse)
+            {
+                use = Use(standIn);
+            }
+
+            programs(use).ContinueWith(_ => Queue(standIn, prepare, started), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
         }
 
         if (used is null)
@@ -270,7 +277,7 @@ internal sealed unsafe class StandInPipelines
 
         if (work.Programs is not null)
         {
-            _ = work.Programs(true);
+            _ = work.Programs(Use(standIn));
         }
 
         lock (_gate)

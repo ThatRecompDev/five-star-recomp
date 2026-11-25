@@ -122,8 +122,8 @@ internal sealed unsafe class PipelineFactory
             // Programs first, then the producer linked to the pixel shader when the pair needs it (ProducerLinks).
             lacking ??= [];
             var onDemand = OnDemand!;
-            Func<bool, Task> work = urgent => Task.WhenAll(lacking.Select(names => onDemand.Request(names, urgent)))
-                .ContinueWith(_ => PendingLink(description)?.Invoke(urgent) ?? Task.CompletedTask, TaskScheduler.Default).Unwrap();
+            Func<StandInUse?, Task> work = use => Task.WhenAll(lacking.Select(names => onDemand.Request(names, use is not null, use)))
+                .ContinueWith(_ => PendingLink(description)?.Invoke(use) ?? Task.CompletedTask, TaskScheduler.Default).Unwrap();
 
             var wanted = *iid;
             var what = string.Join(" + ", lacking.Select(names => names[0]).DefaultIfEmpty("a linked producer"));
@@ -407,7 +407,7 @@ internal sealed unsafe class PipelineFactory
     /// The work that makes the linked producer of a description whose programs are all loadable, when the pair needs one
     /// that is not made yet; else null.
     /// </summary>
-    private Func<bool, Task>? PendingLink(GraphicsPipelineDescription description)
+    private Func<StandInUse?, Task>? PendingLink(GraphicsPipelineDescription description)
     {
         if (OnDemand is null)
         {
@@ -448,7 +448,7 @@ internal sealed unsafe class PipelineFactory
     {
         var wanted = *iid;
         var onDemand = OnDemand!;
-        Func<bool, Task> programs = urgent => Task.WhenAll(lacking.Select(names => onDemand.Request(names, urgent)));
+        Func<StandInUse?, Task> programs = use => Task.WhenAll(lacking.Select(names => onDemand.Request(names, use is not null, use)));
 
         Func<bool>? programsNow = null;
 
@@ -624,26 +624,26 @@ internal sealed unsafe class PipelineFactory
 
         if (result.Reason is not null)
         {
-            ShimContext.Runtime.Log.Warn($"{line}: {result.Reason}; the loader builds it itself");
+            ShimContext.Log?.Warn($"{line}: {result.Reason}; the loader builds it itself");
 
             return null;
         }
 
         if (result.Outcome == PipelineHostOutcome.Crashed)
         {
-            ShimContext.Runtime.Log.Warn(line + ": the driver crashed in the host, so the loader does not build it; it stays a stand-in");
+            ShimContext.Log?.Warn(line + ": the driver crashed in the host, so the loader does not build it; it stays a stand-in");
 
             return new PipelineResult(HResult.Fail, 0);
         }
 
         if (!result.Killed)
         {
-            ShimContext.Runtime.Log.Detail("  " + line);
+            ShimContext.Log?.Detail("  " + line);
 
             return null;
         }
 
-        ShimContext.Runtime.Log.Warn(line + "; it stays a stand-in");
+        ShimContext.Log?.Warn(line + "; it stays a stand-in");
         _ = UnbuildablePipelines.Add(stream.Key);
 
         return new PipelineResult(HResult.OutOfMemory, 0);
@@ -671,7 +671,7 @@ internal sealed unsafe class PipelineFactory
         if (UnbuildablePipelines.Add(stream.Key))
         {
             long estimate = CompileBudget.Estimate(stream.ShaderBytes) >> GigabyteShift;
-            ShimContext.Runtime.Log.Warn($"[d3d12_xs] pipeline {what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL) not built: its compile is expected to take {estimate} GB, more than this machine can give; it stays a stand-in");
+            ShimContext.Log?.Warn($"[d3d12_xs] pipeline {what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL) not built: its compile is expected to take {estimate} GB, more than this machine can give; it stays a stand-in");
         }
 
         return new PipelineResult(HResult.OutOfMemory, 0);

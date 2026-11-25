@@ -303,7 +303,7 @@ internal static unsafe class CommandListBindingMethods
     {
         try
         {
-            if (PipelinePending(self))
+            if (PipelinePending(self, draw: true))
             {
                 return;
             }
@@ -330,7 +330,7 @@ internal static unsafe class CommandListBindingMethods
     {
         try
         {
-            if (PipelinePending(self))
+            if (PipelinePending(self, draw: true))
             {
                 return;
             }
@@ -475,7 +475,7 @@ internal static unsafe class CommandListBindingMethods
     /// counted; otherwise it is counted as recorded.
     /// </summary>
     [HotPath]
-    private static bool PipelinePending(XboxObject* self)
+    private static bool PipelinePending(XboxObject* self, bool draw)
     {
         var standIns = ShimContext.Runtime.D3D12X.Pipelines?.StandIns;
         var activity = ListActivity.Of(self);
@@ -487,10 +487,17 @@ internal static unsafe class CommandListBindingMethods
             activity->Skipped = 0;
             trace?.Census(self, RectangleListState.Of(self)->Pipeline, skipped: false);
 
-            return false;
+            // --hold-passes / --stub-passes: recorded work of a held or stubbed pass is skipped all the same.
+            return PassControls.Rules.Enabled && PassControls.Intercept(self, RectangleListState.Of(self)->Pipeline, draw);
         }
 
         trace?.Census(self, activity->StandIn, skipped: true);
+
+        if (PassControls.Rules.Enabled && standIns is not null)
+        {
+            PassControls.Skipped(standIns.Name(activity->StandIn));
+        }
+
         standIns?.Skipped(activity->StandIn);
         activity->Skipped = activity->StandIn;
 
@@ -526,7 +533,7 @@ internal static unsafe class CommandListBindingMethods
             return true;
         }
 
-        if (!PipelinePending(self))
+        if (!PipelinePending(self, draw: false))
         {
             return false;
         }
@@ -829,11 +836,6 @@ internal static unsafe class CommandListBindingMethods
             extent = layout->Extents[parameter];
         }
 
-        if (extent < DescriptorWindow.MinTableRecords)
-        {
-            extent = DescriptorWindow.MinTableRecords;
-        }
-
-        return ShimContext.Runtime.D3D12X.DescriptorHeaps.TableAddress(handle, extent);
+        return ShimContext.Runtime.D3D12X.DescriptorHeaps.TableAddress(handle, DescriptorWindow.MirroredRecords(extent));
     }
 }

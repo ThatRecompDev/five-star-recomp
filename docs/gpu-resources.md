@@ -41,8 +41,11 @@ flowchart LR
 - **Registry** (`GpuTextureRegistry`): textures sorted by console address over the span of their XG layout; lookups
   take no lock. A texture registered over an overlapping range retires the old one. Of those over the same range (other
   views of the same memory, or a streaming slot reused) the newest two keep their reference until shutdown, since
-  descriptors written earlier may still name them, and older ones are released 600 presents later; any other is
-  released 120 presents later (the memory went to something else). Keeping them all was a leak: in the
+  descriptors written earlier may still name them, and older ones are released 30 presents later; any other is
+  released 8 presents later (the memory went to something else), and either only once every queue has finished the work
+  it had submitted when the texture was retired (its shim fence), so no list still on the GPU can sample it. The grace
+  was 600 and 120 presents without the fences; boot w36 held 4,905 retired textures, their video memory charged to
+  commit, when commit reached its limit. Keeping them all was a leak: in the
   opening cutscene the game streams textures through the same memory, about 45,000 were made in 7 minutes, and once
   video memory was full the process grew by 2 to 3 GB every 30 s until the machine ran out.
 - **Placed textures** (on by default, `--committed-textures` turns it off, `PlacedTextureHeaps`; a released texture's range stays mapped,
@@ -52,7 +55,9 @@ flowchart LR
   each; the driver's write-combined system memory grew by about 0.55 MB per committed texture (22,000 textures, 17 GB
   by 275 s of a cold boot). A texture larger than 64 MB gets a heap of its own. A COM object set as the texture's
   private data gives its range back when the runtime destroys the texture; the registry's grace periods keep the GPU
-  off a range before it is reused, and the upload writes the new texture whole before it is read.
+  off a range before it is reused, and the upload writes the new texture whole before it is read. A shared heap empty for
+  60 s goes back to the driver, past one kept for new textures (w36 held 58 heaps, 14.5 GB of commit); the sample line
+  gives the heaps' size, the bytes in use and the heaps returned.
 - **Slot 133** (`GpuTextures.CreatePlaced`): a committed desktop texture in its home state ([Barriers](#barriers)).
   With ALLOW_RENDER_TARGET, ALLOW_DEPTH_STENCIL or ALLOW_UNORDERED_ACCESS it is GPU-written and never filled from
   memory; otherwise it is filled at creation.

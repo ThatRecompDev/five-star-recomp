@@ -118,8 +118,12 @@ program. The caps count all loops of one invocation together (a cap per loop let
 `TranslationOptions.Loops` (`LoopCaps`; the loader's `--loop-caps`) replaces these per stage: `victory` is
 victory-gta6's 4,096 compute, 256 vertex and mesh, 128 pixel, and also bounds the dispatch form at 256 blocks per
 allowed iteration; `compute,geometry,pixel` gives other numbers. The caps are part of the translation options, so of
-the program cache identity. The superstep form had no bound at all; it now ends a thread that has run the stage's
-dispatch steps (`ss_steps`), which then meets every later barrier as an ended thread.
+the program cache identity. The superstep form had no bound at all; it now ends a thread that has run 16 blocks per
+allowed iteration (`ss_steps`, `LoopCaps.SuperstepSteps`: 65,536 for mesh), which then meets every later barrier as
+an ended thread. A loop with no wave operation (a scalar count loop) stays inside one round, so the round bound below
+never sees it; with the dispatch form's 256 blocks per iteration (2^20) the loop of `MSNC_VS_LinearDepthSkin_f1f2249c`
+over a constant-buffer count (dword 0x11c), a sample and about thirty dependent loads per pass, could run 2^20
+passes per thread, the likely cause of the w39 and w40 removals.
 
 A mesh program's group rounds are bounded too (`LoopCaps.Rounds`: 16 per allowed iteration, 65,536 for mesh by
 default, 4,096 with `victory`): the barriers of the two-phase form (`ms_step`) and the steps of the superstep form
@@ -132,6 +136,32 @@ rounds. Every thread counts the same rounds, so all leave on the same one. A pro
 A direct-export mesh program (two-phase or superstep) starts every primitive of its count culled right after
 SetMeshOutputCounts, and an export culls a primitive whose indices pass the vertex count and keeps them inside it:
 uninitialised or out-of-range primitives hung NVIDIA's mesh pipeline (VIctory #587).
+
+The superstep form first drops the wave operations whose result nothing reads (`DeadWaveOperations`: a ballot into an
+SGPR half or an scc write that is dead after it, by liveness over the block graph), after reading a lane's own bit of a
+ballot from the mask bool it took (`BallotBits`: `lane_bit(lo, hi)` of `vw_ballot(m).x` and `.y` is `m` while
+neither half nor `m` is written, since every thread of the console wave deposits its bit). Over the 8,765 mesh
+programs the stops fell from 1,340,858 to 406,824; none has more than 500 left (207 had before), and
+`MSNC_VS_LinearDepthSkin_f1f2249c` went from 611 to 180.
+
+One round then serves every ballot, `vw_any` and `vw_count` of the mask the last round took, until something that mask
+reads is written or the block ends (`SuperstepSplitter`): the round's mask buffer holds the whole ballot, so a ballot's
+`.y` no longer takes a round after its `.x`. Up to four readfirstlanes of one mask in a row (a waterfall loop reading
+a descriptor's dwords) also share one round: each thread deposits the four values (`vw_ss_put_values`, with
+`VW_SS_VALUES 4` in the program) and reads value k of the first lane (`vw_ss_first_value`). Over the 8,765 mesh
+programs the stops fell from 406,824 to 316,397 with the shared ballots and to 299,243 with the shared readfirstlanes;
+the most any program has went from 449 to 284, and none has more than 300 (48 had). `MS_VS_TransformD_c5fd36bb`
+(049945c2), whose pipeline the driver did not build in 10 minutes, went from 393 stops to 234 (1,291 to 973 cases); its
+remaining rounds are mostly the 192 branches on "any lane" of a mask.
+
+A branch on "any lane" of a mask then becomes a branch on the lane's own bit where that gives the console's result
+(`LaneBranches`, from `WindowAnalysis.PerLaneBranches`, the window analysis with windows of one lane): the mask is
+EXEC, or EXEC and a uniform value (or the same on every lane), so a lane outside it is inactive; both paths, run with
+that lane inactive, change nothing it reads after they meet (`SkipRegion`); and neither path holds a step, a native
+wave or quad operation, GS_ALLOC_REQ, a barrier or the program end, so the lanes of a console wave meet again before
+their next step. Over the 8,765 mesh programs the stops fell from 299,243 to 226,058 (every program lost some; the
+most any has went from 284 to 251). 049945c2 went from 234 to 207 and 04a7a7b5 from 215 to 188: most of their
+remaining branches guard paths with readfirstlanes or ballots in them.
 
 A superstep program names its cost in its first body line, `// superstep: <stops> stops, round bound <n>` (the loader
 logs it once per program): a round is a group barrier and a run of the dispatch switch to the next stop, so a large
@@ -757,7 +787,7 @@ of the mesh program whose 4-lane waves skip regions their console wave runs (an 
 inside) is classified as right on 4 lanes and draws the reference; small programs check that an SGPR read after a
 skipped region or a first-lane read of a per-lane value keep the whole wave as floor. Supersteps: the mesh program in
 the superstep form, and a 128-thread group whose two console waves branch apart (first lane under EXEC, readlane 63, a
-ballot count, a readlane only one wave runs), give console results on 4-lane waves; the mesh program also through the fallback of its superstep form, and every wave64 compute case in groups of two console waves. Missing lanes: a pixel shader with whole-wave minimum and sum reductions (permlanex16, readlane 20) is classified as right on 4 lanes and gives the quad's results there. Pair-time linking is
+ballot count, a readlane only one wave runs, an execz path each lane enters by its own bit), give console results on 4-lane waves; the mesh program also through the fallback of its superstep form, and every wave64 compute case in groups of two console waves. Missing lanes: a pixel shader with whole-wave minimum and sum reductions (permlanex16, readlane 20) is classified as right on 4 lanes and gives the quad's results there. Pair-time linking is
 checked with a VS whose two float2 outputs share a register while the PS reads one of them flat: unlinked the
 pipeline fails, linked it draws the flat value of the provoking vertex. Test
 classes run one at a time (`xunit.runner.json`): WARP crashes the test host when they run in parallel.

@@ -37,7 +37,7 @@ public sealed class Instruction : Value
     /// <summary>A removed phi's value (set by SSA construction).</summary>
     internal Value? Replacement { get; set; }
 
-    public BasicBlock Block { get; }
+    public BasicBlock Block { get; internal set; }
 
     public List<Value> Operands { get; }
 

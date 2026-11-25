@@ -17,6 +17,7 @@ internal sealed unsafe class ConsoleBvhModule
 {
     private const string FileName = "xboxbvhbuilder.dll";
     private const string PrebuildInfoExport = "?GetRaytracingAccelerationStructurePrebuildInfo@XboxBvhBuilder@@QEAAXPEBUD3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS@@PEBUD3D12XBOX_XDXR_STREAM_DESC@@PEAUD3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO@@@Z";
+    private const string ConstructorExport = "??0XboxBvhBuilder@@QEAA@PEAUID3D12Device11@@_N@Z";
     private const string RehydrateExport = "?RehydrateRaytracingAccelerationStructureX@XboxBvhBuilder@@QEAAJPEAUID3D12Device11@@PEBUD3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC@@@Z";
 
     /// <summary>A stand-in object: neither entry point reads it.</summary>
@@ -29,6 +30,8 @@ internal sealed unsafe class ConsoleBvhModule
     private nint _prebuildInfo;
     private nint _rehydrate;
     private nint _fakeObject;
+    private nint _constructor;
+    private nint _imageBase;
 
     public ConsoleBvhModule(ImageLoader loader, LoaderLog log)
     {
@@ -49,6 +52,22 @@ internal sealed unsafe class ConsoleBvhModule
 
             return _rehydrate != 0 && _prebuildInfo != 0;
         }
+    }
+
+    /// <summary>The module's base address once mapped; 0 before.</summary>
+    public nint ImageBase => _imageBase;
+
+    /// <summary>The shipped constructor on <paramref name="self"/> (the game's object) with our device; false without it.</summary>
+    public bool Construct(nint self, nint device, byte morton)
+    {
+        if (!TryBind() || _constructor == 0)
+        {
+            return false;
+        }
+
+        ((delegate* unmanaged<nint, nint, byte, nint>)_constructor)(self, device, morton);
+
+        return true;
     }
 
     /// <summary>XboxBvhBuilder::GetRaytracingAccelerationStructurePrebuildInfo: the console's sizes.</summary>
@@ -93,6 +112,8 @@ internal sealed unsafe class ConsoleBvhModule
 
         // Lives for the process, like the module.
         _fakeObject = (nint)NativeMemory.AllocZeroed(FakeObjectSize);
+        _constructor = image.Exports.Find(ConstructorExport, 0)?.Address ?? 0;
+        _imageBase = image.Base;
         _prebuildInfo = prebuild.Address;
         _rehydrate = rehydrate.Address;
         _log.Info($"[bvh] {FileName}: console prebuild sizes and CPU rehydration");

@@ -17,6 +17,29 @@
     <InternalsVisibleTo Include="FiveStar.Shaders.Tests" />
   </ItemGroup>
 
+  <!--
+    The hash of every source of this assembly but the translator's (Translation/), as assembly metadata
+    "CompilerSources": the program content store (Cache/ProgramContentStore) keys DXIL by the HLSL it was compiled from
+    and this, so a translator change recompiles only the programs whose HLSL it changed.
+  -->
+  <Target Name="HashCompilerSources" BeforeTargets="GetAssemblyAttributes">
+    <ItemGroup>
+      <_CompilerSource Include="@(Compile)" Exclude="Translation\**" />
+    </ItemGroup>
+    <GetFileHash Files="@(_CompilerSource)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_CompilerSourceHash" />
+    </GetFileHash>
+    <Hash ItemsToHash="@(_CompilerSourceHash->'%(RecursiveDir)%(Filename)%(Extension)=%(FileHash)')">
+      <Output TaskParameter="HashResult" PropertyName="_CompilerSources" />
+    </Hash>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>CompilerSources</_Parameter1>
+        <_Parameter2>$(_CompilerSources)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+
   <!-- HLSL runtime helpers included by every translated program; written next to the generated HLSL. -->
   <ItemGroup>
     <EmbeddedResource Include="Translation\Runtime\*.hlsli" LogicalName="%(Filename)%(Extension)" />

@@ -721,7 +721,9 @@ once per stall as `[gpu] queue #n: executions done up to v of w, no progress for
 execution (the one the queue waits on, with its breadcrumbs) when it is older than the last 16 calls, then those 16
 calls (`NOT DONE` marks the ones the GPU has not finished; a Wait shows the fence's value then) and the memory line of
 the thread sampler. With 64 calls kept, the w3 boot's hang showed only executions queued behind the stuck one. A removed device sets every fence to UINT64_MAX; the watch then logs every queue
-as last seen, without the debug layer as well.
+as last seen, without the debug layer as well, after the removal reason (GetDeviceRemovedReason through the fence's
+device: DEVICE_HUNG 0x887a0006 is a GPU timeout). Boot w39 lacked the reason: all five queues stopped within 0.3 s of
+an execution of 2 dispatches and 103 ExecuteIndirects, and the device went 5 s later.
 
 `--d3d12-breadcrumbs` (`GpuBreadcrumbs`) adds where each list of an unfinished execution stopped: before every draw,
 dispatch, ExecuteIndirect, CopyBufferRegion, ResourceBarrier and Barrier, and at Close, a list writes its recording's
@@ -786,6 +788,13 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
 - `--d3d12-trace-pipeline <text>` (implies the draw trace) also logs, in the frame after each captured present, up to
   64 draws whose pipeline name holds the text, without probes: a frame's UI draws (`sgd2_` Scaleform programs such as
   `FVertexCxform`) come long after its first 32.
+- `--d3d12-trace-records <offset,...>` adds to each of those draws the window records at these byte offsets from every
+  user SGPR holding a record-aligned window offset (a descriptor pointer the game passes as a root constant, which the
+  tables do not show): the record dwords, a T#'s base and its address-map state, a V#'s base (or the heap index it
+  holds), its map state and the first 10 dwords there (a constant buffer's values); then the game's own heap record at
+  the same index, to tell a record the window lacks from one the game never wrote. An entry `offset@byte` also shows
+  the dword at that byte of the V#'s buffer: `0x380@0x11c` is the loop count of `MSNC_VS_LinearDepthSkin_f1f2249c`,
+  dword 0x11c of the constant buffer whose V# is record 28 of its table.
 - `--probe-pipeline <text,...>` makes the mesh, pixel and compute programs whose name holds one of the texts with probe code (`MeshProbe`,
   `MeshProbes`), in any of its forms (two-phase, staged, the superstep form of the wave32 variant): every load site (a
   buffer, formatted or pointer load with the range check before it, an s_buffer_load's compare included) marks itself

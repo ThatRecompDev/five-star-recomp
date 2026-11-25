@@ -39,6 +39,12 @@ internal static unsafe class QueueProgress
     /// <summary>ID3D12Fence::GetCompletedValue (d3d12.h).</summary>
     private const int GetCompletedValueSlot = 8;
 
+    /// <summary>ID3D12DeviceChild::GetDevice (d3d12.h).</summary>
+    private const int GetDeviceSlot = 7;
+
+    /// <summary>ID3D12Device::GetDeviceRemovedReason (d3d12.h).</summary>
+    private const int GetDeviceRemovedReasonSlot = 37;
+
     private static readonly Queue?[] Queues = new Queue?[MaxQueues];
     private static readonly ConcurrentDictionary<nint, string> PipelineNames = new();
     private static readonly object Gate = new();
@@ -99,15 +105,43 @@ internal static unsafe class QueueProgress
         Add((XboxQueueObject*)queue, new QueueEvent { At = Stopwatch.GetTimestamp(), Kind = kind, Fence = fence, Value = value });
     }
 
-    /// <summary>Logs every queue with the values seen before the removal; once.</summary>
-    public static void ReportRemoval()
+    /// <summary>
+    /// Logs every queue with the values seen before the removal, and <paramref name="reason"/>
+    /// (GetDeviceRemovedReason: DXGI_ERROR_DEVICE_HUNG 0x887a0006 for a GPU timeout, DEVICE_RESET 0x887a0007, DRIVER_INTERNAL_ERROR 0x887a0020) when known; once.
+    /// </summary>
+    public static void ReportRemoval(int? reason = null)
     {
         if (Interlocked.Exchange(ref _removed, 1) != 0)
         {
             return;
         }
 
-        Report("device removed");
+        if (reason.HasValue)
+        {
+            Report($"device removed, reason {HResult.Format(reason.Value)}");
+        }
+        else
+        {
+            Report("device removed");
+        }
+    }
+
+    /// <summary>The removal reason of the device that made <paramref name="fence"/> (ID3D12DeviceChild::GetDevice); null when it cannot be read.</summary>
+    private static int? RemovedReason(nint fence)
+    {
+        nint device = 0;
+        var iid = D3D12XLayout.DeviceIid;
+        int hr = ((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(fence, GetDeviceSlot))(fence, &iid, &device);
+
+        if (HResult.Failed(hr) || device == 0)
+        {
+            return null;
+        }
+
+        int reason = ((delegate* unmanaged<nint, int>)ComObject.Slot(device, GetDeviceRemovedReasonSlot))(device);
+        ComObject.Release(device);
+
+        return reason;
     }
 
     /// <summary>Logs every queue as last seen, after <paramref name="reason"/>.</summary>
@@ -129,6 +163,25 @@ internal static unsafe class QueueProgress
                 _log.Error(Describe(queue, Stopwatch.GetTimestamp()));
             }
         }
+    }
+
+    /// <summary>Every followed queue's last signalled shim-fence value (its submitted work), by queue number - 1.</summary>
+    public static ulong[] Submitted()
+    {
+        int count = Volatile.Read(ref _count);
+        var values = new ulong[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            var queue = Queues[i];
+
+            if (queue is not null)
+            {
+                values[i] = Volatile.Read(ref ((XboxQueueObject*)queue.Wrapper)->Signaled);
+            }
+        }
+
+        return values;
     }
 
     /// <summary>Every followed queue's completed shim-fence value, by queue number - 1.</summary>
@@ -279,7 +332,7 @@ internal static unsafe class QueueProgress
 
         if (completed == ulong.MaxValue)
         {
-            ReportRemoval();
+            ReportRemoval(RemovedReason(fence));
 
             return;
         }
@@ -383,6 +436,62 @@ internal static unsafe class QueueProgress
             default:
                 return string.Create(CultureInfo.InvariantCulture, $"{ago:F2} s ago {entry.Kind} fence 0x{entry.Fence:x} to {entry.Value} (fence at {FenceValue(entry.Fence)})");
         }
+    }
+
+    /// <summary>
+    /// The work a wait for <paramref name="fence"/> (a game fence wrapper) to reach <paramref name="target"/> depends on:
+    /// the queue asked to signal it there and its executions before that Signal (<see cref="StallCulprit"/>), or, when
+    /// no queue was asked yet, the fence's last Signal.
+    /// </summary>
+    public static string DescribeFenceWait(nint fence, ulong target)
+    {
+        if (fence == 0)
+        {
+            return "fence unknown";
+        }
+
+        var completed = Completed();
+        string? last = null;
+
+        for (int q = 0; q < completed.Length; q++)
+        {
+            var queue = Queues[q];
+
+            if (queue is null)
+            {
+                continue;
+            }
+
+            var events = Kept(queue);
+            var culprit = StallCulprit.Describe(queue.Number, events, fence, target, completed[q], PipelineName);
+
+            if (culprit is not null)
+            {
+                return culprit;
+            }
+
+            if (StallCulprit.LastSignal(events, fence) is ulong value)
+            {
+                last = string.Create(CultureInfo.InvariantCulture, $"its last Signal was to {value} on queue #{queue.Number}");
+            }
+        }
+
+        return $"no queue was asked to signal it to {target} yet ({last ?? "no Signal kept"})";
+    }
+
+    /// <summary>A queue's kept calls, oldest first.</summary>
+    private static List<QueueEvent> Kept(Queue queue)
+    {
+        long next = Volatile.Read(ref queue.Next);
+        long first = Math.Max(0, next - History);
+        var events = new List<QueueEvent>((int)(next - first));
+
+        for (long i = first; i < next; i++)
+        {
+            events.Add(queue.Events[i % History]);
+        }
+
+        return events;
     }
 
     /// <summary>A desktop pipeline by the programs it was built from, or its address.</summary>

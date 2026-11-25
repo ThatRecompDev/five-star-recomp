@@ -250,6 +250,15 @@ internal sealed record HostOptions
     /// <summary>Pipelines whose draws the trace also logs after each captured present (<c>--d3d12-trace-pipeline</c>).</summary>
     public string? D3D12TracePipeline { get; set; }
 
+    /// <summary>Window-record byte offsets the trace reads from user SGPR pointers, each with an optional buffer dword (<c>--d3d12-trace-records</c>).</summary>
+    public IReadOnlyList<Shims.D3D12X.DebugLayer.TraceRecord> D3D12TraceRecords { get; set; } = [];
+
+    /// <summary>Passes held while a producer is missing this frame (<c>--hold-passes consumer=producer|...;...</c>).</summary>
+    public string? HoldPasses { get; set; }
+
+    /// <summary>Passes whose draws clear their targets to a colour instead (<c>--stub-passes pass=r,g,b,a;...</c>).</summary>
+    public string? StubPasses { get; set; }
+
     /// <summary>Texts whose pipelines and targets every census lists in full (<c>--census-passes</c>, with the draw trace).</summary>
     public IReadOnlyList<string> CensusPasses { get; set; } = [];
 
@@ -267,6 +276,9 @@ internal sealed record HostOptions
 
     /// <summary>XboxBvhBuilder.dll's CPU paths: console sizes and BLAS rehydration (<c>--raytracing</c>).</summary>
     public bool RayTracing { get; set; }
+
+    /// <summary>The shipped BVH builder's constructor runs for an inventory of its pipelines, never built (<c>--raytracing-gpu</c>).</summary>
+    public bool RayTracingGpuInventory { get; set; }
 
     /// <summary>Run the XDsp convolution effects on the CPU instead of returning silence (<c>--xdsp-convolution</c>).</summary>
     public bool XDspConvolution { get; set; }

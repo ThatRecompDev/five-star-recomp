@@ -245,7 +245,7 @@ internal sealed class OnDemandStart
         var picker = new ProgramVariantPicker(new ShaderManifest([]), adapter, warnings);
         var workers = new ProgramWorkers(
             Jobs,
-            running => WarmMemoryGuard.RoomForBuild(running) && CompileBudget.RoomForPrograms(running),
+            running => WarmMemoryGuard.RoomForPrograms(running) && CompileBudget.RoomForPrograms(running),
             running => WarmMemoryGuard.RoomForHeavyBuild(running) && CompileBudget.RoomForPrograms(running));
         workers.Start();
         log.Detail($"  [d3d12_xs] programs on demand: {folder}, {Jobs} threads and one for heavy compiles, {slow.Count} sources slow at -O3");
@@ -257,7 +257,11 @@ internal sealed class OnDemandStart
             hosting = new ProgramHosting(host, _backend, adapter);
         }
 
-        var producer = new ProgramProducer(programs, folder, picker, compiler, slow) { Hosting = hosting };
+        var producer = new ProgramProducer(programs, folder, picker, compiler, slow)
+        {
+            Hosting = hosting,
+            ContentStore = new FiveStar.Shaders.Cache.ProgramContentStore(FiveStar.Shaders.Cache.ProgramContentStore.FolderBeside(folder), FiveStar.Shaders.Cache.ProgramContentStore.CompilerIdentity(compiler)),
+        };
 
         return new OnDemandPrograms(index, ahead, producer, workers, warnings, () => BackendCounts);
     }
