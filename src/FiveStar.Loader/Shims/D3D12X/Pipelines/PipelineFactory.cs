@@ -473,6 +473,7 @@ internal sealed unsafe class PipelineFactory
             return true;
         }
 
+        using var wait = Diagnostics.BlockingWaits.Enter("programs made on demand for a pipeline");
         var made = Task.WhenAll(lacking.Select(names => OnDemand!.Request(names, urgent: true))).GetAwaiter().GetResult();
 
         return made.All(ready => ready);

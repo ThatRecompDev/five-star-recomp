@@ -296,7 +296,9 @@ The other memory paths, the same way (opcodes counted in the corpus):
   (0 float, 1 uint, 2 sint: `ImageViewClasses`; the main depth's stencil plane, X32_TYPELESS_G8X24_UINT, by which the
   lighting classifies pixels, is uint), and the read or write branches on it to a `uint4` or `int4` declaration of the
   same descriptor, the registers' bits passed through `asfloat`/`asuint`. A d16 load of an integer view keeps each
-  value's low 16 bits instead of an f16. Samples filter and stay `float4`; a compare gather and a gather at a level
+  value's low 16 bits instead of an f16. Class 3 is shared-exponent light: the game writes R9G9B9E5 bits into R32_UINT
+  targets and reads them through R9G9B9E5 views, which no desktop view of an R32_UINT texture can be, so the view stays
+  R32_UINT and a load decodes the bits (9-bit mantissas at 0, 9, 18, the exponent at 27: m * 2^(e - 24)), alpha 1. Samples filter and stay `float4`; a compare gather and a gather at a level
   too. A record without a class (no desc, a view copied in from a desktop heap) reads as float, as before.
 - LDS byte and short accesses and their d16 forms (`ds_read_u16`, `ds_read_u16_d16_hi`, `ds_write_b16`,
   `ds_write_b16_d16_hi`: 110 instructions) read and write the right half (`cs_lds_d16_hi`); `global_load_ushort` (6) too.

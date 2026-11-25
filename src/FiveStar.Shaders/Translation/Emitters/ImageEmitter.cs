@@ -12,6 +12,8 @@ namespace FiveStar.Shaders.Translation.Emitters;
 /// sampler slots). dmask selects the returned components; d16 packs them as f16 pairs. With typed image views
 /// (<see cref="TranslationOptions.TypedImageViews"/>) a load, gather or store of an integer view (the class in T# dword 3)
 /// goes through a <c>uint4</c> or <c>int4</c> declaration of the same descriptor, and d16 keeps an integer's low 16 bits.
+/// A load of class 3 reads shared-exponent light (R9G9B9E5) the GPU wrote into an R32_UINT target, which the desktop
+/// views in R32_UINT: its bits are loaded as an integer and decoded to RGB, alpha 1 (the lighting's TL_PS read only red).
 /// </summary>
 internal sealed class ImageEmitter
 {
@@ -22,11 +24,12 @@ internal sealed class ImageEmitter
     private const int Vec4 = 4;
     private const string ComponentNames = "xyzw";
 
-    /// <summary>The T# dword the loader writes the view's component class to, its bits (0 float, 1 uint, 2 sint) and the class values.</summary>
+    /// <summary>The T# dword the loader writes the view's component class to, its bits (0 float, 1 uint, 2 sint, 3 shared exponent) and the class values.</summary>
     private const int ClassDword = 3;
     private const string ClassMask = "3u";
     private const string UintClass = "1u";
     private const string SintClass = "2u";
+    private const string SharedExponentClass = "3u";
 
     // _o variants: the first address dword packs 6-bit signed texel offsets at bits 0, 8 and 16.
     private const int OffsetFieldTop = 26;
@@ -360,6 +363,23 @@ internal sealed class ImageEmitter
         _state.Emit($"  uint {integer} = {ClassOf(resource)};");
         _state.Emit($"  float4 {result};");
         _state.Emit($"  if ({integer} == {UintClass}) {result} = asfloat({unsignedCall}); else if ({integer} == {SintClass}) {result} = asfloat({signedCall}); else {result} = {call};");
+
+        if (unsignedCall is not null && request.Operation is "load" or "load_mip")
+        {
+            EmitSharedExponent(unsignedCall, result, integer);
+        }
+    }
+
+    /// <summary>
+    /// Class 3: the texel's R9G9B9E5 bits from the uint declaration, decoded as DXGI has them (9-bit mantissas at bits 0,
+    /// 9 and 18, a 5-bit exponent at 27 biased by 15, no implicit one): mantissa * 2^(exponent - 24), alpha 1.
+    /// </summary>
+    private void EmitSharedExponent(string unsignedCall, string result, string integer)
+    {
+        var bits = $"{result}e";
+        _state.Emit($"  uint {bits} = 0u;");
+        _state.Emit($"  if ({integer} == {SharedExponentClass}) {bits} = ({unsignedCall}).x;");
+        _state.Emit($"  if ({integer} == {SharedExponentClass}) {result} = float4(float3({bits} & 0x1ffu, ({bits} >> 9) & 0x1ffu, ({bits} >> 18) & 0x1ffu) * exp2(float(int({bits} >> 27) - 24)), 1.0);");
     }
 
     private void ResourceInfo(ImageRequest request, Operand destination, int mask)

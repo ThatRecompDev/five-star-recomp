@@ -115,10 +115,19 @@ public sealed class AddressMap
         return true;
     }
 
-    /// <summary>The view and offset field of the page at <paramref name="address"/>, as a program reads them.</summary>
+    /// <summary>
+    /// The view and offset field of the page at <paramref name="address"/>, as a program reads them: a high dword past
+    /// the user space reads the null table.
+    /// </summary>
     public static (uint View, uint Field) Read(ReadOnlySpan<byte> map, ulong address)
     {
-        var table = (int)BinaryPrimitives.ReadUInt32LittleEndian(map[((int)((address >> SpanShift) % Spans) * SpanEntryBytes)..]);
+        var table = Level1Bytes;
+
+        if ((address >> SpanShift) < Spans)
+        {
+            table = (int)BinaryPrimitives.ReadUInt32LittleEndian(map[((int)(address >> SpanShift) * SpanEntryBytes)..]);
+        }
+
         var entry = BinaryPrimitives.ReadUInt64LittleEndian(map[(table + ((int)((address >> PageShift) % PagesPerSpan) * EntryBytes))..]);
 
         return ((uint)entry, (uint)(entry >> OffsetShift));

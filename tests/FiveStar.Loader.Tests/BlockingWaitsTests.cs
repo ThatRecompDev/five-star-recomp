@@ -23,4 +23,22 @@ public sealed class BlockingWaitsTests
         Assert.Equal("since: driver compile memory budget 2.0 s, small compute pipeline at first use 1.0 s", stall);
         Assert.Equal("since: none", quiet);
     }
+
+    [Fact]
+    public void A_wait_inside_another_names_the_inner_one_then_the_outer_again()
+    {
+        uint thread = Native.Kernel32.GetCurrentThreadId();
+
+        using (BlockingWaits.Enter("storage read"))
+        {
+            using (BlockingWaits.Enter("compile host request"))
+            {
+                Assert.StartsWith("waiting in compile host request for ", BlockingWaits.Describe(thread), StringComparison.Ordinal);
+            }
+
+            Assert.StartsWith("waiting in storage read for ", BlockingWaits.Describe(thread), StringComparison.Ordinal);
+        }
+
+        Assert.Equal(string.Empty, BlockingWaits.Describe(thread));
+    }
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Collections.Concurrent;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Gdk;
@@ -76,7 +77,14 @@ internal sealed class TaskPort : IDisposable
             return false;
         }
 
-        if (!_available.Wait(ToTimeout(timeoutMs)))
+        bool available;
+
+        using (BlockingWaits.Enter("XTaskQueueDispatch"))
+        {
+            available = _available.Wait(ToTimeout(timeoutMs));
+        }
+
+        if (!available)
         {
             return false;
         }
