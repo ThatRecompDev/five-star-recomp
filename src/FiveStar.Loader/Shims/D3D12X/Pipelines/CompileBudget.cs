@@ -67,6 +67,25 @@ internal static unsafe class CompileBudget
     [ThreadStatic]
     private static bool _urgentThread;
 
+    [ThreadStatic]
+    private static bool _noWaitThread;
+
+    /// <summary>
+    /// Whether this thread must not wait for room (a game thread building at first use): <see cref="TryEnterNow"/>
+    /// then decides at once (<see cref="PipelineBuildQueue.RunNow"/> sets it).
+    /// </summary>
+    public static bool NoWait
+    {
+        get => _noWaitThread;
+        set => _noWaitThread = value;
+    }
+
+    /// <summary>Counts the compile when it may start now; false, without waiting, when it may not. Pair a true with <see cref="Exit"/>.</summary>
+    public static bool TryEnterNow(long shaderBytes)
+    {
+        return TryEnter(Estimate(shaderBytes), shaderBytes < TinyShaderBytes, _urgentThread);
+    }
+
     /// <summary>
     /// Whether this thread's compiles are urgent (a command list or a game thread waits for them): while one waits, no
     /// other compile is admitted (<see cref="PipelineBuildQueue"/> sets it around each creation).

@@ -31,6 +31,12 @@ internal sealed class PipelineBuild
         return Interlocked.Exchange(ref _claimed, 1) == 0;
     }
 
+    /// <summary>Gives a claimed build back unbuilt, so a build thread can claim it.</summary>
+    public void Release()
+    {
+        Volatile.Write(ref _claimed, 0);
+    }
+
     /// <summary>True for the first call on a build that was not urgent yet: it then needs an urgent queue entry.</summary>
     public bool MakeUrgent()
     {

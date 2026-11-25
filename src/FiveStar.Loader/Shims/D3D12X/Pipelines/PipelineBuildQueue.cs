@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Collections.Concurrent;
+using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 
@@ -129,9 +130,34 @@ internal sealed class PipelineBuildQueue
             return false;
         }
 
-        Execute(build, urgent: true);
+        // A game thread never waits in the compile budget: a compile it would wait for goes back to the build threads,
+        // urgent, and the game keeps the stand-in (boot w12b: a game thread waited there until the hang watchdog).
+        Interlocked.Increment(ref _running);
+        var (urgent, noWait) = (CompileBudget.Urgent, CompileBudget.NoWait);
+        CompileBudget.Urgent = true;
+        CompileBudget.NoWait = true;
 
-        return true;
+        try
+        {
+            var result = build.Create();
+
+            if (result.Hr == HResult.Pending)
+            {
+                build.Release();
+                _urgent.Add(build);
+
+                return false;
+            }
+
+            build.Done.SetResult(result);
+
+            return true;
+        }
+        finally
+        {
+            (CompileBudget.Urgent, CompileBudget.NoWait) = (urgent, noWait);
+            Interlocked.Decrement(ref _running);
+        }
     }
 
     /// <summary>Runs a build; an urgent one goes before the others in the driver compile budget (<see cref="CompileBudget"/>).</summary>
