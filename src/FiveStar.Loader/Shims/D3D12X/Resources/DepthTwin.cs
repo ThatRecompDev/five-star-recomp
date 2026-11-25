@@ -7,6 +7,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 internal sealed class DepthTwin(nint depth, nint twin, int format, uint width, uint height)
 {
     private int _dirty;
+    private int _used;
 
     public nint Depth { get; } = depth;
 
@@ -16,6 +17,9 @@ internal sealed class DepthTwin(nint depth, nint twin, int format, uint width, u
 
     /// <summary>Whether this is the stencil plane's twin (R8_UINT), written into the stencil instead of the depth.</summary>
     public bool Stencil => Format == DepthTwins.Uint8;
+
+    /// <summary>The buffer the plane went through on its way into the twin (<see cref="DepthTwinFill"/>); kept for the twin's life.</summary>
+    public IDisposable? FillBuffer { get; set; }
 
     public uint Width { get; } = width;
 
@@ -29,6 +33,12 @@ internal sealed class DepthTwin(nint depth, nint twin, int format, uint width, u
 
     /// <summary>The desktop CPU handle of the twin's UAV in the shader-visible view heap; 0 before the game makes one.</summary>
     public nint ViewHandle { get; set; }
+
+    /// <summary>Whether this is the first pass that binds the twin (the plane is copied in before it); later calls are false.</summary>
+    public bool TakeFirstUse()
+    {
+        return Interlocked.Exchange(ref _used, 1) == 0;
+    }
 
     /// <summary>A pass that binds the twin ran since the depth last took the twin's values.</summary>
     public void MarkWritten()

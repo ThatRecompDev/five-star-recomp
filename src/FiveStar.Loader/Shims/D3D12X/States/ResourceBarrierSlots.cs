@@ -171,8 +171,18 @@ internal static unsafe class ResourceBarrierSlots
             return;
         }
 
-        // A compute or copy list cannot name a graphics state: such a texture is moved by the direct lists only and
-        // keeps its state here.
+        // A compute or copy list cannot name a graphics state: it moves the texture to the part of the state it can name
+        // (SHADER_RESOURCE to NON_PIXEL_SHADER_RESOURCE), or leaves it to the direct lists when nothing is left.
+        if (((current | after) & ~states.LegalStates) != 0 && (current & ~states.LegalStates) == 0 && (after & states.LegalStates) != 0)
+        {
+            after &= states.LegalStates;
+
+            if (current == after)
+            {
+                return;
+            }
+        }
+
         if (!IsLegal(states, current, after))
         {
             return;

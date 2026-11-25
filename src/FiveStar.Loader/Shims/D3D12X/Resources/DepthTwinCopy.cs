@@ -33,6 +33,28 @@ internal static unsafe class DepthTwinCopy
         }
         """;
 
+    /// <summary>
+    /// A 16-bit twin holds whole steps, written into the depth as the step times asfloat(0x37800080), the float nearest
+    /// 1/65535: the tiled lighting draws class c at depth c * asfloat(0x37800080) with the test EQUAL, so the copy and the
+    /// draw give the same float. c / 65535 differs for 512 of the 65,536 steps. An R16_UNORM twin is read as c / 65535 and
+    /// rounded back to its step. (The fork of VIctory by Kelvaroq, GPL-3.0-or-later, writes its steps the same way.)
+    /// </summary>
+    private const string UnormStepsSource = """
+        RWTexture2D<float> twin : register(u0);
+        [RootSignature("DescriptorTable(UAV(u0), visibility=SHADER_VISIBILITY_PIXEL)")]
+        float ps(float4 position : SV_Position) : SV_Depth {
+            return round(twin[uint2(position.xy)] * 65535.0) * asfloat(0x37800080);
+        }
+        """;
+
+    private const string UintStepsSource = """
+        RWTexture2D<uint> twin : register(u0);
+        [RootSignature("DescriptorTable(UAV(u0), visibility=SHADER_VISIBILITY_PIXEL)")]
+        float ps(float4 position : SV_Position) : SV_Depth {
+            return float(twin[uint2(position.xy)]) * asfloat(0x37800080);
+        }
+        """;
+
     private const string StencilSource = """
         RWTexture2D<uint> twin : register(u0);
         cbuffer Plane : register(b0) { uint bit; };
@@ -91,8 +113,10 @@ internal static unsafe class DepthTwinCopy
     private static nint _views;
     private static uint _increment;
     private static uint _used;
-    private static readonly ConcurrentDictionary<(int Format, int Bit), nint> Pipelines = new();
+    private static readonly ConcurrentDictionary<(int Format, int Twin, int Bit), nint> Pipelines = new();
     private static readonly CopyPrograms Depth = new(DepthSource, "depth_twin_copy");
+    private static readonly CopyPrograms UnormSteps = new(UnormStepsSource, "unorm_steps_twin_copy");
+    private static readonly CopyPrograms UintSteps = new(UintStepsSource, "uint_steps_twin_copy");
     private static readonly CopyPrograms Stencil = new(StencilSource, "stencil_twin_copy");
 
     /// <summary>
@@ -108,7 +132,7 @@ internal static unsafe class DepthTwinCopy
             return RecordStencil(device, list, twin, format, state, table);
         }
 
-        nint pipeline = Pipeline(device, format, DepthPlane);
+        nint pipeline = Pipeline(device, format, twin.Format, DepthPlane);
         view = WritableView(device, twin, format);
 
         if (pipeline == 0 || view == 0)
@@ -116,12 +140,31 @@ internal static unsafe class DepthTwinCopy
             return false;
         }
 
-        Begin(list, twin, view, state, table, Depth.Root);
+        Begin(list, twin, view, state, table, ProgramsFor(twin.Format, DepthPlane).Root);
         ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetPipelineSlot))(list, pipeline);
         Draw(list);
         Move(list, twin.Depth, DepthWrite, state);
 
         return true;
+    }
+
+    /// <summary>
+    /// Forgets the pipelines, root signatures and the view heap made so far, which belong to the device they were made
+    /// on: for tests, which make a device each.
+    /// </summary>
+    internal static void Detach()
+    {
+        lock (Gate)
+        {
+            Pipelines.Clear();
+            _views = 0;
+            _used = 0;
+
+            Depth.Reset();
+            UnormSteps.Reset();
+            UintSteps.Reset();
+            Stencil.Reset();
+        }
     }
 
     /// <summary>The stencil twin into the stencil plane: a clear to 0, then one inverting triangle per bit.</summary>
@@ -131,7 +174,7 @@ internal static unsafe class DepthTwinCopy
 
         for (int bit = 0; bit < StencilBits; bit++)
         {
-            pipelines[bit] = Pipeline(device, format, bit);
+            pipelines[bit] = Pipeline(device, format, twin.Format, bit);
 
             if (pipelines[bit] == 0)
             {
@@ -233,36 +276,45 @@ internal static unsafe class DepthTwinCopy
     }
 
     /// <summary>The copy pipeline for depth-stencil views of <paramref name="format"/> and stencil bit <paramref name="bit"/> (the depth copy at <see cref="DepthPlane"/>); 0 when it cannot be made.</summary>
-    private static nint Pipeline(nint device, int format, int bit)
+    private static nint Pipeline(nint device, int format, int twinFormat, int bit)
     {
-        if (Pipelines.TryGetValue((format, bit), out var made))
+        if (Pipelines.TryGetValue((format, twinFormat, bit), out var made))
         {
             return made;
         }
 
         lock (Gate)
         {
-            if (Pipelines.TryGetValue((format, bit), out made))
+            if (Pipelines.TryGetValue((format, twinFormat, bit), out made))
             {
                 return made;
             }
 
-            made = Make(device, format, bit);
-            Pipelines[(format, bit)] = made;
+            made = Make(device, format, ProgramsFor(twinFormat, bit), bit);
+            Pipelines[(format, twinFormat, bit)] = made;
 
             return made;
         }
     }
 
-    private static nint Make(nint device, int format, int bit)
+    /// <summary>The copy's programs for a twin in <paramref name="twinFormat"/>: floats, 16-bit steps (unorm or uint), or stencil bits.</summary>
+    private static CopyPrograms ProgramsFor(int twinFormat, int bit)
     {
-        var programs = Depth;
-
         if (bit != DepthPlane)
         {
-            programs = Stencil;
+            return Stencil;
         }
 
+        return twinFormat switch
+        {
+            DepthTwins.Unorm16 => UnormSteps,
+            DepthTwins.Uint16 => UintSteps,
+            _ => Depth,
+        };
+    }
+
+    private static nint Make(nint device, int format, CopyPrograms programs, int bit)
+    {
         if (!Depth.Ready(device, withVertex: true) || !programs.Ready(device, withVertex: false))
         {
             return 0;
@@ -400,6 +452,12 @@ internal static unsafe class DepthTwinCopy
         public byte[]? Vertex { get; private set; }
 
         public byte[]? Pixel { get; private set; }
+
+        public void Reset()
+        {
+            Root = 0;
+            _failed = false;
+        }
 
         public bool Ready(nint device, bool withVertex)
         {

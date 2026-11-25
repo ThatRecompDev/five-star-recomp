@@ -979,7 +979,7 @@ internal static unsafe class CommandListBindingMethods
 
         if (DepthTwins.Any)
         {
-            DepthTwins.MarkWriters(pipeline, data, ShimContext.Runtime.D3D12X.Bindings.Window.Data, entries);
+            DepthTwins.MarkWriters(self, data, ShimContext.Runtime.D3D12X.Bindings.Window.Data, entries);
         }
 
         var heaps = ShimContext.Runtime.D3D12X.DescriptorHeaps;
