@@ -24,6 +24,9 @@ public sealed class SamplerLoadsTests
             new(0x08, Size, "s_lshl_b32 s14, s2, 4"),
             new(0x10, Size, "s_load_dwordx4 s[16:19], s[12:13], s14"),
             new(0x18, Size, "s_waitcnt lgkmcnt(0)"),
+
+            // The deferred passes set the round mode between the load and the sample: its hwreg operand is read, not written.
+            new(0x1c, Size, "s_setreg_imm32_b32 hwreg(HW_REG_MODE, 2, 2), 3"),
             new(0x20, Size, "image_sample v[0:3], v[0:1], s[4:11], s[16:19] dmask:0xf dim:SQ_RSRC_IMG_2D"),
 
             // A literal S#: no load. A T# and an S# in one load: only the S#'s first dword.
