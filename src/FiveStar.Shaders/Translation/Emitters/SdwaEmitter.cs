@@ -48,8 +48,7 @@ internal sealed class SdwaEmitter
         var sources = a.ToList();
         var compare = op.StartsWith("v_cmp", StringComparison.Ordinal);
 
-        // A compare's sources are its last two operands: v_cmpx has no destination (s31, v85 is src0, src1).
-        var (source0, source1) = compare ? (a.Count - PairDwords, a.Count - 1) : (Source0, Source1);
+        var (source0, source1) = Sources(op, a.Count);
 
         if (source0 >= 0 && sources.Count > source0)
         {
