@@ -483,14 +483,44 @@ internal sealed unsafe class PipelineFactory
     }
 
     /// <summary>
+    /// Whether a build may start on this thread: always on a build thread; on a game thread (<see cref="CompileBudget.NoWait"/>)
+    /// only one that is not heavy and fits the compile budget now (<paramref name="entered"/>: counted in it then).
+    /// Anything else is pending, its stream kept for the build thread that takes it.
+    /// </summary>
+    private static bool MayStartHere(long shaderBytes, out bool entered)
+    {
+        entered = false;
+
+        if (!CompileBudget.NoWait)
+        {
+            return true;
+        }
+
+        if (shaderBytes >= HeavyShaderBytes || !CompileBudget.TryEnterNow(shaderBytes))
+        {
+            return false;
+        }
+
+        entered = true;
+
+        return true;
+    }
+
+    /// <summary>
     /// Builds the pipeline of <paramref name="stream"/> on this thread and stores it in the cache, or loads it when an
-    /// earlier build stored it meanwhile; disposes the stream.
+    /// earlier build stored it meanwhile; disposes the stream (not when pending: E_PENDING on a game thread that may not
+    /// start it, <see cref="MayStartHere"/>).
     /// Pipelines with <see cref="HeavyShaderBytes"/> of DXIL or more are built one at a time, and no build starts while
     /// the machine lacks the memory it is expected to take (<see cref="CompileBudget"/>), since one driver compile can
     /// take gigabytes.
     /// </summary>
     public PipelineResult Build(DesktopStream stream, Guid iid, string what)
     {
+        if (!MayStartHere(stream.ShaderBytes, out bool entered))
+        {
+            return new PipelineResult(HResult.Pending, 0);
+        }
+
         using (stream)
         {
             // The game asks for the same desktop pipeline again while its first build waits in the queue (game
@@ -499,10 +529,19 @@ internal sealed unsafe class PipelineFactory
 
             if (Cache is not null && !HResult.Failed(Cache.Load(stream, &iid, &cached)))
             {
+                if (entered)
+                {
+                    CompileBudget.Exit(stream.ShaderBytes);
+                }
+
                 return new PipelineResult(HResult.Ok, cached);
             }
 
-            CompileBudget.Enter(stream.ShaderBytes);
+            if (!entered)
+            {
+                CompileBudget.Enter(stream.ShaderBytes);
+            }
+
             Compiling.Begin(PipelineCreationsInFlight.NoSlot);
             Compiling.Describe($"{what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL)");
             var measure = CompileBudget.Measure(stream.ShaderBytes);
