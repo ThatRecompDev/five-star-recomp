@@ -14,10 +14,13 @@ internal sealed class TracedViews
 {
     private readonly ConcurrentDictionary<nint, TracedView> _views = new();
 
-    /// <summary>A view was written at <paramref name="handle"/>; <paramref name="resource"/> 0 when no texture can be read there.</summary>
-    public void Write(nint handle, string text, nint resource = 0, int home = 0)
+    /// <summary>
+    /// A view was written at <paramref name="handle"/>; <paramref name="resource"/> 0 when no texture can be read there,
+    /// <paramref name="plane"/> the plane it views (1: a depth-stencil's stencil).
+    /// </summary>
+    public void Write(nint handle, string text, nint resource = 0, int home = 0, int plane = 0)
     {
-        _views[handle] = new TracedView(text, resource, home);
+        _views[handle] = new TracedView(text, resource, home, plane);
     }
 
     /// <summary>The text of the view at <paramref name="handle"/>.</summary>
@@ -29,14 +32,14 @@ internal sealed class TracedViews
         return known;
     }
 
-    /// <summary>The texture behind the view at <paramref name="handle"/> and its home state, if it is one.</summary>
-    public bool TryTexture(nint handle, out (nint Resource, int Home) texture)
+    /// <summary>The texture behind the view at <paramref name="handle"/>, its home state and viewed plane, if it is one.</summary>
+    public bool TryTexture(nint handle, out (nint Resource, int Home, int Plane) texture)
     {
         bool known = _views.TryGetValue(handle, out var view) && view.Resource != 0;
-        texture = (view.Resource, view.Home);
+        texture = (view.Resource, view.Home, view.Plane);
 
         return known;
     }
 
-    private readonly record struct TracedView(string Text, nint Resource, int Home);
+    private readonly record struct TracedView(string Text, nint Resource, int Home, int Plane);
 }

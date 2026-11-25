@@ -155,12 +155,35 @@ internal sealed unsafe class DrawTrace
 
         if (resource != 0 && game != null)
         {
-            _views.Write(handle, text, resource, game->HomeState);
+            _views.Write(handle, text, resource, game->HomeState, ViewPlane(description));
 
             return;
         }
 
         View(handle, text);
+    }
+
+    /// <summary>The plane slice of a 2D or 2D-array SRV desc (1: a depth-stencil's stencil); 0 for any other view.</summary>
+    internal static int ViewPlane(void* description)
+    {
+        const int Texture2D = 4;
+        const int Texture2DArray = 5;
+        const int Texture2DPlaneDword = 6;
+        const int Texture2DArrayPlaneDword = 8;
+
+        if (description == null)
+        {
+            return 0;
+        }
+
+        int* view = (int*)description;
+
+        return view[1] switch
+        {
+            Texture2D => view[Texture2DPlaneDword],
+            Texture2DArray => view[Texture2DArrayPlaneDword],
+            _ => 0,
+        };
     }
 
     /// <summary>", view format F" (and ", plane P" for a 2D or 2D-array view) of an SRV desc; empty for a buffer view or none.</summary>
@@ -501,12 +524,12 @@ internal sealed unsafe class DrawTrace
 
     /// <summary>
     /// With <see cref="ProbeTraced"/>, before a traced ExecuteIndirect runs: each texture SRV the
-    /// <c>--d3d12-trace-records</c> offsets of its first table name by heap index is read back as the draw will see it.
+    /// <c>--d3d12-trace-records</c> offsets name by heap index, in every table the trace prints them from (the same
+    /// SGPRs, <see cref="TraceRecords.Tables"/>), is read back as the draw will see it, labelled with SGPR and heap index.
     /// </summary>
     private void ProbeRecords(XboxObject* list, DrawTraceList state, bool compute)
     {
         var window = _d3d12.Bindings.Window;
-        uint table = FirstTable(Sgprs(CommandListBindings.Of(list), compute), compute);
 
         if (window.Data == null || window.ViewHeap == 0)
         {
@@ -517,23 +540,21 @@ internal sealed unsafe class DrawTrace
         uint increment = ((delegate* unmanaged<nint, int, uint>)ComObject.Slot(device, IncrementSlot))(device, ViewHeapType);
         nint start = DesktopCalls.HeapCpuStart(window.ViewHeap);
 
-        foreach (var entry in TraceRecords.Offsets)
+        foreach (var (sgpr, table) in TraceRecords.Tables(Sgprs(CommandListBindings.Of(list), compute), DescriptorWindow.NullTableBase, TraceRecords.Offsets))
         {
-            if (table + entry.Offset + DescriptorWindow.ViewRecordBytes > DescriptorWindow.NullTableBase)
+            foreach (var entry in TraceRecords.Offsets)
             {
-                continue;
+                uint? index = DepthUavs.HeapIndex((uint*)(window.Data + table + entry.Offset));
+
+                if (!index.HasValue || !_views.TryTexture(start + (nint)((ulong)index.Value * increment), out var view))
+                {
+                    continue;
+                }
+
+                int current = _d3d12.ListStates.Find(list)?.Current(view.Resource, view.Home) ?? view.Home;
+                string label = $"record sgpr {sgpr} +0x{entry.Offset:x}, heap index {index.Value} (texture 0x{view.Resource:x} {Describe(view.Resource)}, plane {view.Plane})";
+                _probes.Record(device, list->Inner, view.Resource, current, label, (nint)list, state.Resets, plane: view.Plane);
             }
-
-            uint? index = DepthUavs.HeapIndex((uint*)(window.Data + table + entry.Offset));
-
-            if (!index.HasValue || !_views.TryTexture(start + (nint)((ulong)index.Value * increment), out var view))
-            {
-                continue;
-            }
-
-            int current = _d3d12.ListStates.Find(list)?.Current(view.Resource, view.Home) ?? view.Home;
-            string label = $"record +0x{entry.Offset:x} (texture 0x{view.Resource:x} {Describe(view.Resource)})";
-            _probes.Record(device, list->Inner, view.Resource, current, label, (nint)list, state.Resets);
         }
     }
 
@@ -835,28 +856,6 @@ internal sealed unsafe class DrawTrace
                 AppendRootAddress(text, parameter, sgprs[sgpr] | ((ulong)sgprs[sgpr + 1] << DwordBits));
             }
         }
-    }
-
-    /// <summary>
-    /// The window table a traced pass's records are probed in: graphics user SGPR 0, as the game's draws set it; for a
-    /// dispatch the first compute SGPR from <see cref="UserData.ComputeBase"/> that is a record-aligned window offset.
-    /// </summary>
-    private static uint FirstTable(ReadOnlySpan<uint> sgprs, bool compute)
-    {
-        if (!compute)
-        {
-            return sgprs[0];
-        }
-
-        for (int i = (int)UserData.ComputeBase; i < sgprs.Length; i++)
-        {
-            if (sgprs[i] != 0 && sgprs[i] % DescriptorWindow.ViewRecordBytes == 0 && sgprs[i] < DescriptorWindow.NullTableBase)
-            {
-                return sgprs[i];
-            }
-        }
-
-        return sgprs[0];
     }
 
     /// <summary>

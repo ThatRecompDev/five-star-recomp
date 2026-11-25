@@ -34,6 +34,12 @@ internal sealed unsafe class DrawProbes
     private const int Float32 = 41;
     private const int Float16 = 54;
     private const long SkipsLogged = 100;
+
+    /// <summary>DXGI_FORMAT_R8_TYPELESS and R8_UINT: a stencil plane's copy.</summary>
+    private const int R8Typeless = 60;
+    private const int R8Uint = 62;
+    private const int StencilValuesShown = 8;
+    private const double Percent = 100;
     private const long BytesPerMegabyte = 1L << 20;
 
     private readonly object _gate = new();
@@ -51,7 +57,8 @@ internal sealed unsafe class DrawProbes
     /// <summary>Records the copy of <paramref name="target"/> (in <paramref name="state"/> on the list) into the desktop list <paramref name="list"/>.</summary>
     /// <paramref name="key"/> and <paramref name="generation"/> name the game's list and how often it was reset; with
     /// <paramref name="png"/> the report also writes the image there.
-    public void Record(nint device, nint list, nint target, int state, string label, nint key, long generation, string? png = null)
+    /// <paramref name="plane"/> 1 copies a depth-stencil's stencil plane (its R8 footprint, summarized as a histogram).
+    public void Record(nint device, nint list, nint target, int state, string label, nint key, long generation, string? png = null, int plane = 0)
     {
         Marshal.AddRef(device);
         using var desktop = new ID3D12Device(device);
@@ -71,7 +78,9 @@ internal sealed unsafe class DrawProbes
         var footprints = new PlacedSubresourceFootPrint[1];
         var rows = new uint[1];
         var rowBytes = new ulong[1];
-        desktop.GetCopyableFootprints(description, 0, 1, 0, footprints, rows, rowBytes, out ulong total);
+        int slices = description.Dimension == ResourceDimension.Texture3D ? 1 : description.DepthOrArraySize;
+        uint subresource = PlaneSubresource(plane, description.MipLevels, slices);
+        desktop.GetCopyableFootprints(description, subresource, 1, 0, footprints, rows, rowBytes, out ulong total);
 
         if (!Admit((long)total, label))
         {
@@ -87,15 +96,24 @@ internal sealed unsafe class DrawProbes
         var resting = (ResourceStates)state;
 
         commands.ResourceBarrierTransition(texture, resting, ResourceStates.CopySource);
-        commands.CopyTextureRegion(new TextureCopyLocation(buffer, footprints[0]), 0, 0, 0, new TextureCopyLocation(texture, 0), null);
+        commands.CopyTextureRegion(new TextureCopyLocation(buffer, footprints[0]), 0, 0, 0, new TextureCopyLocation(texture, subresource), null);
         commands.ResourceBarrierTransition(texture, ResourceStates.CopySource, resting);
         texture.Dispose();
 
+        // A plane's copy has the plane's format (a stencil plane R8), not the resource's typeless one.
+        int format = plane == 0 ? (int)description.Format : (int)footprints[0].Footprint.Format;
+
         lock (_gate)
         {
-            uint slices = description.Dimension == ResourceDimension.Texture3D ? footprints[0].Footprint.Depth : 1;
-            _pending.Add(new Probe(label, buffer, (long)total, footprints[0], rows[0] * slices, (int)description.Width, (int)description.Format, key, generation, png));
+            uint depth = description.Dimension == ResourceDimension.Texture3D ? footprints[0].Footprint.Depth : 1;
+            _pending.Add(new Probe(label, buffer, (long)total, footprints[0], rows[0] * depth, (int)footprints[0].Footprint.Width, format, key, generation, png));
         }
+    }
+
+    /// <summary>The first subresource of <paramref name="plane"/>: planes follow each other after every mip of every slice (D3D12CalcSubresource).</summary>
+    public static uint PlaneSubresource(int plane, int mips, int slices)
+    {
+        return (uint)(plane * mips * slices);
     }
 
     /// <summary>
@@ -173,7 +191,8 @@ internal sealed unsafe class DrawProbes
             var target = image is null ? Span<byte>.Empty : image.AsSpan(0, imageBytes);
             var summary = ReadbackPixels.Summarize(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format, target);
 
-            string floats = FloatSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format);
+            string floats = FloatSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format)
+                + StencilSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format);
 
             if (summary is null)
             {
@@ -248,6 +267,34 @@ internal sealed unsafe class DrawProbes
         string smallest = string.Join(", ", min.Select(value => value.ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
 
         return $"; float mean ({mean}), max ({largest}), min ({smallest})";
+    }
+
+    /// <summary>
+    /// For an R8_UINT or R8_TYPELESS copy (a stencil plane, the material ids TL_PS reads): how many distinct values and
+    /// the commonest with their share; empty for other formats.
+    /// </summary>
+    public static string StencilSummary(ReadOnlySpan<byte> source, int rowPitch, int width, int rows, int format)
+    {
+        if ((format != R8Typeless && format != R8Uint) || width == 0 || rows == 0)
+        {
+            return string.Empty;
+        }
+
+        var counts = new long[byte.MaxValue + 1];
+
+        for (int y = 0; y < rows; y++)
+        {
+            foreach (byte value in source.Slice(y * rowPitch, width))
+            {
+                counts[value]++;
+            }
+        }
+
+        double total = (double)width * rows;
+        var common = Enumerable.Range(0, counts.Length).Where(value => counts[value] > 0).OrderByDescending(value => counts[value]).ToList();
+        string top = string.Join(", ", common.Take(StencilValuesShown).Select(value => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"0x{value:x2} {counts[value] * Percent / total:F1}%")));
+
+        return $"; stencil {common.Count} values: {top}";
     }
 
     /// <summary>One recorded copy: its buffer and size, the copied footprint, and the game's list and generation it was copied on.</summary>

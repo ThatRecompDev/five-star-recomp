@@ -46,15 +46,33 @@ public sealed class DrawProbeReadbackTests
         const int ShaderResource = 0xC0;
         var views = new TracedViews();
 
-        views.Write(Handle, "SRV of 0x2000 2304x576 format 54", Texture, ShaderResource);
+        views.Write(Handle, "SRV of 0x2000 2560x1440 format 19, view format 22, plane 1", Texture, ShaderResource, plane: 1);
         Assert.True(views.TryTexture(Handle, out var texture));
-        Assert.Equal((Texture, ShaderResource), texture);
+        Assert.Equal((Texture, ShaderResource, 1), texture);
 
         // An unwrapped SRV over the same handle: the trace shows it, and the probe no longer reads the old texture.
         views.Write(Handle, "SRV of 0x3000 60x34 format 54");
         Assert.True(views.TryText(Handle, out string text));
         Assert.Equal("SRV of 0x3000 60x34 format 54", text);
         Assert.False(views.TryTexture(Handle, out _));
+    }
+
+    /// <summary>A stencil plane's copy reads as the material ids TL_PS sees: the commonest values and their share.</summary>
+    [Fact]
+    public void A_stencil_plane_reads_as_a_histogram_of_its_values()
+    {
+        const int R8Uint = 62;
+        const int RowPitch = 8;
+
+        // 4x2 stencil texels in rows 8 bytes apart: six of material 0x10, two of 0x02.
+        byte[] texels = [0x10, 0x10, 0x10, 0x02, 0xEE, 0xEE, 0xEE, 0xEE, 0x10, 0x10, 0x10, 0x02, 0xEE, 0xEE, 0xEE, 0xEE];
+
+        Assert.Equal("; stencil 2 values: 0x10 75.0%, 0x02 25.0%", DrawProbes.StencilSummary(texels, RowPitch, 4, 2, R8Uint));
+        Assert.Equal(string.Empty, DrawProbes.StencilSummary(texels, RowPitch, 4, 2, 61));
+
+        // The stencil plane of a 2D depth-stencil with 1 mip and 1 slice is subresource 1; with 3 mips and 6 slices, 18.
+        Assert.Equal(1u, DrawProbes.PlaneSubresource(1, 1, 1));
+        Assert.Equal(18u, DrawProbes.PlaneSubresource(1, 3, 6));
     }
 
     /// <summary>A 3D volume and a 2D view of its first slice read apart in the trace (the scattering distance volume).</summary>
