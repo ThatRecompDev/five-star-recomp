@@ -168,7 +168,7 @@ internal static unsafe class NanScan
 
         for (uint i = 0; i < extent && index + i < views.Count; i++)
         {
-            string label = string.Create(CultureInfo.InvariantCulture, $"table {parameter} record {index + i}");
+            string label = string.Create(CultureInfo.InvariantCulture, $"table {parameter} (window 0x{offset:x}) entry {i}, record {index + i}");
             uint high = views.RecordDword(index + i, StrideDword) & HighMask;
 
             // A buffer or CBV record with a console base: its range in game memory.
