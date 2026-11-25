@@ -36,7 +36,8 @@ flowchart LR
   parse --> lower["Lowering<br/>types, inlining, SSA, entry signatures, constant folding"]
   lower --> gvn["ValueNumbering"]
   gvn --> dce["DeadCode"]
-  dce --> write["ModuleWriter<br/>LLVM 3.7 bitcode"]
+  dce --> simplify["Simplifier"]
+  simplify --> write["ModuleWriter<br/>LLVM 3.7 bitcode"]
   write --> container["ShaderContainer<br/>SFI0 ISG1 OSG1 PSG1 PSV0 DXIL + digest"]
 ```
 
@@ -69,6 +70,19 @@ unoptimized form for comparison. VIctory reports about 43% fewer host instructio
 | `CS_ScreenProbes_ActivateProbes` | 13.39 MB | 9.98 MB (-25%) | |
 | `MS_VS_TransformD`, w32 form | 2.65 MB | 2.04 MB (-23%) | |
 | the same, native | 2.02 MB | 1.63 MB (-19%) | |
+
+`Simplifier` follows (skipped by `--no-optimize` too), twice, each round cleaned by `DeadCode`. A block that only its
+predecessor's unconditional branch reaches joins it (every inlined call and structured region ends in one); a branch on
+a constant or to one block twice becomes unconditional, a phi of one value that value, and `ConstantFolding` folds
+what that decides. Wave and quad reads (ballot, any, read-lane, active ops) are declared nounwind as dxc declares them,
+so no pass removed them: one nothing reads goes, and one with the operands of an earlier one in its block, with no
+effect between them (a discard or barrier may change the lanes), is that one. The translator's EXEC emulation makes
+a ballot pair for every mask write and an any for every SCC, most never read.
+
+| Program (translated today) | after `ValueNumbering` | after `Simplifier` | AMD RX 7800 XT pipeline |
+|---|---|---|---|
+| `CS_RaytracingResolve` (wave32) | 1.57 MB | 1.06 MB (-32%) | 36.5 s, 8.4 GB -> 26.2 s, 3.6 GB |
+| `CS_ScreenProbes_ActivateProbes` (wave64) | 9.98 MB | 8.50 MB (-15%) | over 50 GB either way |
 
 All five pass dxil.dll validation. What is left is mostly the wave emulation's control flow: in the cascade program
 73,515 phis (about 6 operands each) and 124,610 blocks, which neither pass touches.
