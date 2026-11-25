@@ -786,6 +786,10 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
 - `--d3d12-trace-pipeline <text>` (implies the draw trace) also logs, in the frame after each captured present, up to
   64 draws whose pipeline name holds the text, without probes: a frame's UI draws (`sgd2_` Scaleform programs such as
   `FVertexCxform`) come long after its first 32.
+- `--d3d12-trace-records <offset,...>` adds to each of those draws the window records at these byte offsets from every
+  user SGPR holding a record-aligned window offset (a descriptor pointer the game passes as a root constant, which the
+  tables do not show): the record dwords, a T#'s base and its address-map state, a V#'s base (or the heap index it
+  holds), its map state and the first 10 dwords there (a constant buffer's values).
 - `--probe-pipeline <text,...>` makes the mesh, pixel and compute programs whose name holds one of the texts with probe code (`MeshProbe`,
   `MeshProbes`), in any of its forms (two-phase, staged, the superstep form of the wave32 variant): every load site (a
   buffer, formatted or pointer load with the range check before it, an s_buffer_load's compare included) marks itself

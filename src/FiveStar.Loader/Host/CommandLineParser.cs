@@ -131,7 +131,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs":
                 return SetBreadcrumbs();
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
                 return SetTraceDraws(option);
             case "--capture-dir":
                 return SetCaptureDirectory();
@@ -738,6 +738,11 @@ internal sealed class CommandLineParser
         if (option == "--d3d12-trace-pipeline")
         {
             _options.D3D12TracePipeline = Next();
+        }
+
+        if (option == "--d3d12-trace-records")
+        {
+            _options.D3D12TraceRecords = Shims.D3D12X.DebugLayer.TraceRecords.Parse(Next());
         }
 
         if (option == "--d3d12-dump-targets")
