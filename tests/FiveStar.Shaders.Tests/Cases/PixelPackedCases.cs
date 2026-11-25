@@ -15,6 +15,7 @@ public static class PixelPackedCases
             PackedHalfMath(),
             FmaMix(),
             Sdwa(),
+            SdwaCompareExec(),
         ];
     }
 
@@ -92,5 +93,25 @@ public static class PixelPackedCases
             Program,
             [0x80, (0x7F + 0x05) << 16, 0x11112200 | (0x01 + 0x05), FloatBits.Of(-128.0), 0xFFFFFF81, 0xFFFF8180],
             0x81807F01, 0x11112222, 0x05000000);
+    }
+
+    // v_cmpx SDWA has no destination operand, so its sources are s1 and v10: the byte select applies to v10. The loop
+    // of MS_VS_PropFoliageDeferred ends a lane on "counter == count byte"; comparing the whole dword never ended it.
+    private static PixelCase SdwaCompareExec()
+    {
+        const string Program = """
+            v_mov_b32 v10, s0
+            v_mov_b32 v20, 1
+            v_mov_b32 v21, 1
+            s_mov_b32 s15, exec_lo
+            v_cmpx_eq_u32_sdwa s1, v10 src0_sel:DWORD src1_sel:BYTE_0
+            v_mov_b32 v20, 2
+            s_mov_b32 exec_lo, s15
+            v_cmpx_lt_i32_sdwa s1, v10 src0_sel:DWORD src1_sel:BYTE_0
+            v_mov_b32 v21, 2
+            s_mov_b32 exec_lo, s15
+            """;
+
+        return PixelCase.Uniform("sdwa_cmpx", Program, [2, 1], 0x11112203, 3);
     }
 }
