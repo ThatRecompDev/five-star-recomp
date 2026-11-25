@@ -31,7 +31,11 @@ address and crashed with our unaligned ones. Later that evening boots stayed 5 t
 (w79, w80): a translator bug that kept a foliage mesh shader looping is fixed (an SDWA compare compared whole dwords),
 and per-pass GPU timings (`--gpu-timings`) rank the cost of a world frame (about 400 to 480 ms of GPU time on the
 direct queue, led by the volumetric scattering passes). The lit image is still wrong: the lighting pass's red channel
-grows huge and then NaN, which `--d3d12-nan-scan` is tracing. On 25 November the device removals that ended
+grows huge and then NaN, which `--d3d12-nan-scan` is tracing. Overnight about 1,000 wave64 mesh programs moved off the
+superstep form (a readfirstlane exchanged through group memory) and the rest lost half their stops, which roughly
+halved the G-buffer mesh passes' GPU time (w84); a boot then ran about 900 presents in the world. A memory climb of
+about 11 GB per long run was traced to textures over game memory the game has unmapped, now counted, with their
+release behind `--retire-unmapped-textures` while it is tested. On 25 November the device removals that ended
 every boot ~25–35 s after the world started loading were traced to the game's ray-tracing compute passes walking
 acceleration structures we never build; those pipelines now stay stand-ins unless `--raytracing` is given, and a boot
 ran 18 minutes in the world with no removal. Literal samplers (shadow comparison, clamp) now get their own samplers. The overwrite of the game's
