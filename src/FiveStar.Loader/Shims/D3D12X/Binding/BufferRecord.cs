@@ -5,7 +5,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Binding;
 
 /// <summary>
 /// The V# fields a buffer view's descriptor record carries (<see cref="BufferRecords"/>). Dwords 0 and 1 (bits 0-15)
-/// hold a read-only view's console GPU address, <see cref="Base"/>, as the console's descriptor does (<see cref="BufferRecords.ReadOnly"/>): programs read V#s from
+/// hold the view's console GPU address, <see cref="Base"/>, as the console's descriptor does (where <see cref="BufferRecords.Based"/> finds that safe): programs read V#s from
 /// tables and build pointers from their base (MS_VS_Transform_PositionOnly s_loads a V# and then loads through its
 /// base + 0x40), and translated programs reach such a V# through the address map. A view with no console address (a
 /// resource the desktop placed) keeps the desktop heap index in dword 0 with base_hi 0. All fields 0 for a texture view.

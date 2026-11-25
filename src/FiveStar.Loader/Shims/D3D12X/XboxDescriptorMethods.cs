@@ -78,7 +78,7 @@ internal static unsafe class XboxDescriptorMethods
 
             // In the game's own heaps a CBV is a V# the programs read as a ByteAddressBuffer: a raw SRV over the same bytes.
             if (location != 0 && D3D12X.DescriptorHeaps.Find(handle, out _) is not null
-                && D3D12X.AddressBuffers.CreateRaw(inner, location, description->Size, D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.ReadOnly(BufferRecords.ConstantBuffer(description->Size), location, 0, 0))))
+                && D3D12X.AddressBuffers.CreateRaw(inner, location, description->Size, D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.Based(BufferRecords.ConstantBuffer(description->Size), location, 0, 0, ViewKind.ConstantBuffer))))
             {
                 D3D12X.DrawTrace?.ConstantBufferView(D3D12X.DescriptorHeaps.Source(handle), description->Location, description->Size);
 
@@ -165,7 +165,7 @@ internal static unsafe class XboxDescriptorMethods
         {
             nint desktop = D3D12X.Objects.Unwrap(resource);
             D3D12X.DrawTrace?.ShaderResourceView(desktop, Destination(handle));
-            var record = BufferRecords.ReadOnly(BufferRecords.ShaderResource(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: false), desktop);
+            var record = BufferRecords.Based(BufferRecords.ShaderResource(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: false), desktop, ViewKind.ShaderResource);
             byte* copy = stackalloc byte[DepthViewDescriptions.ShaderResourceViewSize];
             desktop = BufferViewRanges.Fit(resource, desktop, description, copy, false, out void* fitted);
             void* view = TargetViewDescriptions.ShaderResourceView(desktop, fitted, copy);
@@ -233,8 +233,8 @@ internal static unsafe class XboxDescriptorMethods
                 return;
             }
 
+            var record = BufferRecords.Based(BufferRecords.UnorderedAccess(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: true), desktop, ViewKind.UnorderedAccess);
             desktop = BufferViewRanges.Fit(resource, desktop, description, copy, true, out void* fitted);
-            var record = BufferRecords.UnorderedAccess(description);
             var destination = D3D12X.DescriptorHeaps.Destination(handle, record);
 
             if (TransientPoolViews.Enabled)

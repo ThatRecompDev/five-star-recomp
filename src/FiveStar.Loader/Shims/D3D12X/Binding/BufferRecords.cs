@@ -28,6 +28,19 @@ internal static unsafe class BufferRecords
     /// <summary>Bytes of an element of a raw view.</summary>
     private const uint RawElement = 4;
 
+    private const int ReasonCount = 4;
+
+    private static readonly string[] Reasons =
+    [
+        "--buffer-records-heap-index",
+        "no console address (a resource the desktop placed or committed)",
+        "the address table does not cover its base",
+        "a UAV whose base another desktop resource covers",
+    ];
+
+    /// <summary>The (view kind, reason) pairs logged so far, one bit each.</summary>
+    private static int _logged;
+
     /// <summary>
     /// <c>--buffer-records-heap-index</c>: buffer records keep the desktop heap index in dword 0 instead of the console
     /// base address (<see cref="BufferRecord.At"/>), as before.
@@ -35,26 +48,74 @@ internal static unsafe class BufferRecords
     public static bool HeapIndexOnly { get; set; }
 
     /// <summary>
-    /// A read-only view's record (SRV, CBV, slot 70) with its console base (<see cref="BufferRecord.At"/>) when the
-    /// address map reaches the same desktop memory the view's resource is: the address table's range holding the base
-    /// is <paramref name="desktop"/> (any range for 0). Else, and for every UAV, the heap index stays: the GPU's writes
-    /// and the command processor's reads (indirect arguments, copies, index buffers) keep going through the desktop
-    /// resource. With every record based (3ac3312), boots hung or crashed at 120-130 s: writes reached memory through
-    /// the address map that the desktop resources the command processor reads did not show (a placed buffer is its first
-    /// page run, as its pages were when it was placed), and pool memory the game reuses.
+    /// A view's record with its console base (<see cref="BufferRecord.At"/>) where reads, and for a UAV writes, through
+    /// the address map meet the bytes the desktop resource holds:
+    /// <list type="bullet">
+    /// <item>a read-only view (SRV, CBV, slot 70) whose base the address table covers at all: the GPU only reads, and
+    /// the map gives it the bytes the game wrote there;</item>
+    /// <item>a UAV whose base the address table covers with the view's own desktop resource, so its writes land in the
+    /// memory the command processor reads (indirect arguments, copies, index buffers).</item>
+    /// </list>
+    /// Any other keeps the heap index, logged once per reason and view kind. With every record based (3ac3312), boots hung
+    /// or crashed at 120-130 s: UAV writes went through the map to memory the desktop resources did not show (a placed
+    /// buffer is its first page run, as its pages were when it was placed).
     /// </summary>
     [HotPath]
-    public static BufferRecord ReadOnly(BufferRecord record, ulong address, ulong firstElement, nint desktop)
+    public static BufferRecord Based(BufferRecord record, ulong address, ulong firstElement, nint desktop, ViewKind kind)
     {
-        var based = record.At(address, firstElement);
-
-        if (based.Base == 0 || !ShimContext.Runtime.D3D12X.PlacedResources.Addresses.TryFind(based.Base, out var range)
-            || (desktop != 0 && range.Resource != desktop))
+        if (!record.IsBuffer)
         {
             return record;
         }
 
+        if (HeapIndexOnly)
+        {
+            return Kept(record, kind, KeptReason.Flag, address, desktop);
+        }
+
+        if (address == 0)
+        {
+            return Kept(record, kind, KeptReason.NoAddress, address, desktop);
+        }
+
+        var based = record.At(address, firstElement);
+
+        if (!ShimContext.Runtime.D3D12X.PlacedResources.Addresses.TryFind(based.Base, out var range))
+        {
+            return Kept(record, kind, KeptReason.NotCovered, based.Base, desktop);
+        }
+
+        if (kind == ViewKind.UnorderedAccess && range.Resource != desktop)
+        {
+            return Kept(record, kind, KeptReason.OtherResource, based.Base, desktop);
+        }
+
         return based;
+    }
+
+    /// <summary>The record as it is, the reason logged once per reason and view kind.</summary>
+    private static BufferRecord Kept(BufferRecord record, ViewKind kind, KeptReason reason, ulong address, nint desktop)
+    {
+        int bit = 1 << (((int)kind * ReasonCount) + (int)reason);
+
+        if ((Interlocked.Or(ref _logged, bit) & bit) != 0)
+        {
+            return record;
+        }
+
+        var resource = ShimContext.Runtime.D3D12X.Objects.AsResource(desktop);
+        string committed = string.Empty;
+
+        if (resource != null && resource->TitleMemory != 0)
+        {
+            committed = ", a slot-127 committed resource";
+        }
+
+        ShimContext.Runtime.D3D12X.Warnings.Warn(
+            $"record-kept-{kind}-{reason}",
+            $"[d3d12_xs] {kind} buffer record keeps the heap index (first of its kind): {Reasons[(int)reason]} (console address 0x{address:x}, {record.Records} records of stride {record.Stride}, format 0x{record.Format:x}{committed})");
+
+        return record;
     }
 
     /// <summary>The console GPU address of a resource the game placed (slot 133); 0 for one the desktop placed.</summary>

@@ -448,11 +448,12 @@ flowchart LR
   heap index (base_hi 0) or, for a read-only view, its console GPU address (the resource's slot-133 address plus the
   first element, a CBV's location, a slot-70 view's address). Programs read V#s from tables and build pointers from
   their base: `MS_VS_Transform_PositionOnly` s_loads a V# and then loads through base + 0x40; with the heap index
-  there, it read the descriptor window and its meshlet V#s came out empty. A read-only view gets its address only when
-  the address table's range holding it is the view's own desktop resource, so the address map reaches the same memory.
-  UAVs keep the heap index: with every record based, boots hung or crashed at 120 to 130 s, the GPU's writes reaching
-  memory through the address map that the desktop resources the command processor reads (indirect arguments, copies)
-  did not show. A record with an address keeps the desktop index in dword 4 (the shim's copies to desktop heaps); the
+  there, it read the descriptor window and its meshlet V#s came out empty. A read-only view (SRV, CBV, slot 70) gets
+  its address whenever the address table covers it (the GPU only reads, and the map gives it the bytes the game wrote);
+  a UAV only when the covering range is the view's own desktop resource, so its writes land where the command
+  processor reads (indirect arguments, copies). With every record based, boots hung or crashed at 120 to 130 s, UAV
+  writes reaching memory the desktop resources did not show. A record that keeps the heap index is logged once per
+  view kind and reason (no console address, not covered, a UAV over another resource). A record with an address keeps the desktop index in dword 4 (the shim's copies to desktop heaps); the
   window mirror holds it in dword 4 for every record (the debug readers). `--buffer-records-heap-index` keeps the heap
   index in every record.- **CPU-only view heaps** take title memory too (the game creates eleven of 3,128 descriptors and copies their
   32-byte records into its per-draw tables itself, 0x144d9efc0). Their records name descriptors of the desktop

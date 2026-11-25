@@ -242,7 +242,7 @@ public sealed unsafe class D3D12XBindingTests
     }
 
     [Fact]
-    public void Only_a_view_the_address_map_reaches_as_its_own_resource_gets_its_console_base()
+    public void A_read_view_the_address_map_covers_and_a_UAV_over_its_own_resource_get_their_console_base()
     {
         const ulong Address = 0x27E_0006_0000;
         using var test = TestRuntime.Create();
@@ -251,10 +251,12 @@ public sealed unsafe class D3D12XBindingTests
         test.Runtime.D3D12X.PlacedResources.Addresses.Add(new FiveStar.Loader.Shims.D3D12X.AddressRange(Address, 0x10000, DesktopCalls.GpuAddress(resource), resource));
         var raw = new BufferRecord(0, 256, Dword | RawBounds);
 
-        Assert.Equal(Address + 4, BufferRecords.ReadOnly(raw, Address, 1, resource).Base);
-        Assert.Equal(0ul, BufferRecords.ReadOnly(raw, Address, 1, resource + 1).Base);
-        Assert.Equal(0ul, BufferRecords.ReadOnly(raw, Address + 0x10000, 0, resource).Base);
-        Assert.Equal(Address, BufferRecords.ReadOnly(raw, Address, 0, 0).Base);
+        Assert.Equal(Address + 4, BufferRecords.Based(raw, Address, 1, resource, ViewKind.UnorderedAccess).Base);
+        Assert.Equal(0ul, BufferRecords.Based(raw, Address, 1, resource + 1, ViewKind.UnorderedAccess).Base);
+        Assert.Equal(0ul, BufferRecords.Based(raw, Address + 0x10000, 0, resource, ViewKind.ShaderResource).Base);
+        Assert.Equal(Address, BufferRecords.Based(raw, Address, 0, 0, ViewKind.ConstantBuffer).Base);
+        Assert.Equal(Address + 4, BufferRecords.Based(raw, Address, 1, resource + 1, ViewKind.ShaderResource).Base);
+        Assert.Equal(0ul, BufferRecords.Based(raw, 0, 1, resource, ViewKind.ShaderResource).Base);
     }
 
     [DxcFact]
