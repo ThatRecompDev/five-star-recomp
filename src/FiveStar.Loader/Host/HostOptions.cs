@@ -115,6 +115,9 @@ internal sealed record HostOptions
     /// </summary>
     public bool PlacedTextures { get; set; } = true;
 
+    /// <summary>Integer texture views loaded, gathered and stored through integer declarations (<c>--typed-image-views</c>); part of the program cache identity.</summary>
+    public bool TypedImageViews { get; set; }
+
     /// <summary>GPU-written UNORM color textures made typeless, so views take the game's sRGB or integer member (<c>--typeless-targets</c>).</summary>
     public bool TypelessTargets { get; set; }
 
