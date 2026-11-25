@@ -24,7 +24,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// command list or a game thread waits: a stand-in the game shows) needs only the 4 GB floor and its own estimate,
 /// not the reserve for growth nor the running compiles' estimates; boot w21 held build threads 236 s in all by 175 s
 /// with 11 to 15 GB free, behind a 7 GB estimate of one running compile and a reserve of up to 10 GB. Compiles of more than
-/// <see cref="HeavyShaderBytes"/> run one at a time, and wait while the game loads (<see cref="LoadWindow"/>) unless a
+/// <see cref="HeavyShaderBytes"/> share half of the free memory (<see cref="HeavyRoom"/>), and wait while the game loads (<see cref="LoadWindow"/>) unless a
 /// game thread or a command list waits for them. Program work waits
 /// while the compile host is large (<see cref="RoomForPrograms"/>), in a boot and in the warm-up alike. A cold boot to 450 s reached 40 GB
 /// private, 8 GB of it in the arenas of the 7 compiles that started at the story load.
@@ -35,11 +35,11 @@ internal static unsafe class CompileBudget
     public const long TinyShaderBytes = 256L << 10;
 
     /// <summary>
-    /// The default of <see cref="MaxCompiles"/> (<c>--max-driver-compiles</c>). It was 4: in boot w33 that cap made
-    /// 1,660 refusals by 154 s against 291 for free memory, so free memory and commit, which count each compile's
-    /// reservation, now bound the compiles before the cap does.
+    /// The default of <see cref="MaxCompiles"/> (<c>--max-driver-compiles</c>), a safety ceiling: free memory and commit,
+    /// which count each compile's reservation, bound the compiles. A cap of 4 made 1,660 refusals by 154 s in boot w33
+    /// (291 for free memory), one of 6 made 6,486 by 493 s in w35 (845 for free memory) while 24 GB of 63 were in use.
     /// </summary>
-    public const int DefaultMaxCompiles = 6;
+    public const int DefaultMaxCompiles = 12;
 
     /// <summary>The default of <see cref="CeilingBytes"/> (<c>--compile-ceiling</c>, in GB): none, free RAM decides.</summary>
     public const long DefaultCeilingBytes = 0;
@@ -74,6 +74,9 @@ internal static unsafe class CompileBudget
     /// 6.4 GB, and the largest forms sampled are under 3 MB.
     /// </summary>
     private const long MaximumEstimate = 16L << 30;
+
+    /// <summary>Heavy compiles together may take free memory past the reserve over this (<see cref="HeavyRoom"/>).</summary>
+    private const long HeavyPoolShare = 2;
 
     /// <summary>How long a running compile keeps its whole estimate reserved (<see cref="Reservation"/>).</summary>
     private const double SettleSeconds = 30;
@@ -117,7 +120,6 @@ internal static unsafe class CompileBudget
     private static readonly object Gate = new();
     private static int _running;
     private static int _runningLarge;
-    private static int _runningHeavy;
     private static long _expected;
     private static long _refusedLoad;
     private static long _refusedUrgentFirst;
@@ -219,10 +221,22 @@ internal static unsafe class CompileBudget
         return shaderBytes > HeavyShaderBytes;
     }
 
-    /// <summary>Whether a compile may start beside <paramref name="runningHeavy"/> heavy ones: a heavy one only alone.</summary>
-    public static bool HeavyRoom(long shaderBytes, int runningHeavy)
+    /// <summary>
+    /// Whether a compile of <paramref name="estimate"/> may start beside heavy ones reserved <paramref name="heavyReserved"/>:
+    /// a light one always; the first heavy one always; another heavy one while the heavy ones together stay within half
+    /// of the free memory past the reserve, so they share their own part and the light ones keep the rest. It was one
+    /// heavy at a time: in boot w35 that refused 1,981 compiles by 493 s while 24 GB of the 63 were in use.
+    /// </summary>
+    public static bool HeavyRoom(long estimate, bool heavy, long heavyReserved, ulong availablePhysical, long reserve)
     {
-        return !IsHeavy(shaderBytes) || runningHeavy == 0;
+        if (!heavy || heavyReserved == 0)
+        {
+            return true;
+        }
+
+        long pool = ((long)Math.Min(availablePhysical, long.MaxValue) - reserve) / HeavyPoolShare;
+
+        return heavyReserved + estimate <= pool;
     }
 
     /// <summary>Private bytes of helper processes that count toward the ceiling: the compile host (<see cref="CompileHost"/>).</summary>
@@ -428,11 +442,6 @@ internal static unsafe class CompileBudget
                     Compiles.RemoveAt(index);
                 }
             }
-
-            if (IsHeavy(shaderBytes))
-            {
-                _runningHeavy--;
-            }
         }
     }
 
@@ -481,7 +490,7 @@ internal static unsafe class CompileBudget
                 return Refused(ref _refusedUrgentFirst);
             }
 
-            if (!HeavyRoom(shaderBytes, _runningHeavy))
+            if (!HeavyRoom(estimate, IsHeavy(shaderBytes), HeavyReserved(), WarmMemoryGuard.AvailablePhysical(), CurrentReserve(urgent)))
             {
                 return Refused(ref _refusedHeavy);
             }
@@ -497,12 +506,7 @@ internal static unsafe class CompileBudget
             {
                 _runningLarge++;
                 _expected += estimate;
-                Compiles.Add(new RunningCompile(estimate, System.Diagnostics.Stopwatch.GetTimestamp(), RamBackedBytes()));
-            }
-
-            if (IsHeavy(shaderBytes))
-            {
-                _runningHeavy++;
+                Compiles.Add(new RunningCompile(estimate, IsHeavy(shaderBytes), System.Diagnostics.Stopwatch.GetTimestamp(), RamBackedBytes()));
             }
 
             return true;
@@ -528,14 +532,25 @@ internal static unsafe class CompileBudget
     /// <summary>The running compiles' reservations now (<see cref="Reservation"/>); call under the gate.</summary>
     private static long Remaining()
     {
+        return Reserved(Compiles);
+    }
+
+    /// <summary>The running heavy compiles' reservations now; call under the gate.</summary>
+    private static long HeavyReserved()
+    {
+        return Reserved(Compiles.Where(compile => compile.Heavy));
+    }
+
+    private static long Reserved(IEnumerable<RunningCompile> compiles)
+    {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         long bytes = RamBackedBytes();
 
-        return Compiles.Sum(compile => Reservation(compile.Estimate, System.Diagnostics.Stopwatch.GetElapsedTime(compile.Started, now).TotalSeconds, bytes - compile.StartBytes));
+        return compiles.Sum(compile => Reservation(compile.Estimate, System.Diagnostics.Stopwatch.GetElapsedTime(compile.Started, now).TotalSeconds, bytes - compile.StartBytes));
     }
 
     /// <summary>One admitted compile: its estimate, when it started, and the RAM-backed bytes then.</summary>
-    private readonly record struct RunningCompile(long Estimate, long Started, long StartBytes);
+    private readonly record struct RunningCompile(long Estimate, bool Heavy, long Started, long StartBytes);
 
     /// <summary>
     /// Whether free memory, commit and the ceiling take <paramref name="estimate"/> beside the running compiles'
@@ -559,7 +574,7 @@ internal static unsafe class CompileBudget
             return Refused(ref _refusedMemory);
         }
 
-        if (!Room(estimate, ulong.MaxValue, WarmMemoryGuard.CommitAvailable(), remaining, 0))
+        if (!Room(estimate, ulong.MaxValue, WarmMemoryGuard.CommitAvailableNow(), remaining, 0))
         {
             return Refused(ref _refusedCommit);
         }
