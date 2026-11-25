@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Diagnostics;
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.Binding;
@@ -54,6 +55,8 @@ internal sealed unsafe class XboxDescriptorHeaps
     private HeapRecords _viewRecords;
     private nint _viewDesktopStart;
     private nint _sink;
+    private long _tableBinds;
+    private long _tableTicks;
 
     public XboxDescriptorHeaps(XboxObjects objects, TitleMemoryHooks hooks, DescriptorWindow window, GameMemoryViews memoryViews, LoaderLog log, OnceLog warnings)
     {
@@ -160,8 +163,16 @@ internal sealed unsafe class XboxDescriptorHeaps
             return DescriptorWindow.NullTableBase;
         }
 
-        return heap.Table(index, extent);
+        long started = Stopwatch.GetTimestamp();
+        uint table = heap.Table(index, extent);
+        Interlocked.Add(ref _tableTicks, Stopwatch.GetTimestamp() - started);
+        Interlocked.Increment(ref _tableBinds);
+
+        return table;
     }
+
+    /// <summary>Table binds so far and the time their mirroring took (<see cref="ShaderVisibleHeap.Table"/>).</summary>
+    public string TableSummary => $"{Volatile.Read(ref _tableBinds)} table binds mirrored in {Stopwatch.GetElapsedTime(0, Volatile.Read(ref _tableTicks)).TotalMilliseconds:F0} ms";
 
     /// <summary>The desktop sink for views no desktop descriptor is left for (warned once).</summary>
     [HotPath]
