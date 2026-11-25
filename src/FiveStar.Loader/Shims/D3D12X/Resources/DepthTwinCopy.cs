@@ -64,6 +64,9 @@ internal static unsafe class DepthTwinCopy
         }
         """;
 
+    /// <summary>ID3D12GraphicsCommandList::SetDescriptorHeaps (d3d12.h), which a prelude list sets before a copy.</summary>
+    public const int SetDescriptorHeapsSlot = 28;
+
     /// <summary>ID3D12GraphicsCommandList slots (d3d12.h).</summary>
     private const int DrawInstancedSlot = 12;
     private const int SetTopologySlot = 20;

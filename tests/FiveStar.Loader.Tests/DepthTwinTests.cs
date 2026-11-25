@@ -17,6 +17,7 @@ namespace FiveStar.Loader.Tests;
 /// --depth-twins on WARP: a compute pass writes the colour twin of a depth texture through its UAV, and the copy pass
 /// puts those values in the depth, where a draw's depth test sees them.
 /// </summary>
+[Collection("DepthTwins")]
 public sealed unsafe class DepthTwinTests
 {
     private const int Size = 8;
@@ -38,6 +39,7 @@ public sealed unsafe class DepthTwinTests
     public void A_value_written_to_the_twin_reaches_the_depth()
     {
         DepthTwinCopy.Detach();
+        DepthTwins.Detach();
 
         using var gpu = GpuDevice.CreateWarp(debugLayer: false);
         var device = gpu.Device;
@@ -70,6 +72,7 @@ public sealed unsafe class DepthTwinTests
     public void A_mask_written_to_the_stencil_twin_reaches_the_stencil_plane()
     {
         DepthTwinCopy.Detach();
+        DepthTwins.Detach();
 
         using var gpu = GpuDevice.CreateWarp(debugLayer: false);
         var device = gpu.Device;
@@ -126,6 +129,7 @@ public sealed unsafe class DepthTwinTests
         float expected = step * BitConverter.Int32BitsToSingle(StepConstant);
 
         DepthTwinCopy.Detach();
+        DepthTwins.Detach();
 
         using var gpu = GpuDevice.CreateWarp(debugLayer: false);
         var device = gpu.Device;
@@ -163,6 +167,7 @@ public sealed unsafe class DepthTwinTests
         const byte Stencil = 0x33;
 
         DepthTwinCopy.Detach();
+        DepthTwins.Detach();
 
         using var gpu = GpuDevice.CreateWarp(debugLayer: false);
         var device = gpu.Device;
