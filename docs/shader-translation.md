@@ -252,7 +252,12 @@ When every export follows a barrier that follows the allocation, the program run
 output writes until that barrier, then `SetMeshOutputCounts` at top level, then phase 2 resumes and writes `verts`,
 `tris` and `prims` directly. Phase 2 has its own barrier only when a block it can run (from the resume points after a
 barrier) yields again: NVIDIA's driver (RTX 5070, 621.40) hangs the group (DEVICE_HUNG) on dxc's optimized form of a
-program whose phase 2 carries a barrier it never reaches, while dxc `-Od` and the DXIL backend run it. Otherwise
+program whose phase 2 carries a barrier it never reaches, while dxc `-Od` and the DXIL backend run it. A console
+s_barrier waits only for waves that have not ended; a D3D12 group barrier waits for every thread. So a thread that
+reached `s_endpgm` keeps meeting each phase barrier, counted out of `g_ms_live` (three rotating counters, as
+`vw_ss_step`'s), and the loop ends when no thread runs. Phase 1 ends on GS_ALLOC_REQ's flag read after the barrier
+and before a second one, in both the native and the superstep form: read without it, a thread that resumed first
+could set the flag before a slower one read it, the two left phase 1 at different rounds and the group hung. Otherwise
 exports are staged in compact `groupshared` structs (at most 28 KB with LDS) and copied out after the loop. A
 primitive export holds three 9-bit indices at bits 0/10/20; bit 31 culls. Thread index code uses a virtual wave64 lane
 (`in_gi & 63`).

@@ -45,7 +45,7 @@ internal sealed partial class MeshDeclarations
 
     public static string DirectDeclarations()
     {
-        return "groupshared uint g_ms_nv, g_ms_np, g_ms_alloc;\nstruct MSPrim { bool cull : SV_CullPrimitive; };";
+        return "groupshared uint g_ms_nv, g_ms_np, g_ms_alloc;\ngroupshared uint g_ms_live[3];\nstruct MSPrim { bool cull : SV_CullPrimitive; };";
     }
 
     /// <summary>The staging structs, their converters and the groupshared arrays, sized to what is written.</summary>
