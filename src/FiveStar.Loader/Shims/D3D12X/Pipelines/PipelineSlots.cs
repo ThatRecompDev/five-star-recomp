@@ -95,7 +95,7 @@ internal sealed unsafe class PipelineSlots
             var compiling = _factory.Compiling.Summary();
             var counts = $"{Volatile.Read(ref _requests)} pipelines requested, {Volatile.Read(ref _created)} created, {_factory.ProgramBytes >> MegabyteShift} MB of DXIL held, {_factory.StandIns.Summary}";
 
-            var parts = new[] { counts, _factory.OnDemand?.Summary ?? string.Empty, _failures.Summary(), running, Compiles(compiling), _factory.Cache?.Summary ?? string.Empty }.Where(part => part.Length > 0);
+            var parts = new[] { counts, _factory.OnDemand?.Summary ?? string.Empty, _failures.Summary(), running, Compiles(compiling), PipelineHost.Current?.Summary ?? string.Empty, _factory.Cache?.Summary ?? string.Empty }.Where(part => part.Length > 0);
 
             return string.Join(", ", parts);
         }
@@ -110,7 +110,7 @@ internal sealed unsafe class PipelineSlots
             return string.Empty;
         }
 
-        return $"driver compiles: {waiting} waiting for memory, {summary}";
+        return $"driver compiles: {waiting} waiting for memory ({CompileBudget.Refusals}), {summary}";
     }
 
     private int Guarded(int slot, nint* result, Func<int> create)

@@ -97,6 +97,24 @@ public sealed class CompileBudgetTests
     }
 
     [Fact]
+    public void A_running_compile_keeps_its_whole_estimate_reserved_only_until_it_settles()
+    {
+        long estimate = CompileBudget.Estimate(2_800_000);
+
+        Assert.Equal(estimate, CompileBudget.Reservation(estimate, 10, 0));
+        Assert.Equal(4 * Gigabyte, CompileBudget.Reservation(estimate, 135, 4 * Gigabyte));
+        Assert.Equal(estimate / 4, CompileBudget.Reservation(estimate, 135, -Gigabyte));
+        Assert.Equal(estimate, CompileBudget.Reservation(estimate, 135, 20 * Gigabyte));
+
+        // Boot w32 at 153 s: 14.1 GB free, 15 GB of commit left, the 2 MB compile 73 s in while the process grew 4 GB.
+        // A 1 MB compile now fits (5 + 4 + 2.75 GB physical, 8 + 4 + 2.75 GB commit); with the whole 7.5 GB it did not.
+        long resolve = CompileBudget.Estimate(1L << 20);
+        long reserve = CompileBudget.PhysicalReserve(CompileBudget.GrowthAllowance(2 * Gigabyte));
+        Assert.True(CompileBudget.Room(resolve, 14_100UL << 20, 15UL * Gigabyte, CompileBudget.Reservation(estimate, 73, 4 * Gigabyte), reserve));
+        Assert.False(CompileBudget.Room(resolve, 14_100UL << 20, 15UL * Gigabyte, estimate, reserve));
+    }
+
+    [Fact]
     public void Heavy_compiles_run_one_at_a_time_and_while_the_game_loads_only_when_urgent()
     {
         // The carry form of the foliage pipeline: 2.84 MB of DXIL.

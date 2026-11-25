@@ -274,8 +274,11 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         Rectangles.Attach(rectangles);
 
         // Builds start only while the machine has the memory; heavy ones on their own thread (docs/d3d12x-pipelines.md#stand-ins).
-        var builds = new PipelineBuildQueue(Environment.ProcessorCount / PipelineSlots.CoresPerBuildThread, WarmMemoryGuard.RoomForBuild);
-        var heavyBuilds = new PipelineBuildQueue(1, WarmMemoryGuard.RoomForHeavyBuild);
+        // The queues keep only the machine's reserves: each compile's own need is the compile budget's to count. Counting
+        // every build thread as a compile here (each parked in the budget too) held 7 of 16 threads off the urgent
+        // queue in boot w32 while 1,827 creations waited.
+        var builds = new PipelineBuildQueue(Environment.ProcessorCount / PipelineSlots.CoresPerBuildThread, _ => WarmMemoryGuard.RoomForBuild(0));
+        var heavyBuilds = new PipelineBuildQueue(1, _ => WarmMemoryGuard.RoomForHeavyBuild(0));
         builds.Start();
         heavyBuilds.Start();
         var standIns = new StandInPipelines(PipelineSlots.CreationBudget, builds, heavyBuilds, warnings);
