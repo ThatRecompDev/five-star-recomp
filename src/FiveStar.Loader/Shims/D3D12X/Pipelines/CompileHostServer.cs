@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Five Star Recomp contributors.
+// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Graphics.Programs;
@@ -19,6 +19,12 @@ internal static class CompileHostServer
     private const int Success = 0;
     private const int ValidatorArgument = 1;
     private const string DxilExtension = ".dxil";
+    private const long IdleHeapBytes = 4L << 30;
+
+    private static int _active;
+
+    /// <summary>Three compiles of a source of <see cref="ProgramForm.HeavySourceLength"/> or more at a time: 16 at once took the host to 8 to 12 GB (offline, 33 such programs on 16 workers: 8.4 GB; with three at a time 3.0 GB at 1.7 instead of 2.8 programs/s).</summary>
+    private static readonly SemaphoreSlim Heavy = new(3);
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Programs, string Folder, FiveStar.Graphics.AdapterInfo Adapter), ProgramProducer> Producers = new();
 
@@ -53,9 +59,11 @@ internal static class CompileHostServer
                 return Success;
             }
 
+            Interlocked.Increment(ref _active);
             var thread = new Thread(() =>
             {
                 var answer = Serve(backend, warnings, compile, make);
+                Settle();
 
                 lock (gate)
                 {
@@ -71,6 +79,42 @@ internal static class CompileHostServer
         }
     }
 
+    /// <summary>The backend's compile of <paramref name="request"/>; a heavy source waits while three others compile.</summary>
+    private static BackendResult Compile(InProcessBackend backend, CompileRequest request)
+    {
+        if (request.Hlsl.Length < ProgramForm.HeavySourceLength)
+        {
+            return backend.Run(request);
+        }
+
+        Heavy.Wait();
+
+        try
+        {
+            return backend.Run(request);
+        }
+        finally
+        {
+            Heavy.Release();
+        }
+    }
+
+    /// <summary>
+    /// After a request: when it was the last one running and the heap holds more than <see cref="IdleHeapBytes"/>, a
+    /// compacting collection gives the memory back. Server GC kept 12 GB after a burst of 16 makes of mesh programs,
+    /// which held program work to one at a time (the loader caps the host at 8 GB) and counted against the boot's memory.
+    /// </summary>
+    private static void Settle()
+    {
+        if (Interlocked.Decrement(ref _active) != 0 || GC.GetGCMemoryInfo().HeapSizeBytes < IdleHeapBytes)
+        {
+            return;
+        }
+
+        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+    }
+
     /// <summary>The answer to one request; an error (a file that cannot be written, no validator) is answered as such, so the loader takes the work.</summary>
     private static HostAnswer Serve(InProcessBackend backend, OnceLog warnings, CompileRequest? compile, MakeRequest? make)
     {
@@ -78,7 +122,7 @@ internal static class CompileHostServer
         {
             if (compile is not null)
             {
-                var result = backend.Run(compile);
+                var result = Compile(backend, compile);
 
                 return HostAnswer.Of(result.Verdict, result.Reason);
             }
@@ -110,7 +154,7 @@ internal static class CompileHostServer
         }
 
         var request = form.Request!;
-        var result = backend.Run(request);
+        var result = Compile(backend, request);
 
         if (result.Verdict == BackendVerdict.Compiled)
         {
