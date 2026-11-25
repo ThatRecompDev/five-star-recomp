@@ -21,7 +21,8 @@ public static class ComputeImageCases
 
     // image_atomic_umax with dmask 0x3 is a 64-bit max on an R32G32_UINT texel, its data low dword first (974 of them in
     // the corpus): 64 threads max (t, t >> 2) into texel t & 3 of row 0, whose (5, 1) only the high dwords beat; with glc
-    // every thread maxes (t, 0) into (0, 1), which holds (3, 9), and gets (3, 9) back.
+    // every thread maxes (t, 0) into (0, 1), which holds (3, 9), and gets (3, 9) back. The DXIL backend lowers it too (an
+    // i64 atomicBinOp on a uint64_t texture, 679 alpha-prepass programs of the corpus).
     private static ComputeCase WideAtomic()
     {
         const string Program = """
@@ -52,7 +53,6 @@ public static class ComputeImageCases
         return new ComputeCase("cs_image_atomic_64", Program, 4, thread => [Expected.Exact((uint)thread.Id), Expected.Exact((uint)thread.Id >> 2), Expected.Exact(3), Expected.Exact(9)])
         {
             User = [TextureHeap, 0, 0, 0],
-            DxcOnly = true,
             Textures = [new TextureResource(TextureHeap, Format.R32G32_UInt, Width, Height, initial) { Writable = true }],
             Check = written => Differences($"texture{TextureHeap}", final, written[TextureHeap]),
         };
