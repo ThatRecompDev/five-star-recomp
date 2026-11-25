@@ -144,11 +144,14 @@ internal sealed unsafe class DrawTrace
         View(handle, $"CBV 0x{address:x} (0x{size:x} bytes) as raw SRV");
     }
 
-    /// <summary>Slot 18 wrote a view of desktop <paramref name="resource"/> at <paramref name="handle"/>.</summary>
-    public void ShaderResourceView(nint resource, nint handle, nint wrapper = 0)
+    /// <summary>
+    /// Slot 18 wrote a view of desktop <paramref name="resource"/> at <paramref name="handle"/>; with the desc the desktop
+    /// got (<paramref name="description"/>), a texture view also names its format and, for a 2D view, its plane.
+    /// </summary>
+    public void ShaderResourceView(nint resource, nint handle, nint wrapper = 0, void* description = null)
     {
         var game = _d3d12.Objects.AsResource(wrapper);
-        string text = resource == 0 ? "SRV of null" : $"SRV of 0x{resource:x} {Describe(resource)}";
+        string text = resource == 0 ? "SRV of null" : $"SRV of 0x{resource:x} {Describe(resource)}{ViewFormat(description)}";
 
         if (resource != 0 && game != null)
         {
@@ -158,6 +161,34 @@ internal sealed unsafe class DrawTrace
         }
 
         View(handle, text);
+    }
+
+    /// <summary>", view format F" (and ", plane P" for a 2D or 2D-array view) of an SRV desc; empty for a buffer view or none.</summary>
+    private static string ViewFormat(void* description)
+    {
+        const int Texture2D = 4;
+        const int Texture2DArray = 5;
+        const int Texture2DPlaneDword = 6;
+        const int Texture2DArrayPlaneDword = 8;
+
+        if (description == null || ((int*)description)[1] == BufferViewDescription.BufferDimension)
+        {
+            return string.Empty;
+        }
+
+        int* view = (int*)description;
+
+        if (view[1] == Texture2D)
+        {
+            return $", view format {view[0]}, plane {view[Texture2DPlaneDword]}";
+        }
+
+        if (view[1] == Texture2DArray)
+        {
+            return $", view format {view[0]}, plane {view[Texture2DArrayPlaneDword]}";
+        }
+
+        return $", view format {view[0]}";
     }
 
     /// <summary>Slot 19 wrote a UAV of desktop <paramref name="resource"/> at <paramref name="handle"/> (a writer's target).</summary>

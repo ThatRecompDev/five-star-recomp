@@ -213,9 +213,10 @@ internal static unsafe class XboxDescriptorMethods
 
             nint destination = D3D12X.DescriptorHeaps.Destination(handle, record);
 
-            // Traced at the handle the view is written to: a second Destination call takes another ring slot.
-            D3D12X.DrawTrace?.ShaderResourceView(traced, destination, resource);
             void* written = DepthViewDescriptions.ShaderResourceView(desktop, view, copy);
+
+            // Traced at the handle the view is written to: a second Destination call takes another ring slot.
+            D3D12X.DrawTrace?.ShaderResourceView(traced, destination, resource, written);
             CreateDesktopView(self, CreateShaderResourceViewSlot, desktop, written, destination);
             Written(destination, resource, desktop, written, unordered: false);
         }
@@ -410,8 +411,8 @@ internal static unsafe class XboxDescriptorMethods
     }
 
     /// <summary>
-    /// <c>--depth-twins</c>: a UAV of a depth texture's depth plane goes to the texture's colour twin instead of a null
-    /// view (<see cref="DepthTwins"/>); false when the view is of another plane or the twin cannot be made.
+    /// <c>--depth-twins</c>: a UAV of a depth texture's depth or stencil plane goes to that plane's colour twin instead
+    /// of a null view (<see cref="DepthTwins"/>); false when the view's format takes no twin or the twin cannot be made.
     /// </summary>
     private static bool TwinView(nint device, nint resource, nint depth, ResourceDescription desc, void* description, nint handle)
     {
@@ -434,8 +435,11 @@ internal static unsafe class XboxDescriptorMethods
 
         byte* view = stackalloc byte[TargetViewDescriptions.UnorderedAccessViewSize];
         Buffer.MemoryCopy(description, view, TargetViewDescriptions.UnorderedAccessViewSize, TargetViewDescriptions.UnorderedAccessViewSize);
+        *(int*)view = twin.Format;
         *(int*)(view + DepthTwins.PlaneSliceOffset) = 0;
-        nint destination = Destination(handle);
+
+        // A stencil twin is R8_UINT: under --typed-image-views its record carries the uint class its stores need.
+        nint destination = D3D12X.DescriptorHeaps.Destination(handle, ImageViewClasses.With(BufferRecord.None, view));
         ((delegate* unmanaged<nint, nint, nint, void*, nint, void>)ComObject.Slot(device, CreateUnorderedAccessViewSlot))(device, twin.Twin, 0, view, destination);
         DepthTwins.NoteView(index, twin, destination);
 
