@@ -76,6 +76,8 @@ internal static class HostUsage
           --wait-pipelines <name,...>
                                  a stand-in pipeline whose name holds one of these parts is waited for (up to 60 s, the
                                  game's hang watchdog paused) when a command list first sets it, instead of skipping its work
+          --typed-image-views    image loads, gathers and stores of integer views (UINT/SINT, the stencil plane) go through
+                                 uint4/int4 declarations chosen by a class the descriptor carries; part of the cache identity
           --typeless-targets     GPU-written R8G8B8A8/B8G8R8A8/B8G8R8X8/R8 UNORM textures made typeless, so a view in
                                  their sRGB or integer member reads as the game asked (off by default)
           --kept-aliases <n>     textures retired over exactly one reused range kept alive for older descriptors (default 1)
