@@ -125,6 +125,14 @@ internal static unsafe class DepthTwins
         return Twins.GetOrAdd(key, twin);
     }
 
+    /// <summary>Forgets every twin and view (their textures belong to the device they were made on): for tests, which make a device each.</summary>
+    internal static void Detach()
+    {
+        Twins.Clear();
+        DepthViews.Clear();
+        Indices.Clear();
+    }
+
     /// <summary>The depth plane's twin of a desktop depth texture; null without one.</summary>
     public static DepthTwin? Of(nint depth)
     {
@@ -167,13 +175,14 @@ internal static unsafe class DepthTwins
     public static void NoteView(uint index, DepthTwin twin, nint handle)
     {
         twin.ViewHandle = handle;
+        twin.ViewHeap = ShimContext.Runtime.D3D12X.Bindings.Window.ViewHeap;
         Indices[index] = twin;
     }
 
     /// <summary>
     /// Before a draw or dispatch on <paramref name="self"/>: the twins whose UAVs the tables it binds hold (by the heap
     /// indices in the window records its programs reach, read anew each time, as the tables and their records change)
-    /// are marked written. Before the first pass that binds a twin, its plane is copied into it (<see cref="DepthTwinFill"/>).
+    /// are noted as written by the list (<see cref="DepthTwinSides"/>).
     /// </summary>
     [HotPath]
     public static void MarkWriters(XboxObject* self, uint* userData, byte* window, TableReachEntry[] tables)
@@ -204,18 +213,20 @@ internal static unsafe class DepthTwins
         }
     }
 
+    /// <summary>
+    /// A pass on <paramref name="self"/> writes <paramref name="twin"/> (<see cref="DepthTwinSides.UseTwin"/>); when the
+    /// list wrote the plane since its last use of the twin, the plane is copied into the twin first, here.
+    /// </summary>
     [HotPath]
     private static void Written(XboxObject* self, DepthTwin twin)
     {
-        if (twin.TakeFirstUse())
+        if (DepthTwinSides.UseTwin((nint)self, twin))
         {
             Fill(self, twin);
         }
-
-        twin.MarkWritten();
     }
 
-    /// <summary>The plane into the twin before its first writer; warned once when this list cannot (a compute list).</summary>
+    /// <summary>The plane into the twin on the list; warned once when this list cannot (a compute list).</summary>
     private static void Fill(XboxObject* self, DepthTwin twin)
     {
         var d3d12x = ShimContext.Runtime.D3D12X;
@@ -224,7 +235,7 @@ internal static unsafe class DepthTwins
 
         if (!DepthTwinFill.Record(d3d12x.Objects.DesktopDevice, self->Inner, twin, state, states.LegalStates))
         {
-            d3d12x.Warnings.Warn("depth-twin-fill", $"[d3d12_xs] depth twins: a twin in format {twin.Format} was not filled from its plane before its first writer (the list or the formats cannot copy it); it starts at zero");
+            d3d12x.Warnings.Warn("depth-twin-fill", $"[d3d12_xs] depth twins: a list wrote a depth plane and then a pass that writes its twin (format {twin.Format}), and cannot copy the plane into the twin in between (a compute list, or the formats differ)");
         }
     }
 }
