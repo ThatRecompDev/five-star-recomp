@@ -27,7 +27,11 @@ composite reads record 41 of a 7-record table). The lit image it showed was red-
 is the lighting's R9G9B9E5 textures: the game keeps them as R32_UINT and reads them through shared-exponent views,
 which we read back as plain numbers; `--typed-image-views` now decodes them and is being tested in boots. The game's
 large reservations now get 4 GiB-aligned addresses, as on the console: the game joins a high and a low half of an
-address and crashed with our unaligned ones. On 25 November the device removals that ended
+address and crashed with our unaligned ones. Later that evening boots stayed 5 to 7 minutes in the world
+(w79, w80): a translator bug that kept a foliage mesh shader looping is fixed (an SDWA compare compared whole dwords),
+and per-pass GPU timings (`--gpu-timings`) rank the cost of a world frame (about 400 to 480 ms of GPU time on the
+direct queue, led by the volumetric scattering passes). The lit image is still wrong: the lighting pass's red channel
+grows huge and then NaN, which `--d3d12-nan-scan` is tracing. On 25 November the device removals that ended
 every boot ~25–35 s after the world started loading were traced to the game's ray-tracing compute passes walking
 acceleration structures we never build; those pipelines now stay stand-ins unless `--raytracing` is given, and a boot
 ran 18 minutes in the world with no removal. Literal samplers (shadow comparison, clamp) now get their own samplers. The overwrite of the game's
