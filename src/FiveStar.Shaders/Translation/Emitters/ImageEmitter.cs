@@ -13,7 +13,8 @@ namespace FiveStar.Shaders.Translation.Emitters;
 /// (<see cref="TranslationOptions.TypedImageViews"/>) a load, gather or store of an integer view (the class in T# dword 3)
 /// goes through a <c>uint4</c> or <c>int4</c> declaration of the same descriptor, and d16 keeps an integer's low 16 bits.
 /// A load of class 3 reads shared-exponent light (R9G9B9E5) the GPU wrote into an R32_UINT target, which the desktop
-/// views in R32_UINT: its bits are loaded as an integer and decoded to RGB, alpha 1 (the lighting's TL_PS read only red).
+/// views in R32_UINT: its bits are loaded as an integer and decoded to RGB, alpha 1 (the lighting's TL_PS read only red);
+/// a 2D sample of one decodes the texels and filters them as the sampler says (<c>se_sample</c>, <see cref="SamplerWords"/>).
 /// </summary>
 internal sealed class ImageEmitter
 {
@@ -320,9 +321,49 @@ internal sealed class ImageEmitter
         else
         {
             _state.Emit($"  float4 {result} = {call};");
+            SampleSharedExponent(request, resource, result);
         }
 
         WriteResult(destination, result, mask, modifiers.Has("d16"), integer);
+    }
+
+    /// <summary>
+    /// A filtered sample of a class-3 view (shared-exponent light in an R32_UINT texture): its float declaration reads the
+    /// texel's bits as red and zero green and blue, so the texels are loaded through the uint declaration, decoded and
+    /// filtered as the sampler says (<c>se_sample</c>).
+    /// </summary>
+    private void SampleSharedExponent(ImageRequest request, Operand resource, string result)
+    {
+        var sampler = request.SamplerOperand;
+
+        if (!_state.TypedImageViews || sampler is null || !ImageSampleBuilder.TakesSharedExponent(request))
+        {
+            return;
+        }
+
+        var bits = $"{request.Texture}s";
+        var slot = NullTextureSlots.Slot(request.TextureType, _operands.Read(resource, 0));
+        _state.Emit($"  {request.TextureType}<uint4> {bits} = ResourceDescriptorHeap[{slot}];");
+        var sample = _samples.SharedExponentSample(request, bits, SamplerWord(sampler));
+        _state.Emit($"  if ({ClassOf(resource)} == {SharedExponentClass}) {result} = {sample};");
+    }
+
+    /// <summary>The sampler word of <see cref="SamplerWords"/>: packed from a literal S#, else the heap sampler record's dword 3.</summary>
+    private string SamplerWord(Operand sampler)
+    {
+        var words = new uint[Vec4];
+
+        for (var dword = 0; dword < Vec4; dword++)
+        {
+            if (!_state.Constants.TryGetValue(sampler.At(dword), out var word))
+            {
+                return _operands.Read(sampler, ClassDword);
+            }
+
+            words[dword] = (uint)word;
+        }
+
+        return $"0x{SamplerWords.Pack(words):x}u";
     }
 
     /// <summary>

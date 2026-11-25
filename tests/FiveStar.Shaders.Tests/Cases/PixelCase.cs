@@ -24,6 +24,9 @@ public sealed record PixelCase(string Name, string Program, int Outputs, Func<Pi
     /// <summary>Drawn with the half-coverage triangle (x + y &lt;= 6) instead of the fullscreen one.</summary>
     public bool HalfCoverage { get; init; }
 
+    /// <summary>Translated with typed image views (TranslationOptions.TypedImageViews).</summary>
+    public bool TypedViews { get; init; }
+
     /// <summary>A case whose expected values are the same for every pixel.</summary>
     public static PixelCase Uniform(string name, string program, Expected[] expected, params uint[] user)
     {
