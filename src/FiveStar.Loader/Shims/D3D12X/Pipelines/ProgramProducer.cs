@@ -385,7 +385,7 @@ internal sealed class ProgramProducer
         if (fast >= 0)
         {
             // --fast-waves: the program runs natively on narrower waves, approximately.
-            ShimContext.Runtime.D3D12X.Warnings.Warn($"fast-waves-{name}", $"[d3d12_xs] fast waves {name}: {hlsl[fast..hlsl.IndexOf('\n', fast)]}");
+            Note($"fast-waves-{name}", $"[d3d12_xs] fast waves {name}: {hlsl[fast..hlsl.IndexOf('\n', fast)]}");
         }
 
         int at = hlsl.IndexOf(FiveStar.Shaders.Translation.TranslationOptions.SuperstepCostComment, StringComparison.Ordinal);
@@ -397,7 +397,25 @@ internal sealed class ProgramProducer
 
         int start = at + FiveStar.Shaders.Translation.TranslationOptions.SuperstepCostComment.Length;
         int end = hlsl.IndexOf('\n', start);
-        ShimContext.Runtime.D3D12X.Warnings.Warn($"superstep-{name}", $"[d3d12_xs] superstep program {name}: {hlsl[start..end]}");
+        Note($"superstep-{name}", $"[d3d12_xs] superstep program {name}: {hlsl[start..end]}");
+    }
+
+    /// <summary>
+    /// A note once per key through the runtime's warnings, or the log in the warm-up, which has no runtime: asking for
+    /// one threw, and every superstep program a cold warm-up made failed with that.
+    /// </summary>
+    private static void Note(string key, string message)
+    {
+        var runtime = ShimContext.ActiveRuntime;
+
+        if (runtime is null)
+        {
+            ShimContext.Log?.Info($"  {message}");
+
+            return;
+        }
+
+        runtime.D3D12X.Warnings.Warn(key, message);
     }
 
     /// <summary>A --probe-pipeline program's source with the probe code (empty when it cannot take it); any other as it is.</summary>
