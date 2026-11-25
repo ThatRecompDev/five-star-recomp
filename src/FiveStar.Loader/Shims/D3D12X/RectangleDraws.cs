@@ -11,7 +11,8 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// Draws under the console rectangle list (topology 17; docs/d3d12x-shim.md, Rectangle lists). The topology itself
 /// becomes a triangle list; a draw under it binds the rectangle-list variant of the list's pipeline
 /// (<see cref="RectanglePipelines"/>), whose geometry shader adds each rectangle's fourth corner. The variant stays
-/// bound until the game sets another pipeline or topology. Without a variant the draw covers half of each rectangle.
+/// bound until the game sets another pipeline or topology. While the variant builds the draw is skipped; without one it
+/// covers half of each rectangle.
 /// </summary>
 internal sealed unsafe class RectangleDraws
 {
@@ -24,6 +25,7 @@ internal sealed unsafe class RectangleDraws
     private readonly LoaderLog _log;
     private long _expanded;
     private long _triangles;
+    private long _pending;
 
     public RectangleDraws(LoaderLog log)
     {
@@ -38,6 +40,9 @@ internal sealed unsafe class RectangleDraws
 
     /// <summary>Rectangle-list draws drawn as triangles, for want of a variant.</summary>
     public long AsTriangles => Interlocked.Read(ref _triangles);
+
+    /// <summary>Rectangle-list draws skipped while their variant was building.</summary>
+    public long WhileBuilding => Interlocked.Read(ref _pending);
 
     public void Attach(RectanglePipelines pipelines)
     {
@@ -76,7 +81,33 @@ internal sealed unsafe class RectangleDraws
         state->Pipeline = pipeline;
     }
 
-    /// <summary>Before a draw: under the rectangle list, binds the variant and counts the draw.</summary>
+    /// <summary>
+    /// First thing before a draw: true when it is to be skipped, since it is under the rectangle list and the variant of
+    /// its pipeline is still building (off the game's threads; the first call starts the build). The variant is bound
+    /// later, by <see cref="BeforeDraw"/>, after anything that binds the game's pipeline again (a depth-twin copy).
+    /// </summary>
+    [HotPath]
+    public bool Building(XboxObject* list)
+    {
+        var state = RectangleListState.Of(list);
+        var pipelines = Pipelines;
+
+        if (state->Topology != PrimitiveTopologies.RectangleList || state->VariantBound != 0 || pipelines is null || state->Pipeline == 0)
+        {
+            return false;
+        }
+
+        if (pipelines.Variant(state->Pipeline) != RectanglePipelines.Pending)
+        {
+            return false;
+        }
+
+        Interlocked.Increment(ref _pending);
+
+        return true;
+    }
+
+    /// <summary>Right before a draw: under the rectangle list, binds the variant and counts the draw.</summary>
     [HotPath]
     public void BeforeDraw(XboxObject* list)
     {
@@ -120,7 +151,8 @@ internal sealed unsafe class RectangleDraws
 
         nint variant = pipelines.Variant(state->Pipeline);
 
-        if (variant != 0)
+        // Pending only if the pipeline was remembered again since Building: the draw then covers half of each rectangle.
+        if (variant != 0 && variant != RectanglePipelines.Pending)
         {
             Bind(list, variant);
             state->VariantBound = 1;
@@ -141,6 +173,6 @@ internal sealed unsafe class RectangleDraws
 
     private void Report()
     {
-        _log.Info($"  [d3d12_xs] rectangle lists: {Expanded} draws expanded, {AsTriangles} drawn as triangles");
+        _log.Info($"  [d3d12_xs] rectangle lists: {Expanded} draws expanded, {AsTriangles} drawn as triangles, {WhileBuilding} skipped while their variant built");
     }
 }

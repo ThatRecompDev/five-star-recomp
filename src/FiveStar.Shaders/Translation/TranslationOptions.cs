@@ -63,6 +63,12 @@ public sealed record TranslationOptions(bool StructuredControlFlow, bool PinWave
     /// </summary>
     public bool SharedExponentSamples { get; init; }
 
+    /// <summary>
+    /// Mesh programs take a 4-byte payload (<c>in payload LaunchPayload</c>) they never read, so the loader can put its
+    /// launch amplification shader in front of them (<c>--mesh-launch</c>); without one the driver takes them as they are.
+    /// </summary>
+    public bool MeshPayload { get; init; }
+
     /// <summary>Name parts of the programs that take <see cref="SharedExponentSamples"/>; none by default.</summary>
     public IReadOnlyList<string> SharedExponentPrograms { get; init; } = [];
 

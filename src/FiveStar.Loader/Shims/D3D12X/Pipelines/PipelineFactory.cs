@@ -577,12 +577,12 @@ internal sealed unsafe class PipelineFactory
 
     /// <summary>
     /// Whether a build may start on this thread: always on a build thread; on a game thread (<see cref="CompileBudget.NoWait"/>)
-    /// only one that is not heavy and fits the compile budget now (<paramref name="entered"/>: counted in it then).
+    /// only one that is not heavy and fits the compile budget now (<paramref name="ticket"/>: counted in it then, for <see cref="CompileBudget.Exit"/>).
     /// Anything else is pending, its stream kept for the build thread that takes it.
     /// </summary>
-    private static bool MayStartHere(long shaderBytes, out bool entered)
+    private static bool MayStartHere(long shaderBytes, out CompileTicket? ticket)
     {
-        entered = false;
+        ticket = null;
 
         if (!CompileBudget.NoWait && !CompileBudget.GiveBack)
         {
@@ -590,14 +590,14 @@ internal sealed unsafe class PipelineFactory
         }
 
         // A game thread never builds a heavy one; a build thread with a speculative one gives it back rather than wait.
-        if ((CompileBudget.NoWait && shaderBytes >= HeavyShaderBytes) || !CompileBudget.TryEnterNow(shaderBytes))
+        if (CompileBudget.NoWait && shaderBytes >= HeavyShaderBytes)
         {
             return false;
         }
 
-        entered = true;
+        ticket = CompileBudget.TryEnterNow(shaderBytes);
 
-        return true;
+        return ticket is not null;
     }
 
     /// <summary>
@@ -620,7 +620,7 @@ internal sealed unsafe class PipelineFactory
             return new PipelineResult(HResult.Fail, 0);
         }
 
-        if (!MayStartHere(stream.ShaderBytes, out bool entered))
+        if (!MayStartHere(stream.ShaderBytes, out CompileTicket? ticket))
         {
             return new PipelineResult(HResult.Pending, 0);
         }
@@ -633,23 +633,17 @@ internal sealed unsafe class PipelineFactory
 
             if (Cache is not null && !HResult.Failed(Cache.Load(stream, &iid, &cached)))
             {
-                if (entered)
-                {
-                    CompileBudget.Exit(stream.ShaderBytes);
-                }
+                CompileBudget.Exit(ticket);
 
                 return new PipelineResult(HResult.Ok, cached);
             }
 
-            if (!entered && !CompileBudget.Buildable(stream.ShaderBytes))
+            if (ticket is null && !CompileBudget.Buildable(stream.ShaderBytes))
             {
                 return Unbuildable(stream, what);
             }
 
-            if (!entered)
-            {
-                CompileBudget.Enter(stream.ShaderBytes);
-            }
+            ticket ??= CompileBudget.Enter(stream.ShaderBytes);
 
             Compiling.Begin(PipelineCreationsInFlight.NoSlot);
             Compiling.Describe($"{what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL)");
@@ -663,7 +657,7 @@ internal sealed unsafe class PipelineFactory
             {
                 Compiling.End();
                 CompileBudget.Measured(measure, what);
-                CompileBudget.Exit(stream.ShaderBytes);
+                CompileBudget.Exit(ticket);
             }
         }
     }

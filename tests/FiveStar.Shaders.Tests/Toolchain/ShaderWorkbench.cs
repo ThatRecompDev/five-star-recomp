@@ -46,6 +46,12 @@ public sealed class ShaderWorkbench
         return HlslTranslator.Translate(program, Options).Hlsl;
     }
 
+    /// <summary>As <see cref="Translate(ShaderProgram)"/> with the mesh launch payload (TranslationOptions.MeshPayload).</summary>
+    public static string TranslateMeshPayload(ShaderProgram program)
+    {
+        return HlslTranslator.Translate(program, Options with { MeshPayload = true }).Hlsl;
+    }
+
     /// <summary>As <see cref="Translate(ShaderProgram)"/> with typed image views (TranslationOptions.TypedImageViews).</summary>
     public static string TranslateTypedViews(ShaderProgram program)
     {

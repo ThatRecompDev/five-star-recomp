@@ -108,7 +108,7 @@ public static class ShaderLowering
             Kind = DxilShaderKind.Mesh,
             Outputs = mesh.Outputs,
             Primitives = mesh.Primitives,
-            Mesh = new MeshState(mesh.MaxVertices, mesh.MaxPrimitives, mesh.Topology, context.SharedBytes),
+            Mesh = new MeshState(mesh.MaxVertices, mesh.MaxPrimitives, mesh.Topology, context.SharedBytes, mesh.PayloadBytes),
         };
     }
 

@@ -21,7 +21,8 @@ namespace FiveStar.Loader.Tests;
 
 /// <summary>
 /// A console rectangle-list draw through the D3D12.X slots (25 SetPipelineState, 20 topology 17, 12 DrawInstanced) on
-/// the default adapter: three vertices cover the whole rectangle, and the fourth corner's colour is extrapolated.
+/// the default adapter: the first draw is skipped while the variant builds off the drawing thread; then three vertices
+/// cover the whole rectangle, and the fourth corner's colour is extrapolated.
 /// </summary>
 public sealed unsafe class D3D12XRectangleListTests
 {
@@ -64,6 +65,38 @@ public sealed unsafe class D3D12XRectangleListTests
         CoversTheWholeRectangle("vs.link-beb72bb57485");
     }
 
+    [DxcFact]
+    public void A_variant_build_that_throws_draws_the_rectangle_as_triangles()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        var folder = Directory.CreateTempSubdirectory("fivestar-rect-");
+
+        try
+        {
+            var desktop = new ID3D12Device(test.Runtime.D3D12X.Objects.DesktopDevice);
+            desktop.AddRef();
+
+            using (desktop)
+            {
+                // The build thread's program load throws: the build thread survives and the variant stays 0.
+                nint pipeline = Pipelines(test, folder.FullName, "vs", new ThrowingProgramLibrary());
+                _ = Draw(device, desktop, pipeline, test.Runtime.D3D12X.Bindings.Root);
+                Assert.True(test.Runtime.D3D12X.Rectangles.Pipelines!.WaitBuilt(pipeline, TimeSpan.FromMinutes(1)));
+
+                var pixels = Draw(device, desktop, pipeline, test.Runtime.D3D12X.Bindings.Root);
+
+                Assert.Equal(0, test.Runtime.D3D12X.Rectangles.Expanded);
+                Assert.Equal(1, test.Runtime.D3D12X.Rectangles.AsTriangles);
+                Assert.Contains(pixels, pixel => pixel != 0);
+            }
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
+    }
+
     private static void CoversTheWholeRectangle(string vertexName)
     {
         using var test = TestRuntime.Create();
@@ -78,6 +111,12 @@ public sealed unsafe class D3D12XRectangleListTests
             using (desktop)
             {
                 nint pipeline = Pipelines(test, folder.FullName, vertexName);
+                // The first draw starts the variant's build off this thread and is skipped: nothing is drawn.
+                var skipped = Draw(device, desktop, pipeline, test.Runtime.D3D12X.Bindings.Root);
+                Assert.All(skipped, pixel => Assert.Equal(0u, pixel));
+                Assert.Equal(1, test.Runtime.D3D12X.Rectangles.WhileBuilding);
+                Assert.True(test.Runtime.D3D12X.Rectangles.Pipelines!.WaitBuilt(pipeline, TimeSpan.FromMinutes(1)));
+
                 var pixels = Draw(device, desktop, pipeline, test.Runtime.D3D12X.Bindings.Root);
 
                 // The middle half is covered (all four quarters, the extrapolated one included), the border is not.
@@ -97,7 +136,7 @@ public sealed unsafe class D3D12XRectangleListTests
     }
 
     /// <summary>The base pipeline, and its rectangle-list variant's geometry shader compiled as <c>fivestar shader rect-gs</c> does.</summary>
-    private static nint Pipelines(TestRuntime test, string folder, string vertexName)
+    private static nint Pipelines(TestRuntime test, string folder, string vertexName, IProgramLibrary? library = null)
     {
         var vertex = Compile(folder, "vs", Vertex);
         var programs = new List<TranslatedProgram> { TranslatedProgram.Of(vertexName, HardwareStage.Vertex, vertex), TranslatedProgram.Of("ps", HardwareStage.Pixel, Compile(folder, "ps", Pixel)) };
@@ -115,8 +154,10 @@ public sealed unsafe class D3D12XRectangleListTests
         nint pipeline;
         Assert.Equal(0, DesktopPipelineBuilder.Graphics(device2, root, description, programs, &iid, &pipeline));
 
-        var library = new FixedProgramLibrary([.. programs.Where(program => !RectanglePipelines.Derived(program.Name))]);
-        var rectangles = new RectanglePipelines(device2, root, folder, library, new OnceLog(new LoaderLog(new StringWriter(), null, false)));
+        library ??= new FixedProgramLibrary([.. programs.Where(program => !RectanglePipelines.Derived(program.Name))]);
+        var builds = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
+        builds.Start();
+        var rectangles = new RectanglePipelines(device2, root, folder, library, new OnceLog(new LoaderLog(new StringWriter(), null, false)), builds);
         rectangles.Remember(pipeline, description, programs);
         test.Runtime.D3D12X.Rectangles.Attach(rectangles);
 

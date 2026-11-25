@@ -15,11 +15,12 @@ internal static class BarrierLayouts
     /// <summary>
     /// States for layouts 0 (COMMON) to 11 (SHADING_RATE_SOURCE), the video layouts 12 to 17 (COMMON), then the queue
     /// layouts DIRECT_QUEUE_* (18 to 23) and COMPUTE_QUEUE_* (24 to 29): COMMON, GENERIC_READ, UNORDERED_ACCESS,
-    /// SHADER_RESOURCE, COPY_SOURCE, COPY_DEST.
+    /// SHADER_RESOURCE, COPY_SOURCE, COPY_DEST. DEPTH_STENCIL_READ (5) is DEPTH_READ with both SHADER_RESOURCE states: a
+    /// depth the game only reads is tested and sampled at once (the fork of VIctory maps it the same way).
     /// </summary>
     private static readonly int[] States =
     [
-        CommonState, 0xAC3, 0x4, 0x8, 0x10, 0x20, 0xC0, 0x800, 0x400, 0x2000, 0x1000, 0x1000000,
+        CommonState, 0xAC3, 0x4, 0x8, 0x10, 0xE0, 0xC0, 0x800, 0x400, 0x2000, 0x1000, 0x1000000,
         CommonState, CommonState, CommonState, CommonState, CommonState, CommonState,
         CommonState, 0xAC3, 0x8, 0xC0, 0x800, 0x400,
         CommonState, 0xAC3, 0x8, 0xC0, 0x800, 0x400,

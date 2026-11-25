@@ -180,8 +180,9 @@ internal sealed unsafe class GameMemoryViews
     {
         lock (_gate)
         {
-            var properties = new HeapProperties { Type = HeapProperties.Custom, CpuPageProperty = HeapProperties.WriteCombine, MemoryPool = HeapProperties.SystemPool };
-            nint buffer = DesktopCalls.CreateBuffer(device, properties, (ulong)_map.Bytes, 0, CommonState);
+            int state = CommonState;
+            var properties = GpuUploadHeaps.For(device, new HeapProperties { Type = HeapProperties.Custom, CpuPageProperty = HeapProperties.WriteCombine, MemoryPool = HeapProperties.SystemPool }, ref state);
+            nint buffer = DesktopCalls.CreateBuffer(device, properties, (ulong)_map.Bytes, 0, state);
             byte* data = buffer == 0 ? null : DesktopCalls.Map(buffer);
             uint first = remap.Reserve(DescriptorPages);
 

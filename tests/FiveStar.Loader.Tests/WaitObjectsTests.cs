@@ -4,6 +4,7 @@
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Loading;
 using FiveStar.Loader.Native;
+using FiveStar.Loader.Pe;
 using Xunit;
 
 namespace FiveStar.Loader.Tests;
@@ -33,14 +34,15 @@ public sealed unsafe class WaitObjectsTests
                 WaitObjects.Waiting(never, uint.MaxValue);
                 blocked.Set();
                 _ = Kernel32.WaitForSingleObjectEx(never, uint.MaxValue, 0);
-                WaitObjects.Done();
+                WaitObjects.Done(never, 0);
             });
             waiter.Start();
             blocked.Wait();
 
             var report = WaitObjects.Report(new ImageTable(), Prefix, 0);
             Assert.Contains($"(no timeout) on handle 0x{never:x}: manual-reset event made by thread {Kernel32.GetCurrentThreadId()}", report, StringComparison.Ordinal);
-            Assert.Contains("never signaled; waiting at no game frame found", report, StringComparison.Ordinal);
+            Assert.Contains("never signaled; recent: ", report, StringComparison.Ordinal);
+            Assert.Contains("; waiting at no game frame found", report, StringComparison.Ordinal);
 
             // The signal is recorded with its thread, and the wait ends.
             WaitObjects.Signaled(never);
@@ -58,6 +60,89 @@ public sealed unsafe class WaitObjectsTests
     }
 
     [Fact]
+    public void A_blocked_wait_lists_the_last_operations_on_its_object()
+    {
+        nint idle = Kernel32.CreateEventW(0, 0, 0, null);
+        nint other = Kernel32.CreateEventW(0, 0, 0, null);
+        uint self = Kernel32.GetCurrentThreadId();
+
+        try
+        {
+            WaitObjects.Created(idle, "auto-reset event");
+            WaitObjects.Created(other, "auto-reset event");
+
+            // A signal, a wait on several objects that it ends, then a reset: the signal the next waiter expects is gone.
+            WaitObjects.Signaled(idle);
+            WaitObjects.WaitingOnSeveral([other, idle], all: false, uint.MaxValue);
+            WaitObjects.DoneOnSeveral([other, idle], all: false, 1);
+            WaitObjects.Reset(idle);
+
+            uint waiterId = 0;
+            using var blocked = new ManualResetEventSlim();
+            var waiter = new Thread(() =>
+            {
+                waiterId = Kernel32.GetCurrentThreadId();
+                WaitObjects.Waiting(idle, uint.MaxValue);
+                blocked.Set();
+                uint result = Kernel32.WaitForSingleObjectEx(idle, uint.MaxValue, 0);
+                WaitObjects.Done(idle, result);
+            });
+
+            waiter.Start();
+            blocked.Wait();
+
+            string report = WaitObjects.Report(new ImageTable(), Prefix, 0);
+            Assert.Matches($@"recent: -\d+\.\d s signaled by {self}, -\d+\.\d s wait on any of 2 by {self}, -\d+\.\d s woke by {self}, -\d+\.\d s reset by {self}, -\d+\.\d s wait by {waiterId}", report);
+
+            Assert.NotEqual(0, Kernel32.SetEvent(idle));
+            waiter.Join();
+            WaitObjects.Waiting(idle, 0);
+            Assert.Contains($"woke by {waiterId}", WaitObjects.Report(new ImageTable(), Prefix, 0), StringComparison.Ordinal);
+            WaitObjects.Done(idle, 0x102);
+        }
+        finally
+        {
+            WaitObjects.Closed(idle);
+            WaitObjects.Closed(other);
+            _ = Kernel32.CloseHandle(idle);
+            _ = Kernel32.CloseHandle(other);
+        }
+    }
+
+    /// <summary>A wait on several objects is reported as one of them, and its timeout is kept by every one.</summary>
+    [Fact]
+    public void A_wait_on_several_objects_names_them_all_and_its_timeout_stays_on_each()
+    {
+        nint first = Kernel32.CreateEventW(0, 0, 0, null);
+        nint second = Kernel32.CreateEventW(0, 0, 0, null);
+        uint self = Kernel32.GetCurrentThreadId();
+
+        try
+        {
+            WaitObjects.Created(first, "auto-reset event");
+            WaitObjects.Created(second, "auto-reset event");
+
+            WaitObjects.WaitingOnSeveral([first, second], all: false, 10);
+            Assert.Contains($"on one of 2 handles (0x{first:x}, 0x{second:x}), the first 0x{first:x}: ", WaitObjects.Report(new ImageTable(), Prefix, 0), StringComparison.Ordinal);
+            WaitObjects.DoneOnSeveral([first, second], all: false, 0x102);
+
+            foreach (var handle in new[] { first, second })
+            {
+                WaitObjects.Waiting(handle, 0);
+                Assert.Matches($@"-\d+\.\d s timed out by {self}", WaitObjects.Report(new ImageTable(), Prefix, 0));
+                WaitObjects.Done(handle, 0x102);
+            }
+        }
+        finally
+        {
+            WaitObjects.Closed(first);
+            WaitObjects.Closed(second);
+            _ = Kernel32.CloseHandle(first);
+            _ = Kernel32.CloseHandle(second);
+        }
+    }
+
+    [Fact]
     public void A_wait_on_a_thread_handle_names_the_thread_it_joins()
     {
         nint thread = Kernel32.GetCurrentThread();
@@ -68,7 +153,7 @@ public sealed unsafe class WaitObjectsTests
         {
             WaitObjects.Waiting(handle, uint.MaxValue);
             var report = WaitObjects.Report(new ImageTable(), Prefix, 0);
-            WaitObjects.Done();
+            WaitObjects.Done(handle, 0);
 
             Assert.Contains($"on handle 0x{handle:x}: the handle of thread {Kernel32.GetCurrentThreadId()} (waiting for it to end)", report, StringComparison.Ordinal);
         }
@@ -78,9 +163,13 @@ public sealed unsafe class WaitObjectsTests
         }
     }
 
-    /// <summary>A stack value inside an image's range is only read when the call bytes before it are committed.</summary>
-    [Fact]
-    public void A_value_after_an_uncommitted_page_is_not_read()
+    /// <summary>A stack value inside an image's range is only read when the call bytes before it are committed readable code.</summary>
+    [Theory]
+    [InlineData(Win32Constants.PageExecuteRead, true)]
+    [InlineData(Win32Constants.PageExecuteReadWrite, true)]
+    [InlineData(Win32Constants.PageExecute, false)]
+    [InlineData(Win32Constants.PageReadWrite, false)]
+    public void A_value_after_a_page_that_is_not_readable_code_is_not_read(uint protection, bool read)
     {
         int page = Environment.SystemPageSize;
         nint region = Kernel32.VirtualAlloc(0, (nuint)(page * 2), Win32Constants.MemReserve, Win32Constants.PageReadWrite);
@@ -88,11 +177,11 @@ public sealed unsafe class WaitObjectsTests
 
         try
         {
-            Assert.NotEqual(0, Kernel32.VirtualAlloc(region + page, (nuint)page, Win32Constants.MemCommit, Win32Constants.PageReadWrite));
+            Assert.NotEqual(0, Kernel32.VirtualAlloc(region + page, (nuint)page, Win32Constants.MemCommit, protection));
 
             Assert.False(ReturnAddresses.CallBytesReadable(region + 16));
             Assert.False(ReturnAddresses.CallBytesReadable(region + page + 2));
-            Assert.True(ReturnAddresses.CallBytesReadable(region + page + 16));
+            Assert.Equal(read, ReturnAddresses.CallBytesReadable(region + page + 16));
         }
         finally
         {
@@ -114,5 +203,25 @@ public sealed unsafe class WaitObjectsTests
         {
             Assert.Equal(call, ReturnAddresses.AfterCall(bytes + before.Length));
         }
+    }
+
+    /// <summary>A stack value is checked against the image's executable sections before any system call.</summary>
+    [Fact]
+    public void Only_a_value_after_six_bytes_of_an_executable_section_is_checked_as_code()
+    {
+        nint imageBase = unchecked((nint)0x7FF6_0000_0000);
+        var sections = new List<PeSection>
+        {
+            new(".text", 0x1000, 0x1000, 0x400, 0x1000, SectionCharacteristics.ContainsCode | SectionCharacteristics.MemoryExecute | SectionCharacteristics.MemoryRead),
+            new(".data", 0x2000, 0x1000, 0x1400, 0x1000, SectionCharacteristics.ContainsInitializedData | SectionCharacteristics.MemoryRead | SectionCharacteristics.MemoryWrite),
+        };
+        var pe = new PeImage([], 0, (ulong)imageBase, 0x3000, 0x400, 0x1000, 0x1000, [], sections);
+        var image = new LoadedImage("game.exe", "game.exe", pe, imageBase);
+
+        Assert.True(ReturnAddresses.InCode(image, imageBase + 0x1010));
+        Assert.True(ReturnAddresses.InCode(image, imageBase + 0x2000));
+        Assert.False(ReturnAddresses.InCode(image, imageBase + 0x1003));
+        Assert.False(ReturnAddresses.InCode(image, imageBase + 0x2010));
+        Assert.False(ReturnAddresses.InCode(image, imageBase + 0x4000));
     }
 }

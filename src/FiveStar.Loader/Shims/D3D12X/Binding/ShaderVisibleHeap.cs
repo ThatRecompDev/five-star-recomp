@@ -113,6 +113,11 @@ internal sealed unsafe class ShaderVisibleHeap
             WriteRecord(index + i, desktop + i, buffer);
         }
 
+        if (Resources.DepthTwins.Any)
+        {
+            Resources.DepthTwins.Overwritten(desktop, count);
+        }
+
         nint start = _desktopStart + (nint)((ulong)desktop * Increment);
 
         // The desktop descriptors are about to be rewritten: a stand-in fill must not take one for the UAV it was.

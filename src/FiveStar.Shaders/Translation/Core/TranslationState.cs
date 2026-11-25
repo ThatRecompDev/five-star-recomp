@@ -92,6 +92,9 @@ internal sealed class TranslationState
     /// <summary>2D samples filter shared-exponent light themselves (TranslationOptions.SharedExponentSamples).</summary>
     public bool SharedExponentSamples { get; init; }
 
+    /// <summary>Mesh programs declare the launch payload (TranslationOptions.MeshPayload).</summary>
+    public bool MeshPayload { get; init; }
+
     /// <summary>The program filters shared-exponent light: it gets rdna_shared_exponent.hlsli written into it.</summary>
     public bool UsesSharedExponent { get; set; }
 
@@ -192,6 +195,12 @@ internal sealed class TranslationState
 
     /// <summary>The program reads its own code bytes (s_getpc_b64 pointers).</summary>
     public bool UsesCode { get; set; }
+
+    /// <summary>A per-lane load reads the code's data words (CodeLoadLane, <see cref="CodeData"/>).</summary>
+    public bool UsesCodeLanes { get; set; }
+
+    /// <summary>The instructions translated so far (blocks reached from the entry, long jumps included).</summary>
+    public HashSet<Instruction> Translated { get; } = [];
 
     public bool UsesBvh { get; set; }
 

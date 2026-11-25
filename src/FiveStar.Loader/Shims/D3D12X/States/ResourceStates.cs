@@ -7,8 +7,10 @@ namespace FiveStar.Loader.Shims.D3D12X.States;
 /// The legacy D3D12_RESOURCE_STATES a desktop resource rests in between command lists (its home state). The console
 /// game creates render targets in other layouts (UNORDERED_ACCESS, SHADER_RESOURCE) and clears and draws to them
 /// without a barrier, so a texture the GPU writes rests in the state of its first write flag: depth-stencil, then
-/// render target, then unordered access. Every other resource rests in the state it was created in; a write state
-/// without the matching flag (ALLOW_UNORDERED_ACCESS dropped for the format) becomes COMMON.
+/// render target, then unordered access. A render target that also takes UAVs rests in UNORDERED_ACCESS, which compute
+/// lists can leave and return to (they cannot name RENDER_TARGET), and direct lists move it to RENDER_TARGET when they
+/// bind or clear it (<see cref="RenderTargetStates"/>). Every other resource rests in the state it was created in; a
+/// write state without the matching flag (ALLOW_UNORDERED_ACCESS dropped for the format) becomes COMMON.
 /// </summary>
 internal static class ResourceStates
 {
@@ -38,7 +40,7 @@ internal static class ResourceStates
     public const int BufferDimension = 1;
 
     /// <summary>D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, _DEPTH_STENCIL and _UNORDERED_ACCESS.</summary>
-    private const int AllowRenderTarget = 0x1;
+    public const int AllowRenderTarget = 0x1;
     private const int AllowDepthStencil = 0x2;
     private const int AllowUnorderedAccess = 0x4;
 
@@ -58,7 +60,7 @@ internal static class ResourceStates
             return DepthWrite;
         }
 
-        if ((flags & AllowRenderTarget) != 0)
+        if ((flags & AllowRenderTarget) != 0 && (flags & AllowUnorderedAccess) == 0)
         {
             return RenderTarget;
         }

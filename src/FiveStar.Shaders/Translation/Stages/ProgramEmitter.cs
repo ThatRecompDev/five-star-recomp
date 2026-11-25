@@ -32,6 +32,7 @@ internal sealed partial class ProgramEmitter
     private readonly OutputWriter _outputs;
     private readonly MeshDeclarations _mesh;
     private readonly BodyWriter _body;
+    private bool _codeLanesFromCode;
 
     public ProgramEmitter(TranslationState state, OutputWriter outputs, MeshDeclarations mesh, BodyWriter body)
     {
@@ -58,8 +59,15 @@ internal sealed partial class ProgramEmitter
         lines.Add(entry + " {");
         _body.Write(lines);
         ReadLiveLanes(lines);
+        var text = string.Join("\n", lines) + "\n";
 
-        return Finish(string.Join("\n", lines) + "\n");
+        if (_codeLanesFromCode)
+        {
+            // No table to index: the loads stay as they were, the program byte for byte as before.
+            text = text.Replace("CodeLoadLane(", "CodeLoad(", StringComparison.Ordinal);
+        }
+
+        return Finish(text);
     }
 
     private List<string> Header()
@@ -317,7 +325,38 @@ internal sealed partial class ProgramEmitter
                 .Select(index => Hlsl.Hex(BinaryPrimitives.ReadUInt32LittleEndian(code.AsSpan(index * BytesPerDword)))).ToList();
             lines.Insert(1, $"static const uint g_code[{words.Count}] = {{{string.Join(",", words)}}};");
             lines.Insert(CodeLoadLine, $"uint CodeLoad(uint a) {{ return g_code[min(a >> 2, {words.Count - 1}u)]; }}");
+
+            if (_state.UsesCodeLanes)
+            {
+                lines.InsertRange(CodeLoadLine + 1, LaneLoad(words));
+            }
         }
+    }
+
+    /// <summary>
+    /// CodeLoadLane, a load at a per-lane address: from the code words of the tables the s_getpc pointers point to
+    /// (g_data, <see cref="CodeData"/>). Indexed per lane, the whole code array cost a driver 26 s and 1.9 GB to compile,
+    /// its tables alone 14 s and 0.5 GB. None when the tables are unknown: the loads then read CodeLoad.
+    /// </summary>
+    private List<string> LaneLoad(List<string> words)
+    {
+        int? start = CodeData.Start(_state.Translated);
+
+        if (start is null || start.Value / BytesPerDword >= words.Count)
+        {
+            _codeLanesFromCode = true;
+
+            return [];
+        }
+
+        var data = words.Skip(start.Value / BytesPerDword).ToList();
+        string from = Hlsl.HexUint((uint)start.Value);
+
+        return
+        [
+            $"static const uint g_data[{data.Count}] = {{{string.Join(",", data)}}};   // code words from {Hlsl.Hex(start.Value)}",
+            $"uint CodeLoadLane(uint a) {{ return g_data[min(a >= {from} ? (a - {from}) >> 2 : 0u, {data.Count - 1}u)]; }}",
+        ];
     }
 
     /// <summary>Program-wide rewrites: exact f16 rounding, helper lanes and rasterizer-ordered views for pixel shaders.</summary>

@@ -121,6 +121,9 @@ internal sealed record HostOptions
     /// <summary>Integer texture views loaded, gathered and stored through integer declarations (<c>--typed-image-views</c>); part of the program cache identity.</summary>
     public bool TypedImageViews { get; set; }
 
+    /// <summary>R9G9B9E5 views of R32_UINT light read a shadow the texels are copied into (on; <c>--no-shared-exponent-copies</c> leaves the decode to the programs).</summary>
+    public bool SharedExponentCopies { get; set; } = true;
+
     /// <summary>
     /// With <c>--typed-image-views</c>: the programs whose 2D samples filter shared-exponent light themselves, by name part
     /// (<c>--shared-exponent-programs &lt;text,...&gt;</c>; TranslationOptions.SharedExponentPrograms). By default the indirect
@@ -257,6 +260,12 @@ internal sealed record HostOptions
     /// <summary>The GC runs in SustainedLowLatency mode: no blocking full collections unless memory runs low (<c>--gc-sustained</c>).</summary>
     public bool SustainedGc { get; set; }
 
+    /// <summary>Mesh draws launched by an amplification stage of ours instead of clamped by a compute pass (<c>--mesh-launch</c>).</summary>
+    public bool MeshLaunch { get; set; }
+
+    /// <summary>The descriptor window, the address map and the user-data ring in GPU upload heaps where the device has them (<c>--gpu-upload-heaps</c>).</summary>
+    public bool GpuUploadHeaps { get; set; }
+
     /// <summary>The frame interval the frame events keep (<c>--frame-rate</c>); the game's own by default.</summary>
     public Shims.D3D12X.Present.FrameRate FrameRate { get; set; }
 
@@ -340,6 +349,12 @@ internal sealed record HostOptions
 
     /// <summary>Watched-target readbacks per frame (<c>--d3d12-watch-limit n</c>).</summary>
     public int D3D12WatchLimit { get; set; } = Shims.D3D12X.DebugLayer.DrawTrace.DefaultWatchLimit;
+
+    /// <summary>Only watched targets the game binds as render targets (<c>--d3d12-watch-rendered</c>).</summary>
+    public bool D3D12WatchRendered { get; set; }
+
+    /// <summary>How much per-draw text the draw trace writes (<c>--log-draws off|brief|full</c>).</summary>
+    public Shims.D3D12X.DebugLayer.DrawLogLevel LogDraws { get; set; } = Shims.D3D12X.DebugLayer.DrawLogLevel.Brief;
 
     /// <summary>Captures 3 frames 100 presents apart from the first present that draws the world (<c>--capture-when-world</c>).</summary>
     public bool CaptureWhenWorld { get; set; }

@@ -24,6 +24,7 @@ internal static class TableReaches
 
     private static readonly ConcurrentDictionary<string, IReadOnlyDictionary<int, uint>> Programs = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<nint, TableReachEntry[]> Pipelines = new();
+    private static readonly ConcurrentDictionary<nint, TableReachEntry[]> Whole = new();
 
     /// <summary>The folder of the extracted FSSM programs (--shader-dir); null reads no reach.</summary>
     public static string? ProgramFolder { get; set; }
@@ -38,6 +39,15 @@ internal static class TableReaches
     public static TableReachEntry[] Of(nint pipeline)
     {
         return Pipelines.GetValueOrDefault(pipeline, []);
+    }
+
+    /// <summary>
+    /// Every table a pipeline's programs read, with the records they reach, also those a bind mirrors whole (which
+    /// <see cref="Of"/> leaves out): the depth twins' writers are found in them (<see cref="Resources.DepthTwins.MarkWriters"/>).
+    /// </summary>
+    public static TableReachEntry[] AllOf(nint pipeline)
+    {
+        return Whole.GetValueOrDefault(pipeline, []);
     }
 
     /// <summary>Records <paramref name="pipeline"/>'s reach from the programs <paramref name="names"/> (" + "-joined) it was built from.</summary>
@@ -59,6 +69,7 @@ internal static class TableReaches
         }
 
         Pipelines[pipeline] = Entries(reach, DescriptorWindow.MinTableRecords);
+        Whole[pipeline] = Entries(reach, 0);
     }
 
     /// <summary>The SGPRs whose reach passes <paramref name="mirrored"/> records, with the records they reach.</summary>

@@ -135,7 +135,7 @@ internal static unsafe class CompileBudget
     private static long _refusedCommit;
     private static long _refusedCeiling;
     private static long _refusedInFlight;
-    private static readonly List<RunningCompile> Compiles = [];
+    private static readonly List<CompileTicket> Compiles = [];
     private static int _waiting;
     private static int _urgentWaiting;
 
@@ -169,8 +169,8 @@ internal static unsafe class CompileBudget
         set => _noWaitThread = value;
     }
 
-    /// <summary>Counts the compile when it may start now; false, without waiting, when it may not. Pair a true with <see cref="Exit"/>.</summary>
-    public static bool TryEnterNow(long shaderBytes)
+    /// <summary>Counts the compile when it may start now; null, without waiting, when it may not. Pass the ticket to <see cref="Exit"/>.</summary>
+    public static CompileTicket? TryEnterNow(long shaderBytes)
     {
         return TryEnter(shaderBytes, _urgentThread || _noWaitThread);
     }
@@ -277,6 +277,12 @@ internal static unsafe class CompileBudget
 
     /// <summary>Private bytes of helper processes that count toward the ceiling: the compile host (<see cref="CompileHost"/>).</summary>
     public static Func<long> HelperPrivateBytes { get; set; } = static () => 0;
+
+    /// <summary>The machine's free physical memory now; tests replace it so the host's memory does not decide them.</summary>
+    public static Func<ulong> AvailablePhysical { get; set; } = WarmMemoryGuard.AvailablePhysical;
+
+    /// <summary>The commit the machine can still give now; tests replace it as <see cref="AvailablePhysical"/>.</summary>
+    public static Func<ulong> CommitAvailable { get; set; } = WarmMemoryGuard.CommitAvailableNow;
 
     /// <summary>The compile host's private bytes above which program work runs one at a time.</summary>
     public const long HostCeilingBytes = 8L << 30;
@@ -425,15 +431,17 @@ internal static unsafe class CompileBudget
         return (ulong)(estimate + MinimumPhysicalReserve) <= totalPhysical;
     }
 
-    /// <summary>Waits until the compile may start, then counts it; pair with <see cref="Exit"/>.</summary>
-    public static void Enter(long shaderBytes)
+    /// <summary>Waits until the compile may start, then counts it; pass the ticket to <see cref="Exit"/>.</summary>
+    public static CompileTicket Enter(long shaderBytes)
     {
         bool urgent = _urgentThread || _noWaitThread;
         bool counted = false;
         bool countedUrgent = false;
         using var wait = BlockingWaits.Enter("driver compile memory budget");
 
-        while (!TryEnter(shaderBytes, urgent))
+        CompileTicket? ticket;
+
+        while ((ticket = TryEnter(shaderBytes, urgent)) is null)
         {
             // An urgent compile that waits for the heavy slot holds no other back: in boot w32 a 2.8 MB one waited
             // behind a 2 MB link for minutes and, as urgent, kept every other compile out.
@@ -451,6 +459,8 @@ internal static unsafe class CompileBudget
         {
             Count(countedUrgent, -1);
         }
+
+        return ticket;
     }
 
     private static void Count(bool urgent, int change)
@@ -463,24 +473,42 @@ internal static unsafe class CompileBudget
         }
     }
 
-    public static void Exit(long shaderBytes)
+    /// <summary>
+    /// Ends the compile <paramref name="ticket"/> stands for (from <see cref="Enter"/> or <see cref="TryEnterNow"/>): its
+    /// own entry and counts go, whatever bytes the caller holds now; null or a ticket already ended changes nothing.
+    /// </summary>
+    public static void Exit(CompileTicket? ticket)
+    {
+        if (ticket is null)
+        {
+            return;
+        }
+
+        lock (Gate)
+        {
+            if (ticket.Ended)
+            {
+                return;
+            }
+
+            ticket.Ended = true;
+            _running--;
+
+            if (ticket.Large)
+            {
+                _runningLarge--;
+                _expected -= ticket.Estimate;
+                Compiles.Remove(ticket);
+            }
+        }
+    }
+
+    /// <summary>Large compiles running and what they still have reserved (tests: nothing is left behind).</summary>
+    public static (int RunningLarge, int Entries, long Expected) Held()
     {
         lock (Gate)
         {
-            _running--;
-
-            if (shaderBytes >= TinyShaderBytes)
-            {
-                _runningLarge--;
-                long estimate = Estimate(shaderBytes);
-                _expected -= estimate;
-                int index = Compiles.FindIndex(compile => compile.Estimate == estimate);
-
-                if (index >= 0)
-                {
-                    Compiles.RemoveAt(index);
-                }
-            }
+            return (_runningLarge, Compiles.Count, _expected);
         }
     }
 
@@ -510,14 +538,16 @@ internal static unsafe class CompileBudget
         return runningLarge < maxCompiles && (ceilingBytes <= 0 || privateBytes + remaining + estimate <= ceilingBytes);
     }
 
-    private static bool TryEnter(long shaderBytes, bool urgent)
+    private static CompileTicket? TryEnter(long shaderBytes, bool urgent)
     {
         long estimate = Estimate(shaderBytes);
         bool tiny = shaderBytes < TinyShaderBytes;
 
         if (!tiny && HeldForLoad(shaderBytes, urgent, LoadWindow()))
         {
-            return Refused(ref _refusedLoad);
+            Refused(ref _refusedLoad);
+
+            return null;
         }
 
         _ = GrowthSampler.Value;
@@ -526,29 +556,34 @@ internal static unsafe class CompileBudget
         {
             if (!tiny && !urgent && Volatile.Read(ref _urgentWaiting) > 0)
             {
-                return Refused(ref _refusedUrgentFirst);
+                Refused(ref _refusedUrgentFirst);
+
+                return null;
             }
 
             if (!HeavyRoom(estimate, IsHeavy(shaderBytes), HeavyReserved(), WarmMemoryGuard.AvailablePhysical(), CurrentReserve(urgent)))
             {
-                return Refused(ref _refusedHeavy);
+                Refused(ref _refusedHeavy);
+
+                return null;
             }
 
             if (!tiny && !MemoryRoom(estimate, urgent))
             {
-                return false;
+                return null;
             }
 
+            var ticket = new CompileTicket(estimate, !tiny, IsHeavy(shaderBytes), System.Diagnostics.Stopwatch.GetTimestamp(), RamBackedBytes());
             _running++;
 
             if (!tiny)
             {
                 _runningLarge++;
                 _expected += estimate;
-                Compiles.Add(new RunningCompile(estimate, IsHeavy(shaderBytes), System.Diagnostics.Stopwatch.GetTimestamp(), RamBackedBytes()));
+                Compiles.Add(ticket);
             }
 
-            return true;
+            return ticket;
         }
     }
 
@@ -580,16 +615,13 @@ internal static unsafe class CompileBudget
         return Reserved(Compiles.Where(compile => compile.Heavy));
     }
 
-    private static long Reserved(IEnumerable<RunningCompile> compiles)
+    private static long Reserved(IEnumerable<CompileTicket> compiles)
     {
         long now = System.Diagnostics.Stopwatch.GetTimestamp();
         long bytes = RamBackedBytes();
 
         return compiles.Sum(compile => Reservation(compile.Estimate, System.Diagnostics.Stopwatch.GetElapsedTime(compile.Started, now).TotalSeconds, bytes - compile.StartBytes));
     }
-
-    /// <summary>One admitted compile: its estimate, when it started, and the RAM-backed bytes then.</summary>
-    private readonly record struct RunningCompile(long Estimate, bool Heavy, long Started, long StartBytes);
 
     /// <summary>
     /// Whether free memory, commit and the ceiling take <paramref name="estimate"/> beside the running compiles'
@@ -608,12 +640,12 @@ internal static unsafe class CompileBudget
             remaining = Remaining();
         }
 
-        if (!Room(estimate, WarmMemoryGuard.AvailablePhysical(), ulong.MaxValue, remaining, CurrentReserve(urgent)))
+        if (!Room(estimate, AvailablePhysical(), ulong.MaxValue, remaining, CurrentReserve(urgent)))
         {
             return Refused(ref _refusedMemory);
         }
 
-        if (!Room(estimate, ulong.MaxValue, WarmMemoryGuard.CommitAvailableNow(), remaining, 0))
+        if (!Room(estimate, ulong.MaxValue, CommitAvailable(), remaining, 0))
         {
             return Refused(ref _refusedCommit);
         }

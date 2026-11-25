@@ -71,6 +71,7 @@ public static class ComputeMemoryCases
             BufferIndexWrap(),
             GlobalMemory(),
             GlobalNegativeOffset(),
+            CodeTableLanes(),
             GlobalAtomic(),
             RootDescriptors(),
             TableBufferBase(),
@@ -429,6 +430,34 @@ public static class ComputeMemoryCases
     private static Expected[] GlobalLoads(int thread)
     {
         return [.. Input.Skip((0x40 / 4) + (4 * thread)).Take(4).Select(Expected.Exact), Input[thread + (0x40 / 4) + 1]];
+    }
+
+    // A per-lane load from a constant table after the program's s_endpgm, through an s_getpc_b64 pointer: the table is
+    // indexed as the program's data words (g_data), not as its whole code.
+    private static ComputeCase CodeTableLanes()
+    {
+        const string Program = """
+            v_mov_b32 v41, v0
+            s_getpc_b64 s[8:9]
+            .Lpc:
+            s_add_u32 s8, s8, .Ltable-.Lpc
+            s_addc_u32 s9, s9, 0
+            v_and_b32_e32 v1, 7, v41
+            v_lshlrev_b32_e32 v1, 2, v1
+            v_mov_b32 v4, 0
+            v_add_co_u32 v2, vcc_lo, s8, v1
+            v_add_co_ci_u32_e32 v3, vcc_lo, s9, v4, vcc_lo
+            global_load_dword v20, v[2:3], off
+            s_waitcnt vmcnt(0)
+            {STORE}
+            s_endpgm
+            .Ltable:
+            .long 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88
+            """;
+
+        uint[] table = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
+
+        return new ComputeCase("cs_code_table_lanes", Program, 1, thread => [table[thread.Id & 7]]) { Raw = true };
     }
 
     // global_load with a negative immediate offset (13-bit signed on gfx10).

@@ -10,6 +10,8 @@ namespace FiveStar.Graphics.Pipelines;
 /// dwords of <c>cbuffer UserData</c>, or with <see cref="UserConstants"/> 32 root constants (programs compiled with
 /// <see cref="UserConstantsDefine"/>); parameter 1 is a descriptor table with the mesh fallback's u0..u2 and t0 in
 /// register space 9. Everything else is reached through <c>ResourceDescriptorHeap[]</c> and <c>SamplerDescriptorHeap[]</c>.
+/// With the mesh launch (the loader's <c>--mesh-launch</c>) parameters 2 to 4 are its amplification stage's: a root
+/// constant, a root SRV and a root UAV at b0, t0 and u0 of register space <see cref="LaunchSpace"/> (five root DWORDs).
 /// </summary>
 public static class BindlessRootSignature
 {
@@ -21,6 +23,14 @@ public static class BindlessRootSignature
 
     /// <summary>Register space of the mesh fallback bindings (rdna_prelude / MeshComputeFallback).</summary>
     public const int FallbackSpace = 9;
+
+    /// <summary>Register space of the mesh launch stage's root arguments (its space 9 registers would meet the fallback table's).</summary>
+    public const int LaunchSpace = 10;
+
+    /// <summary>Root parameter indices of the mesh launch stage: its mode, the record and the list's budget.</summary>
+    public const int LaunchModeParameter = 2;
+    public const int LaunchRecordParameter = 3;
+    public const int LaunchBudgetParameter = 4;
 
     /// <summary>Number of fallback UAVs (u0 vertex records, u1 indices, u2 draw arguments), followed by one SRV (t0).</summary>
     public const int FallbackUavs = 3;
@@ -42,6 +52,7 @@ public static class BindlessRootSignature
     private const int UserDataRegister = 0;
     private const int UserDataSpace = 0;
     private const int FallbackSrvs = 1;
+    private const int LaunchDwords = 1 + RootDescriptorDwords + RootDescriptorDwords;
 
     /// <summary>The DWORDs of the root signature: the user data (a root CBV or the root constants) and the fallback table.</summary>
     public static int Dwords(bool userConstants)
@@ -54,6 +65,17 @@ public static class BindlessRootSignature
         return RootDescriptorDwords + TableDwords;
     }
 
+    /// <summary>The DWORDs with the mesh launch's parameters when <paramref name="meshLaunch"/>.</summary>
+    public static int Dwords(bool userConstants, bool meshLaunch)
+    {
+        if (meshLaunch)
+        {
+            return Dwords(userConstants) + LaunchDwords;
+        }
+
+        return Dwords(userConstants);
+    }
+
     public static RootSignatureDescription1 Description()
     {
         return Description(userConstants: false);
@@ -61,6 +83,12 @@ public static class BindlessRootSignature
 
     /// <summary>The layout with the user data as a root CBV, or as <see cref="UserConstants"/> root constants.</summary>
     public static RootSignatureDescription1 Description(bool userConstants)
+    {
+        return Description(userConstants, meshLaunch: false);
+    }
+
+    /// <summary>The layout, with the mesh launch stage's parameters after the fallback table when <paramref name="meshLaunch"/>.</summary>
+    public static RootSignatureDescription1 Description(bool userConstants, bool meshLaunch)
     {
         var flags = RootSignatureFlags.ConstantBufferViewShaderResourceViewUnorderedAccessViewHeapDirectlyIndexed
             | RootSignatureFlags.SamplerHeapDirectlyIndexed
@@ -80,7 +108,23 @@ public static class BindlessRootSignature
 
         RootParameter1[] parameters = [userData, new(new RootDescriptorTable1(fallbackRanges), ShaderVisibility.All)];
 
+        if (meshLaunch)
+        {
+            parameters = [.. parameters, .. LaunchParameters()];
+        }
+
         return new RootSignatureDescription1(flags, parameters);
+    }
+
+    /// <summary>The mesh launch stage's root constant (its mode), record SRV and budget UAV, seen by the amplification stage only.</summary>
+    private static RootParameter1[] LaunchParameters()
+    {
+        return
+        [
+            new(new RootConstants(0, LaunchSpace, 1), ShaderVisibility.Amplification),
+            new(RootParameterType.ShaderResourceView, new RootDescriptor1(0, LaunchSpace, RootDescriptorFlags.DataVolatile), ShaderVisibility.Amplification),
+            new(RootParameterType.UnorderedAccessView, new RootDescriptor1(0, LaunchSpace, RootDescriptorFlags.DataVolatile), ShaderVisibility.Amplification),
+        ];
     }
 
     public static ID3D12RootSignature Create(ID3D12Device device)

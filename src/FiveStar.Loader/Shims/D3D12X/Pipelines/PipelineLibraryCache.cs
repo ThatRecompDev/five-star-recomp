@@ -154,6 +154,11 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
         // Both loads read the programs' native bytes through the stream's desc.
         GC.KeepAlive(stream);
 
+        if (known && hr >= 0 && stream.Launches)
+        {
+            MeshLaunch.Mark(*result);
+        }
+
         if (!HResult.Failed(hr))
         {
             Interlocked.Increment(ref _hits);

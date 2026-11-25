@@ -612,7 +612,12 @@ float mad_unfused(float a, float b, float c) { precise float p = a * b; precise 
 // V_FRACT_F32: x - floor(x), clamped to the largest float below 1.0; x - floor(x) of a small negative x rounds to 1.0.
 // A NaN stays NaN.
 float fract_f32(float x) { float f = frac(x); return f >= 1.0 ? asfloat(0x3f7fffffu) : f; }
-float med3(float a, float b, float c) { return max(min(a, b), min(max(a, b), c)); }
+// V_FRACT_F16 in the f32 the half ops run in: every half in (-2^-11, 0) has a fract of 1 - 2^-12 or more, which the half
+// conversion rounds to 1.0; the hardware gives 0x3bff (1 - 2^-11). The threshold differs from the result, so no driver
+// folds the select into a minNum that would swallow a NaN (victory-fork 2e5001c).
+float fract_f16(float x) { float f = frac(x); return f >= 0.999755859375 ? 0.99951171875 : f; }
+// V_MED3_F32: with a NaN among the three the hardware gives their minimum (min skips the NaN; victory-fork 36eb0b4).
+float med3(float a, float b, float c) { float lo = min(a, b); float m = max(lo, min(max(a, b), c)); return (isnan(a) || isnan(b) || isnan(c)) ? min(lo, c) : m; }
 uint med3u(uint a, uint b, uint c) { return max(min(a, b), min(max(a, b), c)); }
 int med3i(int a, int b, int c) { return max(min(a, b), min(max(a, b), c)); }
 float round_ne(float x) { return round(x); }

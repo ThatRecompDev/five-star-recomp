@@ -79,6 +79,7 @@ internal sealed unsafe class DrawTrace
     private readonly ConcurrentDictionary<nint, int> _watched = new();
     private readonly ConcurrentDictionary<(nint Target, nint Pipeline), byte> _watchedWriters = new();
     private readonly ConcurrentDictionary<nint, byte> _firstBinds = new();
+    private readonly ConcurrentDictionary<nint, byte> _rendered = new();
     private int _watchReads;
     private long _presentWork;
     private bool _worldSeen;
@@ -298,12 +299,19 @@ internal sealed unsafe class DrawTrace
         }
     }
 
+    /// <summary>
+    /// <c>--d3d12-watch-rendered</c>: only watched targets the game has bound as render targets are read back (the lit
+    /// HDR TL_PS renders into, not the LightMixOutputCS outputs of its shape written only as UAVs), so the readback
+    /// budget reaches the later passes.
+    /// </summary>
+    public static bool WatchRendered { get; set; }
+
     /// <summary>The watched targets the list renders into, or with <paramref name="boundOnly"/> false all of them.</summary>
     private List<(nint Resource, int Home)> WatchedTargets(DrawTraceList state, bool boundOnly)
     {
         if (!boundOnly)
         {
-            return [.. _watched.Select(pair => (pair.Key, pair.Value))];
+            return [.. _watched.Where(pair => !WatchRendered || _rendered.ContainsKey(pair.Key)).Select(pair => (pair.Key, pair.Value))];
         }
 
         var bound = new List<(nint Resource, int Home)>();
@@ -367,7 +375,14 @@ internal sealed unsafe class DrawTrace
 
         state.Targets = targets;
         state.DepthStencil = depthStencil;
-        FirstBind(list, state, WatchedTargets(state, boundOnly: true), "bound");
+        var bound = WatchedTargets(state, boundOnly: true);
+
+        foreach (var (resource, _) in bound)
+        {
+            _rendered.TryAdd(resource, 0);
+        }
+
+        FirstBind(list, state, bound, "bound");
     }
 
     /// <summary>
@@ -455,6 +470,18 @@ internal sealed unsafe class DrawTrace
         List(list).VertexBuffers = text.ToString();
     }
 
+    /// <summary><c>--log-draws off|brief|full</c> (<see cref="DrawLogLevel"/>; brief by default).</summary>
+    public static DrawLogLevel LogDraws { get; set; } = DrawLogLevel.Brief;
+
+    /// <summary>Writes one traced item's text unless <see cref="LogDraws"/> is off.</summary>
+    private void Write(StringBuilder text)
+    {
+        if (LogDraws != DrawLogLevel.Off)
+        {
+            _log.Info(text.ToString());
+        }
+    }
+
     /// <summary>A draw on <paramref name="list"/>; logged inside a trace window.</summary>
     public void Draw(XboxObject* list, uint vertices, uint instances)
     {
@@ -462,19 +489,27 @@ internal sealed unsafe class DrawTrace
         var rectangles = RectangleListState.Of(list);
         bool filtered = draw > Volatile.Read(ref _windowEnd);
 
-        if (filtered && !Matches(rectangles->Pipeline))
+        if ((filtered && !Matches(rectangles->Pipeline)) || (!filtered && LogDraws != DrawLogLevel.Full))
         {
             return;
         }
 
         var state = List(list);
         state.Traced = true;
+
+        if (LogDraws == DrawLogLevel.Off)
+        {
+            state.ProbeNext = ProbeTraced;
+
+            return;
+        }
+
         string pipeline = Label(rectangles->Pipeline);
         var text = new StringBuilder($"  [draws] draw {draw}: list 0x{(nint)list:x}, {vertices} vertices x {instances}");
         text.Append($"\n      pipeline 0x{rectangles->Pipeline:x} topology {rectangles->Topology} variant {rectangles->VariantBound}: {pipeline}");
 
         AppendTargets(text, state);
-        text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x}");
+        text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x} ({DepthView(state.DepthStencil)})");
         text.Append(state.VertexBuffers);
         AppendUserData(text, CommandListBindings.Of(list), compute: false);
 
@@ -484,7 +519,7 @@ internal sealed unsafe class DrawTrace
             state.ProbeNext = ProbeTraced;
         }
 
-        _log.Info(text.ToString());
+        Write(text);
     }
 
     /// <summary>The window records at <see cref="TraceRecords.Offsets"/> from the user SGPRs (<c>--d3d12-trace-records</c>).</summary>
@@ -519,6 +554,31 @@ internal sealed unsafe class DrawTrace
         }
 
         return QueueProgress.PipelineName(pipeline);
+    }
+
+    /// <summary>The resource behind a depth-stencil view handle and whether it has depth twins.</summary>
+    private string DepthView(nint handle)
+    {
+        string view = "not a view this trace saw";
+
+        if (handle != 0 && _views.TryText(handle, out var known))
+        {
+            view = known;
+        }
+
+        var twin = DepthTwins.OfView(handle, out int format, out var stencil);
+
+        return $"{view}; twins: depth {Twin(twin)}, stencil {Twin(stencil)}, view format {format}";
+    }
+
+    private static string Twin(DepthTwin? twin)
+    {
+        if (twin is null)
+        {
+            return "none";
+        }
+
+        return $"0x{twin.Twin:x} format {twin.Format} of 0x{twin.Depth:x}";
     }
 
     /// <summary>The view this trace saw written at desktop heap index <paramref name="index"/> (resource, size and format).</summary>
@@ -613,14 +673,14 @@ internal sealed unsafe class DrawTrace
         if (!compute)
         {
             AppendTargets(text, state);
-            text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x}");
+            text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x} ({DepthView(state.DepthStencil)})");
         }
 
         AppendUserData(text, CommandListBindings.Of(list), compute);
         AppendPointers(text, CommandListBindings.Of(list), compute);
         AppendWindowRecords(text, CommandListBindings.Of(list), compute);
 
-        _log.Info(text.ToString());
+        Write(text);
         _indirectProbes[(nint)list] = 0;
 
         if (ProbeTraced)
@@ -654,7 +714,7 @@ internal sealed unsafe class DrawTrace
         AppendPointers(text, CommandListBindings.Of(list), compute: true);
         AppendWindowRecords(text, CommandListBindings.Of(list), compute: true);
 
-        _log.Info(text.ToString());
+        Write(text);
         state.ProbeDispatch = ProbeTraced;
     }
 
@@ -683,7 +743,7 @@ internal sealed unsafe class DrawTrace
             if (_lists.TryGetValue(lists[i], out var state) && state.Traced)
             {
                 state.Traced = false;
-                _log.Info($"  [draws] list 0x{lists[i]:x} with traced work submitted on queue #{queue}");
+                Write(new StringBuilder($"  [draws] list 0x{lists[i]:x} with traced work submitted on queue #{queue}"));
             }
         }
     }
@@ -789,7 +849,10 @@ internal sealed unsafe class DrawTrace
         bool traced = state.ProbeNext;
         state.ProbeNext = false;
 
-        if ((draw > Volatile.Read(ref _windowEnd) && !traced) || state.Targets.Length == 0 || !_targetViews.TryGetValue(state.Targets[0], out var target))
+        // An untraced window draw is read back only with --log-draws full.
+        bool window = draw <= Volatile.Read(ref _windowEnd) && LogDraws == DrawLogLevel.Full;
+
+        if ((!window && !traced) || state.Targets.Length == 0 || !_targetViews.TryGetValue(state.Targets[0], out var target))
         {
             return;
         }
@@ -869,6 +932,7 @@ internal sealed unsafe class DrawTrace
             Volatile.Write(ref _watchReads, 0);
             _watchedWriters.Clear();
             _firstBinds.Clear();
+            _probes.Release(Resets);
             Volatile.Write(ref _windowEnd, Interlocked.Read(ref _draws) + WindowDraws);
             _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"), standIn => _d3d12.Pipelines?.StandIns.State(standIn) ?? "unknown");
         }

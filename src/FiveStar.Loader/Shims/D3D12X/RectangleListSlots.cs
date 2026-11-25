@@ -43,6 +43,7 @@ internal static unsafe class RectangleListSlots
             var activity = ListActivity.Of(self);
             activity->Pipeline = desktop;
             activity->StandIn = pending ? runtime.Objects.Unwrap(pipeline) : 0;
+            activity->Launches = MeshLaunch.Enabled && !pending && MeshLaunch.Has(desktop) ? 1 : 0;
             runtime.Rectangles.SetPipeline(self, desktop);
 
             if (pending)

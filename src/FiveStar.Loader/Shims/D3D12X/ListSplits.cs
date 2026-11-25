@@ -178,6 +178,18 @@ internal static unsafe class ListSplits
         if (type == DirectType)
         {
             RestoreGraphics(ListReplayState.Of(self), list);
+            RestoreTargetStates(self, list);
+        }
+    }
+
+    /// <summary>The new segment starts with its textures at home: the bound render targets move to RENDER_TARGET again.</summary>
+    internal static void RestoreTargetStates(XboxObject* self, nint list)
+    {
+        var state = ListReplayState.Of(self);
+
+        if ((state->Set & ListReplayState.TargetsBit) != 0)
+        {
+            ShimContext.Runtime.D3D12X.RenderTargets.Ensure(self, list, state->TargetCount, (nint*)state->Targets, state->SingleHandle != 0);
         }
     }
 
