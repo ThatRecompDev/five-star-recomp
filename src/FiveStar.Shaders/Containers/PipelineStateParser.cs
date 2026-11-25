@@ -52,10 +52,21 @@ public static class PipelineStateParser
         [2] = "triangle",
     };
 
-    /// <summary>The runtime info of a PSV0 chunk.</summary>
+    /// <summary>The runtime info of a PSV0 chunk; <see cref="InvalidDataException"/> when its sizes do not fit the chunk.</summary>
     public static PipelineStateInfo Parse(ReadOnlySpan<byte> chunk)
     {
+        if (chunk.Length < InfoStart)
+        {
+            throw new InvalidDataException("PSV0 chunk shorter than its info size");
+        }
+
         var size = BinaryPrimitives.ReadInt32LittleEndian(chunk);
+
+        if (size < MaximumWaveField + sizeof(int) || size > chunk.Length - InfoStart)
+        {
+            throw new InvalidDataException($"PSV0 info size {size} does not fit a chunk of {chunk.Length} bytes");
+        }
+
         var info = chunk.Slice(InfoStart, size);
         var result = new PipelineStateInfo
         {

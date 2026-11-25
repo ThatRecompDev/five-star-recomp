@@ -33,6 +33,14 @@ public sealed class PipelineHostTests
 
         using var moved = DesktopStream.Read(new BinaryReader(new MemoryStream(first)), 0x5678);
         Assert.NotEqual(first, Written(moved));
+
+        // A shader slot past the stream's bytes, and a length past the data, are refused before anything is written.
+        var outside = (byte[])first.Clone();
+        BitConverter.TryWriteBytes(outside.AsSpan(4 + BitConverter.ToInt32(first) + 8), 4096);
+        Assert.Throws<InvalidDataException>(() => DesktopStream.Read(new BinaryReader(new MemoryStream(outside)), 0x1234));
+        var longer = (byte[])first.Clone();
+        BitConverter.TryWriteBytes(longer, int.MaxValue);
+        Assert.Throws<InvalidDataException>(() => DesktopStream.Read(new BinaryReader(new MemoryStream(longer)), 0x1234));
     }
 
     [Fact]

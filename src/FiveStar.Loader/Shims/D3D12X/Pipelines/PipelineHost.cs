@@ -126,19 +126,26 @@ internal sealed unsafe class PipelineHost
     private PipelineHostResult Run(PipelineHostRequest request, DesktopStream stream, long memoryLimit, TimeSpan timeLimit)
     {
         var clock = Stopwatch.StartNew();
-        nint job = CreateJob(memoryLimit);
-        Process? process = null;
+        nint job = CreateJob(memoryLimit, out var jobFailure);
+        HostProcess? host = null;
 
         try
         {
-            process = Start(job);
-
-            if (process is null)
+            // Without its limits the host would be no safer than the loader: the loader builds the pipeline itself.
+            if (jobFailure is not null)
             {
-                return new PipelineHostResult(PipelineHostOutcome.Failed, 0, 0, 0);
+                return new PipelineHostResult(PipelineHostOutcome.Failed, 0, 0, 0) { Reason = jobFailure };
             }
 
-            var answer = Task.Run(() => Exchange(process, request, stream));
+            host = HostProcess.Start(_executable, [PipelineHostProtocol.Mode], null, job, requireJob: true, out var startFailure);
+
+            if (host is null)
+            {
+                return new PipelineHostResult(PipelineHostOutcome.Failed, 0, 0, 0) { Reason = startFailure };
+            }
+
+            var process = host.Process;
+            var answer = Task.Run(() => Exchange(host, request, stream));
             bool finished = answer.Wait(timeLimit);
 
             if (!finished)
@@ -161,51 +168,26 @@ internal sealed unsafe class PipelineHost
         }
         finally
         {
-            process?.Dispose();
-            _ = Kernel32.CloseHandle(job);
-        }
-    }
+            host?.Dispose();
 
-    private Process? Start(nint job)
-    {
-        var start = new ProcessStartInfo(_executable)
-        {
-            UseShellExecute = false,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            CreateNoWindow = true,
-        };
-        start.ArgumentList.Add(PipelineHostProtocol.Mode);
-
-        try
-        {
-            var process = Process.Start(start);
-
-            // The host waits for its request before it allocates anything, so the limit holds from its first byte.
-            if (process is not null)
+            if (job != 0)
             {
-                _ = Kernel32.AssignProcessToJobObject(job, process.Handle);
+                _ = Kernel32.CloseHandle(job);
             }
-
-            return process;
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            return null;
         }
     }
 
     /// <summary>Sends the request and reads the HRESULT; null when the host ended without one.</summary>
-    private static int? Exchange(Process process, PipelineHostRequest request, DesktopStream stream)
+    private static int? Exchange(HostProcess host, PipelineHostRequest request, DesktopStream stream)
     {
         try
         {
-            using (var writer = new BinaryWriter(process.StandardInput.BaseStream, System.Text.Encoding.UTF8, leaveOpen: true))
+            using (var writer = new BinaryWriter(host.Input, System.Text.Encoding.UTF8, leaveOpen: true))
             {
                 PipelineHostProtocol.WriteRequest(writer, request, stream);
             }
 
-            using var reader = new BinaryReader(process.StandardOutput.BaseStream);
+            using var reader = new BinaryReader(host.Output, System.Text.Encoding.UTF8, leaveOpen: true);
 
             return PipelineHostProtocol.ReadAnswer(reader);
         }
@@ -227,14 +209,28 @@ internal sealed unsafe class PipelineHost
         }
     }
 
-    private static nint CreateJob(long memoryLimit)
+    /// <summary>The job that holds a host to <paramref name="memoryLimit"/> and ends it with the loader; <paramref name="failure"/> when it cannot.</summary>
+    private static nint CreateJob(long memoryLimit, out string? failure)
     {
+        failure = null;
         nint job = Kernel32.CreateJobObjectW(0, 0);
+
+        if (job == 0)
+        {
+            failure = $"no job object (error {System.Runtime.InteropServices.Marshal.GetLastSystemError()})";
+
+            return 0;
+        }
+
         byte* limits = stackalloc byte[ExtendedLimitBytes];
         new Span<byte>(limits, ExtendedLimitBytes).Clear();
         *(uint*)(limits + LimitFlagsOffset) = KillOnJobClose | ProcessMemoryLimit;
         *(ulong*)(limits + ProcessMemoryLimitOffset) = (ulong)memoryLimit;
-        _ = Kernel32.SetInformationJobObject(job, ExtendedLimitInformation, limits, ExtendedLimitBytes);
+
+        if (Kernel32.SetInformationJobObject(job, ExtendedLimitInformation, limits, ExtendedLimitBytes) == 0)
+        {
+            failure = $"the job takes no memory limit (error {System.Runtime.InteropServices.Marshal.GetLastSystemError()})";
+        }
 
         return job;
     }

@@ -614,6 +614,13 @@ internal sealed unsafe class PipelineFactory
         var result = host.Build(request, stream, limit, PipelineHost.DefaultTimeLimit);
         string line = $"[d3d12_xs] pipeline host: {what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL) {result.Outcome} after {result.Seconds:F0} s, peak {result.PeakBytes >> GigabyteShift} GB of {limit >> GigabyteShift} GB";
 
+        if (result.Reason is not null)
+        {
+            ShimContext.Runtime.Log.Warn($"{line}: {result.Reason}; the loader builds it itself");
+
+            return null;
+        }
+
         if (!result.Killed)
         {
             ShimContext.Runtime.Log.Detail("  " + line);
