@@ -14,7 +14,7 @@ public sealed class LoweringContext
     public LoweringContext(DxilModule module, BasicBlock entry)
     {
         Module = module;
-        Builder = new IrBuilder(module, entry);
+        Builder = new IrBuilder(module, entry) { Fold = DxilBackend.Optimize };
         Ssa = new SsaBuilder(module);
         Ops = new DxOps(Builder);
         Convert = new Conversions(Builder);
