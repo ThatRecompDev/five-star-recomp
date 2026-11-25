@@ -366,7 +366,9 @@ thread signals once memory holds, or after 5 s (logged with the writer list and 
 that timed out is not waited for again. Before the shim blocks the CPU on a queue (a list submitted again while its
 last run is unfinished, `ListSubmissions`), that queue's waits are released, since the writer may come from the
 blocked thread. One fence for all queues held a writer behind an unrelated wait on another queue: per-queue fences
-took the story-load timeouts from 17 to 0 (the first frame's waits take longer than 0.5 s but under 5 s).
+took the story-load timeouts from 17 to 0 (the first frame's waits take longer than 0.5 s but under 5 s). Every
+ticket a queue waits for is signalled: by the watcher (a watch that throws is logged and releases every pending wait)
+or, when the device is bound again, at once (XCL #1452 lost the device right after queue Waits nobody signalled).
 
 A wait recorded after any command of its list splits the list there (`ListSplits`; command-list forwarding thunks
 count their calls in the wrapper, and handlers that record work count themselves), as victory-gta6 cuts its lists:
@@ -730,7 +732,8 @@ execution (the one the queue waits on, with its breadcrumbs) when it is older th
 calls (`NOT DONE` marks the ones the GPU has not finished; a Wait shows the fence's value then) and the memory line of
 the thread sampler. With 64 calls kept, the w3 boot's hang showed only executions queued behind the stuck one. A removed device sets every fence to UINT64_MAX; the watch then logs every queue
 as last seen, without the debug layer as well, after the removal reason (GetDeviceRemovedReason through the fence's
-device: DEVICE_HUNG 0x887a0006 is a GPU timeout). Boot w39 lacked the reason: all five queues stopped within 0.3 s of
+device: DEVICE_HUNG 0x887a0006 is a GPU timeout), with the GPU's memory groups (local and non-local: usage, budget,
+reservation) and how much of the game's memory is open in place (section heaps, the game's own allocations). Boot w39 lacked the reason: all five queues stopped within 0.3 s of
 an execution of 2 dispatches and 103 ExecuteIndirects, and the device went 5 s later.
 
 `--d3d12-breadcrumbs` (`GpuBreadcrumbs`) adds where each list of an unfinished execution stopped: before every draw,
