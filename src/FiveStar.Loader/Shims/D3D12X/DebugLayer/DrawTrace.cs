@@ -385,7 +385,8 @@ internal sealed unsafe class DrawTrace
             return false;
         }
 
-        string name = _d3d12.Rectangles.Pipelines?.Describe(pipeline) ?? string.Empty;
+        // The programs the pipeline was built from (mesh pipelines have no rectangle-list description), then that description.
+        string name = QueueProgress.PipelineName(pipeline) + " " + (_d3d12.Rectangles.Pipelines?.Describe(pipeline) ?? string.Empty);
 
         return name.Contains(PipelineFilter, StringComparison.Ordinal) && Interlocked.Increment(ref _filtered) <= FilterDraws;
     }
