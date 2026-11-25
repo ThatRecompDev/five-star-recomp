@@ -37,8 +37,11 @@ internal static unsafe class ViewLiveness
     private static readonly long[] Counts = new long[Enum.GetValues<ViewFinding>().Length];
     private static long _checks;
 
-    /// <summary>Whether views are noted and tables checked.</summary>
+    /// <summary>Whether tables are checked (views are noted then too).</summary>
     public static bool Enabled { get; set; }
+
+    /// <summary>Whether views are noted: for the checks or for <see cref="NanScan"/>.</summary>
+    public static bool Noting => Enabled || NanScan.Enabled;
 
     /// <summary>"view liveness: N records checked, findings by reason (distinct)" for the sample line.</summary>
     public static string Summary
@@ -100,9 +103,9 @@ internal static unsafe class ViewLiveness
 
     /// <summary>A view of <paramref name="resource"/> was written at desktop CPU handle <paramref name="handle"/>.</summary>
     [HotPath]
-    public static void Written(nint handle, nint resource, ViewShape shape)
+    public static void Written(nint handle, nint resource, ViewShape shape, int home = 0)
     {
-        Slots[handle] = new SlotView(resource, shape);
+        Slots[handle] = new SlotView(resource, shape, home);
 
         if (resource != 0)
         {

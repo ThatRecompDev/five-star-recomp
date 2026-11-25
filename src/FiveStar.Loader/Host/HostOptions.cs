@@ -247,6 +247,9 @@ internal sealed record HostOptions
     /// <summary>Check the bound tables' views before each draw and dispatch (<c>--check-view-liveness</c>).</summary>
     public bool CheckViewLiveness { get; set; }
 
+    /// <summary>Scan the inputs of draws whose pipeline contains this text for NaN and Inf (<c>--d3d12-nan-scan</c>); null when off.</summary>
+    public string? NanScan { get; set; }
+
     /// <summary>Check the game's transient-memory pool for corrupted nodes (<c>--watch-transient</c>).</summary>
     public bool WatchTransient { get; set; }
 

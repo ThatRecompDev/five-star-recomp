@@ -3,5 +3,5 @@
 
 namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 
-/// <summary>The desktop resource and shape of the view at a descriptor slot (<see cref="ViewLiveness"/>); resource 0 for a null view.</summary>
-internal readonly record struct SlotView(nint Resource, ViewShape Shape);
+/// <summary>The desktop resource and shape of the view at a descriptor slot (<see cref="ViewLiveness"/>); resource 0 for a null view; the resource's resting state for a readback.</summary>
+internal readonly record struct SlotView(nint Resource, ViewShape Shape, int Home = 0);
