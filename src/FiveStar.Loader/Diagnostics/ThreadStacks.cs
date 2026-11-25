@@ -21,6 +21,8 @@ internal sealed unsafe class ThreadStacks
     // winnt.h: THREAD_QUERY_LIMITED_INFORMATION, enough for GetThreadDescription.
     private const uint QueryLimited = 0x0800;
 
+    private static readonly object CaptureGate = new();
+
     private readonly ImageTable _images;
     private readonly int _maxFrames;
 
@@ -86,11 +88,23 @@ internal sealed unsafe class ThreadStacks
         return [.. ranges];
     }
 
-    /// <summary>Walks every other thread inside a no-GC region; returns the number of threads captured.</summary>
+    /// <summary>
+    /// Walks every other thread inside a no-GC region; returns the number of threads captured. One capture at a time
+    /// (the sampler and a memory-wait stall can both ask): a second no-GC region throws, and two walkers would
+    /// suspend each other.
+    /// </summary>
     private int Capture(CodeRange[] modules, uint[] ids, string[] states, ulong[] frames, int[] counts)
     {
+        lock (CaptureGate)
+        {
+            return CaptureAlone(modules, ids, states, frames, counts);
+        }
+    }
+
+    private int CaptureAlone(CodeRange[] modules, uint[] ids, string[] states, ulong[] frames, int[] counts)
+    {
         uint self = Kernel32.GetCurrentThreadId();
-        bool noGc = GC.TryStartNoGCRegion(NoGcBudget);
+        bool noGc = StartNoGcRegion();
         int threads = 0;
 
         try
@@ -117,6 +131,19 @@ internal sealed unsafe class ThreadStacks
         }
 
         return threads;
+    }
+
+    /// <summary>A no-GC region for the walk; false when one is already in progress elsewhere, and the walk goes on without.</summary>
+    private static bool StartNoGcRegion()
+    {
+        try
+        {
+            return GC.TryStartNoGCRegion(NoGcBudget);
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private static string State(ProcessThread thread)
