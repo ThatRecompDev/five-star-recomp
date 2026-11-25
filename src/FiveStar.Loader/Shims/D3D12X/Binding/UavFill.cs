@@ -113,6 +113,12 @@ internal static unsafe class UavFill
         return true;
     }
 
+    /// <summary>Whether a view format is an integer one (*_UINT or *_SINT).</summary>
+    public static bool Integer(int format)
+    {
+        return UintFormats.Contains(format) || SintFormats.Contains(format);
+    }
+
     /// <summary>The program's kind of view: 0/1 2D float/uint, 2/3 array, 4/5 3D; uint.MaxValue for a view not written.</summary>
     public static uint Kind(UavView view)
     {

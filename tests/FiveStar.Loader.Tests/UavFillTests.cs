@@ -81,6 +81,16 @@ public sealed unsafe class UavFillTests
         Assert.Equal(-1, RtStandIns.RuleOf("sgd1_0_t32_PS_DeferredTextured_0_Wrapped"));
     }
 
+    [Fact]
+    public void Integer_views_are_never_filled_and_the_probe_grey_only_reaches_float_colour()
+    {
+        // R32_UINT (packed probe fields), R8G8B8A8_UNORM (encoded normals), R16G16B16A16_FLOAT and R8_UNORM.
+        Assert.False(RtStandIns.Takes(42, colourOnly: false));
+        Assert.False(RtStandIns.Takes(28, colourOnly: true));
+        Assert.True(RtStandIns.Takes(10, colourOnly: true));
+        Assert.True(RtStandIns.Takes(61, colourOnly: false));
+    }
+
     private static Shims.D3D12X.ResourceDescription Resource(Vortice.Direct3D12.ResourceDescription description)
     {
         return new Shims.D3D12X.ResourceDescription
