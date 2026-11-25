@@ -19,7 +19,7 @@ internal static partial class GroupLdsBarriers
 {
     public const string Barrier = "  GroupMemoryBarrierWithGroupSync();   // LDS written by the other hardware wave";
 
-    private static readonly string[] WaveOperations = ["GroupMemoryBarrierWithGroupSync", "vw_group_", "vw_read(", "vw_read_fill(", "vw_ballot(", "vw_any(", "vw_count("];
+    private static readonly string[] WaveOperations = ["GroupMemoryBarrierWithGroupSync", "vw_group_", "vw_read(", "vw_read_fill(", "vw_read_live(", "vw_read_fill_live(", "vw_ballot(", "vw_any(", "vw_count("];
 
     /// <summary>The program with the barriers its LDS reads need.</summary>
     public static string Insert(string hlsl)
