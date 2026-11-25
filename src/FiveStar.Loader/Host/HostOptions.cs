@@ -154,6 +154,9 @@ internal sealed record HostOptions
     /// <summary>The most bytes of heaps over the game's page sections (<c>--section-heap-budget</c>); 0 for the GPU's budget alone.</summary>
     public ulong SectionHeapBudget { get; set; }
 
+    /// <summary>The largest heap opened in place over game memory, in MB (<c>--in-place-window</c>); 0 for the default.</summary>
+    public ulong InPlaceWindowMegabytes { get; set; }
+
     /// <summary>Section windows open as programs ask for them and are released when unused (<c>--evict-windows</c>).</summary>
     public bool EvictWindows { get; set; }
 

@@ -75,6 +75,44 @@ public sealed unsafe class D3D12XSectionHeapTests
         Assert.Equal(Marker, *(uint*)(range + 0x10010000));
     }
 
+    [Fact]
+    public void An_in_place_window_cap_opens_a_large_section_in_windows_of_that_size()
+    {
+        using var test = TestRuntime.Create();
+        var virtualAlloc = (delegate* unmanaged<nint, nuint, uint, ulong, uint, nint>)test.Shim("xmem.dll", "XMemVirtualAlloc");
+        var allocate = (delegate* unmanaged<ulong, ulong*, ulong*, int>)test.Shim("xmem.dll", "XMemAllocatePhysicalPages");
+        var map = (delegate* unmanaged<nint, ulong, ulong*, nint>)test.Shim("xmem.dll", "XMemMapPhysicalPages");
+        var device = new XboxDevice(test);
+        var heaps = test.Runtime.D3D12X.SectionHeaps;
+
+        ulong[] frames = new ulong[SectionPages];
+        ulong count = SectionPages;
+        nint range = virtualAlloc(0, (nuint)(SectionPages * Page), Reserve64K, CpuFlags, CpuReadWrite);
+
+        fixed (ulong* first = frames)
+        {
+            Assert.Equal(1, allocate(0, &count, first));
+            Assert.Equal(range, map(range, SectionPages, first));
+        }
+
+        // --in-place-window 300 rounds down to 256 MiB: the 1.25 GiB section, which fits the budget whole, still opens
+        // only the 256 MiB windows its buffers are in.
+        SectionHeaps.InPlaceWindow = SectionHeaps.InPlaceWindowOf(300);
+
+        try
+        {
+            Assert.Equal(0, device.PlacedBuffer(range + 0x10000, Page, out _));
+            Assert.Equal(0, device.PlacedBuffer(range + 0x30000000, Page, out _));
+        }
+        finally
+        {
+            SectionHeaps.InPlaceWindow = SectionHeaps.WindowBytes;
+        }
+
+        Assert.Equal(512 * Mebibyte, heaps.Opened);
+        Assert.Equal(64 * Mebibyte, SectionHeaps.InPlaceWindowOf(1));
+    }
+
     /// <summary>
     /// --evict-windows on a budget scaled down from --section-heap-budget 3: room for three 64 MiB windows. The map opens
     /// none of a lazily backed section itself; a program reading a waiting page sets its window's flag, and the window
