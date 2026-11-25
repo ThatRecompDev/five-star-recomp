@@ -88,6 +88,42 @@ public sealed unsafe class GameSaveTests
         Assert.Equal("thumb", second);
     }
 
+    [Fact]
+    public void An_update_waits_out_another_process_holding_a_blob_instead_of_failing()
+    {
+        using var test = TestRuntime.Create();
+        nint user = AddUser(test);
+        nint provider = 0;
+        nint container = 0;
+
+        fixed (byte* config = "test-config\0"u8)
+        {
+            ((delegate* unmanaged<nint, byte*, byte, nint*, int>)test.Gdk("XGameSaveInitializeProvider"))(user, config, 0, &provider);
+        }
+
+        fixed (byte* name = "Autosave\0"u8)
+        {
+            ((delegate* unmanaged<nint, byte*, nint*, int>)test.Gdk("XGameSaveCreateContainer"))(provider, name, &container);
+        }
+
+        WriteBlobs(test, container, [1, 2, 3]);
+        string blob = Directory.EnumerateFiles(test.SaveRoot, "data", SearchOption.AllDirectories).Single();
+
+        // A scanner opens the new blob without sharing deletion, as Defender may, and lets go 200 ms later.
+        var scan = new FileStream(blob, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var release = new Thread(() =>
+        {
+            Thread.Sleep(200);
+            scan.Dispose();
+        });
+        release.Start();
+        int hr = WriteBlobs(test, container, [4, 5, 6, 7]);
+        release.Join();
+
+        Assert.Equal(0, hr);
+        Assert.Equal([4, 5, 6, 7], ReadBlob(test, container, "data"));
+    }
+
     private static nint AddUser(TestRuntime test)
     {
         nint block = TestNative.AsyncBlock(0, 0);

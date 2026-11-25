@@ -9,6 +9,9 @@ namespace FiveStar.Loader.Shims.Gdk;
 /// <summary>
 /// The folders behind XGameSave: &lt;save root&gt;\saves\&lt;xuid&gt;\&lt;configId&gt;\&lt;container&gt;\&lt;blob&gt;, names
 /// %-escaped, the display name in "$meta". An update writes each blob to a temporary file and moves it over the old one.
+/// Updates, reads and deletes run one at a time, a read shares its file for deletion, and a move refused by another
+/// process holding the blob (an antivirus scan, an indexer) is tried again for <see cref="MoveRetries"/> times: one
+/// failed move failed the update, and the game shows its could-not-autosave dialog for a failed update.
 /// </summary>
 internal sealed unsafe class SaveStore
 {
@@ -17,6 +20,12 @@ internal sealed unsafe class SaveStore
     private const string SavesFolder = "saves";
     private const string DefaultConfigId = "default";
     private const string XuidFormat = "x16";
+
+    /// <summary>Tries of a blob's move over the old one, <see cref="MoveRetryDelay"/> apart.</summary>
+    public const int MoveRetries = 20;
+
+    private static readonly TimeSpan MoveRetryDelay = TimeSpan.FromMilliseconds(50);
+    private static readonly object Files = new();
 
     private readonly GdkConfig _config;
     private readonly NativeBoundary _boundary;
@@ -67,9 +76,12 @@ internal sealed unsafe class SaveStore
     {
         string directory = new SaveContainer(provider, name).Directory;
 
-        if (Directory.Exists(directory))
+        lock (Files)
         {
-            Directory.Delete(directory, true);
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, true);
+            }
         }
 
         _boundary.Trace($"XGameSaveDeleteContainer({name})");
@@ -79,6 +91,14 @@ internal sealed unsafe class SaveStore
 
     /// <summary>Reads the named blobs, or every blob when <paramref name="names"/> is null or empty.</summary>
     public static int ReadBlobs(SaveContainer container, string[]? names, List<SaveBlobData> blobs)
+    {
+        lock (Files)
+        {
+            return ReadBlobsLocked(container, names, blobs);
+        }
+    }
+
+    private static int ReadBlobsLocked(SaveContainer container, string[]? names, List<SaveBlobData> blobs)
     {
         var all = Blobs(container).ToDictionary(b => b.Name, b => b.File, StringComparer.Ordinal);
         var wanted = names is not null && names.Length > 0 ? names : all.Keys.ToArray();
@@ -90,14 +110,31 @@ internal sealed unsafe class SaveStore
                 return SaveLayout.BlobNotFound;
             }
 
-            blobs.Add(new SaveBlobData(name, File.ReadAllBytes(file)));
+            blobs.Add(new SaveBlobData(name, ReadShared(file)));
         }
 
         return HResult.Ok;
     }
 
-    /// <summary>Applies a staged update after checking the quota.</summary>
+    /// <summary>Applies a staged update after checking the quota; a file the system refuses fails it, logged.</summary>
     public int Apply(SaveUpdate update)
+    {
+        try
+        {
+            lock (Files)
+            {
+                return ApplyLocked(update);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _boundary.Error($"XGameSave update \"{update.Container.Name}\" failed: {exception.Message} (0x{exception.HResult:x8})");
+
+            return Failure(exception.HResult);
+        }
+    }
+
+    private int ApplyLocked(SaveUpdate update)
     {
         var container = update.Container;
         long growth = update.Operations.Where(o => o.Data is not null).Sum(o => (long)o.Data!.Length);
@@ -169,6 +206,49 @@ internal sealed unsafe class SaveStore
 
         string temporary = file + TemporarySuffix;
         File.WriteAllBytes(temporary, operation.Data);
-        File.Move(temporary, file, true);
+        Replace(temporary, file);
+    }
+
+    /// <summary>Moves <paramref name="temporary"/> over <paramref name="file"/>, tried again while another process holds it.</summary>
+    private static void Replace(string temporary, string file)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(temporary, file, true);
+
+                return;
+            }
+            catch (IOException) when (attempt < MoveRetries)
+            {
+                Thread.Sleep(MoveRetryDelay);
+            }
+            catch (UnauthorizedAccessException) when (attempt < MoveRetries)
+            {
+                Thread.Sleep(MoveRetryDelay);
+            }
+        }
+    }
+
+    /// <summary>A blob's bytes, its file left open to a move or delete meanwhile.</summary>
+    private static byte[] ReadShared(string file)
+    {
+        using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        var bytes = new byte[stream.Length];
+        stream.ReadExactly(bytes);
+
+        return bytes;
+    }
+
+    /// <summary>The exception's HRESULT when it is a failure, else E_FAIL.</summary>
+    private static int Failure(int hr)
+    {
+        if (HResult.Failed(hr))
+        {
+            return hr;
+        }
+
+        return HResult.Fail;
     }
 }

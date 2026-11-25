@@ -127,7 +127,9 @@ And workers slept in the loader: a small compute stand-in waited up to 250 ms at
 programs were still being made on demand (55 to 73 s on average during the story load), and a loading-screen frame
 met hundreds of them, so all five workers slept for more than 30 s. A first use now waits only when the programs are
 ready. Waits a game thread can reach inside the loader register with `BlockingWaits`, so a stack that ends in JIT
-code still names the wait (`(waiting in ... for N ms)`), and the stall line sums the time spent in each.
+code still names the wait (`(waiting in ... for N ms)`). The stall line gives the time spent in each since the
+heartbeat last moved, over all threads (a wait still running shows in its thread's stack instead), then the totals
+since the start: those are a whole boot's, so seconds of them say nothing about one stall.
 
 `fivestar-loader --watch-hang` reads these globals every 100 ms and logs the main state, the loading-screen flags,
 the session byte, the pause flag and the handler when they change, a heartbeat that moves again after 2 s or more, and
