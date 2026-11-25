@@ -88,6 +88,8 @@ internal static class HostUsage
                                  (needs the Graphics Tools optional feature)
           --d3d12-gpu-validation --d3d12-debug plus GPU-based validation (slow)
           --force-cull-none <text>  pipelines whose programs' names hold <text> cull no faces (a winding check)
+          --skip-pipelines <text,...>  pipelines whose programs' names hold a text stay stand-ins: never built or
+                                 loaded, their draws skipped (to get past one that hangs the GPU)
           --d3d12-dred           DRED alone (auto-breadcrumbs, page faults, the removal report), without the debug layer
           --d3d12-skip <i:n,...> D3D12.X slots that do nothing (list:51, queue:35, device:n), to bisect GPU faults
           --d3d12-trace-queues   log the first queue submissions, signals and waits (cross-queue protocol)
