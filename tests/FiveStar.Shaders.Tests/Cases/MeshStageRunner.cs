@@ -358,11 +358,24 @@ public sealed partial class MeshStageRunner
         s_cbranch_scc1 .Lspin
         """;
 
-    /// <summary>Draws the barrier-loop program with <paramref name="count"/> iterations under <paramref name="caps"/>.</summary>
-    public IReadOnlyList<string> RunBarrierLoop(bool supersteps, uint count, LoopCaps caps, int? roundsPerStop = null)
+    // The same count without a barrier: a scalar loop that never reaches a wave operation or a group step.
+    private const string SpinLoop = """
+        s_barrier
+        s_mov_b32 s28, s11
+        .Lspin:
+        s_sub_u32 s28, s28, 1
+        s_cmp_lg_u32 s28, 0
+        s_cbranch_scc1 .Lspin
+        """;
+
+    /// <summary>
+    /// Draws the barrier-loop program with <paramref name="count"/> iterations under <paramref name="caps"/>; with
+    /// <paramref name="spin"/> its loop has no barrier.
+    /// </summary>
+    public IReadOnlyList<string> RunBarrierLoop(bool supersteps, uint count, LoopCaps caps, int? roundsPerStop = null, bool spin = false)
     {
-        string name = supersteps ? "ms_ngg_barrier_loop_supersteps" : "ms_ngg_barrier_loop";
-        string mesh = TranslateBarrierLoop(supersteps, caps, roundsPerStop);
+        string name = (supersteps ? "ms_ngg_barrier_loop_supersteps" : "ms_ngg_barrier_loop") + (spin ? "_spin" : string.Empty);
+        string mesh = TranslateBarrierLoop(supersteps, caps, roundsPerStop, spin);
         var (pixelSource, _) = PassThroughPixelShader.Build(mesh, ["param0"], flat: true);
         var pixel = _fixture.Workbench.Compile(name + "_ps", pixelSource, "ps");
         var bindings = new Bindings { UserSgprs = [(Primitives << 12) | Vertices, Culled, FloatBits.Of(AttributeBase), count] };
@@ -373,11 +386,11 @@ public sealed partial class MeshStageRunner
         return ImageCheck.Compare(result, Size, Size, (x, y, _) => image[y, x]);
     }
 
-    /// <summary>The barrier-loop program translated in the superstep or the two-phase form.</summary>
-    public string TranslateBarrierLoop(bool supersteps, LoopCaps caps, int? roundsPerStop = null)
+    /// <summary>The barrier-loop program (<paramref name="spin"/>: without the barrier) translated in the superstep or the two-phase form.</summary>
+    public string TranslateBarrierLoop(bool supersteps, LoopCaps caps, int? roundsPerStop = null, bool spin = false)
     {
-        var source = Program.Replace("s_barrier\n", BarrierLoop + "\n", StringComparison.Ordinal);
-        var assembled = _fixture.Workbench.Assemble("ms_ngg_barrier_loop", source, 64);
+        var source = Program.Replace("s_barrier\n", (spin ? SpinLoop : BarrierLoop) + "\n", StringComparison.Ordinal);
+        var assembled = _fixture.Workbench.Assemble(spin ? "ms_ngg_spin_loop" : "ms_ngg_barrier_loop", source, 64);
         var config = new ShaderConfig { Stage = HardwareStage.Ngg, WaveSize = 64, UserSgprs = 4, Ngg = new NggConfig(8, 0, 0), LdsBytes = 4 };
         var pipeline = new PipelineStateInfo { Stage = "ms", NumThreads = new ThreadGroupSize(64, 1, 1), MaxVertices = MaxOutputs, MaxPrimitives = MaxOutputs };
         var program = new ShaderProgram(ShaderStage.Mesh, assembled.Instructions, assembled.Code, ShaderSignatures.None, config, pipeline);
