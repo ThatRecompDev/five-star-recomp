@@ -1050,6 +1050,15 @@ internal static unsafe class CommandListBindingMethods
     private static void MirrorReach(XboxObject* self, CommandListBindings* bindings, bool compute)
     {
         nint pipeline = RectangleListState.Of(self)->Pipeline;
+        uint* data = compute ? bindings->Compute : bindings->Graphics;
+
+        // Every table the programs read, also one a bind mirrored whole (the tiled lighting's material-mask pass binds
+        // its depth twins' UAVs in a table of 8 records).
+        if (DepthTwins.Any)
+        {
+            DepthTwins.MarkWriters(self, data, ShimContext.Runtime.D3D12X.Bindings.Window.Data, TableReaches.AllOf(pipeline));
+        }
+
         var entries = TableReaches.Of(pipeline);
 
         if (entries.Length == 0)
@@ -1057,16 +1066,9 @@ internal static unsafe class CommandListBindingMethods
             return;
         }
 
-        uint* data = compute ? bindings->Compute : bindings->Graphics;
-
         if (DepthUavs.Any)
         {
             DepthUavs.CheckFirstUse(pipeline, data, ShimContext.Runtime.D3D12X.Bindings.Window.Data);
-        }
-
-        if (DepthTwins.Any)
-        {
-            DepthTwins.MarkWriters(self, data, ShimContext.Runtime.D3D12X.Bindings.Window.Data, entries);
         }
 
         if (SharedExponentAliases.Any)
