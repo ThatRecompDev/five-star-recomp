@@ -125,6 +125,8 @@ internal static class HostUsage
           --present-test         present moving color bars instead of the game's frame (checks the swap chain)
           --raytracing          XboxBvhBuilder.dll's CPU paths: console acceleration-structure sizes and BLAS
                                  rehydration into game memory (off: desktop sizes, nothing written)
+          --raytracing-gpu       run XboxBvhBuilder.dll's constructor for an inventory of its 52 GPU builder pipelines:
+                                 stand-ins never built, no builder program runs (docs/bvh-builder.md)
           --xdsp-convolution     run the XDsp convolution effects on the CPU (default: silence; response format inferred)
           --audio-capture <wav>  record what the game plays (process loopback, 48 kHz stereo) and print how much had sound
           --desktop-timers       keep 15.6 ms timer ticks (default with --run: 1 ms, which the game's audio mixer needs)
