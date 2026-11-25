@@ -46,7 +46,7 @@ public sealed unsafe class TraceRecordsTests
 
             // The game's heap holds a T# where the window's +0x60 record is; the other records have no game heap behind them.
             var game = new Dictionary<uint, nint> { [Table + 0x60] = (nint)gameRecord };
-            var sources = new TraceRecordSources(address => mapped.GetValueOrDefault(address, "UNMAPPED"), (address, _) => memory.GetValueOrDefault(address), offset => game.GetValueOrDefault(offset), address => $"texture at 0x{address:x}");
+            var sources = new TraceRecordSources(address => mapped.GetValueOrDefault(address, "UNMAPPED"), (address, _) => memory.GetValueOrDefault(address), offset => game.GetValueOrDefault(offset), address => $"texture at 0x{address:x}", index => $"SRV {index}");
             TraceRecords.Append(text, window, WindowBytes, sgprs, offsets, sources);
             string log = text.ToString();
 
@@ -60,7 +60,7 @@ public sealed unsafe class TraceRecordsTests
             Assert.Single(log.Split("dword at +").Skip(1));
 
             Assert.Contains("T# base 0x1234567800: UNMAPPED; texture at 0x1234567800", log, StringComparison.Ordinal);
-            Assert.Contains("V# holds heap index 417733, no console base", log, StringComparison.Ordinal);
+            Assert.Contains("heap index 417733, no console base: SRV 417733", log, StringComparison.Ordinal);
 
             Assert.Contains("game record 19: 07787000 00000000 00000000 9000f000", log, StringComparison.Ordinal);
             Assert.Contains("game record 17: (no game heap)", log, StringComparison.Ordinal);
