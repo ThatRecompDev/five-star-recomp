@@ -593,7 +593,8 @@ internal sealed unsafe class StandInPipelines
     {
         var standIn = (StandInPipelineObject*)pipeline;
         var deadline = Stopwatch.GetTimestamp() + (long)(SmallBudget.TotalSeconds * Stopwatch.Frequency);
-        bool madeHere = false;
+        Task<bool>? programs = null;
+        Task? build = null;
         using var wait = BlockingWaits.Enter("small compute pipeline at first use");
 
         while (Stopwatch.GetTimestamp() < deadline)
@@ -622,22 +623,25 @@ internal sealed unsafe class StandInPipelines
             // watchdog ended the story load (docs/debugging.md#hang-watchdog).
             if (!creation.HasValue)
             {
-                if (!madeHere && !MakePrograms(work, ref deadline))
+                programs ??= MakePrograms(work);
+
+                if (programs is null || (programs.IsCompleted && !programs.Result))
                 {
                     break;
                 }
 
-                madeHere = true;
                 Thread.Sleep(1);
 
                 continue;
             }
 
-            // Never on this thread while the build would wait for memory (Build waits without a limit), nor while other
-            // compiles wait in the compile budget: the game's thread would queue behind them for seconds.
-            if (CompileBudget.Waiting == 0 && WarmMemoryGuard.RoomForBuild(0))
+            // Not while the build would wait for memory (Build waits without a limit), nor while other compiles wait in
+            // the compile budget. On a pool thread: this thread waits only until the deadline, and a build that takes
+            // longer finishes there (a 15.6 GB machine spent 6.2 s of a 5.2 s heartbeat stall in this path, #13).
+            if (build is null && CompileBudget.Waiting == 0 && WarmMemoryGuard.RoomForBuild(0))
             {
-                creation.Value.Queue.RunNow(creation.Value.Build);
+                var claim = creation.Value;
+                build = Task.Run(() => claim.Queue.RunNow(claim.Build));
             }
 
             Thread.Sleep(1);
@@ -647,36 +651,36 @@ internal sealed unsafe class StandInPipelines
     }
 
     /// <summary>
-    /// Makes a small stand-in's programs on this thread; true when they are ready, and the budget for its creation
-    /// starts again (<paramref name="deadline"/>).
+    /// Starts making a small stand-in's programs on a pool thread; null when it has no such work. The first use waits
+    /// for them only within its budget: made on the game's thread, 4 programs took 5.3 s of a 5.2 s heartbeat stall on a
+    /// 15.6 GB machine (#13). Once made, the creation is queued and its build goes on after the first use gave up.
     /// </summary>
-    private bool MakePrograms(StandInWork? work, ref long deadline)
+    private Task<bool>? MakePrograms(StandInWork? work)
     {
-        if (work?.ProgramsNow is null)
+        var make = work?.ProgramsNow;
+
+        if (make is null)
         {
             Interlocked.Increment(ref _smallNotReady);
 
-            return false;
+            return null;
         }
 
-        bool ready;
-
-        using (BlockingWaits.Enter("small compute programs made inline"))
+        return Task.Run(() =>
         {
-            ready = work.ProgramsNow();
-        }
+            bool ready = make();
 
-        if (!ready)
-        {
-            Interlocked.Increment(ref _smallNotReady);
+            if (ready)
+            {
+                Interlocked.Increment(ref _smallProgramsInline);
+            }
+            else
+            {
+                Interlocked.Increment(ref _smallNotReady);
+            }
 
-            return false;
-        }
-
-        Interlocked.Increment(ref _smallProgramsInline);
-        deadline = Stopwatch.GetTimestamp() + (long)(SmallBudget.TotalSeconds * Stopwatch.Frequency);
-
-        return true;
+            return ready;
+        });
     }
 
     /// <summary>A count over the build queues (one when the heavy pipelines share the others' threads).</summary>

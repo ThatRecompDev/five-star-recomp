@@ -42,10 +42,23 @@ internal sealed class WaitObject
         }
     }
 
+    /// <summary>The frames in mapped images, as "game+0x.. &lt;- ..", or "no game frame found".</summary>
+    public static string Frames(nint[] frames, ImageTable images)
+    {
+        var shown = frames.Where(frame => images.FindByAddress(frame) is not null).Take(ShownFrames).Select(images.Describe).ToList();
+
+        if (shown.Count == 0)
+        {
+            return "no game frame found";
+        }
+
+        return string.Join(" <- ", shown);
+    }
+
     /// <summary>"auto-reset event made by thread T at S s from game+0x.. &lt;- ..; signaled N times, last ..".</summary>
     public string Describe(ImageTable images, double now)
     {
-        var made = _frames.Where(frame => images.FindByAddress(frame) is not null).Take(ShownFrames).Select(images.Describe);
+        string made = Frames(_frames, images);
         string signal;
 
         lock (_gate)
@@ -55,6 +68,6 @@ internal sealed class WaitObject
                 : string.Create(CultureInfo.InvariantCulture, $"signaled {_signals} times, last {now - _signaledAt:F1} s ago by thread {_signaler}");
         }
 
-        return string.Create(CultureInfo.InvariantCulture, $"{Kind} made by thread {Creator} at {CreatedAt:F1} s from {string.Join(" <- ", made)}; {signal}");
+        return string.Create(CultureInfo.InvariantCulture, $"{Kind} made by thread {Creator} at {CreatedAt:F1} s from {made}; {signal}");
     }
 }
