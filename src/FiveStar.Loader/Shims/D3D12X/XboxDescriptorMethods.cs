@@ -444,7 +444,7 @@ internal static unsafe class XboxDescriptorMethods
         // A stencil twin is R8_UINT: under --typed-image-views its record carries the uint class its stores need.
         nint destination = D3D12X.DescriptorHeaps.Destination(handle, ImageViewClasses.With(BufferRecord.None, view));
         ((delegate* unmanaged<nint, nint, nint, void*, nint, void>)ComObject.Slot(device, CreateUnorderedAccessViewSlot))(device, twin.Twin, 0, view, destination);
-        DepthTwins.NoteView(index, twin, destination);
+        DepthTwins.NoteView(twin, destination);
 
         return true;
     }

@@ -7,6 +7,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 internal sealed class DepthTwin(nint depth, nint twin, int format, uint width, uint height)
 {
     private int _behind = DepthTwinSides.TwinBehind;
+    private int _written;
 
     /// <summary>
     /// Where the sides stand between submissions (<see cref="DepthTwinSides"/> bits): a new twin is behind its plane, so
@@ -51,6 +52,12 @@ internal sealed class DepthTwin(nint depth, nint twin, int format, uint width, u
 
     /// <summary>The twin's own UAV in the prelude's heap (<see cref="DepthTwinPrelude"/>); -1 before the first prelude copy.</summary>
     public int PreludeSlot { get; set; } = -1;
+
+    /// <summary>Whether this is the first pass seen writing the twin (logged once); later calls are false.</summary>
+    public bool TakeFirstWriter()
+    {
+        return Interlocked.Exchange(ref _written, 1) == 0;
+    }
 
     /// <summary>The format of the depth-stencil view a list drew with last (the copy into the plane writes through one); 0 before.</summary>
     public int DepthFormat { get; set; }

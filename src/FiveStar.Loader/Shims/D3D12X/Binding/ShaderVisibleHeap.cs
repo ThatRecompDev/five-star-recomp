@@ -115,7 +115,7 @@ internal sealed unsafe class ShaderVisibleHeap
 
         if (Resources.DepthTwins.Any)
         {
-            Resources.DepthTwins.Overwritten(index, count);
+            Resources.DepthTwins.Overwritten(desktop, count);
         }
 
         nint start = _desktopStart + (nint)((ulong)desktop * Increment);
@@ -171,8 +171,6 @@ internal sealed unsafe class ShaderVisibleHeap
     [HotPath]
     public void CopyRecords(uint destination, uint source, uint count)
     {
-        Resources.DepthTwins.Overwritten(destination, count);
-
         Buffer.MemoryCopy(Record(source), Record(destination), (ulong)(Count - destination) * Increment, (ulong)count * Increment);
         Mirror(destination, count);
     }
@@ -181,8 +179,6 @@ internal sealed unsafe class ShaderVisibleHeap
     [HotPath]
     public void CopyRecords(uint destination, ShaderVisibleHeap source, uint sourceIndex, uint count)
     {
-        Resources.DepthTwins.Overwritten(destination, count);
-
         Buffer.MemoryCopy(source.Record(sourceIndex), Record(destination), (ulong)(Count - destination) * Increment, (ulong)count * Increment);
         Mirror(destination, count);
     }
