@@ -89,6 +89,9 @@ internal sealed class TranslationState
     /// <summary>Image loads, gathers and stores follow the view's component class (TranslationOptions.TypedImageViews).</summary>
     public bool TypedImageViews { get; init; }
 
+    /// <summary>2D samples filter shared-exponent light themselves (TranslationOptions.SharedExponentSamples).</summary>
+    public bool SharedExponentSamples { get; init; }
+
     /// <summary>The loop caps (TranslationOptions.Loops, else the translator's own).</summary>
     public LoopCaps Loops { get; init; } = LoopCaps.Default;
 
