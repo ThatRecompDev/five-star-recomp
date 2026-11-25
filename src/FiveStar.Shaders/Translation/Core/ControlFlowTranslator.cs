@@ -19,6 +19,9 @@ internal sealed class ControlFlowTranslator
     // How the block being translated ends, once its terminator has been translated.
     private BlockExit? _exit;
 
+    // A first-lane exchange whose result the next block reads first: (resume address, destination, site).
+    private (long Resume, string Destination, int Site)? _exchange;
+
     public ControlFlowTranslator(TranslationState state, OperandAccess operands, InstructionTranslator instructions)
     {
         _state = state;
@@ -130,7 +133,7 @@ internal sealed class ControlFlowTranslator
 
         foreach (var instruction in _state.Instructions)
         {
-            if (instruction.Text.StartsWith("s_barrier", StringComparison.Ordinal))
+            if (instruction.Text.StartsWith("s_barrier", StringComparison.Ordinal) || _state.FirstLaneExchanges.ContainsKey(instruction.Address))
             {
                 leaders.Add(instruction.Next);
                 _state.HasControlFlow = true;
@@ -241,6 +244,7 @@ internal sealed class ControlFlowTranslator
                 terminated = false;
                 _exit = null;
                 _state.Constants.Clear();
+                ReadExchange(instruction.Address);
             }
 
             if (!terminated)
@@ -312,6 +316,13 @@ internal sealed class ControlFlowTranslator
             return true;
         }
 
+        if (mnemonic == "v_readfirstlane_b32" && _state.FirstLaneExchanges.TryGetValue(instruction.Address, out var site))
+        {
+            Exchange(instruction, operands, site);
+
+            return true;
+        }
+
         if (mnemonic == "s_barrier" && _state.MeshYield)
         {
             _state.Emit($"  pc_resume = {Hlsl.Hex(instruction.Next)}; pc = PC_YIELD;");
@@ -336,6 +347,36 @@ internal sealed class ControlFlowTranslator
         _instructions.Translate(mnemonic, operands);
 
         return false;
+    }
+
+    /// <summary>
+    /// A v_readfirstlane under a full EXEC whose value the group exchanges: the console wave's first lane (lane 0) deposits
+    /// it, the block yields to the group's barrier step, and the next block reads it (<see cref="ReadExchange"/>). The
+    /// slot alternates with the barrier step's parity, so a deposit in one round never meets a read of the last.
+    /// </summary>
+    private void Exchange(Instruction instruction, string operands, int site)
+    {
+        var parts = operands.Split(',');
+        var source = OperandParser.Parse(parts[1].Trim());
+
+        _state.Address = instruction.Address;
+        _state.Emit($"  if ({WaveOps.GroupLane} == 0u) vw_first_put({site}u, ms_step, {_operands.Read(source)});");
+        _state.Emit($"  pc_resume = {Hlsl.Hex(instruction.Next)}; pc = PC_YIELD;");
+        _exit = new BlockExit(BlockExitKind.Yield, instruction.Next, null, null);
+        _exchange = (instruction.Next, parts[0].Trim(), site);
+    }
+
+    /// <summary>The first statement of the block after an exchange: the destination takes the exchanged value.</summary>
+    private void ReadExchange(long address)
+    {
+        if (_exchange is null || _exchange.Value.Resume != address)
+        {
+            return;
+        }
+
+        var exchange = _exchange.Value;
+        _operands.Write(OperandParser.Parse(exchange.Destination), $"vw_first({exchange.Site}u, ms_step)", 0);
+        _exchange = null;
     }
 
     /// <summary>s_getpc_b64: a PC-relative pointer into the program's own code (embedded constant tables).</summary>
