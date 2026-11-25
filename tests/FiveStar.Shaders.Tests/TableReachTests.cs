@@ -68,6 +68,33 @@ public sealed class TableReachTests
         Assert.Equal(new Dictionary<int, uint> { [14] = TableReach.DynamicReach }, TableReach.Find(Instructions(program)));
     }
 
+    [Fact]
+    public void The_records_a_program_samples_through_are_its_samples_t_sharp_loads()
+    {
+        // TL_PS_PBR_MATERIAL_STANDARD samples the T#s at +0xe80 and +0x860 of the table in s8; a T# loaded at a computed
+        // offset, one only loaded, and one overwritten before the sample are not sampled records.
+        string[] program =
+        [
+            "s_mov_b32 s9, 0",
+            "s_load_dwordx8 s[88:95], s[8:9], 0xe80",
+            "s_load_dwordx8 s[72:79], s[8:9], 0x860",
+            "s_load_dwordx8 s[24:31], s[8:9], 0x6e0",
+            "s_load_dwordx8 s[40:47], s[8:9], s1",
+            "s_load_dwordx8 s[56:63], s[8:9], 0x1380",
+            "s_mov_b32 s56, 0",
+            "image_sample_lz v[25:28], v[33:34], s[88:95], s[68:71] dmask:0xf dim:SQ_RSRC_IMG_2D",
+            "image_sample_lz v[29:32], v[37:38], s[72:79], s[68:71] dmask:0xf dim:SQ_RSRC_IMG_2D",
+            "image_sample_lz v[33:36], v[33:34], s[40:47], s[68:71] dmask:0xf dim:SQ_RSRC_IMG_2D",
+            "image_sample_lz v[37:40], v[37:38], s[56:63], s[68:71] dmask:0xf dim:SQ_RSRC_IMG_2D",
+            "image_load v[2:5], v[51:52], s[24:31] dmask:0xf dim:SQ_RSRC_IMG_2D unorm",
+            "s_endpgm",
+        ];
+
+        var sampled = TableReach.Sampled(Instructions(program)).OrderBy(record => record.Offset).ToList();
+
+        Assert.Equal([(8, 0x860u), (8, 0xe80u)], sampled);
+    }
+
     private static List<Instruction> Instructions(string[] lines)
     {
         return [.. lines.Select((text, index) => new Instruction(index * 8, 8, text))];

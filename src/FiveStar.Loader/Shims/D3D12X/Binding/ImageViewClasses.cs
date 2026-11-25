@@ -66,6 +66,8 @@ internal static unsafe class ImageViewClasses
             return record;
         }
 
+        SharedExponentSamplers.NoteView();
+
         return record with { ImageClass = SharedExponent };
     }
 

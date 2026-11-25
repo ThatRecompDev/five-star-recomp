@@ -22,6 +22,10 @@ public static class TableReach
     private const int LoadOperands = 3;
     private const uint DwordBytes = 4;
 
+    /// <summary>An image sample's T# operand (after the destination and the address).</summary>
+    private const int ResourceOperand = 2;
+    private const string SamplePrefix = "image_sample";
+
     /// <summary>The reach of a load at an offset the program computes: the game's tables span 0x8000 bytes (its 0x7fe0 offset mask).</summary>
     public const uint DynamicReach = 0x8000;
 
@@ -61,6 +65,86 @@ public static class TableReach
         }
 
         return reach;
+    }
+
+    /// <summary>
+    /// The records a program samples through: the entry SGPR and byte offset of each T# an <c>image_sample*</c> takes,
+    /// loaded at an immediate offset through a table pointer as <see cref="Find"/> follows them. A T# loaded at an offset
+    /// the program computes is not listed.
+    /// </summary>
+    public static IReadOnlyList<(int Sgpr, uint Offset)> Sampled(IReadOnlyList<Instruction> instructions)
+    {
+        var origin = new Dictionary<int, int>();
+        var zero = new HashSet<int>();
+        var written = new HashSet<int>();
+        var loaded = new Dictionary<int, (int Sgpr, uint Offset)>();
+        var sampled = new HashSet<(int Sgpr, uint Offset)>();
+
+        foreach (var instruction in instructions)
+        {
+            var (mnemonic, arguments) = Split(instruction);
+
+            if (mnemonic.StartsWith(SamplePrefix, StringComparison.Ordinal) && arguments.Count > ResourceOperand)
+            {
+                var resource = Parse(arguments[ResourceOperand]);
+
+                if (resource is not null && resource.Kind == OperandKind.Scalar && loaded.TryGetValue(resource.Low, out var record))
+                {
+                    sampled.Add(record);
+                }
+
+                continue;
+            }
+
+            var destination = arguments.Count == 0 || !Writes(mnemonic) ? null : Parse(arguments[DestinationOperand]);
+
+            if (destination is null || destination.Kind != OperandKind.Scalar)
+            {
+                continue;
+            }
+
+            for (int sgpr = destination.Low; sgpr <= destination.High; sgpr++)
+            {
+                loaded.Remove(sgpr);
+            }
+
+            var at = mnemonic.StartsWith("s_load_", StringComparison.Ordinal) ? Record(arguments, origin, zero, written) : null;
+
+            if (at is not null)
+            {
+                loaded[destination.Low] = at.Value;
+            }
+
+            Track(mnemonic, arguments, destination, origin, zero, written);
+        }
+
+        return [.. sampled];
+    }
+
+    /// <summary>The entry SGPR and immediate offset an <c>s_load</c> reads a record at; null for any other load.</summary>
+    private static (int Sgpr, uint Offset)? Record(List<string> arguments, Dictionary<int, int> origin, HashSet<int> zero, HashSet<int> written)
+    {
+        if (arguments.Count < LoadOperands)
+        {
+            return null;
+        }
+
+        var pair = Parse(arguments[BaseOperand]);
+        var offset = Parse(arguments[OffsetOperand]);
+
+        if (pair is null || offset is null || pair.Kind != OperandKind.Scalar || !zero.Contains(pair.High) || !offset.IsImmediate)
+        {
+            return null;
+        }
+
+        int? entry = Entry(pair.Low, origin, written);
+
+        if (entry is null)
+        {
+            return null;
+        }
+
+        return (entry.Value, offset.Value);
     }
 
     /// <summary>Counts a load through a 32-bit pointer whose low dword is an entry SGPR.</summary>
