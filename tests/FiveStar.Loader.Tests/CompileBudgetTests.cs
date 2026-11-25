@@ -20,19 +20,25 @@ public sealed class CompileBudgetTests
         Assert.Equal(3L * 2816 << 20, mesh);
         Assert.Equal(Gigabyte / 2, CompileBudget.Estimate(4096));
         Assert.Equal(16 * Gigabyte, CompileBudget.Estimate(64L << 20));
-        Assert.Equal(6 * Gigabyte, reserve);
+        Assert.Equal(4 * Gigabyte, reserve);
 
-        // 23 GB free: one running compile that still needs 8 GB leaves room for another (6 + 8 + 8.25 < 23).
-        Assert.True(CompileBudget.Room(mesh, 23UL * Gigabyte, 100UL * Gigabyte, 8 * Gigabyte, reserve));
+        // 21 GB free: one running compile that still needs 8 GB leaves room for another (4 + 8 + 8.25 < 21).
+        Assert.True(CompileBudget.Room(mesh, 21UL * Gigabyte, 100UL * Gigabyte, 8 * Gigabyte, reserve));
 
         // Two that still need 16 GB do not; nor does a commit charge near its limit.
-        Assert.False(CompileBudget.Room(mesh, 23UL * Gigabyte, 100UL * Gigabyte, 16 * Gigabyte, reserve));
-        Assert.False(CompileBudget.Room(mesh, 23UL * Gigabyte, 12UL * Gigabyte, 0, reserve));
+        Assert.False(CompileBudget.Room(mesh, 21UL * Gigabyte, 100UL * Gigabyte, 16 * Gigabyte, reserve));
+        Assert.False(CompileBudget.Room(mesh, 21UL * Gigabyte, 12UL * Gigabyte, 0, reserve));
 
-        // A game that grew 9 GB in the last minute keeps 9 GB back: the same compile no longer fits; growth is capped at 10 GB.
+        // A game that grew 9 GB in the last minute adds 4 GB (half, capped): the same compile no longer fits.
         long growing = CompileBudget.PhysicalReserve(CompileBudget.GrowthAllowance(9 * Gigabyte));
-        Assert.False(CompileBudget.Room(mesh, 23UL * Gigabyte, 100UL * Gigabyte, 8 * Gigabyte, growing));
-        Assert.Equal(10 * Gigabyte, CompileBudget.GrowthAllowance(30 * Gigabyte));
+        Assert.Equal(8 * Gigabyte, growing);
+        Assert.False(CompileBudget.Room(mesh, 21UL * Gigabyte, 100UL * Gigabyte, 8 * Gigabyte, growing));
+
+        // Boot w21 at 121 s: 12.7 GB free, one heavy compile running (7 GB estimate). A 1 MB compile (2.75 GB) waits
+        // unless urgent, which needs only the 4 GB floor and its own estimate.
+        long resolve = CompileBudget.Estimate(1L << 20);
+        Assert.False(CompileBudget.Room(resolve, 12_700UL << 20, 100UL * Gigabyte, 7 * Gigabyte, reserve));
+        Assert.True(CompileBudget.Room(resolve, 12_700UL << 20, 100UL * Gigabyte, 0, CompileBudget.MinimumPhysicalReserve));
     }
 
     [Fact]
