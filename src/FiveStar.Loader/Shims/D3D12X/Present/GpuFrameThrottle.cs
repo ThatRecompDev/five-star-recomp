@@ -83,6 +83,7 @@ internal sealed unsafe class GpuFrameThrottle : IDisposable
     public void Presented()
     {
         long present = Interlocked.Increment(ref _presents);
+        Binding.PassControls.Rules.NextFrame();
         var marks = _marks[present % _marks.Length];
         bool waited = false;
         bool gaveUp = false;
