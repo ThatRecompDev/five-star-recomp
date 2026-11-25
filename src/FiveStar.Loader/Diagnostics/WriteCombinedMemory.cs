@@ -6,9 +6,10 @@ using FiveStar.Loader.Native;
 namespace FiveStar.Loader.Diagnostics;
 
 /// <summary>
-/// The committed private write-combined memory (protection 0x404: upload heaps, and the driver's own system-memory
-/// pools) and how much of it is in 32 MiB regions: a cold boot's grew from 5 to 12.6 GB after the story load, in 32 MiB
-/// regions none of the loader's own buffers make. One walk of the address space (VirtualQueryEx, 0.4 to 1 s at 250,000
+/// The committed private write-combined memory (protection 0x404) and how much of it is in 32 MiB regions. On the RTX
+/// 4090 it is mostly the driver's CPU mapping of video memory: 400 default-heap textures of 1 MB added 400 MB here, to
+/// private bytes and to GPU local memory alike, and nothing to the working set (a cold boot's grew from 5 to 12.6 GB
+/// after the story load, step for step with GPU local memory). It is charged to commit, not backed by RAM. One walk of the address space (VirtualQueryEx, 0.4 to 1 s at 250,000
 /// regions) per sample summary; <see cref="CachedBytes"/> is refreshed by its own timer for the compile ceiling.
 /// </summary>
 internal static unsafe class WriteCombinedMemory
