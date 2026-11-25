@@ -122,8 +122,8 @@ internal sealed unsafe class PipelineFactory
             // Programs first, then the producer linked to the pixel shader when the pair needs it (ProducerLinks).
             lacking ??= [];
             var onDemand = OnDemand!;
-            Func<bool, Task> work = urgent => Task.WhenAll(lacking.Select(names => onDemand.Request(names, urgent)))
-                .ContinueWith(_ => PendingLink(description)?.Invoke(urgent) ?? Task.CompletedTask, TaskScheduler.Default).Unwrap();
+            Func<StandInUse?, Task> work = use => Task.WhenAll(lacking.Select(names => onDemand.Request(names, use is not null, use)))
+                .ContinueWith(_ => PendingLink(description)?.Invoke(use) ?? Task.CompletedTask, TaskScheduler.Default).Unwrap();
 
             var wanted = *iid;
             var what = string.Join(" + ", lacking.Select(names => names[0]).DefaultIfEmpty("a linked producer"));
@@ -407,7 +407,7 @@ internal sealed unsafe class PipelineFactory
     /// The work that makes the linked producer of a description whose programs are all loadable, when the pair needs one
     /// that is not made yet; else null.
     /// </summary>
-    private Func<bool, Task>? PendingLink(GraphicsPipelineDescription description)
+    private Func<StandInUse?, Task>? PendingLink(GraphicsPipelineDescription description)
     {
         if (OnDemand is null)
         {
@@ -448,7 +448,7 @@ internal sealed unsafe class PipelineFactory
     {
         var wanted = *iid;
         var onDemand = OnDemand!;
-        Func<bool, Task> programs = urgent => Task.WhenAll(lacking.Select(names => onDemand.Request(names, urgent)));
+        Func<StandInUse?, Task> programs = use => Task.WhenAll(lacking.Select(names => onDemand.Request(names, use is not null, use)));
 
         Func<bool>? programsNow = null;
 
