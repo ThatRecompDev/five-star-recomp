@@ -210,8 +210,9 @@ internal sealed unsafe class DrawTrace
     {
         long draw = Interlocked.Increment(ref _draws);
         var rectangles = RectangleListState.Of(list);
+        bool filtered = draw > Volatile.Read(ref _windowEnd);
 
-        if (draw > Volatile.Read(ref _windowEnd) && !Matches(rectangles->Pipeline))
+        if (filtered && !Matches(rectangles->Pipeline))
         {
             return;
         }
@@ -225,7 +226,20 @@ internal sealed unsafe class DrawTrace
         text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x}");
         text.Append(state.VertexBuffers);
         AppendUserData(text, CommandListBindings.Of(list));
+
+        if (filtered)
+        {
+            AppendWindowRecords(text, CommandListBindings.Of(list));
+        }
+
         _log.Info(text.ToString());
+    }
+
+    /// <summary>The window records at <see cref="TraceRecords.Offsets"/> from the user SGPRs (<c>--d3d12-trace-records</c>).</summary>
+    private void AppendWindowRecords(StringBuilder text, CommandListBindings* bindings)
+    {
+        var graphics = new ReadOnlySpan<uint>(bindings->Graphics, UserDwordsShown);
+        TraceRecords.Append(text, _d3d12.Bindings.Window.Data, DescriptorWindow.NullTableBase, graphics, TraceRecords.Offsets, MapState, (address, bytes) => (nint)_memory.Find(address, (ulong)bytes));
     }
 
     /// <summary>
@@ -252,6 +266,8 @@ internal sealed unsafe class DrawTrace
         text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x}");
         AppendUserData(text, CommandListBindings.Of(list));
         AppendPointers(text, CommandListBindings.Of(list));
+        AppendWindowRecords(text, CommandListBindings.Of(list));
+
         _log.Info(text.ToString());
         _indirectProbes[(nint)list] = 0;
     }

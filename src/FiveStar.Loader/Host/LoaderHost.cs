@@ -356,6 +356,8 @@ internal sealed class LoaderHost
         Shims.D3D12X.Binding.CommandListBindingMethods.SkipComputeChains = _options.SkipComputeChains;
         Shims.D3D12X.Binding.CommandListBindingMethods.EmptyIndirectAfterSkip = _options.EmptyIndirectAfterSkip;
         Shims.D3D12X.DebugLayer.DrawTrace.DumpTargets = _options.D3D12DumpTargets;
+        Shims.D3D12X.DebugLayer.TraceRecords.Offsets = _options.D3D12TraceRecords;
+
         Shims.D3D12X.Pipelines.PipelineFactory.CullNoneFor = _options.ForceCullNone;
         Shims.D3D12X.Pipelines.SkippedPipelines.Texts = _options.SkipPipelines;
 

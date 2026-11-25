@@ -1,0 +1,133 @@
+// Copyright (c) 2026 Five Star Recomp contributors.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+using System.Globalization;
+using System.Text;
+
+namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
+
+/// <summary>
+/// <c>--d3d12-trace-records &lt;offset,...&gt;</c>: for each draw the trace logs by pipeline name, the window records a
+/// program reads at those byte offsets from every user SGPR that holds a window offset (a descriptor pointer the game
+/// passes as a root constant, which the root signature's tables do not show). Each record's dwords, then for a V# its
+/// base (or heap index), whether the address map has the base's page and the first dwords there; for a T# its base and
+/// map state.
+/// </summary>
+internal static unsafe class TraceRecords
+{
+    /// <summary>Dwords shown of a record (a T# has 8; a V# uses the first 4).</summary>
+    public const int RecordDwords = 8;
+
+    /// <summary>Dwords shown at a V#'s base: a constant buffer's first values.</summary>
+    public const int BaseDwords = 10;
+
+    private const uint RecordBytes = 32;
+    private const int TypeShift = 28;
+
+    /// <summary>Record dwords: base low, base high (V#: and stride), V# num_records, then the dword with the type.</summary>
+    private const int BaseHigh = 1;
+    private const int Records = 2;
+    private const int TypeDword = 3;
+
+    private const int HexPrefixLength = 2;
+
+    /// <summary>T# types start at 8 in dword 3 bits 28-31 (SQ_RSRC_IMG_*); below is a V# (SQ_RSRC_BUF).</summary>
+    private const uint FirstImageType = 8;
+
+    private const uint BaseHighMask = 0xFFFF;
+    private const uint ImageHighMask = 0xFF;
+    private const int ImageBaseShift = 8;
+    private const int DwordBits = 32;
+
+    /// <summary>The byte offsets; empty for none.</summary>
+    public static IReadOnlyList<uint> Offsets { get; set; } = [];
+
+    /// <summary>Offsets of a comma-separated list, hexadecimal with 0x or decimal.</summary>
+    public static IReadOnlyList<uint> Parse(string list)
+    {
+        return [.. list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(ParseOne)];
+    }
+
+    /// <summary>
+    /// The records at <paramref name="offsets"/> from each distinct user SGPR of <paramref name="sgprs"/> that is a
+    /// record-aligned offset with room in the <paramref name="windowBytes"/> of view records at <paramref name="window"/>.
+    /// </summary>
+    public static void Append(StringBuilder text, byte* window, uint windowBytes, ReadOnlySpan<uint> sgprs, IReadOnlyList<uint> offsets, Func<ulong, string> mapState, Func<ulong, int, nint> memory)
+    {
+        if (window == null || offsets.Count == 0)
+        {
+            return;
+        }
+
+        uint last = offsets.Max();
+        var seen = new HashSet<uint>();
+
+        for (int sgpr = 0; sgpr < sgprs.Length; sgpr++)
+        {
+            uint pointer = sgprs[sgpr];
+
+            if (pointer == 0 || pointer % RecordBytes != 0 || (ulong)pointer + last + RecordBytes > windowBytes || !seen.Add(pointer))
+            {
+                continue;
+            }
+
+            foreach (uint offset in offsets)
+            {
+                var record = (uint*)(window + pointer + offset);
+                text.Append(CultureInfo.InvariantCulture, $"\n      sgpr {sgpr} 0x{pointer:x} +0x{offset:x}:");
+                AppendRecord(text, record, mapState, memory);
+            }
+        }
+    }
+
+    private static void AppendRecord(StringBuilder text, uint* record, Func<ulong, string> mapState, Func<ulong, int, nint> memory)
+    {
+        for (int dword = 0; dword < RecordDwords; dword++)
+        {
+            text.Append(CultureInfo.InvariantCulture, $" {record[dword]:x8}");
+        }
+
+        if (record[TypeDword] >> TypeShift >= FirstImageType)
+        {
+            ulong image = (record[0] | ((ulong)(record[BaseHigh] & ImageHighMask) << DwordBits)) << ImageBaseShift;
+            text.Append(CultureInfo.InvariantCulture, $"\n        T# base 0x{image:x}: {mapState(image)}");
+
+            return;
+        }
+
+        uint high = record[BaseHigh] & BaseHighMask;
+
+        if (high == 0)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"\n        V# holds heap index {record[0]}, no console base");
+
+            return;
+        }
+
+        ulong address = record[0] | ((ulong)high << DwordBits);
+        text.Append(CultureInfo.InvariantCulture, $"\n        V# base 0x{address:x}, {record[Records]} records: {mapState(address)}; first dwords:");
+        var data = (uint*)memory(address, BaseDwords * sizeof(uint));
+
+        if (data == null)
+        {
+            text.Append(" (memory not readable)");
+
+            return;
+        }
+
+        for (int i = 0; i < BaseDwords; i++)
+        {
+            text.Append(CultureInfo.InvariantCulture, $" {data[i]:x8}");
+        }
+    }
+
+    private static uint ParseOne(string text)
+    {
+        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            return uint.Parse(text.AsSpan(HexPrefixLength), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+        }
+
+        return uint.Parse(text, CultureInfo.InvariantCulture);
+    }
+}
