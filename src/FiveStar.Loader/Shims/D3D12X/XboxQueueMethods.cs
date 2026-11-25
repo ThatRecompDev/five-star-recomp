@@ -81,6 +81,8 @@ internal static unsafe class XboxQueueMethods
         var d3d12 = ShimContext.Runtime.D3D12X;
         var objects = d3d12.Objects;
         d3d12.Textures.RefreshWatched(objects.DesktopDevice, d3d12.Presenter.Presents);
+        d3d12.Residency?.Poll(objects.DesktopDevice, d3d12.Bindings.Window.WindowFlags, d3d12.Presenter.Presents);
+
         nint inner = self->Inner;
         var execute = (delegate* unmanaged<nint, uint, nint*, void>)ComObject.Slot(inner, DesktopExecuteSlot);
         nint* desktop = stackalloc nint[Batch];

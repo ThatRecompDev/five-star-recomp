@@ -38,6 +38,19 @@ public sealed class DxilBackendCompilerTests
         }
         """;
 
+    // A game-memory load with the loader's window feedback (--evict-windows): gpu_page stores a waiting window's flag.
+    private const string Feedback = """
+        #define FIVESTAR_WINDOW_FEEDBACK 33554432u
+        #define VW_WAVE 64
+        #define VW_EMULATE 1
+        #include "rdna_prelude.hlsli"
+        [numthreads(64, 1, 1)]
+        void main(uint3 id : SV_DispatchThreadID) {
+          RWByteAddressBuffer output = ResourceDescriptorHeap[1];
+          output.Store(id.x * 4u, PtrLoad(id.x * 4u, 0x100u, 0u));
+        }
+        """;
+
     [WarpFact]
     public void A_program_the_backend_cannot_lower_goes_to_the_fallback_and_the_rest_is_validated()
     {
@@ -59,6 +72,10 @@ public sealed class DxilBackendCompilerTests
             Assert.True(compiler.Compile(notLowered, TimeSpan.Zero).Succeeded);
             Assert.Equal([notLowered], fallback.Requests);
             Assert.Equal((1, 1, 0), compiler.Counts);
+
+            var feedback = new CompileRequest(Path.Combine(work.FullName, "feedback.hlsl"), Feedback, "cs", DisableOptimizations: false);
+            Assert.True(compiler.Compile(feedback, TimeSpan.Zero).Succeeded);
+            Assert.Equal((2, 1, 0), compiler.Counts);
         }
         finally
         {

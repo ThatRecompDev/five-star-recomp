@@ -95,6 +95,35 @@ public sealed class AddressMap
         return complete;
     }
 
+    /// <summary>
+    /// One page's entry with <paramref name="view"/> and a raw offset field, <paramref name="field"/>: the tag of a page
+    /// that waits for memory (the loader's window feedback). False when no page table is left for it.
+    /// </summary>
+    public bool Mark(Span<byte> map, ulong address, uint view, uint field)
+    {
+        var page = address >> PageShift;
+        var table = Table(map, page >> (SpanShift - PageShift));
+
+        if (table < 0)
+        {
+            return false;
+        }
+
+        var entry = map[(table + ((int)(page % PagesPerSpan) * EntryBytes))..];
+        BinaryPrimitives.WriteUInt64LittleEndian(entry, view | ((ulong)field << OffsetShift));
+
+        return true;
+    }
+
+    /// <summary>The view and offset field of the page at <paramref name="address"/>, as a program reads them.</summary>
+    public static (uint View, uint Field) Read(ReadOnlySpan<byte> map, ulong address)
+    {
+        var table = (int)BinaryPrimitives.ReadUInt32LittleEndian(map[((int)((address >> SpanShift) % Spans) * SpanEntryBytes)..]);
+        var entry = BinaryPrimitives.ReadUInt64LittleEndian(map[(table + ((int)((address >> PageShift) % PagesPerSpan) * EntryBytes))..]);
+
+        return ((uint)entry, (uint)(entry >> OffsetShift));
+    }
+
     /// <summary>The byte offset of a span's own page table, made on first use; -1 when none is left.</summary>
     private int Table(Span<byte> map, ulong span)
     {

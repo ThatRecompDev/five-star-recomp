@@ -47,7 +47,8 @@ internal sealed unsafe class SectionHeaps
     private static readonly Guid HeapIid = new("6b3b2502-6e51-45b3-90ee-9884265e8df3");
 
     private readonly object _gate = new();
-    private readonly Dictionary<(nint Section, ulong Start), nint> _heaps = [];
+    private readonly Dictionary<(nint Section, ulong Start), SectionWindow> _all = [];
+    private readonly List<SectionWindow> _byId = [];
     private readonly Dictionary<nint, ulong> _windows = [];
     private readonly HashSet<(nint Section, SectionHeapUse Use)> _refusals = [];
     private readonly Func<nint, nint, nint> _open;
@@ -103,14 +104,20 @@ internal sealed unsafe class SectionHeaps
 
         lock (_gate)
         {
-            ulong window = Window(chunk.Section, sectionBytes);
-            start = offset / window * window;
+            ulong size = Window(chunk.Section, sectionBytes);
+            start = offset / size * size;
             heapOffset = offset - start;
-            heapBytes = Math.Min(window, sectionBytes - start);
+            heapBytes = Math.Min(size, sectionBytes - start);
+            var window = Find(chunk, start, heapBytes);
 
-            if (_heaps.TryGetValue((chunk.Section, start), out heap))
+            if (use == SectionHeapUse.Placed)
             {
-                return heap;
+                window.Pinned = true;
+            }
+
+            if (window.Heap != 0 || window.Failed || window.Retiring)
+            {
+                return window.Heap;
             }
 
             ulong room = Room(use);
@@ -122,21 +129,134 @@ internal sealed unsafe class SectionHeaps
                 return 0;
             }
 
-            heap = OpenWindow(device, chunk, start, heapBytes, sectionBytes, use);
-            _heaps[(chunk.Section, start)] = heap;
+            heap = OpenWindow(device, window, sectionBytes, use);
 
             if (heap == 0)
             {
                 return 0;
             }
-
-            _opened += heapBytes;
-            _sinceRead = ReadInterval;
         }
 
         WindowOpened?.Invoke(chunk.Section, start, heapBytes);
 
         return heap;
+    }
+
+    /// <summary>The window of <paramref name="section"/> at <paramref name="start"/>, once some request named it.</summary>
+    public SectionWindow? Find(nint section, ulong start)
+    {
+        lock (_gate)
+        {
+            return _all.GetValueOrDefault((section, start));
+        }
+    }
+
+    /// <summary>The window with id <paramref name="id"/> (<see cref="SectionWindow.Id"/>), or null.</summary>
+    public SectionWindow? ById(int id)
+    {
+        lock (_gate)
+        {
+            if (id <= 0 || id > _byId.Count)
+            {
+                return null;
+            }
+
+            return _byId[id - 1];
+        }
+    }
+
+    /// <summary>The highest window id handed out.</summary>
+    public int MaxId
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _byId.Count;
+            }
+        }
+    }
+
+    /// <summary>The open windows no placed buffer pins and none is releasing: what <see cref="WindowResidency"/> may release.</summary>
+    public List<SectionWindow> Releasable()
+    {
+        lock (_gate)
+        {
+            return [.. _all.Values.Where(window => window.Heap != 0 && !window.Pinned && !window.Retiring)];
+        }
+    }
+
+    /// <summary>
+    /// Opens the closed window <paramref name="window"/> for the address map if it fits; false when it does not or the
+    /// desktop refuses it. The map hears of it through <see cref="WindowOpened"/>.
+    /// </summary>
+    public bool TryOpen(nint device, SectionWindow window)
+    {
+        nint heap = Heap(device, window.Chunk, window.Start, SectionHeapUse.Map, out _, out _);
+
+        return heap != 0;
+    }
+
+    /// <summary>The room the address map has now (<see cref="Room"/>).</summary>
+    public ulong MapRoom()
+    {
+        lock (_gate)
+        {
+            _sinceRead = ReadInterval;
+
+            return Room(SectionHeapUse.Map);
+        }
+    }
+
+    /// <summary>Marks <paramref name="window"/> released at a present: no request opens it until <see cref="Close"/>.</summary>
+    public void Retire(SectionWindow window)
+    {
+        lock (_gate)
+        {
+            window.Retiring = true;
+        }
+    }
+
+    /// <summary>Releases the heap of a retired window whose buffers are gone; the view stays for a reopen.</summary>
+    public void Close(SectionWindow window)
+    {
+        lock (_gate)
+        {
+            if (window.Heap != 0)
+            {
+                ComObject.Release(window.Heap);
+                window.Heap = 0;
+                _opened -= Math.Min(_opened, window.Bytes);
+            }
+
+            window.Retiring = false;
+            _sinceRead = ReadInterval;
+        }
+    }
+
+    private SectionWindow Find(XMemPageChunk chunk, ulong start, ulong bytes)
+    {
+        if (_all.TryGetValue((chunk.Section, start), out var window))
+        {
+            return window;
+        }
+
+        int id = 0;
+
+        if (_byId.Count < Binding.WindowFeedback.MaxIds)
+        {
+            id = _byId.Count + 1;
+        }
+
+        window = new SectionWindow(chunk, start, bytes, id);
+        _all[(chunk.Section, start)] = window;
+
+        if (id != 0)
+        {
+            _byId.Add(window);
+        }
+
+        return window;
     }
 
     /// <summary>The section's window size, chosen at its first request: whole windows when all of it fits, lazy ones otherwise.</summary>
@@ -207,32 +327,44 @@ internal sealed unsafe class SectionHeaps
         }
     }
 
-    private nint OpenWindow(nint device, XMemPageChunk chunk, ulong start, ulong bytes, ulong sectionBytes, SectionHeapUse use)
+    /// <summary>Opens the window's heap (its view first, if it has none); 0 when the desktop refuses it, never asked again.</summary>
+    private nint OpenWindow(nint device, SectionWindow window, ulong sectionBytes, SectionHeapUse use)
     {
-        nint view = chunk.Window;
+        var chunk = window.Chunk;
 
-        if (bytes != sectionBytes)
+        if (window.View == 0)
         {
-            view = KernelBase.MapViewOfFile3(chunk.Section, Kernel32.GetCurrentProcess(), 0, start, (nuint)bytes, 0, Win32Constants.PageReadWrite, null, 0);
+            window.View = chunk.Window;
+
+            if (window.Bytes != sectionBytes)
+            {
+                window.View = KernelBase.MapViewOfFile3(chunk.Section, Kernel32.GetCurrentProcess(), 0, window.Start, (nuint)window.Bytes, 0, Win32Constants.PageReadWrite, null, 0);
+            }
         }
 
         nint heap = 0;
 
-        if (view != 0)
+        if (window.View != 0)
         {
-            heap = _open(device, view);
-        }
-
-        if (heap == 0 && view != 0 && view != chunk.Window)
-        {
-            _ = KernelBase.UnmapViewOfFile2(Kernel32.GetCurrentProcess(), view, 0);
+            heap = _open(device, window.View);
         }
 
         if (_log.DetailEnabled)
         {
-            string result = heap == 0 ? "failed" : $"{(_opened + bytes) / Mebibyte} MiB of section heaps open";
-            _log.Detail($"  [d3d12_xs] heap over section 0x{chunk.Section:x} at +0x{start:x} (0x{bytes:x} bytes at 0x{view:x}) for {Name(use)}: {result}; {Describe()}");
+            string result = heap == 0 ? "failed" : $"{(_opened + window.Bytes) / Mebibyte} MiB of section heaps open";
+            _log.Detail($"  [d3d12_xs] heap over section 0x{chunk.Section:x} at +0x{window.Start:x} (0x{window.Bytes:x} bytes at 0x{window.View:x}) for {Name(use)}: {result}; {Describe()}");
         }
+
+        if (heap == 0)
+        {
+            window.Failed = true;
+
+            return 0;
+        }
+
+        window.Heap = heap;
+        _opened += window.Bytes;
+        _sinceRead = ReadInterval;
 
         return heap;
     }

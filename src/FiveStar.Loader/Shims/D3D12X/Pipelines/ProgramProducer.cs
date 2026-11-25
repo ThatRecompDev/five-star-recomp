@@ -54,6 +54,30 @@ internal sealed class ProgramProducer
         _slow = slow;
     }
 
+    /// <summary>
+    /// The defines every program starts with: this process's modes (<see cref="ModeHeader"/>), or in the compile host
+    /// those the loader sent with the request.
+    /// </summary>
+    public string Header { get; init; } = ModeHeader();
+
+    /// <summary>The defines of the modes this process runs in: --user-data-constants and --evict-windows.</summary>
+    public static string ModeHeader()
+    {
+        var header = new StringBuilder();
+
+        if (Binding.UserDataConstants.Enabled)
+        {
+            header.Append(Binding.UserDataConstants.Header);
+        }
+
+        if (Binding.WindowFeedback.Enabled)
+        {
+            header.Append(Binding.WindowFeedback.Header);
+        }
+
+        return header.ToString();
+    }
+
     /// <summary>The folder the DXIL goes to.</summary>
     public string Folder => _folder;
 
@@ -122,11 +146,7 @@ internal sealed class ProgramProducer
             hlsl = DebugLayer.PoolStoreTrace.Header(name) + hlsl;
         }
 
-        if (Binding.UserDataConstants.Enabled)
-        {
-            hlsl = Binding.UserDataConstants.Header + hlsl;
-        }
-
+        hlsl = Header + hlsl;
         var slow = hlsl.Length > _compiler.Options.LargeSourceLength || _slow.Contains(source);
 
         return new ProgramForm(name, new CompileRequest(Path.Combine(_folder, source), hlsl, profile, slow), null);
@@ -149,7 +169,7 @@ internal sealed class ProgramProducer
             return HostedMake.Here;
         }
 
-        var answer = Hosting.Host.Make(new MakeRequest(name, _programs, _folder, Hosting.Adapter), out bool hostEnded);
+        var answer = Hosting.Host.Make(new MakeRequest(name, _programs, _folder, Hosting.Adapter, Header), out bool hostEnded);
 
         if (answer is null || answer.Kind == HostAnswerKind.Failed)
         {

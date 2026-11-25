@@ -101,7 +101,7 @@ public sealed partial class CompileHostTests
 
             var adapter = new FiveStar.Graphics.AdapterInfo(0, "test", false, "6.8", 32, 32, "Tier1");
             var host = new CompileHost(Loader(), null, CompileHost.AnswerLimit);
-            var answer = host.Make(new MakeRequest(name, source, work.FullName, adapter), out bool ended);
+            var answer = host.Make(new MakeRequest(name, source, work.FullName, adapter, string.Empty), out bool ended);
 
             Assert.False(ended);
             Assert.NotNull(answer);

@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Five Star Recomp contributors.
+// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Graphics.Programs;
@@ -94,7 +94,7 @@ internal static class CompileHostServer
     {
         var picker = new ProgramVariantPicker(new ShaderManifest([]), make.Adapter, warnings);
         var compiler = new DxilBackendCompiler(DxcOptions.Defaults(string.Empty, retry: false), null, backend);
-        var producer = new ProgramProducer(make.Programs, make.Folder, picker, compiler, SlowCompiles.Read([], compiler.Options.CompileTimeout));
+        var producer = new ProgramProducer(make.Programs, make.Folder, picker, compiler, SlowCompiles.Read([], compiler.Options.CompileTimeout)) { Header = make.Header };
         var form = producer.Prepare(make.Name);
 
         if (form.Failure is not null)

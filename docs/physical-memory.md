@@ -151,6 +151,17 @@ but can give the GPU the same memory:
   request there. Pages without a heap read as zeros and wait: when a window opens (a buffer placed there), the address
   map points them at it. A buffer without a heap gets a committed buffer that is not shared with the game. Heaps are
   never released: GPU work in flight and descriptors may still reach them.
+- `--evict-windows` (prototype, off by default; programs made on demand): on a 16 GB machine the budget is 6.7 GiB,
+  less than the 6.1 GiB pool plus the 2.2 GiB game heap, so the pool's windows become a cache. The CPU cannot know
+  which windows a frame reads (programs follow V#s and pointers through the address map), so the GPU says: a waiting
+  page's map entry holds the null views and `0x80000000 | window id`, and `gpu_page` (FIVESTAR_WINDOW_FEEDBACK) sets
+  that window's flag in the descriptor window. At the first submission of each present `WindowResidency` reads the
+  flags, opens up to 8 asked-for windows that fit, and otherwise releases the open windows asked for least recently
+  (not within 30 presents; never one a slot-133 buffer pins): their pages wait again at once, and their views and
+  heap go 8 presents later, when the frame throttle has the GPU past them. A window opens one frame after it was
+  first read, so that frame reads zeros. The game's own allocations open by the 64 MiB window around the first
+  address the GPU is given (`OpenExistingHeapFromAddress1`, ID3D12Device13; whole without it); those windows hold
+  addresses recorded into command lists, so they are not released.
 - Translate a game address with `XMemPhysicalMemory.TryLocate` to (section, offset), then to the GPU address of a
   buffer placed over that heap (`CreatePlacedResource`) plus the offset. Contiguity ends at each 64 KiB page unless
   the frames are consecutive in one section.

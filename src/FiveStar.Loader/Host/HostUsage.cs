@@ -36,6 +36,8 @@ internal static class HostUsage
           --section-heap-budget <GB>
                                  at most this much of the game's page sections backed on the GPU (default: what
                                  the GPU's system-memory budget leaves); the rest opens as it is used, or reads as zeros
+          --evict-windows        prototype: section windows the address map needs open when programs report reading
+                                 them and the least recently wanted are released for them (programs made on demand)
           --main <name>          image that plays the process exe for GetModuleHandle(NULL)/GetModuleFileName(NULL)
                                  (default: first mapped exe, else the first --load)
           --patch-peb            also point PEB.ImageBaseAddress at the main image (off by default)

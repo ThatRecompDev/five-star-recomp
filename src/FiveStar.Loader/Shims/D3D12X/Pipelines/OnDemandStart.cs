@@ -77,8 +77,9 @@ internal sealed class OnDemandStart
     }
 
     /// <summary>
-    /// The translator and compiler build's identity; programs that trace their stores (--trace-pool-stores) or read
-    /// their user data from root constants (--user-data-constants) have their own.
+    /// The translator and compiler build's identity; programs that trace their stores (--trace-pool-stores), read
+    /// their user data from root constants (--user-data-constants) or report the windows they want (--evict-windows)
+    /// have their own.
     /// </summary>
     private static string Identity(IShaderCompiler compiler)
     {
@@ -92,6 +93,11 @@ internal sealed class OnDemandStart
         if (Binding.UserDataConstants.Enabled)
         {
             identity = ContentHash.OfText(identity, BindlessRootSignature.UserConstantsDefine);
+        }
+
+        if (Binding.WindowFeedback.Enabled)
+        {
+            identity = ContentHash.OfText(identity, Binding.WindowFeedback.Header);
         }
 
         return identity;

@@ -135,6 +135,9 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
     /// <summary>The heaps over the game's page sections, which slot 133 and the address map share.</summary>
     public SectionHeaps SectionHeaps { get; }
 
+    /// <summary>The section windows kept as a cache over the budget (<c>--evict-windows</c>); null otherwise.</summary>
+    public WindowResidency? Residency { get; private set; }
+
     /// <summary>Device slot 133 and the console-to-desktop GPU address table.</summary>
     public XboxPlacedResources PlacedResources { get; }
 
@@ -196,6 +199,12 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         Debugging.AttachDevice(inner);
         SectionHeaps.Budget = GpuMemoryBudget.Open(inner, _log);
         SectionHeaps.WindowOpened = MemoryViews.WindowOpened;
+
+        if (WindowFeedback.Enabled)
+        {
+            Residency = new WindowResidency(SectionHeaps, MemoryViews, _log);
+            _log.Info("  [d3d12_xs] --evict-windows: section windows open as programs ask for them and the least recently asked are released");
+        }
 
         QueueProgress.Start(_log);
         GpuBreadcrumbs.Attach(inner, _log);

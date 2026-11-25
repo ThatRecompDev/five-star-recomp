@@ -49,6 +49,10 @@ internal sealed unsafe class GameMemoryViews
     private readonly Dictionary<(nint Section, ulong Window, ulong Chunk), uint> _sectionViews = [];
     private readonly Dictionary<(nint Section, ulong Start), HashSet<ulong>> _waiting = [];
     private readonly Queue<(nint Section, ulong Start)> _opened = new();
+    private readonly Dictionary<(nint Section, ulong Window, ulong Chunk), uint> _pairs = [];
+    private readonly Dictionary<(nint Section, ulong Window, ulong Chunk), nint> _buffers = [];
+    private readonly Dictionary<(nint Section, ulong Start), HashSet<ulong>> _resident = [];
+    private readonly Dictionary<ulong, (nint Section, ulong Start)> _pageWindow = [];
     private readonly XMemPhysicalMemory _memory;
     private readonly SectionHeaps _heaps;
     private readonly AddressMap _map = new(MapSpans, DescriptorWindow.UnmappedSlot);
@@ -68,6 +72,20 @@ internal sealed unsafe class GameMemoryViews
         _heaps = heaps;
         _warnings = warnings;
         _log = log;
+    }
+
+    /// <summary>The map entry programs read for <paramref name="address"/>: view index and offset field; (0, 0) before the map exists.</summary>
+    public (uint View, uint Field) Entry(ulong address)
+    {
+        lock (_gate)
+        {
+            if (_data == null)
+            {
+                return (0, 0);
+            }
+
+            return AddressMap.Read(new ReadOnlySpan<byte>(_data, _map.Bytes), address);
+        }
     }
 
     /// <summary>Maps the pages of a range the address table gained (<see cref="AddressTable.Observe"/>).</summary>
@@ -227,19 +245,23 @@ internal sealed unsafe class GameMemoryViews
         var map = new Span<byte>(_data, _map.Bytes);
         uint pair = DescriptorWindow.UnmappedSlot;
         ulong viewStart = page;
+        uint tag = 0;
 
         if (_memory.TryLocate((nint)page, out var chunk, out ulong offset))
         {
-            pair = SectionView(page, chunk, offset, out ulong inView);
+            pair = SectionView(page, chunk, offset, out ulong inView, out tag);
             viewStart = page - inView;
         }
 
         if (pair == DescriptorWindow.UnmappedSlot)
         {
             viewStart = page;
+            Untrack(page);
         }
 
-        if (!_map.Map(map, page, XMemPhysicalMemory.PageSize, pair, viewStart))
+        bool mapped = tag == 0 ? _map.Map(map, page, XMemPhysicalMemory.PageSize, pair, viewStart) : _map.Mark(map, page, pair, tag);
+
+        if (!mapped)
         {
             _warnings.Warn("address-map-spans", $"[d3d12_xs] address map: no page table left for 0x{page:x}; it reads as zeros");
         }
@@ -248,17 +270,20 @@ internal sealed unsafe class GameMemoryViews
     /// <summary>
     /// The view pair over the chunk of the section heap window that holds byte <paramref name="offset"/> of
     /// <paramref name="chunk"/>'s section, made on first use, and the byte's offset in it. The null views when the
-    /// window has no heap: <paramref name="page"/> then waits for one (<see cref="WindowOpened"/>).
+    /// window has no heap: <paramref name="page"/> then waits for one (<see cref="WindowOpened"/>), and with
+    /// <see cref="WindowFeedback"/> its entry carries <paramref name="tag"/>, the window's wait tag.
     /// </summary>
-    private uint SectionView(ulong page, XMemPageChunk chunk, ulong offset, out ulong inView)
+    private uint SectionView(ulong page, XMemPageChunk chunk, ulong offset, out ulong inView, out uint tag)
     {
         inView = 0;
+        tag = 0;
         nint heap = _heaps.Heap(_device, chunk, offset, SectionHeapUse.Map, out ulong heapOffset, out ulong heapBytes);
         (nint Section, ulong Start) window = (chunk.Section, offset - heapOffset);
 
         if (heap == 0)
         {
             Wait(window, page);
+            tag = WaitTag(window);
             _warnings.Warn("address-map-sections", $"[d3d12_xs] address map: no heap over part of section 0x{chunk.Section:x}; its pages read as zeros until one opens");
 
             return DescriptorWindow.UnmappedSlot;
@@ -268,9 +293,12 @@ internal sealed unsafe class GameMemoryViews
         ulong index = heapOffset / ChunkBytes;
         ulong viewOffset = index * ChunkBytes;
         inView = heapOffset - viewOffset;
+        var key = (window.Section, window.Start, index);
 
-        if (_sectionViews.TryGetValue((window.Section, window.Start, index), out uint pair))
+        if (_sectionViews.TryGetValue(key, out uint pair))
         {
+            Track(page, window, pair);
+
             return pair;
         }
 
@@ -278,19 +306,26 @@ internal sealed unsafe class GameMemoryViews
         nint buffer = DesktopCalls.CreatePlacedBuffer(_device, heap, viewOffset, bytes, SectionBufferFlags, CommonState);
         pair = DescriptorWindow.UnmappedSlot;
 
-        if (buffer == 0 || _next + PairSize > _end)
+        if (buffer == 0 || (!_pairs.ContainsKey(key) && _next + PairSize > _end))
         {
             _warnings.Warn("address-map-section-views", $"[d3d12_xs] address map: no view over section 0x{chunk.Section:x}; its pages read as zeros");
         }
         else
         {
-            // The buffer lives as long as the map: its views are never replaced.
-            pair = _next;
-            _next += PairSize;
+            // A window's pair outlives its buffer: a window released (WindowResidency) and opened again writes it anew.
+            if (!_pairs.TryGetValue(key, out pair))
+            {
+                pair = _next;
+                _next += PairSize;
+                _pairs[key] = pair;
+            }
+
+            _buffers[key] = buffer;
             WriteViews(buffer, 0, bytes, pair, true);
         }
 
-        _sectionViews[(window.Section, window.Start, index)] = pair;
+        _sectionViews[key] = pair;
+        Track(page, window, pair);
 
         return pair;
     }
@@ -304,6 +339,103 @@ internal sealed unsafe class GameMemoryViews
         }
 
         pages.Add(page);
+    }
+
+    /// <summary>The offset field of a page waiting for <paramref name="window"/>: its id and <see cref="WindowFeedback.WaitTag"/>; 0 without feedback.</summary>
+    private uint WaitTag((nint Section, ulong Start) window)
+    {
+        if (!WindowFeedback.Enabled)
+        {
+            return 0;
+        }
+
+        var record = _heaps.Find(window.Section, window.Start);
+
+        if (record is null || record.Id == 0)
+        {
+            return 0;
+        }
+
+        return WindowFeedback.WaitTag | (uint)record.Id;
+    }
+
+    /// <summary>With <see cref="WindowFeedback"/>: <paramref name="page"/> reads through a view of <paramref name="window"/> now.</summary>
+    private void Track(ulong page, (nint Section, ulong Start) window, uint pair)
+    {
+        if (!WindowFeedback.Enabled)
+        {
+            return;
+        }
+
+        if (pair == DescriptorWindow.UnmappedSlot)
+        {
+            Untrack(page);
+
+            return;
+        }
+
+        if (_pageWindow.TryGetValue(page, out var previous) && previous != window)
+        {
+            _resident[previous].Remove(page);
+        }
+
+        _pageWindow[page] = window;
+
+        if (!_resident.TryGetValue(window, out var pages))
+        {
+            pages = [];
+            _resident[window] = pages;
+        }
+
+        pages.Add(page);
+    }
+
+    private void Untrack(ulong page)
+    {
+        if (WindowFeedback.Enabled && _pageWindow.Remove(page, out var window))
+        {
+            _resident[window].Remove(page);
+        }
+    }
+
+    /// <summary>
+    /// <see cref="WindowResidency"/> releases <paramref name="window"/>: its pages wait with its tag from now on (reading
+    /// zeros), and its view buffers come back, to be released with its heap once the GPU is past them.
+    /// </summary>
+    public List<nint> Close(SectionWindow window)
+    {
+        lock (_gate)
+        {
+            (nint Section, ulong Start) key = (window.Chunk.Section, window.Start);
+            var buffers = new List<nint>();
+
+            foreach (var view in _sectionViews.Keys.Where(view => view.Section == key.Section && view.Window == key.Start).ToList())
+            {
+                _sectionViews.Remove(view);
+
+                if (_buffers.Remove(view, out nint buffer))
+                {
+                    buffers.Add(buffer);
+                }
+            }
+
+            if (_data == null || !_resident.Remove(key, out var pages))
+            {
+                return buffers;
+            }
+
+            var map = new Span<byte>(_data, _map.Bytes);
+            uint tag = WaitTag(key);
+
+            foreach (ulong page in pages)
+            {
+                _pageWindow.Remove(page);
+                Wait(key, page);
+                _map.Mark(map, page, DescriptorWindow.UnmappedSlot, tag);
+            }
+
+            return buffers;
+        }
     }
 
     /// <summary>Views over each chunk of the range's buffer and the map entries of its pages.</summary>
