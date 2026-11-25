@@ -24,6 +24,15 @@ internal enum GpuResourceEvent
     /// <summary>A slot-70 view got a null descriptor (no readable memory, a depth texture or a failed creation).</summary>
     ViewNull,
 
+    /// <summary>
+    /// A slot-70 view of a full-format texture asked for another member of its cast family (UNORM_SRGB on UNORM, UINT on
+    /// UNORM or FLOAT) and reads in the texture's format: the sRGB decode or the integer reading is lost.
+    /// </summary>
+    ViewCastLost,
+
+    /// <summary>A slot-70 view of a GPU-written texture asked for a format outside its family (an alias of its bytes) and reads in the texture's.</summary>
+    ViewReinterpretLost,
+
     /// <summary>A texture was filled from memory.</summary>
     Upload,
 
