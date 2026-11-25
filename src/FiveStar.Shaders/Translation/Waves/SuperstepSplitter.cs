@@ -27,6 +27,12 @@ internal sealed partial class SuperstepSplitter
     /// <summary>Function-scope declarations of temporaries read across a cut.</summary>
     public IReadOnlyList<string> Hoisted => _hoisted;
 
+    /// <summary>Whether a step deposits several readfirstlane values (rdna_superstep.hlsli's VW_SS_VALUES 4).</summary>
+    public bool UsesValues { get; private set; }
+
+    /// <summary>The values one step deposits for readfirstlanes of one mask.</summary>
+    public const int FirstLaneValues = 4;
+
     /// <summary>The cut blocks; throws <see cref="UnsupportedProgramException"/> for a statement it cannot cut.</summary>
     public List<CodeBlock> Split(IReadOnlyList<CodeBlock> blocks)
     {
@@ -49,8 +55,21 @@ internal sealed partial class SuperstepSplitter
 
         // A compound statement split over lines is one memory step: a step may not stop inside its braces. One with a
         // wave operation is cut line by line, as before.
-        foreach (var statement in Statements(block.Lines))
+        var statements = Statements(block.Lines);
+
+        for (var index = 0; index < statements.Count; index++)
         {
+            var statement = statements[index];
+            var batch = FirstLanes(statements, index);
+
+            if (batch.Count > 1)
+            {
+                CutFirstLanes(parts, batch);
+                index += batch.Count - 1;
+
+                continue;
+            }
+
             if (WaveCallPattern().IsMatch(statement))
             {
                 statement.Split('\n').ToList().ForEach(line => Cut(parts, line));
@@ -77,6 +96,60 @@ internal sealed partial class SuperstepSplitter
         }
 
         return blocks;
+    }
+
+    /// <summary>
+    /// The readfirstlanes of one mask from <paramref name="index"/> on, up to <see cref="FirstLaneValues"/>, while none
+    /// writes what a later one reads (a waterfall loop reads a descriptor's dwords this way).
+    /// </summary>
+    private static List<Match> FirstLanes(List<string> statements, int index)
+    {
+        var batch = new List<Match>();
+
+        for (var next = index; next < statements.Count && batch.Count < FirstLaneValues; next++)
+        {
+            var match = FirstLanePattern().Match(statements[next]);
+
+            if (!match.Success || (batch.Count > 0 && match.Groups["mask"].Value != batch[0].Groups["mask"].Value))
+            {
+                break;
+            }
+
+            var reads = new[] { match.Groups["value"].Value, match.Groups["mask"].Value };
+
+            if (batch.Any(earlier => reads.Contains(earlier.Groups["target"].Value)))
+            {
+                break;
+            }
+
+            batch.Add(match);
+        }
+
+        return batch;
+    }
+
+    /// <summary>One step for several readfirstlanes of one mask: each thread deposits their values together.</summary>
+    private void CutFirstLanes(List<(int Address, List<string> Lines)> parts, List<Match> batch)
+    {
+        var values = batch.Select(match => match.Groups["value"].Value).ToList();
+
+        while (values.Count < FirstLaneValues)
+        {
+            values.Add("0u");
+        }
+
+        var mask = batch[0].Groups["mask"].Value;
+        parts[^1].Lines.Add($"  vw_ss_put_values(uint4({string.Join(", ", values)}), {mask});");
+        Stop(parts, "PC_WAVE");
+        _deposited = mask;
+        UsesValues = true;
+
+        for (var index = 0; index < batch.Count; index++)
+        {
+            var line = $"  {batch[index].Groups["target"].Value} = vw_ss_first_value({index}u);";
+            parts[^1].Lines.Add(line);
+            Forget(line);
+        }
     }
 
     /// <summary>The block's lines joined into statements whose braces balance.</summary>
@@ -312,6 +385,9 @@ internal sealed partial class SuperstepSplitter
 
     [GeneratedRegex(@"\b(vw_read|vw_ballot|vw_any|vw_count|readfirstlane)\(")]
     private static partial Regex WaveCallPattern();
+
+    [GeneratedRegex(@"^\s*(?<target>[A-Za-z_]\w*) = readfirstlane\((?<value>[A-Za-z_]\w*), (?<mask>[A-Za-z_]\w*)\);\s*$")]
+    private static partial Regex FirstLanePattern();
 
     [GeneratedRegex(@"(?<![.\w])(?<name>[A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*(?:[-+*/&|^]|<<|>>)?=(?!=)")]
     private static partial Regex AssignmentPattern();

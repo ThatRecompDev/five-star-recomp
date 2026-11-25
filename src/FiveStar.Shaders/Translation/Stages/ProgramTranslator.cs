@@ -59,9 +59,11 @@ internal static class ProgramTranslator
             DeadWaveOperations.Remove(state.Blocks, SuperstepWriter.Pinned(state, new MeshDeclarations(state)));
             var splitter = new SuperstepSplitter();
             var blocks = splitter.Split(state.Blocks);
+
             state.Blocks.Clear();
             state.Blocks.AddRange(blocks);
             state.Hoisted.AddRange(splitter.Hoisted);
+            state.SuperstepValues = splitter.UsesValues;
         }
 
         var mesh = new MeshDeclarations(state);

@@ -89,6 +89,9 @@ internal sealed class TranslationState
     /// <summary>Superstep form (mesh or compute): wave operations exchange through groupshared memory, one group step each.</summary>
     public bool Supersteps { get; init; }
 
+    /// <summary>Superstep form: a step deposits four readfirstlane values (rdna_superstep.hlsli's VW_SS_VALUES).</summary>
+    public bool SuperstepValues { get; set; }
+
     /// <summary>Superstep form: registers pass between cases through carry slots (TranslationOptions.SuperstepCarry).</summary>
     public bool SuperstepCarry { get; init; }
 
