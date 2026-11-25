@@ -337,8 +337,9 @@ public sealed partial class CorpusTranslator
             return TranslateProgram(path, options);
         }
 
-        var key = _translations.Key(path);
-        var cached = _translations.Find(key, Path.GetFileNameWithoutExtension(path));
+        var name = Path.GetFileNameWithoutExtension(path);
+        var key = _translations.Key(path, options.Translation.ForProgram(name).SharedExponentSamples);
+        var cached = _translations.Find(key, name);
 
         if (cached is not null)
         {
@@ -378,6 +379,7 @@ public sealed partial class CorpusTranslator
     {
         var loaded = loader.Load(path, stages);
         var program = loaded.Program;
+        translation = translation.ForProgram(loaded.Name);
 
         if (program is null)
         {
