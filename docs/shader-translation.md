@@ -102,7 +102,11 @@ or the end; WARP's shader compiler crashes when the `while` is left out.
 
 The whole program keeps the dispatch form, with a comment `// control flow: dispatch loop (<reason>)`, when its graph
 is irreducible (a cycle entered other than through one dominating header: `irreducible`) or has a loop that never
-exits (`loop without exit`; DXIL requires every loop to have a break).
+exits (`loop without exit`; DXIL requires every loop to have a break). Each thread runs the switch on its own there,
+so an s_barrier inside it keeps only its memory fence (`GroupMemoryBarrier`): a thread that ended or sits in another
+block never reaches the barrier the others wait in, and the group would hang (the console's s_barrier waits only for
+waves that have not ended; XCL counts live waves, VIctory keeps the fence where not every lane reaches the barrier;
+facts only). 4 of 400 sampled compute programs hold such a barrier; the cost is ordering across waves there.
 
 Structured is the default since the control-flow differential (see Testing) ran both forms of real programs side by
 side: their outputs are equal apart from fast-math rounding in dxc.
