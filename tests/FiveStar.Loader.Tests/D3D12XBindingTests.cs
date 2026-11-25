@@ -416,6 +416,19 @@ public sealed unsafe class D3D12XBindingTests
         Assert.Equal(buffer, new Span<uint>(mirror, buffer.Length).ToArray());
     }
 
+    [Fact]
+    public void Table_binds_mirror_64_records_unless_told_full_or_a_count()
+    {
+        Assert.Equal(64u, DescriptorWindow.DefaultTableRecords);
+        Assert.Equal(DescriptorWindow.MaxTableRecords, DescriptorWindow.ParseTableRecords("full"));
+        Assert.Equal(200u, DescriptorWindow.ParseTableRecords("200"));
+
+        Assert.Null(DescriptorWindow.ParseTableRecords("0"));
+        Assert.Null(DescriptorWindow.ParseTableRecords("2048"));
+        Assert.Null(DescriptorWindow.ParseTableRecords("many"));
+        Assert.Equal(DescriptorWindow.DefaultTableRecords, new FiveStar.Loader.Host.HostOptions().MirrorTableRecords);
+    }
+
     [DxcFact]
     public void A_table_past_the_desktop_limit_reaches_the_program_across_remap_pages()
     {
