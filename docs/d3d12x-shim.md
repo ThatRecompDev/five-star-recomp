@@ -824,7 +824,7 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   to 64 draws whose pipeline name holds one of the texts, without probes: a frame's UI draws (`sgd2_` Scaleform programs
   such as `FVertexCxform`) come long after its first 32. With `--d3d12-probe-traced` each of those draws also reads
   back its first render target; a float target (R32G32B32A32, R16G16B16A16, R32) also reports each channel's mean and
-  largest value as stored, which the RGBA8 summary clamps (the exposure texel, the lit HDR).
+  largest value as stored, which the RGBA8 summary clamps (the exposure texel, the lit HDR). A traced ExecuteIndirect also reads back, before it runs, each texture its `--d3d12-trace-records` offsets of the first table name by heap index (its inputs as it will see them).
 - `--d3d12-trace-records <offset,...>` adds to each of those draws the window records at these byte offsets from every
   user SGPR holding a record-aligned window offset (a descriptor pointer the game passes as a root constant, which the
   tables do not show): the record dwords, a T#'s base and its address-map state, a V#'s base (or the heap index it
