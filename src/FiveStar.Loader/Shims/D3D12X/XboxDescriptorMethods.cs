@@ -198,7 +198,7 @@ internal static unsafe class XboxDescriptorMethods
         try
         {
             nint desktop = D3D12X.Objects.Unwrap(resource);
-            D3D12X.DrawTrace?.ShaderResourceView(desktop, Destination(handle));
+            D3D12X.DrawTrace?.ShaderResourceView(desktop, Destination(handle), resource);
             var record = ImageViewClasses.With(BufferRecords.Based(BufferRecords.ShaderResource(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: false), desktop, ViewKind.ShaderResource), description);
             NoteFieldless(description, record, unordered: false);
 
