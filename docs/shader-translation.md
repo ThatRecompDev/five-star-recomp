@@ -508,7 +508,12 @@ one under a per-lane condition (`if (active)`, `&&`, `||`, `?:` before the call)
 from the structured form, since WARP's shader compiler crashes on barriers inside the dispatch `switch`. A program whose
 group holds several console waves (they branch apart, so one barrier cannot stand in for a wave) or that calls a wave
 operation under a per-lane condition gets the superstep form instead: console waves are consecutive group indices, as
-on RDNA. The result's reason says `wave32 variant ok` or why there is none.
+on RDNA. The result's reason says `wave32 variant ok` or why there is none. A group of more than 32 threads runs as
+two 32-lane hardware waves, where an LDS read can race a store of the other wave that the console's one wave ordered
+in lockstep: the variant puts a group barrier before such a read (`GroupLdsBarriers`: after a plain store or a
+store-like atomic not yet ordered by a barrier or wave operation, on either path of a branch or anywhere in a loop that
+writes; before the lane-conditioned block a read sits in; an atomic needs one only after a plain store). shadPS4 does
+the same for one-wave groups (facts only). 6 of 14 such programs in a 400-program sample get 1 to 3.
 
 **Variant selection** (`FiveStar.Graphics.Programs.VariantSelector`). `fivestar shader translate` writes
 `<out>/variants.json` (`ShaderManifest`): per compiled program its stage, native DXIL, console wave, floor, pinned
