@@ -69,6 +69,7 @@ internal sealed unsafe class AddressShaderViews
             desktop.Format = ViewFormats.ForView(texture.DesktopFormat, viewFormat);
             desktop.ComponentMapping = TargetFormats.ComponentMapping(viewFormat, desktop.ComponentMapping);
             target = texture.Desktop;
+            NoteLoss(texture, viewFormat, desktop.Format);
         }
 
         if (target == 0 || desktop.Format == ViewFormats.Unknown)
@@ -84,6 +85,42 @@ internal sealed unsafe class AddressShaderViews
         create(device, target, &desktop, handle);
 
         return texture;
+    }
+
+    /// <summary>Counts a view that reads in another format than the game asked for, and names each pair of formats once.</summary>
+    private void NoteLoss(GpuTexture texture, int viewFormat, int created)
+    {
+        var loss = ViewFormats.Loss(texture.DesktopFormat, viewFormat, created);
+
+        // A format with a render-target substitute is read in the substitute on purpose (TargetFormats).
+        if (loss == ViewFormatLoss.None || TargetFormats.HasSubstitute(viewFormat))
+        {
+            return;
+        }
+
+        var kind = loss == ViewFormatLoss.Cast ? GpuResourceEvent.ViewCastLost : GpuResourceEvent.ViewReinterpretLost;
+        _textures.Counters.Add(kind);
+        _warnings.Warn($"slot70-format-{texture.DesktopFormat}-{viewFormat}", $"[d3d12_xs] ID3D12Device.X::Slot70: a view in format {viewFormat} of a {Written(texture)} texture in format {texture.DesktopFormat} reads in {created} ({loss}: {Meaning(loss)}); counted as {kind}");
+    }
+
+    private static string Written(GpuTexture texture)
+    {
+        if (texture.GpuWritten)
+        {
+            return "GPU-written";
+        }
+
+        return "read-only";
+    }
+
+    private static string Meaning(ViewFormatLoss loss)
+    {
+        if (loss == ViewFormatLoss.Cast)
+        {
+            return "the sRGB decode or the integer reading is lost";
+        }
+
+        return "its bytes are not read as the view's format";
     }
 
     /// <summary>A buffer desc, or a texture desc without a format (raw or structured views): not a texture to make.</summary>

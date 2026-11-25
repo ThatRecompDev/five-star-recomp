@@ -38,6 +38,26 @@ internal static class ViewFormats
     }
 
     /// <summary>
+    /// What a view in <paramref name="viewFormat"/> loses when it is created in <paramref name="created"/> on a texture
+    /// of <paramref name="textureFormat"/> (<see cref="ForView"/>): nothing, the cast to another member of the texture's
+    /// family (sRGB decode, integer or signed reading), or the reading of its bytes in a format of another family.
+    /// </summary>
+    public static ViewFormatLoss Loss(int textureFormat, int viewFormat, int created)
+    {
+        if (viewFormat == Unknown || created == Unknown || created == viewFormat)
+        {
+            return ViewFormatLoss.None;
+        }
+
+        if (FormatFamilies.Members(textureFormat).Contains(viewFormat))
+        {
+            return ViewFormatLoss.Cast;
+        }
+
+        return ViewFormatLoss.Reinterpret;
+    }
+
+    /// <summary>
     /// The format to create a read-only texture in for a view: the view's own when it has the same element size as
     /// the resource's (sRGB and typeless twins), else the resource's.
     /// </summary>
