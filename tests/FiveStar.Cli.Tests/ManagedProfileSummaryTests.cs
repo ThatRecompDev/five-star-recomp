@@ -24,6 +24,12 @@ public sealed partial class ManagedProfileSummaryTests
     [Fact]
     public void A_profile_names_the_method_a_thread_class_spends_its_samples_in()
     {
+        // The thread table keys threads by their Windows thread id, as the loader writes it.
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
         var folder = Directory.CreateTempSubdirectory("fivestar-profile-");
 
         try
