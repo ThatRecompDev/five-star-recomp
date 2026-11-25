@@ -120,6 +120,11 @@ internal sealed unsafe class PipelineHost
             return PipelineHostOutcome.KilledMemory;
         }
 
+        if (hresult is null)
+        {
+            return PipelineHostOutcome.Crashed;
+        }
+
         return PipelineHostOutcome.Failed;
     }
 

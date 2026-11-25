@@ -269,6 +269,7 @@ internal sealed unsafe class Presenter : IDisposable
         }
 
         Volatile.Write(ref _presents, _presents + 1);
+        Pipelines.StandInUse.Frame = _presents;
 
         if (_presents <= EarlyPresents)
         {

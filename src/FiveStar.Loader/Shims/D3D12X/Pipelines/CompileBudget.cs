@@ -78,6 +78,13 @@ internal static unsafe class CompileBudget
     private const double AmdSquareGigabytes = 2;
 
     /// <summary>
+    /// Past 1 MB the AMD estimate rises 40 GB per MB more: in game the 1.25 to 2.25 MB mesh + pixel pipelines peaked
+    /// at 11 to 23 GB on average and 24 to 37.5 GB at most (issue #19, 79 compiles), past the quadratic's 9 to 17 GB.
+    /// </summary>
+    private const double AmdSteepGigabytes = 40;
+    private const double AmdSteepFromMegabytes = 1;
+
+    /// <summary>
     /// The most an AMD compile is expected to take: a 5 MB program is past it, so on a 64 GB machine it starts only
     /// with 52 GB free (one of 12 MB did not build on 64 GB at all).
     /// </summary>
@@ -286,7 +293,9 @@ internal static unsafe class CompileBudget
     /// (<see cref="BytesPerShaderByte"/>), quadratic for AMD (issue #19, an RX 7800 XT with Adrenalin 32.0.32029: one
     /// compute program cut to 0.48, 1.5, 2.9 and 5.0 MB of DXIL peaked at 1.0, 4.9, 17.2 and over 30 GB alone; in game,
     /// with others running, 0.48 MB passed 10 GB). <see cref="AmdLinearGigabytes"/> × MB + <see cref="AmdSquareGigabytes"/>
-    /// × MB² gives 2.4, 10.5, 28 and 70 GB there, about twice the isolated peaks as the NVIDIA rate is.
+    /// × MB² gives 2.4, 10.5, 28 and 70 GB there, about twice the isolated peaks as the NVIDIA rate is; past 1 MB
+    /// <see cref="AmdSteepGigabytes"/> per MB more (30 GB at 1.5 MB, 48 GB, the cap, from 1.75 MB), as mesh + pixel
+    /// pipelines of that size took in game.
     /// </summary>
     public static long Estimate(long shaderBytes, uint vendorId)
     {
@@ -296,7 +305,8 @@ internal static unsafe class CompileBudget
         }
 
         double megabytes = shaderBytes / BytesPerMegabyte;
-        double gigabytes = (AmdLinearGigabytes * megabytes) + (AmdSquareGigabytes * megabytes * megabytes);
+        double gigabytes = (AmdLinearGigabytes * megabytes) + (AmdSquareGigabytes * megabytes * megabytes)
+            + (AmdSteepGigabytes * Math.Max(0, megabytes - AmdSteepFromMegabytes));
 
         return Math.Clamp((long)(gigabytes * BytesPerGigabyte), MinimumEstimate, AmdMaximumEstimate);
     }

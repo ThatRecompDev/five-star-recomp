@@ -40,4 +40,34 @@ public sealed class PipelineBuildQueueTests
         var result = await build.Done.Task.WaitAsync(BuildLimit);
         Assert.Equal(HResult.Ok, result.Hr);
     }
+
+    [Fact]
+    public void Urgent_creations_go_by_the_frames_then_the_draws_their_stand_ins_missed()
+    {
+        var queue = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
+        var once = new StandInUse();
+        var everyFrame = new StandInUse();
+        var heavyOnce = new StandInUse();
+
+        once.Skipped(1);
+        heavyOnce.Skipped(1);
+        heavyOnce.Skipped(1);
+        heavyOnce.Skipped(1);
+
+        for (long frame = 1; frame <= 3; frame++)
+        {
+            everyFrame.Skipped(frame);
+        }
+
+        var speculative = queue.Queue(() => new PipelineResult(HResult.Ok, 0), urgent: false);
+        var first = queue.Queue(() => new PipelineResult(HResult.Ok, 1), urgent: true, once);
+        var drawn = queue.Queue(() => new PipelineResult(HResult.Ok, 2), urgent: true, heavyOnce);
+        var framed = queue.Queue(() => new PipelineResult(HResult.Ok, 3), urgent: true, everyFrame);
+
+        // Three frames beat three draws in one frame, which beat one draw; the speculative one comes last.
+        Assert.Same(framed, queue.Take(speculative: true));
+        Assert.Same(drawn, queue.Take(speculative: true));
+        Assert.Same(first, queue.Take(speculative: true));
+        Assert.Same(speculative, queue.Take(speculative: true));
+    }
 }
