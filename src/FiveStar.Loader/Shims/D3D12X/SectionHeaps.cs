@@ -70,6 +70,22 @@ internal sealed unsafe class SectionHeaps
         _open = open ?? OpenOnDevice;
     }
 
+    /// <summary>
+    /// The largest heap opened in place over game memory (<c>--in-place-window</c>), a power of two from
+    /// <see cref="LazyWindowBytes"/> to <see cref="WindowBytes"/>: sections and the game's own allocations larger than
+    /// it open in windows of this size as they are used. <see cref="WindowBytes"/> by default (XCL users on NVIDIA lost
+    /// the device at the world load with the game's memory open in place, and less so with a 512 MB window).
+    /// </summary>
+    public static ulong InPlaceWindow { get; set; } = WindowBytes;
+
+    /// <summary><paramref name="megabytes"/> as an <see cref="InPlaceWindow"/>: rounded down to a power of two within its range.</summary>
+    public static ulong InPlaceWindowOf(ulong megabytes)
+    {
+        ulong bytes = Math.Clamp(megabytes * Mebibyte, LazyWindowBytes, WindowBytes);
+
+        return 1UL << System.Numerics.BitOperations.Log2(bytes);
+    }
+
     /// <summary>The most bytes of section heaps open at once (<c>--section-heap-budget</c>); unlimited by default.</summary>
     public ulong Cap { get; set; } = ulong.MaxValue;
 
@@ -276,7 +292,11 @@ internal sealed unsafe class SectionHeaps
         window = sectionBytes;
         ulong room = Room(SectionHeapUse.Map);
 
-        if (sectionBytes > WindowBytes && sectionBytes <= room)
+        if (sectionBytes > InPlaceWindow && InPlaceWindow < WindowBytes)
+        {
+            window = InPlaceWindow;
+        }
+        else if (sectionBytes > WindowBytes && sectionBytes <= room)
         {
             window = WindowBytes;
         }

@@ -131,7 +131,9 @@ frames ([Present](#present)).
 
 The game asks slot 73 for desktop ID3D12GraphicsCommandList (`5b160d0f-...`) in one place and for
 `c3827890-4024-474c-98cf-645b51dc4874`, not a desktop IID, in the others. Close is slot 9 as on the desktop.
-Slots 131 and 132 (X-only) take (register offset, value, 0, mask 0xFFFFFFFFFF00): register writes.
+Slots 131 and 132 (X-only) take (register offset, value, 0, mask 0xFFFFFFFFFF00): register writes. Other ports name 131
+FlushGpuCacheRangeX, 132 FlushShaderCacheRangeX and 69 FlushPipelineX (newer layout); all three are a global UAV
+barrier here (`CacheFlushSlots`, as XCL does; stubs before), which only orders work, harmless for register writes.
 
 Most commands are recorded inline: the game compares the list's write pointer (+0x18) with a limit (+0x28 before
 draws, +0x30 otherwise), writes PM4 packets itself when there is room, and calls the vtable slot only when there is
@@ -366,7 +368,9 @@ thread signals once memory holds, or after 5 s (logged with the writer list and 
 that timed out is not waited for again. Before the shim blocks the CPU on a queue (a list submitted again while its
 last run is unfinished, `ListSubmissions`), that queue's waits are released, since the writer may come from the
 blocked thread. One fence for all queues held a writer behind an unrelated wait on another queue: per-queue fences
-took the story-load timeouts from 17 to 0 (the first frame's waits take longer than 0.5 s but under 5 s).
+took the story-load timeouts from 17 to 0 (the first frame's waits take longer than 0.5 s but under 5 s). Every
+ticket a queue waits for is signalled: by the watcher (a watch that throws is logged and releases every pending wait)
+or, when the device is bound again, at once (XCL #1452 lost the device right after queue Waits nobody signalled).
 
 A wait recorded after any command of its list splits the list there (`ListSplits`; command-list forwarding thunks
 count their calls in the wrapper, and handlers that record work count themselves), as victory-gta6 cuts its lists:
@@ -482,7 +486,12 @@ flowchart LR
   mirror of records 1,000,000 and up wrote into the store-trace ring, the window flags and the mesh probe's ring), then
   the guard's table, the store-trace ring, the window flags and the mesh probe's ring. A program's store or atomic
   through a 32-bit pointer would land in the window; the prelude drops it (an atomic goes to a sink) and counts it per
-  program (`FIVESTAR_PROGRAM_ID`), and each captured present logs the programs that did since the last.- **CPU-only view heaps** take title memory too (the game creates eleven of 3,128 descriptors and copies their
+  program (`FIVESTAR_PROGRAM_ID`), and each captured present logs the programs that did since the last. A cap table
+  follows (`FIVESTAR_CAP_TABLE`, 1,024 slots of {program id, threads past the superstep block cap, groups past the
+  round bound}, the two-phase form's barrier bound counted with the rounds): each captured present warns with the
+  programs that ran into the caps since the last, so a loop fed a garbage trip count is named (LinearDepthSkin's layer
+  loop in w49). The store-trace ring starts after it (`TRACE_BASE` 0x04016100).
+- **CPU-only view heaps** take title memory too (the game creates eleven of 3,128 descriptors and copies their
   32-byte records into its per-draw tables itself, 0x144d9efc0). Their records name descriptors of the desktop
   shader-visible heap: every view written into one takes the next descriptors of a ring of 16 remap pages
   (`DescriptorRing`, 65,536 descriptors), so a record copied earlier keeps naming the view it copied until the ring
@@ -730,7 +739,8 @@ execution (the one the queue waits on, with its breadcrumbs) when it is older th
 calls (`NOT DONE` marks the ones the GPU has not finished; a Wait shows the fence's value then) and the memory line of
 the thread sampler. With 64 calls kept, the w3 boot's hang showed only executions queued behind the stuck one. A removed device sets every fence to UINT64_MAX; the watch then logs every queue
 as last seen, without the debug layer as well, after the removal reason (GetDeviceRemovedReason through the fence's
-device: DEVICE_HUNG 0x887a0006 is a GPU timeout). Boot w39 lacked the reason: all five queues stopped within 0.3 s of
+device: DEVICE_HUNG 0x887a0006 is a GPU timeout), with the GPU's memory groups (local and non-local: usage, budget,
+reservation) and how much of the game's memory is open in place (section heaps, the game's own allocations). Boot w39 lacked the reason: all five queues stopped within 0.3 s of
 an execution of 2 dispatches and 103 ExecuteIndirects, and the device went 5 s later.
 
 `--d3d12-breadcrumbs` (`GpuBreadcrumbs`) adds where each list of an unfinished execution stopped: before every draw,

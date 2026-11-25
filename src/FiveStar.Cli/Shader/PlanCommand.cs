@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FiveStar.Cli.Graphics;
 using System.Globalization;
 using FiveStar.Graphics;
 using FiveStar.Graphics.Programs;
@@ -64,7 +65,7 @@ internal static class PlanCommand
             return adapters;
         }
 
-        return AdapterCatalog.List().Where(adapter => adapter.ShaderModel is not null).ToList();
+        return MeasuredAdapters.List().Where(adapter => adapter.ShaderModel is not null).ToList();
     }
 
     private static IEnumerable<AdapterInfo> Profiles(string list)

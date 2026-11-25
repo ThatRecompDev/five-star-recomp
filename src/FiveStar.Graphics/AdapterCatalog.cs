@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FiveStar.Graphics.Probes;
 using Vortice.Direct3D12;
 using Vortice.DXGI;
 using Feature = Vortice.Direct3D12.Feature;
@@ -16,6 +17,12 @@ public static class AdapterCatalog
     /// <summary>Every adapter in DXGI order (the index <see cref="GpuDevice"/> takes), including software ones.</summary>
     public static IReadOnlyList<AdapterInfo> List()
     {
+        return List(null);
+    }
+
+    /// <summary>The same, with the mesh-shader wave measured by <paramref name="meshProbe"/> (<see cref="MeshWaveProbe"/>'s DXIL) when given.</summary>
+    public static IReadOnlyList<AdapterInfo> List(byte[]? meshProbe)
+    {
         var adapters = new List<AdapterInfo>();
         using var factory = DXGI.CreateDXGIFactory2<IDXGIFactory4>(false);
 
@@ -25,14 +32,14 @@ public static class AdapterCatalog
             {
                 var description = adapter.Description1;
                 var software = (description.Flags & AdapterFlags.Software) != 0;
-                adapters.Add(Describe((int)index, description.Description, software));
+                adapters.Add(Describe((int)index, description.Description, software, meshProbe));
             }
         }
 
         return adapters;
     }
 
-    private static AdapterInfo Describe(int index, string name, bool software)
+    private static AdapterInfo Describe(int index, string name, bool software, byte[]? meshProbe)
     {
         try
         {
@@ -41,6 +48,12 @@ public static class AdapterCatalog
             var options7 = default(FeatureDataD3D12Options7);
             Check(device.Device, Feature.Options1, ref options1);
             Check(device.Device, Feature.Options7, ref options7);
+            int? meshWave = null;
+
+            if (meshProbe is not null && options7.MeshShaderTier != MeshShaderTier.NotSupported)
+            {
+                meshWave = MeshWaveProbe.Measure(device.Device, meshProbe);
+            }
 
             return new AdapterInfo(
                 index,
@@ -49,7 +62,10 @@ public static class AdapterCatalog
                 ShaderModelText(HighestShaderModel(device.Device)),
                 (int)options1.WaveLaneCountMin,
                 (int)options1.WaveLaneCountMax,
-                options7.MeshShaderTier.ToString());
+                options7.MeshShaderTier.ToString())
+            {
+                MeshWaveLanes = meshWave,
+            };
         }
         catch (SharpGen.Runtime.SharpGenException)
         {
