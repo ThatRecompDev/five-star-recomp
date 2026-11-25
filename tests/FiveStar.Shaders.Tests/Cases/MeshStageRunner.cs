@@ -46,6 +46,18 @@ public sealed partial class MeshStageRunner
     /// <summary><see cref="FirstLane"/> with s11 = 1: a 4-lane window would read s8 + 4k, the console wave lane 0's s8.</summary>
     public const string FirstLaneSplit = "ms_ngg_first_lane_split";
 
+    /// <summary>
+    /// The program with its counts taken by v_readfirstlane of a copy of s8 under a full EXEC: every lane holds the
+    /// value, so the native form reads it without a wave operation (Waves.UniformWaveOperations).
+    /// </summary>
+    public const string UniformFirstLane = "ms_ngg_uniform_first_lane";
+
+    private const string UniformFirstLaneCounts = """
+        v_mov_b32 v41, s8
+        v_readfirstlane_b32 s50, v41
+        s_mov_b32 m0, s50
+        """;
+
     private const string FirstLaneCounts = """
         v_mbcnt_lo_u32_b32 v40, -1, 0
         v_mbcnt_hi_u32_b32 v40, -1, v40
@@ -205,7 +217,7 @@ public sealed partial class MeshStageRunner
         var bindings = new Bindings { UserSgprs = [(Primitives << 12) | Vertices, Culled, FloatBits.Of(AttributeBase), lanes] };
         var image = Reference();
 
-        if (variant is Native or Windows or Supersteps or SuperstepCarry or FirstLane or FirstLaneSplit)
+        if (variant is Native or Windows or Supersteps or SuperstepCarry or FirstLane or FirstLaneSplit or UniformFirstLane)
         {
             var result = _fixture.Runner.Mesh(new MeshJob(_fixture.Workbench.Compile(variant, mesh, "ms", direct), pixel, framebuffer, bindings, 1));
 
@@ -326,6 +338,13 @@ public sealed partial class MeshStageRunner
                 .Replace("s_and_b32 s21, s8, 0xfff", "s_and_b32 s21, s50, 0xfff", StringComparison.Ordinal)
                 .Replace("s_lshr_b32 s21, s8, 12", "s_lshr_b32 s21, s50, 12", StringComparison.Ordinal);
             variant = FirstLane;
+        }
+
+        if (variant == UniformFirstLane)
+        {
+            source = Program.Replace(RoundTrip, string.Empty, StringComparison.Ordinal).Replace("s_mov_b32 m0, s8", UniformFirstLaneCounts, StringComparison.Ordinal)
+                .Replace("s_and_b32 s21, s8, 0xfff", "s_and_b32 s21, s50, 0xfff", StringComparison.Ordinal)
+                .Replace("s_lshr_b32 s21, s8, 12", "s_lshr_b32 s21, s50, 12", StringComparison.Ordinal);
         }
 
         var userSgprs = 4;
