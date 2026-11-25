@@ -829,7 +829,8 @@ internal static unsafe class CommandListBindingMethods
     [HotPath]
     private static void MirrorReach(XboxObject* self, CommandListBindings* bindings, bool compute)
     {
-        var entries = TableReaches.Of(RectangleListState.Of(self)->Pipeline);
+        nint pipeline = RectangleListState.Of(self)->Pipeline;
+        var entries = TableReaches.Of(pipeline);
 
         if (entries.Length == 0)
         {
@@ -837,6 +838,12 @@ internal static unsafe class CommandListBindingMethods
         }
 
         uint* data = compute ? bindings->Compute : bindings->Graphics;
+
+        if (DepthUavs.Any)
+        {
+            DepthUavs.CheckFirstUse(pipeline, data, ShimContext.Runtime.D3D12X.Bindings.Window.Data);
+        }
+
         var heaps = ShimContext.Runtime.D3D12X.DescriptorHeaps;
 
         foreach (var entry in entries)
