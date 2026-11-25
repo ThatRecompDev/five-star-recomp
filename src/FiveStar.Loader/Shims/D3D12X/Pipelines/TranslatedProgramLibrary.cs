@@ -45,6 +45,7 @@ internal sealed class TranslatedProgramLibrary : IProgramLibrary
     /// </summary>
     public static TranslatedProgramLibrary Open(ProgramIndex index, string folder, nint device, OnceLog warnings, LoaderLog log)
     {
+        ShimContext.ActiveRuntime?.D3D12X.Bindings.Window.StaticSamplers.AddFolder(folder);
         var manifestPath = Path.Combine(folder, ShaderManifest.FileName);
 
         if (!File.Exists(manifestPath))
@@ -146,6 +147,9 @@ internal sealed class TranslatedProgramLibrary : IProgramLibrary
 
             var program = new TranslatedProgram(name, stage, File.ReadAllBytes(path));
             _loaded[name] = _recent.AddFirst(program);
+
+            // A program made since (here or by the compile host) may name static samplers not made yet.
+            ShimContext.ActiveRuntime?.D3D12X.Bindings.Window.StaticSamplers.Refresh();
             Interlocked.Add(ref _heldBytes, program.Dxil.Length);
             Trim();
 

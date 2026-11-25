@@ -254,7 +254,7 @@ internal sealed class ImageEmitter
 
         if (sampler is not null && !request.HasCompare)
         {
-            _state.Emit($"  SamplerState _smp{request.Number} = SamplerDescriptorHeap[sampler_slot({_operands.SamplerIndex(sampler)})];");
+            _state.Emit($"  SamplerState _smp{request.Number} = SamplerDescriptorHeap[sampler_slot({_operands.SamplerIndex(sampler, comparison: false)})];");
         }
     }
 

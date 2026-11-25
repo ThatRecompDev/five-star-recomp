@@ -96,8 +96,8 @@ internal sealed unsafe class DescriptorWindow
     /// <summary>The first desktop index of the game's descriptors.</summary>
     public const uint ReservedViews = UnmappedSlot + 2;
 
-    /// <summary>rdna_prelude STATIC_SAMPLER_BASE: samplers for the literal S#s of a program.</summary>
-    public const uint StaticSamplerBase = 2032;
+    /// <summary>rdna_prelude STATIC_SAMPLER_BASE: samplers for the literal S#s of the programs (<see cref="StaticSamplerHeap"/>).</summary>
+    public const uint StaticSamplerBase = FiveStar.Shaders.Translation.StaticSampler.FirstSlot;
 
     /// <summary>
     /// Window layout: view records from 0 (heap-relative addresses, see the class), a null table (for a table handle
@@ -131,7 +131,11 @@ internal sealed unsafe class DescriptorWindow
     public DescriptorWindow(LoaderLog log)
     {
         _log = log;
+        StaticSamplers = new StaticSamplerHeap(log);
     }
+
+    /// <summary>The samplers of the programs' literal S#s, at their slots from <see cref="StaticSamplerBase"/>.</summary>
+    public StaticSamplerHeap StaticSamplers { get; }
 
     /// <summary>The desktop shader-visible view heap, once the game created its heap.</summary>
     public nint ViewHeap { get; private set; }
@@ -223,7 +227,10 @@ internal sealed unsafe class DescriptorWindow
         return true;
     }
 
-    /// <summary>Takes the game's shader-visible sampler heap and fills the static sampler slots with a trilinear sampler.</summary>
+    /// <summary>
+    /// Takes the game's shader-visible sampler heap: the static sampler slots get a trilinear stand-in, then the samplers
+    /// the program folders name (<see cref="StaticSamplers"/>).
+    /// </summary>
     public void AttachSamplers(nint device, nint heap, uint count, uint increment)
     {
         uint* sampler = stackalloc uint[TrilinearSampler.Dwords];
@@ -236,6 +243,7 @@ internal sealed unsafe class DescriptorWindow
         }
 
         SamplerHeap = heap;
+        StaticSamplers.Attach(device, cpu, increment);
     }
 
     /// <summary>Window records of the game's view heap: game order from <see cref="ViewBase"/>.</summary>

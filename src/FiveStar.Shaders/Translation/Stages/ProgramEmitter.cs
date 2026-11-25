@@ -82,11 +82,7 @@ internal sealed partial class ProgramEmitter
             lines.Add("#include \"rdna_bvh.hlsli\"");
         }
 
-        for (var slot = 0; slot < _state.StaticSamplers.Count; slot++)
-        {
-            var words = string.Join(" ", _state.StaticSamplers[slot].Select(word => word.ToString("x8", System.Globalization.CultureInfo.InvariantCulture)));
-            lines.Add($"// static sampler {slot}: S# = {words}");
-        }
+        lines.AddRange(_state.StaticSamplers.Select(sampler => sampler.Line));
 
         lines.Add(string.Empty);
 
