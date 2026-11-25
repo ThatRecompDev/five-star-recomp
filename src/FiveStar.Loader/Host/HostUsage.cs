@@ -122,6 +122,8 @@ internal static class HostUsage
           --d3d12-trace-queues   log the first queue submissions, signals and waits (cross-queue protocol)
           --d3d12-breadcrumbs    a GPU marker after every draw and dispatch: a stalled queue names the one it hangs in
           --gpu-timings          GPU time per pass and queue (timestamp queries), logged with the sample line
+          --frame-log <n>        every n-th frame and every slow one: the CPU side of the frame (our submit path,
+                                 texture refresh, descriptor mirroring, GC pauses, the present)
           --check-view-liveness  before each draw and dispatch, check the bound tables' views: released resources, wrong kinds
           --d3d12-nan-scan <t>   read back the inputs of draws whose pipeline contains t and log those holding NaN or Inf
           --d3d12-nan-scan-dwords <offset>:<n>  also show n floats of every scanned buffer and CBV from that byte offset

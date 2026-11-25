@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
+using FiveStar.Loader.Shims.D3D12X.Present;
 
 namespace FiveStar.Loader.Shims.D3D12X;
 
@@ -84,9 +85,11 @@ internal static unsafe class XboxQueueMethods
             return;
         }
 
+        long start = FrameLog.Start();
         var d3d12 = ShimContext.Runtime.D3D12X;
         var objects = d3d12.Objects;
         d3d12.Textures.RefreshWatched(objects.DesktopDevice, d3d12.Presenter.Presents);
+        FrameLog.AddRefresh(start);
         d3d12.Residency?.Poll(objects.DesktopDevice, d3d12.Bindings.Window.WindowFlags, d3d12.Presenter.Presents);
 
         nint inner = self->Inner;
@@ -120,6 +123,8 @@ internal static unsafe class XboxQueueMethods
             Submit(self, lists + first, desktop, size, execute);
             d3d12.DrawTrace?.Submitted(((XboxQueueObject*)self)->Number, lists + first, size);
         }
+
+        FrameLog.AddSubmit(start);
     }
 
     /// <summary>
