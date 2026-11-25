@@ -92,7 +92,7 @@ internal static unsafe class TraceRecords
             {
                 var record = (uint*)(window + pointer + entry.Offset);
                 text.Append(CultureInfo.InvariantCulture, $"\n      sgpr {sgpr} 0x{pointer:x} +0x{entry.Offset:x}:");
-                AppendRecord(text, record, sources.MapState, sources.Memory, entry.Dword);
+                AppendRecord(text, record, sources, entry.Dword);
                 AppendGameRecord(text, pointer + entry.Offset, sources.GameRecord);
             }
         }
@@ -123,14 +123,16 @@ internal static unsafe class TraceRecords
         }
     }
 
-    private static void AppendRecord(StringBuilder text, uint* record, Func<ulong, string> mapState, Func<ulong, int, nint> memory, uint? dword)
+    private static void AppendRecord(StringBuilder text, uint* record, TraceRecordSources sources, uint? dword)
     {
+        var mapState = sources.MapState;
+        var memory = sources.Memory;
         AppendDwords(text, record);
 
         if (record[TypeDword] >> TypeShift >= FirstImageType)
         {
             ulong image = (record[0] | ((ulong)(record[BaseHigh] & ImageHighMask) << DwordBits)) << ImageBaseShift;
-            text.Append(CultureInfo.InvariantCulture, $"\n        T# base 0x{image:x}: {mapState(image)}");
+            text.Append(CultureInfo.InvariantCulture, $"\n        T# base 0x{image:x}: {mapState(image)}; {sources.Texture(image)}");
 
             return;
         }
