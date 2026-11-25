@@ -58,6 +58,12 @@ public sealed class CompileBudgetTests
         Assert.Equal(4 * Gigabyte, CompileBudget.Floor(64UL * Gigabyte));
         Assert.Equal(15_600L * (1L << 20) / 8, CompileBudget.Floor(15_600UL << 20));
         Assert.True(WarmMemoryGuard.RoomForPrograms(0));
+
+        // The driver compiles at once follow the RAM: 12 on the 63 GB reference machine, 6 on 32 GB, 3 on 16 GB.
+        Assert.Equal(CompileBudget.DefaultMaxCompiles, CompileBudget.MaxCompilesFor(63UL * Gigabyte));
+        Assert.Equal(6, CompileBudget.MaxCompilesFor(32UL * Gigabyte));
+        Assert.Equal(3, CompileBudget.MaxCompilesFor(16UL * Gigabyte));
+        Assert.Equal(2, CompileBudget.MaxCompilesFor(8UL * Gigabyte));
     }
 
     [Fact]

@@ -109,8 +109,8 @@ internal sealed record HostOptions
     /// </summary>
     public bool PlacedTextures { get; set; } = true;
 
-    /// <summary>The most driver compiles of 256 KB of DXIL or more at once (<c>--max-driver-compiles</c>).</summary>
-    public int MaxDriverCompiles { get; set; } = Shims.D3D12X.Pipelines.CompileBudget.DefaultMaxCompiles;
+    /// <summary>The most driver compiles of 256 KB of DXIL or more at once (<c>--max-driver-compiles</c>); 0 for the machine's default.</summary>
+    public int MaxDriverCompiles { get; set; }
 
     /// <summary>The private bytes driver compiles are kept under (<c>--compile-ceiling</c>, given in GB).</summary>
     public long CompileCeilingBytes { get; set; } = Shims.D3D12X.Pipelines.CompileBudget.DefaultCeilingBytes;
