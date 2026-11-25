@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
@@ -459,7 +460,32 @@ internal sealed unsafe class XMemPhysicalMemory : IDisposable
 
     private nint ReservePlaceholder(nint address, nuint size)
     {
-        return KernelBase.VirtualAlloc2(_process, address, size, Win32Constants.MemReserve | MemoryConstants.MemReservePlaceholder, Win32Constants.PageNoAccess, null, 0);
+        const uint type = Win32Constants.MemReserve | MemoryConstants.MemReservePlaceholder;
+
+        if (address == 0)
+        {
+            return OnLine(size, type, Win32Constants.PageNoAccess);
+        }
+
+        return KernelBase.VirtualAlloc2(_process, address, size, type, Win32Constants.PageNoAccess, null, 0);
+    }
+
+    /// <summary>
+    /// A range the game left the address of to the system, on a 4 GiB line as on the console
+    /// (<see cref="AlignedReservations"/>), else anywhere.
+    /// </summary>
+    private nint OnLine(nuint size, uint type, uint protection)
+    {
+        nint result = AlignedReservations.Allocate(_process, size, type, protection);
+
+        if (result != 0)
+        {
+            return result;
+        }
+
+        _log.Warn($"[xmem] no 4 GiB-aligned range of 0x{size:x} bytes (error {Marshal.GetLastPInvokeError()}): allocated anywhere");
+
+        return KernelBase.VirtualAlloc2(_process, 0, size, type, protection, null, 0);
     }
 
     private nint ReserveMappable(nint address, nuint size, uint allocationType, uint protect)
@@ -529,6 +555,11 @@ internal sealed unsafe class XMemPhysicalMemory : IDisposable
         if ((allocationType & MemoryConstants.MemReplacePlaceholder) != 0)
         {
             return KernelBase.VirtualAlloc2(_process, address, size, type | MemoryConstants.MemReplacePlaceholder, protection, null, 0);
+        }
+
+        if (address == 0)
+        {
+            return OnLine(size, type, protection);
         }
 
         return Kernel32.VirtualAlloc(address, size, type, protection);
