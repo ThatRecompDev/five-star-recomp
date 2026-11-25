@@ -41,6 +41,19 @@ public sealed class CompileBudgetTests
         Assert.True(CompileBudget.Room(resolve, 12_700UL << 20, 100UL * Gigabyte, 0, CompileBudget.MinimumPhysicalReserve));
     }
 
+    /// <summary>
+    /// Issue #13's 15.6 GB machine: the game alone left less than 4 GB + a program job free, so no program or compile
+    /// ever started and the cutscene stayed on one frame. The floor is an eighth of the RAM there, and program work
+    /// always starts when none runs.
+    /// </summary>
+    [Fact]
+    public void A_small_machine_keeps_a_smaller_floor_and_program_work_never_stops_altogether()
+    {
+        Assert.Equal(4 * Gigabyte, CompileBudget.Floor(64UL * Gigabyte));
+        Assert.Equal(15_600L * (1L << 20) / 8, CompileBudget.Floor(15_600UL << 20));
+        Assert.True(WarmMemoryGuard.RoomForPrograms(0));
+    }
+
     [Fact]
     public void AMD_estimates_grow_quadratically_and_cover_the_isolated_peaks_of_issue_19()
     {

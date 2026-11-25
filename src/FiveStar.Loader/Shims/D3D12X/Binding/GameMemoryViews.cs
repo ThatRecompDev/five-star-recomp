@@ -41,6 +41,9 @@ internal sealed unsafe class GameMemoryViews
 
     private const ulong PageMask = XMemPhysicalMemory.PageSize - 1;
 
+    /// <summary>The window id in a waiting page's offset field (<see cref="WindowFeedback.WaitTag"/>).</summary>
+    private const uint WindowIdMask = 0xFFFF;
+
     /// <summary>Pages <see cref="Maps"/> checks one by one.</summary>
     private const ulong PagesChecked = 256;
 
@@ -76,6 +79,9 @@ internal sealed unsafe class GameMemoryViews
         _warnings = warnings;
         _log = log;
     }
+
+    /// <summary>Asks for a window by id (<see cref="WindowResidency.Ask"/>); null without --evict-windows.</summary>
+    public Action<int>? Ask { get; set; }
 
     /// <summary>The map entry programs read for <paramref name="address"/>: view index and offset field; (0, 0) before the map exists.</summary>
     public (uint View, uint Field) Entry(ulong address)
@@ -128,9 +134,19 @@ internal sealed unsafe class GameMemoryViews
         }
     }
 
-    private static bool Viewed(ReadOnlySpan<byte> map, ulong page)
+    /// <summary>
+    /// Whether the page has a view. One that waits for its window's heap (<see cref="WindowFeedback"/>) asks for the
+    /// window (<see cref="Ask"/>): a view over it is about to be read, and while the window is closed the view keeps its
+    /// heap index, so no program would read the page through the map and ask itself.
+    /// </summary>
+    private bool Viewed(ReadOnlySpan<byte> map, ulong page)
     {
-        var (view, _) = AddressMap.Read(map, page);
+        var (view, field) = AddressMap.Read(map, page);
+
+        if (view == DescriptorWindow.UnmappedSlot && (field & WindowFeedback.WaitTag) != 0)
+        {
+            Ask?.Invoke((int)(field & WindowIdMask));
+        }
 
         return view != 0 && view != DescriptorWindow.UnmappedSlot;
     }
