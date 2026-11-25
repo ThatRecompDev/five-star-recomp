@@ -62,6 +62,12 @@ internal static unsafe class XboxQueueMethods
                 QueueTrace.Execute(self, count, 0, 0);
             }
 
+            // After a removal the work would only pile up against a dead device (DeviceLoss ends the process).
+            if (DeviceLoss.Lost)
+            {
+                return;
+            }
+
             Execute(self, count, lists);
         }
         catch (Exception exception)

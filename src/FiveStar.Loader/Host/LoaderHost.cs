@@ -412,11 +412,13 @@ internal sealed class LoaderHost
     }
 
     /// <summary>The memory map (<c>--memory-map</c>) and the memory limits (<c>--min-free-memory</c>, <c>--max-commit</c>).</summary>
-    /// <summary><c>--d3d12-breadcrumbs</c> and <c>--gpu-timings</c>, for the device the game creates next.</summary>
+    /// <summary><c>--d3d12-breadcrumbs</c> and <c>--gpu-timings</c>, for the device the game creates next; where a device removal is logged.</summary>
     private void EnableGpuMarkers()
     {
         GpuBreadcrumbs.Enable(_options.D3D12Breadcrumbs);
         Shims.D3D12X.DebugLayer.GpuTimings.Enable(_options.GpuTimings);
+        DeviceLoss.Log = _log;
+        DeviceLoss.Armed = true;
     }
 
     /// <summary><c>--watch-pool-pages</c> and <c>--watch-4g-lines</c>.</summary>
