@@ -244,7 +244,9 @@ internal static unsafe class WaitObjects
     /// <summary>What a wait is on: its handle, or for a wait on several which of them (the first is described).</summary>
     private static string Target(ThreadWait wait)
     {
-        if (wait.Several is not { Length: > 1 } several)
+        var several = wait.Several;
+
+        if (several is null || several.Length <= 1)
         {
             return $"handle 0x{wait.Handle:x}";
         }
