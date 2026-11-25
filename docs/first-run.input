@@ -33,13 +33,14 @@ screen legal-next
 
 # Privacy policy and terms of service: two check boxes that Space toggles, then Confirm. The policy text scrolls by
 # itself (63 to 132 cells changed in one boot), so the screen allows 160 changed cells; the legal screens are 233 and
-# 256 cells away.
+# 256 cells away. The first press waits 3 s and the others come 1.5 s apart: with presses 1 s and 0.8 s apart the
+# screen sometimes dropped one, and the game went back to the legal notices.
 screen terms 160
-1 Space hold 0.3
-+0.8 Down hold 0.3
-+0.8 Space hold 0.3
-+0.8 Down hold 0.3
-+0.8 Space hold 0.3
+3 Space hold 0.3
++1.5 Down hold 0.3
++1.5 Space hold 0.3
++1.5 Down hold 0.3
++1.5 Space hold 0.3
 
 # The story load (a spinner on dark blue): nothing to press, the log names the time.
 screen story-load

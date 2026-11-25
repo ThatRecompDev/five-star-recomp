@@ -41,9 +41,10 @@ internal sealed unsafe class DescriptorWindow
     /// at the offsets of its own binding entries (0x144d9efc0) by copying their bytes, and its programs read them there
     /// (default_ps_tex reads its T# at record 1 of a table whose root signature spans one descriptor;
     /// VS_PassthroughComposite reads records 28 and 41 of a table that spans 7, so 16 left the composite's constants
-    /// stale and it drew a sliver).
+    /// stale and it drew a sliver; TL_PS_PBR_MATERIAL_STANDARD reads record 180 of its table 0). Until each program's
+    /// reach is known, every bind mirrors the game's whole table range (<see cref="MaxTableRecords"/>).
     /// </summary>
-    public const uint MinTableRecords = 64;
+    public const uint MinTableRecords = MaxTableRecords;
 
     /// <summary>The records a table bind mirrors: its root signature's extent, at least <see cref="MinTableRecords"/>.</summary>
     public static uint MirroredRecords(uint extent)
