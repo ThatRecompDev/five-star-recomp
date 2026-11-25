@@ -65,7 +65,7 @@ internal sealed class ProgramProducer
     /// <summary>The defines of the modes this process runs in: --user-data-constants, --evict-windows, the window guard and BVH misses.</summary>
     public static string ModeHeader()
     {
-        var header = new StringBuilder();
+        var header = new StringBuilder(Binding.DescriptorWindow.Header);
 
         if (Binding.UserDataConstants.Enabled)
         {

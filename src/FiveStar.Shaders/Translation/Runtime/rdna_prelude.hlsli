@@ -26,6 +26,13 @@ static const uint CODE_TAG = 0xc0de0000u;                       // pointer hi-wo
 // index reads outside the heap (VIctory's port of the same game saw NVIDIA hang and AMD fault on it).
 uint view_slot(uint i) { return i < VIEW_SLOTS ? i : GPU_MAP_HEAP + 1u; }
 uint uav_slot(uint i) { return i < VIEW_SLOTS ? i : GPU_MAP_HEAP + 2u; }
+// A texture's heap slot: a game view, or else (a zero or unwritten T#, a reserved buffer slot, past the heap) the null
+// texture of its dimension at null_slot (NullTextureSlots), never a buffer read as a texture. The loader defines
+// FIVESTAR_FIRST_GAME_VIEW (DescriptorWindow.ReservedViews, NullTextureSlots.End); without it every index below the heap's end is a view.
+#ifndef FIVESTAR_FIRST_GAME_VIEW
+#define FIVESTAR_FIRST_GAME_VIEW 0u
+#endif
+uint tex_slot(uint i, uint null_slot) { return (i >= FIVESTAR_FIRST_GAME_VIEW && i < VIEW_SLOTS) ? i : null_slot; }
 uint sampler_slot(uint i) { return min(i, SAMPLER_SLOTS - 1u); }
 
 uint MemLoad(uint ptr_lo, uint off) {
