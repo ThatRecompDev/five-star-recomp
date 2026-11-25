@@ -48,6 +48,7 @@ internal sealed class GpuTextureRegistry : IDisposable
     private GpuTexture[] _sorted = [];
     private long _frame;
     private long _released;
+    private long _unmapped;
 
     /// <summary>The registry of the loader's queues (<see cref="QueueProgress"/>).</summary>
     public static GpuTextureRegistry OfQueues()
@@ -112,7 +113,7 @@ internal sealed class GpuTextureRegistry : IDisposable
             {
                 int retired = _aliasCount + _retired.Count + _agedAliases.Count;
 
-                return $"{_sorted.Length} textures, retired {retired} (aliased {_aliasCount + _agedAliases.Count}), released {_released}";
+                return $"{_sorted.Length} textures, retired {retired} (aliased {_aliasCount + _agedAliases.Count}), released {_released}, {_unmapped} retired as their memory was unmapped";
             }
         }
     }
@@ -139,6 +140,72 @@ internal sealed class GpuTextureRegistry : IDisposable
             kept.Sort((left, right) => left.Address.CompareTo(right.Address));
             Volatile.Write(ref _sorted, kept.ToArray());
         }
+    }
+
+    /// <summary>
+    /// The game unmapped the memory at [<paramref name="address"/>, + <paramref name="bytes"/>): every texture over it is
+    /// retired, released after its grace like one a new texture replaced. Before, only a new texture over the same range
+    /// retired one, so textures over memory the game streamed out and left unmapped stayed for the whole run: #13's long
+    /// run grew its placed texture heaps from 0.5 to 10.5 GB of anonymous private memory. Returns how many it retired.
+    /// </summary>
+    public int Unmapped(ulong address, ulong bytes)
+    {
+        if (!Overlaps(Volatile.Read(ref _sorted), address, bytes))
+        {
+            return 0;
+        }
+
+        lock (_gate)
+        {
+            var kept = new List<GpuTexture>(_sorted.Length);
+            int retired = 0;
+
+            foreach (var entry in _sorted)
+            {
+                if (entry.Address < address + bytes && address < entry.Address + entry.Size)
+                {
+                    _retired.Enqueue((entry, _frame, _submitted()));
+                    retired++;
+                }
+                else
+                {
+                    kept.Add(entry);
+                }
+            }
+
+            Volatile.Write(ref _sorted, kept.ToArray());
+            _unmapped += retired;
+
+            return retired;
+        }
+    }
+
+    /// <summary>
+    /// Whether a texture of the sorted array overlaps the range (lock-free, before the rebuild): registered ranges never
+    /// overlap, so only the last texture starting before the range's end can reach into it.
+    /// </summary>
+    private static bool Overlaps(GpuTexture[] sorted, ulong address, ulong bytes)
+    {
+        int low = 0;
+        int high = sorted.Length - 1;
+        int last = -1;
+
+        while (low <= high)
+        {
+            int middle = low + ((high - low) >> 1);
+
+            if (sorted[middle].Address < address + bytes)
+            {
+                last = middle;
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return last >= 0 && address < sorted[last].Address + sorted[last].Size;
     }
 
     /// <summary>Once per present: releases the retired textures whose grace period ended.</summary>

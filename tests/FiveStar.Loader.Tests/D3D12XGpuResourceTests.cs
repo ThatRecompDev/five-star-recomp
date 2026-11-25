@@ -83,6 +83,30 @@ public sealed unsafe class D3D12XGpuResourceTests
         registry.Dispose();
     }
 
+    /// <summary>
+    /// A texture over memory the game unmapped is retired and released after its grace (#13's long run grew its placed
+    /// texture heaps to 10.5 GB with textures over streamed-out memory); a texture elsewhere and an unmap with no texture stay.
+    /// </summary>
+    [Fact]
+    public void A_texture_over_memory_the_game_unmapped_is_retired_and_released()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        var registry = new GpuTextureRegistry(() => [], () => []);
+        registry.Register(Texture(test, device, 0x100000));
+        registry.Register(Texture(test, device, 0x200000));
+
+        Assert.Equal(0, registry.Unmapped(0x300000, 0x10000));
+        Assert.Equal(1, registry.Unmapped(0x100000, 0x10000));
+        Assert.Null(registry.Find(0x100000));
+        Assert.NotNull(registry.Find(0x200000));
+
+        registry.Advance(GpuTextureRegistry.GraceFrames);
+        Assert.Equal(1, registry.Released);
+        Assert.Contains("1 retired as their memory was unmapped", registry.Summary, StringComparison.Ordinal);
+        registry.Dispose();
+    }
+
     [Theory]
     [InlineData(GpuTextureRegistry.DefaultKeptAliases)]
     [InlineData(2)]
