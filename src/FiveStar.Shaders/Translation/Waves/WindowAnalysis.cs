@@ -30,6 +30,14 @@ internal sealed partial class WindowAnalysis
     // EntryFacts: no reason stops the pass, and every branch passes its state to both paths.
     private bool _factsOnly;
 
+    private readonly HashSet<int> _divergent = [];
+
+    /// <summary>
+    /// After <see cref="Check"/>: the blocks a hardware wave may run while another of its console wave does not (the
+    /// paths of the branches it lets windows decide for themselves). An exchange there would miss that round.
+    /// </summary>
+    public IReadOnlySet<int> Divergent => _divergent;
+
     public WindowAnalysis(IReadOnlyList<CodeBlock> blocks, IReadOnlyList<string> prologue, int threads)
     {
         _graph = new WindowGraph(blocks);
@@ -219,6 +227,7 @@ internal sealed partial class WindowAnalysis
 
         if (reason is not null && fast && EntersAlways(block, any.Groups["mask"].Value, some, join.Value, state))
         {
+            Diverge(some, join.Value);
             Propagate(some, state, pending);
 
             return null;
@@ -229,6 +238,8 @@ internal sealed partial class WindowAnalysis
             return reason;
         }
 
+        Diverge(some, join.Value);
+        Diverge(none, join.Value);
         var holding = state.Clone();
         holding.HoldsActiveLane();
         Propagate(none, state, pending);
@@ -312,6 +323,8 @@ internal sealed partial class WindowAnalysis
             return $"branch on {condition}: {reason}";
         }
 
+        Diverge(target, join.Value);
+        Diverge(next, join.Value);
         Propagate(target, state, pending);
         Propagate(next, state, pending);
 
@@ -325,6 +338,24 @@ internal sealed partial class WindowAnalysis
         var active = state.Get(WindowNames.Active);
 
         return active.IsExact && fact.IsHeld && (mask == WindowNames.Active || fact.Kind == MaskKind.ActiveAnd);
+    }
+
+    /// <summary>Records the blocks from <paramref name="start"/> up to (not including) <paramref name="join"/> as divergent.</summary>
+    private void Diverge(int start, int join)
+    {
+        var pending = new Stack<int>([start]);
+
+        while (pending.Count > 0)
+        {
+            var address = pending.Pop();
+
+            if (address == join || !_divergent.Add(address))
+            {
+                continue;
+            }
+
+            _graph.Find(address)?.Successors.ToList().ForEach(pending.Push);
+        }
     }
 
     private void Propagate(int successor, WindowState state, Queue<int> pending)

@@ -202,7 +202,12 @@ the console's whether the windows' own first lanes agree or not, so no runtime c
 every 4th mesh program 255 of the 625 with a floor of 64 drop to 4, each with 3 exchanges (the thread id and the two
 counts), for three group barriers in place of the superstep form; their native DXIL grows 9 to 29% (12 sampled), but is
 smaller than the superstep form 32-lane GPUs compiled before in 11 of 12 (TransformD 018ec975: 105 KB native and
-140 KB superstep, now 117 KB native only).
+140 KB superstep, now 117 KB native only). The thread id needs no exchange: under a full EXEC the console's first lane
+is the console wave's first thread, `in_gid.x * N + (in_gi & ~(VW_WAVE - 1))`, when no line on a path to the
+readfirstlane writes the register after the prologue; that leaves two exchanges (257 programs, DXIL 1 to 7% below the
+three-exchange form). With EXEC full a guarded write is every lane's write, so the analysis keeps its value's facts.
+No exchange may lie in a region windows decide for themselves or after one that holds a yield
+(`WindowAnalysis.Divergent`, `FirstLaneExchange.Converged`): a window that skipped a yield would meet it a round late.
 
 A superstep program names its cost in its first body line, `// superstep: <stops> stops, round bound <n>` (the loader
 logs it once per program): a round is a group barrier and a run of the dispatch switch to the next stop, so a large

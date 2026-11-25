@@ -36,7 +36,8 @@ public sealed partial class MeshStageRunner
     public const string Windows = "ms_ngg_windows";
 
     /// <summary>
-    /// The program with its counts taken by v_readfirstlane of a per-lane value, s8 + lane * s11, under a full EXEC: m0
+    /// The program with its counts taken by v_readfirstlane of a per-lane value, s8 + lane * s11, under a full EXEC (less and
+    /// plus the first lane's thread id, read without an exchange): m0
     /// and both export tests read them. With s11 = 0 every hardware wave of the console wave reads s8 (the windows agree);
     /// the analysis cannot tell, so the group exchanges lane 0's value (Waves.FirstLaneExchange) and runs on narrower waves.
     /// </summary>
@@ -51,6 +52,9 @@ public sealed partial class MeshStageRunner
         v_mul_lo_u32 v42, v40, s11
         v_add_nc_u32_e32 v41, s8, v42
         v_readfirstlane_b32 s50, v41
+        v_readfirstlane_b32 s51, v5
+        s_sub_u32 s50, s50, s51
+        s_add_u32 s50, s50, s51
         s_mov_b32 m0, s50
         """;
 
