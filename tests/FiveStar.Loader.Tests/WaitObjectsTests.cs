@@ -33,14 +33,15 @@ public sealed unsafe class WaitObjectsTests
                 WaitObjects.Waiting(never, uint.MaxValue);
                 blocked.Set();
                 _ = Kernel32.WaitForSingleObjectEx(never, uint.MaxValue, 0);
-                WaitObjects.Done();
+                WaitObjects.Done(never, 0);
             });
             waiter.Start();
             blocked.Wait();
 
             var report = WaitObjects.Report(new ImageTable(), Prefix, 0);
             Assert.Contains($"(no timeout) on handle 0x{never:x}: manual-reset event made by thread {Kernel32.GetCurrentThreadId()}", report, StringComparison.Ordinal);
-            Assert.Contains("never signaled; waiting at no game frame found", report, StringComparison.Ordinal);
+            Assert.Contains("never signaled; recent: ", report, StringComparison.Ordinal);
+            Assert.Contains("; waiting at no game frame found", report, StringComparison.Ordinal);
 
             // The signal is recorded with its thread, and the wait ends.
             WaitObjects.Signaled(never);
@@ -58,6 +59,56 @@ public sealed unsafe class WaitObjectsTests
     }
 
     [Fact]
+    public void A_blocked_wait_lists_the_last_operations_on_its_object()
+    {
+        nint idle = Kernel32.CreateEventW(0, 0, 0, null);
+        nint other = Kernel32.CreateEventW(0, 0, 0, null);
+        uint self = Kernel32.GetCurrentThreadId();
+
+        try
+        {
+            WaitObjects.Created(idle, "auto-reset event");
+            WaitObjects.Created(other, "auto-reset event");
+
+            // A signal, a wait on several objects that it ends, then a reset: the signal the next waiter expects is gone.
+            WaitObjects.Signaled(idle);
+            WaitObjects.WaitingOnSeveral([other, idle], all: false, uint.MaxValue);
+            WaitObjects.DoneOnSeveral([other, idle], 1);
+            WaitObjects.Reset(idle);
+
+            uint waiterId = 0;
+            using var blocked = new ManualResetEventSlim();
+            var waiter = new Thread(() =>
+            {
+                waiterId = Kernel32.GetCurrentThreadId();
+                WaitObjects.Waiting(idle, uint.MaxValue);
+                blocked.Set();
+                uint result = Kernel32.WaitForSingleObjectEx(idle, uint.MaxValue, 0);
+                WaitObjects.Done(idle, result);
+            });
+
+            waiter.Start();
+            blocked.Wait();
+
+            string report = WaitObjects.Report(new ImageTable(), Prefix, 0);
+            Assert.Matches($@"recent: -\d+\.\d s signaled by {self}, -\d+\.\d s wait on any of 2 by {self}, -\d+\.\d s woke by {self}, -\d+\.\d s reset by {self}, -\d+\.\d s wait by {waiterId}", report);
+
+            Assert.NotEqual(0, Kernel32.SetEvent(idle));
+            waiter.Join();
+            WaitObjects.Waiting(idle, 0);
+            Assert.Contains($"woke by {waiterId}", WaitObjects.Report(new ImageTable(), Prefix, 0), StringComparison.Ordinal);
+            WaitObjects.Done(idle, 0x102);
+        }
+        finally
+        {
+            WaitObjects.Closed(idle);
+            WaitObjects.Closed(other);
+            _ = Kernel32.CloseHandle(idle);
+            _ = Kernel32.CloseHandle(other);
+        }
+    }
+
+    [Fact]
     public void A_wait_on_a_thread_handle_names_the_thread_it_joins()
     {
         nint thread = Kernel32.GetCurrentThread();
@@ -68,7 +119,7 @@ public sealed unsafe class WaitObjectsTests
         {
             WaitObjects.Waiting(handle, uint.MaxValue);
             var report = WaitObjects.Report(new ImageTable(), Prefix, 0);
-            WaitObjects.Done();
+            WaitObjects.Done(handle, 0);
 
             Assert.Contains($"on handle 0x{handle:x}: the handle of thread {Kernel32.GetCurrentThreadId()} (waiting for it to end)", report, StringComparison.Ordinal);
         }
