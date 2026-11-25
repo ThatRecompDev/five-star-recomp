@@ -385,7 +385,18 @@ internal sealed class ProgramProducer
 
         int start = at + FiveStar.Shaders.Translation.TranslationOptions.SuperstepCostComment.Length;
         int end = hlsl.IndexOf('\n', start);
-        ShimContext.Runtime.D3D12X.Warnings.Warn($"superstep-{name}", $"[d3d12_xs] superstep program {name}: {hlsl[start..end]}");
+        string message = $"[d3d12_xs] superstep program {name}: {hlsl[start..end]}";
+        var runtime = ShimContext.Active;
+
+        // The warm-up has no runtime: asking for one threw, and every superstep program it made failed with that.
+        if (runtime is null)
+        {
+            ShimContext.Log?.Info($"  {message}");
+
+            return;
+        }
+
+        runtime.D3D12X.Warnings.Warn($"superstep-{name}", message);
     }
 
     /// <summary>A --probe-pipeline program's source with the probe code (empty when it cannot take it); any other as it is.</summary>
