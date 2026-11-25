@@ -102,7 +102,11 @@ or the end; WARP's shader compiler crashes when the `while` is left out.
 
 The whole program keeps the dispatch form, with a comment `// control flow: dispatch loop (<reason>)`, when its graph
 is irreducible (a cycle entered other than through one dominating header: `irreducible`) or has a loop that never
-exits (`loop without exit`; DXIL requires every loop to have a break).
+exits (`loop without exit`; DXIL requires every loop to have a break). Each thread runs the switch on its own there,
+so an s_barrier inside it keeps only its memory fence (`GroupMemoryBarrier`): a thread that ended or sits in another
+block never reaches the barrier the others wait in, and the group would hang (the console's s_barrier waits only for
+waves that have not ended; XCL counts live waves, VIctory keeps the fence where not every lane reaches the barrier;
+facts only). 4 of 400 sampled compute programs hold such a barrier; the cost is ordering across waves there.
 
 Structured is the default since the control-flow differential (see Testing) ran both forms of real programs side by
 side: their outputs are equal apart from fast-math rounding in dxc.
@@ -116,7 +120,10 @@ for compute, 2^20 elsewhere; 2^24 for every stage before). A console program's l
 on the data the console gives it; on the PC one wrong input keeps a loop going until the driver removes the device.
 
 The console has no cap, so a cap is only a safety net against our own wrong inputs and must not bind for a correct
-program. The caps count all loops of one invocation together (a cap per loop let nested loops multiply it, 65,536² in
+program. It keeps the device alive, not the output right: a hit is a bug to fix where the wrong input or
+translation comes from. So every hit is counted (`loop_cap_hit`, once per wave, in dword 3 of the program's slot of
+the window guard's cap table, beside the superstep block and round caps) and the loader names the programs at each
+captured present (`[window guard] present N: K programs ran into a cap`). The caps count all loops of one invocation together (a cap per loop let nested loops multiply it, 65,536² in
 `CS_InitDepthPyramidWithCpuOcclusion3x3`):
 
 | Stage | Cap | Why |
@@ -508,7 +515,12 @@ one under a per-lane condition (`if (active)`, `&&`, `||`, `?:` before the call)
 from the structured form, since WARP's shader compiler crashes on barriers inside the dispatch `switch`. A program whose
 group holds several console waves (they branch apart, so one barrier cannot stand in for a wave) or that calls a wave
 operation under a per-lane condition gets the superstep form instead: console waves are consecutive group indices, as
-on RDNA. The result's reason says `wave32 variant ok` or why there is none.
+on RDNA. The result's reason says `wave32 variant ok` or why there is none. A group of more than 32 threads runs as
+two 32-lane hardware waves, where an LDS read can race a store of the other wave that the console's one wave ordered
+in lockstep: the variant puts a group barrier before such a read (`GroupLdsBarriers`: after a plain store or a
+store-like atomic not yet ordered by a barrier or wave operation, on either path of a branch or anywhere in a loop that
+writes; before the lane-conditioned block a read sits in; an atomic needs one only after a plain store). shadPS4 does
+the same for one-wave groups (facts only). 6 of 14 such programs in a 400-program sample get 1 to 3.
 
 **Variant selection** (`FiveStar.Graphics.Programs.VariantSelector`). `fivestar shader translate` writes
 `<out>/variants.json` (`ShaderManifest`): per compiled program its stage, native DXIL, console wave, floor, pinned

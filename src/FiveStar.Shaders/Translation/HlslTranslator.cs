@@ -16,6 +16,9 @@ public static partial class HlslTranslator
 {
     private const int Wave32 = 32;
     private const int Wave64 = 64;
+
+    /// <summary>The narrowest hardware wave: a group of more threads runs as several.</summary>
+    private const int HardwareWave32 = 32;
     private const int DefaultComputeThreads = 64;
     private const int GroupAxes = 3;
 
@@ -84,8 +87,15 @@ public static partial class HlslTranslator
         }
 
         var defines = $"#define VW_GROUP_WAVE 1\n#define VW_WAVE {Wave64}\n#define VW_GROUP_SIZE {group}u\n";
+        var body = hlsl.Replace(Pin, string.Empty, StringComparison.Ordinal);
 
-        return defines + hlsl.Replace(Pin, string.Empty, StringComparison.Ordinal);
+        // More than one 32-lane hardware wave: LDS a lane reads may come from the other one (Waves.GroupLdsBarriers).
+        if (group > HardwareWave32)
+        {
+            body = Waves.GroupLdsBarriers.Insert(body);
+        }
+
+        return defines + body;
     }
 
     /// <summary>

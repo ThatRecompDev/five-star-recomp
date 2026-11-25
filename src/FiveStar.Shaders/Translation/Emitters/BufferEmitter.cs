@@ -229,7 +229,7 @@ internal sealed partial class BufferEmitter
         }
 
         var name = $"_fmt{_state.NextTemporary()}";
-        _state.Emit($"  uint4 {name} = select({inRange}, fmt_swizzle(FmtLoad({view}.x, {byteAddress}, {format}), {swizzle}, {format}), uint4(0u, 0u, 0u, 0u));");
+        _state.Emit($"  uint4 {name} = select({inRange}, FmtLoad({view}.x, {byteAddress}, {format}, {swizzle}), uint4(0u, 0u, 0u, 0u));");
 
         if (half != HalfKind.None)
         {

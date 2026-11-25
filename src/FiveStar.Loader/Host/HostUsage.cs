@@ -93,7 +93,9 @@ internal static class HostUsage
                                  then every pipeline of the console pipeline cache, into the disk cache (with
                                  --shader-dir, --translated-dir), resuming where a run stopped
           --warm-used-only       warm-up: only the pipelines earlier boots asked for
-          --warm-jobs <n>        pipelines the warm-up builds at once (default 4)
+          --warm-jobs <n>        pipelines the warm-up builds at once (default 4; split over the processes)
+          --warm-processes <n>   warm-up processes, each building every n-th pipeline into the same cache, pipelines of
+                                 4 MiB of DXIL or more left to a last pass (default one per 16 GB of RAM, 1 to 4)
           --warm-step <k>        warm-up: every k-th pipeline only
           --warm-match <text>    warm-up: only pipelines with a program whose name contains text (repeatable)
           --gdk-abi <file>       XGameRuntime thunk ABI table: "clsid iid slot FunctionName" per line;

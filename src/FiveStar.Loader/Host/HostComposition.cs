@@ -58,6 +58,7 @@ internal static class HostComposition
 
         // No acceleration structure is built without --raytracing: programs made on demand miss every BVH node.
         Shims.D3D12X.Binding.BvhMiss.Enabled = !options.RayTracing;
+        Shims.D3D12X.Pipelines.RayTracingPrograms.StandIns = !options.RayTracing;
         Shims.D3D12X.Binding.WindowGuard.Enabled = !options.NoWindowGuard;
     }
 
