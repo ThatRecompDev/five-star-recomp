@@ -316,6 +316,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         var heavyBuilds = new PipelineBuildQueue(1, _ => WarmMemoryGuard.RoomForHeavyBuild(0));
         builds.Start();
         heavyBuilds.Start();
+
         var rectangles = new RectanglePipelines(device2, root, RectangleFolder(translated), library, warnings, builds) { Compiler = _pipelineFolders.OnDemand?.RectangleCompiler };
         Rectangles.Attach(rectangles);
         var standIns = new StandInPipelines(PipelineSlots.CreationBudget, builds, heavyBuilds, warnings);

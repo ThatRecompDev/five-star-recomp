@@ -70,14 +70,21 @@ internal static partial class CodeData
         }
 
         var text = match.Groups["imm"].Value;
-        long offset = text.StartsWith("0x", StringComparison.Ordinal)
-            ? long.Parse(text[2..], NumberStyles.HexNumber, CultureInfo.InvariantCulture)
+        long offset = text.StartsWith(HexPrefix, StringComparison.Ordinal)
+            ? long.Parse(text[HexPrefix.Length..], NumberStyles.HexNumber, CultureInfo.InvariantCulture)
             : long.Parse(text, CultureInfo.InvariantCulture);
 
         long table = match.Groups["op"].Value == "add" ? pc + offset : pc - offset;
 
-        return table is >= 0 and <= int.MaxValue ? (int)table : null;
+        if (table is < 0 or > int.MaxValue)
+        {
+            return null;
+        }
+
+        return (int)table;
     }
+
+    private const string HexPrefix = "0x";
 
     [GeneratedRegex(@"^s_getpc_b64 s\[(?<lo>\d+):(?<hi>\d+)\]")]
     private static partial Regex GetPcPattern();
