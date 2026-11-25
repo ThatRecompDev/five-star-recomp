@@ -65,7 +65,8 @@ public sealed partial class CompileHostTests
 
         try
         {
-            var host = new CompileHost(Loader(), null, ShortAnswerLimit);
+            // Only the wedged request has the short limit: a host starting on a busy machine may take longer than it to answer.
+            var host = new CompileHost(Loader(), null, CompileHost.AnswerLimit);
             Assert.Equal(BackendVerdict.Compiled, host.Run(Request(work.FullName, "first")).Verdict);
 
             using (var process = Process.GetProcessById(host.ProcessId!.Value))
@@ -73,7 +74,9 @@ public sealed partial class CompileHostTests
                 Assert.Equal(0, NtSuspendProcess(process.Handle));
             }
 
+            host.RequestLimit = ShortAnswerLimit;
             var wedged = host.Run(Request(work.FullName, "wedged"));
+            host.RequestLimit = CompileHost.AnswerLimit;
             Assert.Equal(BackendVerdict.NotLowered, wedged.Verdict);
             Assert.Contains("did not answer in time", wedged.Reason, StringComparison.Ordinal);
             Assert.True(SpinWait.SpinUntil(() => !host.Running, EndLimit));
