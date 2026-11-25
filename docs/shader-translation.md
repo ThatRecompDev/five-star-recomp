@@ -127,8 +127,8 @@ program. The caps count all loops of one invocation together (a cap per loop let
 `TranslationOptions.Loops` (`LoopCaps`; the loader's `--loop-caps`) replaces these per stage: `victory` is
 victory-gta6's 4,096 compute, 256 vertex and mesh, 128 pixel, and also bounds the dispatch form at 256 blocks per
 allowed iteration; `compute,geometry,pixel` gives other numbers. The caps are part of the translation options, so of
-the program cache identity. The superstep form had no bound at all; it now ends a thread that has run 16 blocks per
-allowed iteration (`ss_steps`, `LoopCaps.SuperstepSteps`: 65,536 for mesh), which then meets every later barrier as
+the program cache identity. The superstep form had no bound at all; it now ends a thread that has run 2 blocks per
+allowed iteration (`ss_steps`, `LoopCaps.SuperstepSteps`: 8,192 for mesh), which then meets every later barrier as
 an ended thread. A loop with no wave operation (a scalar count loop) stays inside one round, so the round bound below
 never sees it; with the dispatch form's 256 blocks per iteration (2^20) the loop of `MSNC_VS_LinearDepthSkin_f1f2249c`
 over a constant-buffer count (dword 0x11c), a sample and about thirty dependent loads per pass, could run 2^20
@@ -144,8 +144,10 @@ rounds. Every thread counts the same rounds, so all leave on the same one. A pro
 The bound is a time bound: on the RTX 4090 a superstep round of `MS_VS_TransformTerrainNormalTint_e74ae427` in
 DispatchMesh(94, 1, 1) took 40 to 60 us (256, 1,024 and 4,096 forced rounds: 0.36, 0.41 and 0.59 s with the pipeline
 built), so the earlier 16 per iteration (65,536 rounds) ran 3 to 4 s, past the 2 s GPU timeout: the DEVICE_HUNG of the
-mesh ExecuteIndirects in boots w31 to w47 (LinearDepthSkin, PropFoliageSkinDeferred, TerrainNormalTint). A superstep
-block costs about 0.6 us a thread, so the 2^16 blocks of `ss_steps` end in about 40 ms. TransformSkinTransmission
+mesh ExecuteIndirects in boots w31 to w47 (LinearDepthSkin, PropFoliageSkinDeferred, TerrainNormalTint). A light superstep
+block costs about 0.6 us a thread, but LinearDepthSkin's layer loop (a sample and about thirty dependent loads a pass)
+ran the earlier 2^16 blocks of `ss_steps` in 0.5 to 1.5 s per DispatchMesh in w49, and frames passed the game's 30 s
+hang watchdog; 2 blocks per iteration (8,192) take about 0.1 to 0.2 s. TransformSkinTransmission
 (no loops) ran to its end on zeroed inputs on the 4090 with both compilers, so the superstep structure itself holds.
 
 A direct-export mesh program (two-phase or superstep) starts every primitive of its count culled right after
