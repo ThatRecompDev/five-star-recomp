@@ -109,6 +109,9 @@ internal sealed record HostOptions
     /// </summary>
     public bool PlacedTextures { get; set; } = true;
 
+    /// <summary>Retired textures over exactly one range kept until disposal (<c>--kept-aliases</c>).</summary>
+    public int KeptAliases { get; set; } = Shims.D3D12X.Resources.GpuTextureRegistry.DefaultKeptAliases;
+
     /// <summary>The most driver compiles of 256 KB of DXIL or more at once (<c>--max-driver-compiles</c>); 0 for the machine's default.</summary>
     public int MaxDriverCompiles { get; set; }
 

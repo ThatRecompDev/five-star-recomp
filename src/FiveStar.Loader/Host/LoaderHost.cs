@@ -454,6 +454,24 @@ internal sealed class LoaderHost
         _log.Info($"  [audio-capture] recorder pid {recorder?.Id} writes {path}");
     }
 
+    /// <summary>The commit by category (<see cref="CommitAccounting"/>), after the write-combined walk of the same sample.</summary>
+    private string Commit(long pages, long helpers)
+    {
+        var d3d12 = _runtime.D3D12X;
+        var figures = new CommitAccounting.Figures(
+            Shims.D3D12X.Pipelines.CompileBudget.ProcessPrivateBytes,
+            WriteCombinedMemory.CachedBytes,
+            d3d12.Textures.Placed.Bytes,
+            GC.GetGCMemoryInfo().TotalCommittedBytes,
+            d3d12.GameMemory.CoveredBytes,
+            Shims.D3D12X.Pipelines.CompileBudget.ExpectedBytes,
+            pages,
+            (long)d3d12.SectionHeaps.Opened,
+            helpers);
+
+        return CommitAccounting.Format(figures);
+    }
+
     /// <summary>The loader counters each thread sample logs.</summary>
     private string SampledCounters()
     {
@@ -479,7 +497,7 @@ internal sealed class LoaderHost
 
         string audio = $"audio: {_runtime.Audio.Summary}; XDsp {_runtime.XDsp.Submitted} commands";
 
-        return $"DirectStorage {_runtime.Storage.Summary()}; {pipelines}; {_runtime.D3D12X.Presenter.Presents} presents, {_runtime.D3D12X.FrameThrottle.Summary}; {_runtime.D3D12X.Residency?.Summary ?? "section windows resident"}; {_runtime.Input.Summary}; {audio}; {memory}; {MemorySnapshot.Summary()}; {WriteCombinedMemory.Summary()}; {CommandObjectCounts.Summary}; {Shims.D3D12X.Binding.RawBufferViews.Summary}";
+        return $"DirectStorage {_runtime.Storage.Summary()}; {pipelines}; {_runtime.D3D12X.Presenter.Presents} presents, {_runtime.D3D12X.FrameThrottle.Summary}; {_runtime.D3D12X.Residency?.Summary ?? "section windows resident"}; {_runtime.Input.Summary}; {audio}; {memory}; {MemorySnapshot.Summary()}; {WriteCombinedMemory.Summary()}; {Commit(pages, helpers)}; {CommandObjectCounts.Summary}; {Shims.D3D12X.Binding.RawBufferViews.Summary}";
     }
 
     /// <summary>

@@ -582,6 +582,10 @@ internal sealed class CommandLineParser
                 _options.PlacedTextures = false;
 
                 return true;
+            case "--kept-aliases":
+                _options.KeptAliases = Math.Max(0, int.Parse(Next(), CultureInfo.InvariantCulture));
+
+                return true;
             default:
                 throw new CommandLineException($"unknown argument {option}");
         }

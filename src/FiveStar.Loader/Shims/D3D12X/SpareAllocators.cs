@@ -10,7 +10,9 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// already backs another list that is recording: the game takes a list and an allocator from separate pools
 /// (0x140188430) and the console lets lists record on one allocator together; a failed Reset breaks into the debugger
 /// at 0x142474ce1. Each game allocator keeps its own spares, reset with it (the game resets an allocator once the GPU
-/// is done with every list recorded on it), so a spare is reused, not leaked.
+/// is done with every list recorded on it), so a spare is reused, not leaked. A spare not lent over its allocator's last
+/// <see cref="IdleResets"/> resets is released instead of reset: an allocator keeps the memory of its largest recording,
+/// charged to commit, and a spare lent once at a load would hold it for the rest of the run.
 /// </summary>
 internal sealed unsafe class SpareAllocators
 {
@@ -24,8 +26,11 @@ internal sealed unsafe class SpareAllocators
     private static readonly Guid DeviceIid = new("189819f1-1db6-4b57-be54-1821339b85f7");
     private static readonly Guid AllocatorIid = new("6102dee4-af59-4b09-b999-b44d73f09b24");
 
+    /// <summary>Resets of its game allocator after which a spare not lent since is released.</summary>
+    public const long IdleResets = 120;
+
     private readonly object _gate = new();
-    private readonly Dictionary<nint, List<nint>> _spares = [];
+    private readonly Dictionary<nint, Pool> _spares = [];
 
     /// <summary>Lists that recorded on a spare.</summary>
     public long Lent { get; private set; }
@@ -38,18 +43,15 @@ internal sealed unsafe class SpareAllocators
     {
         lock (_gate)
         {
-            if (!_spares.TryGetValue(allocator, out var spares))
-            {
-                spares = [];
-                _spares[allocator] = spares;
-            }
-
+            var pool = PoolOf(allocator);
             Lent++;
 
-            foreach (nint spare in spares)
+            foreach (var spare in pool.Spares)
             {
-                if (!HResult.Failed(reset(list, spare, pipeline)))
+                if (!HResult.Failed(reset(list, spare.Allocator, pipeline)))
                 {
+                    spare.Lent = pool.Resets;
+
                     return HResult.Ok;
                 }
             }
@@ -59,7 +61,7 @@ internal sealed unsafe class SpareAllocators
 
             if (created != 0)
             {
-                spares.Add(created);
+                pool.Spares.Add(new Spare(created, pool.Resets));
                 hr = reset(list, created, pipeline);
             }
 
@@ -84,13 +86,8 @@ internal sealed unsafe class SpareAllocators
                 return 0;
             }
 
-            if (!_spares.TryGetValue(allocator, out var spares))
-            {
-                spares = [];
-                _spares[allocator] = spares;
-            }
-
-            spares.Add(spare);
+            var pool = PoolOf(allocator);
+            pool.Spares.Add(new Spare(spare, pool.Resets));
             Guid deviceIid = DeviceIid;
             nint device = 0;
 
@@ -120,21 +117,67 @@ internal sealed unsafe class SpareAllocators
     /// <summary>Lists replaced after a failed Close.</summary>
     public long Replaced { get; private set; }
 
-    /// <summary>Resets the spares of desktop <paramref name="allocator"/>; one a list still records on keeps its memory.</summary>
+    /// <summary>Spares released after <see cref="IdleResets"/> resets of their allocator without a lend.</summary>
+    public long Released { get; private set; }
+
+    /// <summary>Spares held for desktop <paramref name="allocator"/>.</summary>
+    public int Held(nint allocator)
+    {
+        lock (_gate)
+        {
+            if (!_spares.TryGetValue(allocator, out var pool))
+            {
+                return 0;
+            }
+
+            return pool.Spares.Count;
+        }
+    }
+
+    /// <summary>
+    /// Resets the spares of desktop <paramref name="allocator"/>, the GPU done with every list recorded on it; one a list
+    /// still records on keeps its memory, and one idle for <see cref="IdleResets"/> resets is released.
+    /// </summary>
     public void ResetSpares(nint allocator)
     {
         lock (_gate)
         {
-            if (!_spares.TryGetValue(allocator, out var spares))
+            if (!_spares.TryGetValue(allocator, out var pool))
             {
                 return;
             }
 
-            foreach (nint spare in spares)
-            {
-                _ = ((delegate* unmanaged<nint, int>)ComObject.Slot(spare, AllocatorResetSlot))(spare);
-            }
+            pool.Resets++;
+            int released = pool.Spares.RemoveAll(spare => ResetOrRelease(spare, pool.Resets));
+            Released += released;
+            CommandObjectCounts.SparesReleased(released);
         }
+    }
+
+    /// <summary>Resets <paramref name="spare"/>; true when it was idle, reset and released.</summary>
+    private static bool ResetOrRelease(Spare spare, long resets)
+    {
+        int hr = ((delegate* unmanaged<nint, int>)ComObject.Slot(spare.Allocator, AllocatorResetSlot))(spare.Allocator);
+
+        if (HResult.Failed(hr) || resets - spare.Lent < IdleResets)
+        {
+            return false;
+        }
+
+        ComObject.Release(spare.Allocator);
+
+        return true;
+    }
+
+    private Pool PoolOf(nint allocator)
+    {
+        if (!_spares.TryGetValue(allocator, out var pool))
+        {
+            pool = new Pool();
+            _spares[allocator] = pool;
+        }
+
+        return pool;
     }
 
     /// <summary>A new allocator of <paramref name="list"/>'s type on its device; 0 when the desktop refuses.</summary>
@@ -162,5 +205,21 @@ internal sealed unsafe class SpareAllocators
         CommandObjectCounts.SpareMade();
 
         return allocator;
+    }
+
+    /// <summary>A spare and its allocator's reset count when it was last lent.</summary>
+    private sealed class Spare(nint allocator, long lent)
+    {
+        public nint Allocator { get; } = allocator;
+
+        public long Lent { get; set; } = lent;
+    }
+
+    /// <summary>One game allocator's spares and its resets so far.</summary>
+    private sealed class Pool
+    {
+        public List<Spare> Spares { get; } = [];
+
+        public long Resets { get; set; }
     }
 }
