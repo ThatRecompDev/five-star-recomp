@@ -17,8 +17,13 @@ blow-up of the story load are fixed, and so is the GPU work that corrupted game 
 load now finishes and the opening cutscene plays its art, credit cards, dialogue and sound at a steady 30 frames a
 second; its 3D world does not draw yet (see [Roadmap](Roadmap.md)). Programs are now compiled by our own DXIL backend in a
 separate compile process: a cold boot has about 385 programs ready 90 s in, against 129 with dxc, and a warm boot skips
-almost no draws. Open: an intermittent overwrite of the game's memory pools in its GPU-writable heap, which can end a
-boot about 100 s in, and the world passes that still run as stand-ins while their pipelines are built.
+almost no draws. The overwrite of the game's memory pools that ended boots about 100 s in is fixed (a particle pass wrote through a
+misplaced buffer view), and every entry point the game calls now catches its own exceptions. With warm caches the
+cutscene's G-buffer passes now mostly run (about 14,700 draws recorded against 4,700 skipped in a 15 s window), but
+the world's indirect mesh draws leave the depth and G-buffer empty, so the 3D world is still not visible, and long
+boots end in a GPU hang (a shader that never finishes; an unbounded loop in the wave32 mesh form is now bounded).
+Driver memory grows with the number of live game textures (about 0.55 MB each); shared texture heaps are being
+tried.
 
 ![Progress](progress.svg)
 
