@@ -154,6 +154,18 @@ internal static unsafe class BufferViewRanges
         return true;
     }
 
+    /// <summary>Bytes per element of a buffer SRV or (<paramref name="unordered"/>) UAV desc, as <see cref="ElementBytes(byte*, int)"/>.</summary>
+    [HotPath]
+    internal static uint ElementBytes(byte* description, bool unordered)
+    {
+        if (unordered)
+        {
+            return ElementBytes(description, UavStride);
+        }
+
+        return ElementBytes(description, SrvStride);
+    }
+
     /// <summary>Bytes per element: 4 for raw views, the stride of structured ones, the format's size for typed ones; 0 when unknown.</summary>
     [HotPath]
     private static uint ElementBytes(byte* description, int strideAt)

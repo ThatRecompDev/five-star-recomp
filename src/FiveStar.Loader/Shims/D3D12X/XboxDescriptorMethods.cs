@@ -85,9 +85,9 @@ internal static unsafe class XboxDescriptorMethods
                 return;
             }
 
-            if (description != null && BufferRecords.Noting(BufferRecords.FieldlessConstantBuffer) && D3D12X.DescriptorHeaps.Find(handle, out _) is not null)
+            if (WroteNullRaw(inner, description, handle))
             {
-                NoteConstantBuffer(description);
+                return;
             }
 
             ConstantBufferViewDescription desktop = default;
@@ -155,6 +155,32 @@ internal static unsafe class XboxDescriptorMethods
         return (ulong)copy;
     }
 
+    /// <summary>
+    /// Programs read the slot of a record without V# fields as a ByteAddressBuffer: a constant-buffer view in a game heap
+    /// that got no raw view over its bytes (noted as a record without V# fields) becomes a null raw SRV, not a CBV
+    /// (<see cref="RawBufferViews"/>); false outside a game heap or when off.
+    /// </summary>
+    [HotPath]
+    private static bool WroteNullRaw(nint inner, ConstantBufferViewDescription* description, nint handle)
+    {
+        bool gameHeap = D3D12X.DescriptorHeaps.Find(handle, out _) is not null;
+
+        if (description != null && BufferRecords.Noting(BufferRecords.FieldlessConstantBuffer) && gameHeap)
+        {
+            NoteConstantBuffer(description);
+        }
+
+        if (!gameHeap || !RawBufferViews.Enabled)
+        {
+            return false;
+        }
+
+        var none = RawBufferViews.NullConstantBuffer();
+        ((delegate* unmanaged<nint, nint, BufferViewDescription*, nint, void>)ComObject.Slot(inner, CreateShaderResourceViewSlot))(inner, 0, &none, Destination(handle));
+
+        return true;
+    }
+
     private static void WarnUnknownConstantBuffer(ulong address, uint size)
     {
         MemoryBasicInformation info = default;
@@ -175,6 +201,8 @@ internal static unsafe class XboxDescriptorMethods
 
             byte* copy = stackalloc byte[DepthViewDescriptions.ShaderResourceViewSize];
             desktop = BufferViewRanges.Fit(resource, desktop, description, copy, false, out void* fitted);
+            byte* raw = stackalloc byte[DepthViewDescriptions.ShaderResourceViewSize];
+            fitted = RawBufferViews.View(fitted, raw, false, record, ref desktop);
             void* view = TargetViewDescriptions.ShaderResourceView(desktop, fitted, copy);
 
             nint destination = D3D12X.DescriptorHeaps.Destination(handle, record);
@@ -243,6 +271,16 @@ internal static unsafe class XboxDescriptorMethods
             var record = BufferRecords.Based(BufferRecords.UnorderedAccess(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: true), desktop, ViewKind.UnorderedAccess);
             NoteFieldless(description, record, unordered: true);
             desktop = BufferViewRanges.Fit(resource, desktop, description, copy, true, out void* fitted);
+            byte* raw = stackalloc byte[TargetViewDescriptions.UnorderedAccessViewSize];
+            void* typed = fitted;
+            fitted = RawBufferViews.View(fitted, raw, true, record, ref desktop);
+
+            // A raw UAV takes no counter.
+            if (fitted != typed)
+            {
+                counter = 0;
+            }
+
             var destination = D3D12X.DescriptorHeaps.Destination(handle, record);
 
             if (TransientPoolViews.Enabled)

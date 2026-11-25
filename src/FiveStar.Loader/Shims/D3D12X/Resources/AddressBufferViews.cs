@@ -32,9 +32,12 @@ internal sealed unsafe class AddressBufferViews
         _memory = memory;
     }
 
-    /// <summary>Writes the buffer view into <paramref name="handle"/>; false when the address has no desktop buffer.</summary>
+    /// <summary>
+    /// Writes the buffer view into <paramref name="handle"/>, raw when its <paramref name="record"/> keeps the heap index
+    /// (<see cref="Binding.RawBufferViews"/>); false when the address has no desktop buffer.
+    /// </summary>
     [HotPath]
-    public bool Create(nint device, AddressViewDescription* view, nint handle)
+    public bool Create(nint device, AddressViewDescription* view, nint handle, Binding.BufferRecord record)
     {
         BufferViewDescription desktop;
         Buffer.MemoryCopy(view, &desktop, sizeof(BufferViewDescription), AddressViewDescription.DesktopViewSize);
@@ -61,7 +64,10 @@ internal sealed unsafe class AddressBufferViews
         }
 
         var create = (delegate* unmanaged<nint, nint, BufferViewDescription*, nint, void>)ComObject.Slot(device, DesktopShaderResourceViewSlot);
-        create(device, range.Resource, &desktop, handle);
+        nint target = range.Resource;
+        BufferViewDescription raw;
+        var written = (BufferViewDescription*)Binding.RawBufferViews.View(&desktop, (byte*)&raw, false, record, ref target);
+        create(device, target, written, handle);
 
         return true;
     }
