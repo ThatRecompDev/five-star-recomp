@@ -37,6 +37,7 @@ internal static unsafe class CompileBudget
     private const long MinimumEstimate = 2L << 30;
     private const long MaximumEstimate = 32L << 30;
     private const int PauseMilliseconds = 500;
+    private const double BytesPerGigabyte = 1L << 30;
 
     private static readonly object Gate = new();
     private static int _running;
@@ -97,6 +98,20 @@ internal static unsafe class CompileBudget
 
     /// <summary>Compiles running now.</summary>
     public static int Running => Volatile.Read(ref _running);
+
+    /// <summary>The compiles running and waiting, what the running ones are expected to take, and the private bytes counted.</summary>
+    public static string Summary
+    {
+        get
+        {
+            long expected = Interlocked.Read(ref _expected);
+
+            return $"driver compiles {Running} running ({expected / BytesPerGigabyte:F1} GB expected), {Waiting} waiting; private {PrivateBytes() / BytesPerGigabyte:F1} GB, compile host {HelperPrivateBytes() / BytesPerGigabyte:F1} GB";
+        }
+    }
+
+    /// <summary>The process's private bytes (the loader's own, not the compile host's).</summary>
+    public static long ProcessPrivateBytes => PrivateBytes();
 
     /// <summary>Compiles waiting for memory before they start.</summary>
     public static int Waiting => Volatile.Read(ref _waiting);

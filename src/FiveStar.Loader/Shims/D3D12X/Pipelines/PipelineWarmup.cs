@@ -179,12 +179,18 @@ internal sealed unsafe class PipelineWarmup
     {
         WarmMemoryGuard.WaitForRoom(() => _stopping);
         var started = Stopwatch.GetTimestamp();
+        long shaderBytes = recipe.Stream.ShaderBytes;
+        long before = CompileBudget.ProcessPrivateBytes;
         var result = _factory.Build(recipe.Stream, DesktopDevice.PipelineStateIid, recipe.Names);
-        var took = Stopwatch.GetElapsedTime(started);
 
-        if (took > SlowBuild)
+        var took = Stopwatch.GetElapsedTime(started);
+        long grown = CompileBudget.ProcessPrivateBytes - before;
+        long estimate = CompileBudget.Estimate(shaderBytes);
+
+        // The private growth over the build counts the other compiles running meanwhile too: an upper bound of this one's.
+        if (took > SlowBuild || grown > estimate)
         {
-            _log.Info($"  {took.TotalSeconds:F0} s: {recipe.Names}");
+            _log.Info($"  {took.TotalSeconds:F0} s: {recipe.Names} ({shaderBytes / BytesPerMebibyte} MiB of DXIL, estimate {(double)estimate / BytesPerGibibyte:F0} GB, private {(double)grown / BytesPerGibibyte:+0.0;-0.0} GB over the build)");
         }
 
         if (HResult.Failed(result.Hr) || result.Pipeline == 0)
@@ -210,7 +216,7 @@ internal sealed unsafe class PipelineWarmup
 
     private void Report(int total, Stopwatch clock)
     {
-        _log.Info($"  warm-up {_tally.Done}/{total} after {clock.Elapsed:hh\\:mm\\:ss}: {_tally.Summary}; {_cache.Summary}");
+        _log.Info($"  warm-up {_tally.Done}/{total} after {clock.Elapsed:hh\\:mm\\:ss}: {_tally.Summary}; {_cache.Summary}; {CompileBudget.Summary}; {Diagnostics.MemorySnapshot.Summary()}; {Diagnostics.WriteCombinedMemory.Summary()}");
     }
 
     private static HashSet<string> ReadFailures(string path)

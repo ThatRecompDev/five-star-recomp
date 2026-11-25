@@ -68,15 +68,24 @@ public sealed class DxilBackendCompiler : IShaderCompiler
     public CompileOutcome Compile(CompileRequest request, TimeSpan timeout)
     {
         var result = _backend.Run(request);
+        Count(result.Verdict);
 
         if (result.Verdict == BackendVerdict.Compiled)
         {
-            Interlocked.Increment(ref _compiled);
-
             return CompileOutcome.Success;
         }
 
-        if (result.Verdict == BackendVerdict.Rejected)
+        return Fallback(request, timeout, result.Reason);
+    }
+
+    /// <summary>Counts a verdict the backend reached elsewhere (a program made in the compile host).</summary>
+    public void Count(BackendVerdict verdict)
+    {
+        if (verdict == BackendVerdict.Compiled)
+        {
+            Interlocked.Increment(ref _compiled);
+        }
+        else if (verdict == BackendVerdict.Rejected)
         {
             Interlocked.Increment(ref _invalid);
         }
@@ -84,10 +93,14 @@ public sealed class DxilBackendCompiler : IShaderCompiler
         {
             Interlocked.Increment(ref _unlowered);
         }
+    }
 
+    /// <summary>Compiles with the fallback a request the backend did not take (<paramref name="reason"/> when there is none).</summary>
+    public CompileOutcome Fallback(CompileRequest request, TimeSpan timeout, string reason)
+    {
         if (_fallback is null)
         {
-            return CompileOutcome.Failure(Prefix + result.Reason);
+            return CompileOutcome.Failure(Prefix + reason);
         }
 
         return _fallback.Compile(request, timeout);

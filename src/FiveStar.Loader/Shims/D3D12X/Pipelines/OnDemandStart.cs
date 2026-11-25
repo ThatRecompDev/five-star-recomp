@@ -231,7 +231,16 @@ internal sealed class OnDemandStart
         workers.Start();
         log.Detail($"  [d3d12_xs] programs on demand: {folder}, {Jobs} threads and one for heavy compiles, {slow.Count} sources slow at -O3");
 
-        return new OnDemandPrograms(index, ahead, new ProgramProducer(programs, folder, picker, compiler, slow), workers, warnings, () => BackendCounts);
+        ProgramHosting? hosting = null;
+
+        if (_runner is CompileHost host && _backend is not null)
+        {
+            hosting = new ProgramHosting(host, _backend, adapter);
+        }
+
+        var producer = new ProgramProducer(programs, folder, picker, compiler, slow) { Hosting = hosting };
+
+        return new OnDemandPrograms(index, ahead, producer, workers, warnings, () => BackendCounts);
     }
 
     /// <summary>The adapter facts that pick a program's form: shader model, wave lane range, mesh-shader tier.</summary>

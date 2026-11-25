@@ -216,7 +216,16 @@ internal sealed class OnDemandPrograms : IProgramLibrary
                 return;
             }
 
-            var form = _producer.Prepare(job.Name);
+            var hosted = _producer.MakeInHost(job.Name);
+
+            if (hosted.Hosted && hosted.Dxc is null)
+            {
+                Made(job, hosted.Failure);
+
+                return;
+            }
+
+            var form = hosted.Dxc ?? _producer.Prepare(job.Name);
 
             if (form.Failure is not null)
             {
@@ -225,20 +234,33 @@ internal sealed class OnDemandPrograms : IProgramLibrary
                 return;
             }
 
+            bool dxcOnly = hosted.Dxc is not null || hosted.DxcOnly;
+
             if (form.Heavy)
             {
-                _workers.QueueHeavy(() => Guarded(job, () => Compile(job, form)));
+                _workers.QueueHeavy(() => Guarded(job, () => Compile(job, form, dxcOnly)));
 
                 return;
             }
 
-            Compile(job, form);
+            Compile(job, form, dxcOnly);
         });
     }
 
-    private void Compile(ProgramJob job, ProgramForm form)
+    /// <summary>A program the compile host made (null) or refused.</summary>
+    private void Made(ProgramJob job, string? failure)
     {
-        var failure = _producer.Compile(form);
+        if (failure is null)
+        {
+            Interlocked.Increment(ref _made);
+        }
+
+        Finish(job, failure);
+    }
+
+    private void Compile(ProgramJob job, ProgramForm form, bool dxcOnly)
+    {
+        var failure = _producer.Compile(form, dxcOnly);
 
         if (failure is null)
         {

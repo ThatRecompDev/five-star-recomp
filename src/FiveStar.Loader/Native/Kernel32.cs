@@ -38,6 +38,18 @@ internal static unsafe class Kernel32
     [DllImport(Library)]
     public static extern int TerminateProcess(nint process, uint exitCode);
 
+    /// <summary>CreateJobObjectW(attributes, name): the job, or 0.</summary>
+    [DllImport(Library)]
+    public static extern nint CreateJobObjectW(nint attributes, nint name);
+
+    /// <summary>SetInformationJobObject(job, JOBOBJECTINFOCLASS, info, size): nonzero on success.</summary>
+    [DllImport(Library)]
+    public static extern int SetInformationJobObject(nint job, int informationClass, void* information, uint size);
+
+    /// <summary>AssignProcessToJobObject(job, process): nonzero on success.</summary>
+    [DllImport(Library)]
+    public static extern int AssignProcessToJobObject(nint job, nint process);
+
     [DllImport(Library)]
     public static extern int SwitchToThread();
 
