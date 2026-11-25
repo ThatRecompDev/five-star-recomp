@@ -16,6 +16,9 @@ internal static class ShimContext
     /// <summary>The runtime whose images are mapped; the most recently created one.</summary>
     public static LoaderRuntime Runtime => Volatile.Read(ref _runtime) ?? throw new InvalidOperationException("no loader runtime is active");
 
+    /// <summary>The active runtime, or null in a mode without a game (the warm-up).</summary>
+    public static LoaderRuntime? Active => Volatile.Read(ref _runtime);
+
     /// <summary>
     /// The log of the active runtime, else the one a mode without a game set (<see cref="Host.WarmPipelinesCommand"/>):
     /// pipeline builds log through it in both. The warm-up ended on the first [budget] line it wrote while it asked

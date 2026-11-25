@@ -179,7 +179,7 @@ internal static class TranslateCommand
 
         Directory.CreateDirectory(outputFolder);
 
-        return new TimedCompiler(compiler, Path.Combine(outputFolder, TimedCompiler.LogName), TimeProvider.System);
+        return new TimedCompiler(compiler, Path.Combine(outputFolder, TimedCompiler.LogName), TimeProvider.System, Environment.ProcessId);
     }
 
     private static IShaderCompiler? Cached(IShaderCompiler? compiler, CacheFolder? cache)
