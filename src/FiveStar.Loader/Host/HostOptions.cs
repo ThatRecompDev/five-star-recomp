@@ -178,6 +178,9 @@ internal sealed record HostOptions
     /// <summary>Pipelines whose programs' names hold this text cull no faces (<c>--force-cull-none &lt;text&gt;</c>).</summary>
     public string? ForceCullNone { get; set; }
 
+    /// <summary>Pipelines whose programs' names hold one of these texts stay stand-ins (<c>--skip-pipelines &lt;text,...&gt;</c>).</summary>
+    public IReadOnlyList<string> SkipPipelines { get; set; } = [];
+
     /// <summary>Loop caps of programs made on demand (<c>--loop-caps victory|default|compute,geometry,pixel</c>); null for the translator's own.</summary>
     public FiveStar.Shaders.Translation.Core.LoopCaps? LoopCaps { get; set; }
 
