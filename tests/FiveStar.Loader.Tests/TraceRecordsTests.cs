@@ -17,8 +17,9 @@ public sealed unsafe class TraceRecordsTests
     [Fact]
     public void Records_at_sgpr_pointers_show_a_V_sharp_base_and_values_a_T_sharp_base_and_a_heap_index()
     {
-        var offsets = TraceRecords.Parse("0x20, 64 ,0x60");
-        Assert.Equal([0x20u, 0x40u, 0x60u], offsets);
+        var offsets = TraceRecords.Parse("0x20@0x24, 64 ,0x60");
+        Assert.Equal([new TraceRecord(0x20, 0x24), new TraceRecord(0x40), new TraceRecord(0x60)], offsets);
+        Assert.Equal([new TraceRecord(0x380, 0x11c), new TraceRecord(32)], TraceRecords.Parse("0x380 @ 0x11c,32"));
 
         byte* window = (byte*)NativeMemory.AllocZeroed(WindowBytes);
         uint* constants = (uint*)NativeMemory.AllocZeroed(TraceRecords.BaseDwords * sizeof(uint));
@@ -39,7 +40,9 @@ public sealed unsafe class TraceRecordsTests
             var text = new StringBuilder();
             uint[] sgprs = [Table, 0x123, 0, Table, WindowBytes];
             var mapped = new Dictionary<ulong, string> { [0x2848a43b440] = "mapped" };
-            var memory = new Dictionary<ulong, nint> { [0x2848a43b440] = (nint)constants };
+            // The buffer's dword at byte 0x24 (past the first 10 shown) is a garbage loop count.
+            uint count = 0xffffff00;
+            var memory = new Dictionary<ulong, nint> { [0x2848a43b440] = (nint)constants, [0x2848a43b440 + 0x24] = (nint)(&count) };
 
             // The game's heap holds a T# where the window's +0x60 record is; the other records have no game heap behind them.
             var game = new Dictionary<uint, nint> { [Table + 0x60] = (nint)gameRecord };
@@ -51,6 +54,11 @@ public sealed unsafe class TraceRecordsTests
             Assert.Equal(3, log.Split("\n      sgpr ").Length - 1);
             Assert.Contains("sgpr 0 0x200 +0x20: 8a43b440 00000284 000010f0 31014fac", log, StringComparison.Ordinal);
             Assert.Contains("V# base 0x2848a43b440, 4336 records: mapped; first dwords: 40000000 00000000 bf800000", log, StringComparison.Ordinal);
+
+            // Only the entry naming a dword shows one.
+            Assert.Contains("; dword at +0x24: ffffff00 (4294967040)", log, StringComparison.Ordinal);
+            Assert.Single(log.Split("dword at +").Skip(1));
+
             Assert.Contains("T# base 0x1234567800: UNMAPPED", log, StringComparison.Ordinal);
             Assert.Contains("V# holds heap index 417733, no console base", log, StringComparison.Ordinal);
 

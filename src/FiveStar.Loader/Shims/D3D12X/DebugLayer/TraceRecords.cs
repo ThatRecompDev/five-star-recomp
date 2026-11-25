@@ -12,7 +12,7 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// passes as a root constant, which the root signature's tables do not show). Each record's dwords, then for a V# its
 /// base (or heap index), whether the address map has the base's page and the first dwords there; for a T# its base and
 /// map state; and the game's own record at the same heap index, to tell a record the window lacks from one the game
-/// never wrote.
+/// never wrote. An entry <c>offset@byte</c> also shows the dword at that byte of the V#'s buffer.
 /// </summary>
 internal static unsafe class TraceRecords
 {
@@ -40,27 +40,43 @@ internal static unsafe class TraceRecords
     private const int ImageBaseShift = 8;
     private const int DwordBits = 32;
 
-    /// <summary>The byte offsets; empty for none.</summary>
-    public static IReadOnlyList<uint> Offsets { get; set; } = [];
+    private const char DwordSeparator = '@';
 
-    /// <summary>Offsets of a comma-separated list, hexadecimal with 0x or decimal.</summary>
-    public static IReadOnlyList<uint> Parse(string list)
+    /// <summary>The entries; empty for none.</summary>
+    public static IReadOnlyList<TraceRecord> Offsets { get; set; } = [];
+
+    /// <summary>
+    /// Entries of a comma-separated list: <c>offset</c> or <c>offset@byte</c>, each number hexadecimal with 0x or decimal.
+    /// </summary>
+    public static IReadOnlyList<TraceRecord> Parse(string list)
     {
-        return [.. list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(ParseOne)];
+        return [.. list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(ParseEntry)];
+    }
+
+    private static TraceRecord ParseEntry(string text)
+    {
+        var at = text.IndexOf(DwordSeparator, StringComparison.Ordinal);
+
+        if (at < 0)
+        {
+            return new TraceRecord(ParseOne(text));
+        }
+
+        return new TraceRecord(ParseOne(text[..at].Trim()), ParseOne(text[(at + 1)..].Trim()));
     }
 
     /// <summary>
     /// The records at <paramref name="offsets"/> from each distinct user SGPR of <paramref name="sgprs"/> that is a
     /// record-aligned offset with room in the <paramref name="windowBytes"/> of view records at <paramref name="window"/>.
     /// </summary>
-    public static void Append(StringBuilder text, byte* window, uint windowBytes, ReadOnlySpan<uint> sgprs, IReadOnlyList<uint> offsets, TraceRecordSources sources)
+    public static void Append(StringBuilder text, byte* window, uint windowBytes, ReadOnlySpan<uint> sgprs, IReadOnlyList<TraceRecord> offsets, TraceRecordSources sources)
     {
         if (window == null || offsets.Count == 0)
         {
             return;
         }
 
-        uint last = offsets.Max();
+        uint last = offsets.Max(entry => entry.Offset);
         var seen = new HashSet<uint>();
 
         for (int sgpr = 0; sgpr < sgprs.Length; sgpr++)
@@ -72,12 +88,12 @@ internal static unsafe class TraceRecords
                 continue;
             }
 
-            foreach (uint offset in offsets)
+            foreach (var entry in offsets)
             {
-                var record = (uint*)(window + pointer + offset);
-                text.Append(CultureInfo.InvariantCulture, $"\n      sgpr {sgpr} 0x{pointer:x} +0x{offset:x}:");
-                AppendRecord(text, record, sources.MapState, sources.Memory);
-                AppendGameRecord(text, pointer + offset, sources.GameRecord);
+                var record = (uint*)(window + pointer + entry.Offset);
+                text.Append(CultureInfo.InvariantCulture, $"\n      sgpr {sgpr} 0x{pointer:x} +0x{entry.Offset:x}:");
+                AppendRecord(text, record, sources.MapState, sources.Memory, entry.Dword);
+                AppendGameRecord(text, pointer + entry.Offset, sources.GameRecord);
             }
         }
     }
@@ -107,7 +123,7 @@ internal static unsafe class TraceRecords
         }
     }
 
-    private static void AppendRecord(StringBuilder text, uint* record, Func<ulong, string> mapState, Func<ulong, int, nint> memory)
+    private static void AppendRecord(StringBuilder text, uint* record, Func<ulong, string> mapState, Func<ulong, int, nint> memory, uint? dword)
     {
         AppendDwords(text, record);
 
@@ -135,14 +151,34 @@ internal static unsafe class TraceRecords
         if (data == null)
         {
             text.Append(" (memory not readable)");
+        }
+        else
+        {
+            for (int i = 0; i < BaseDwords; i++)
+            {
+                text.Append(CultureInfo.InvariantCulture, $" {data[i]:x8}");
+            }
+        }
+
+        if (dword.HasValue)
+        {
+            AppendDword(text, address, dword.Value, memory);
+        }
+    }
+
+    /// <summary>The dword at byte <paramref name="at"/> of the buffer at <paramref name="address"/>.</summary>
+    private static void AppendDword(StringBuilder text, ulong address, uint at, Func<ulong, int, nint> memory)
+    {
+        var value = (uint*)memory(address + at, sizeof(uint));
+
+        if (value == null)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"; dword at +0x{at:x}: (memory not readable)");
 
             return;
         }
 
-        for (int i = 0; i < BaseDwords; i++)
-        {
-            text.Append(CultureInfo.InvariantCulture, $" {data[i]:x8}");
-        }
+        text.Append(CultureInfo.InvariantCulture, $"; dword at +0x{at:x}: {*value:x8} ({*value})");
     }
 
     private static uint ParseOne(string text)
