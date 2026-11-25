@@ -13,7 +13,8 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 
 /// <summary>
 /// <c>--gpu-timings</c>: how long the GPU spends in each pass of the game's frames (issue #40). A pass is a run of work
-/// in one command list between render-target changes or a switch between draws and dispatches, named by its first
+/// in one command list between render-target changes, a switch between draws and dispatches, or a change of compute
+/// pipeline (each compute program is its own pass), named by its first
 /// pipeline (<see cref="PassName"/>). Each pass begins with a timestamp query and the list's Close ends the last; Close
 /// resolves the list's block of <see cref="QueriesPerBlock"/> queries into a readback buffer. Each submission queues
 /// the lists' passes with the queue fence value they end at, and a thread reads them once the fence passed (no wait
@@ -25,8 +26,8 @@ internal static unsafe class GpuTimings
     /// <summary>Query blocks in the ring, one per recording; at about 300 recordings a frame the ring turns every second or so.</summary>
     private const int Blocks = 8192;
 
-    /// <summary>Queries per recording: up to 31 passes and the end; later boundaries extend the last pass.</summary>
-    private const int QueriesPerBlock = 32;
+    /// <summary>Queries per recording: up to 63 passes and the end; later boundaries extend the last pass.</summary>
+    private const int QueriesPerBlock = 64;
 
     private const int Queries = Blocks * QueriesPerBlock;
 
@@ -167,7 +168,7 @@ internal static unsafe class GpuTimings
             return;
         }
 
-        bool begins = times.Used == 0 || ((times.Boundary || kind != times.Kind) && times.Used < QueriesPerBlock - 1);
+        bool begins = times.Used == 0 || (Switches(times, kind, pipeline) && times.Used < QueriesPerBlock - 1);
 
         if (!begins)
         {
@@ -179,6 +180,16 @@ internal static unsafe class GpuTimings
         times.Used++;
         times.Kind = kind;
         times.Boundary = false;
+    }
+
+    /// <summary>
+    /// Whether work of <paramref name="kind"/> with <paramref name="pipeline"/> ends the list's current pass: new targets,
+    /// a draw/dispatch switch, or another compute pipeline (a run of dispatches would otherwise all count under its first
+    /// program, as a cheap clear ahead of a frame's compute work did).
+    /// </summary>
+    private static bool Switches(ListTimes times, int kind, nint pipeline)
+    {
+        return times.Boundary || kind != times.Kind || (kind == Compute && pipeline != times.Pipelines[times.Used - 1]);
     }
 
     /// <summary>At Close, before the desktop Close: the end timestamp and the resolve of the list's block.</summary>
