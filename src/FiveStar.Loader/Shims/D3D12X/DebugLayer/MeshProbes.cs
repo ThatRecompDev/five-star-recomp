@@ -33,6 +33,7 @@ internal static unsafe class MeshProbes
     private const int PositionsShown = 4;
     private const int MaskBits = 32;
     private const int SiteFields = 2;
+    private const uint BelowViews = 0x80000000;
 
     private static readonly ConcurrentDictionary<uint, string> Names = new();
     private static uint _reported;
@@ -165,14 +166,41 @@ internal static unsafe class MeshProbes
             int unmapped = groups.Count(group => (group.Unmapped & bit) != 0);
             int empty = groups.Count(group => (group.NullRecord & bit) != 0);
             var values = groups.Select(group => group.Values.ElementAtOrDefault(site)).ToList();
+            var windows = groups.Select(group => WindowIndex(group.WindowAddresses.ElementAtOrDefault(site))).ToList();
 
-            if (range + unmapped + empty == 0 && values.All(value => value is null))
+            if (range + unmapped + empty == 0 && values.All(value => value is null) && windows.All(index => index is null))
             {
                 continue;
             }
 
-            log.Info($"{Prefix}{name}: site {site}: range {range}, unmapped {unmapped}, null record {empty} of {groups.Count} groups; loaded {Values(values)}: {texts.GetValueOrDefault(site, "?")}");
+            string window = string.Empty;
+
+            if (windows.Any(index => index is not null))
+            {
+                window = $"; window record index {Values(windows)}";
+            }
+
+            log.Info($"{Prefix}{name}: site {site}: range {range}, unmapped {unmapped}, null record {empty} of {groups.Count} groups; loaded {Values(values)}{window}: {texts.GetValueOrDefault(site, "?")}");
         }
+    }
+
+    /// <summary>
+    /// The view record a window address falls in (its game descriptor index, the index copies and writes name), or the
+    /// address itself with bit 31 set when it lies below the view records (samplers, the null table).
+    /// </summary>
+    private static uint? WindowIndex(uint? address)
+    {
+        if (address is not uint at)
+        {
+            return null;
+        }
+
+        if (at < DescriptorWindow.ViewBase)
+        {
+            return at | BelowViews;
+        }
+
+        return (at - DescriptorWindow.ViewBase) / DescriptorWindow.ViewRecordBytes;
     }
 
     /// <summary>The distinct values with how many groups had each, most first; "none" when no group noted one.</summary>

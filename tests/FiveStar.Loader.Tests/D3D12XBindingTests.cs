@@ -233,6 +233,18 @@ public sealed unsafe class D3D12XBindingTests
             // Without a console address dword 0 stays the desktop index, base_hi 0.
             uint* plain = (uint*)(data + DescriptorWindow.ViewBase + ((Index + 1) * DescriptorWindow.ViewRecordBytes));
             Assert.Equal([Index + 1, 0u], new[] { plain[0], plain[1] });
+
+            // A copy in from a desktop heap writes no fields; the source view's, noted by its handle, are set after it
+            // over the desktop descriptor the record names.
+            const nint DesktopHeapView = 0x7FFF_0000;
+            DesktopRecords.Note(DesktopHeapView, new BufferRecord(0, 256, Dword | RawBounds).At(Address, 1));
+            heap.Destination(Index + 2, 1, BufferRecord.None);
+            Assert.True(DesktopRecords.TryFind(DesktopHeapView, out var copied));
+            heap.SetFields(Index + 2, copied);
+
+            uint[] carried = [0x0005_0014, 0x27E, 256, Dword | RawBounds, Index + 2];
+            Assert.Equal(carried, new ReadOnlySpan<uint>(data + DescriptorWindow.ViewBase + ((Index + 2) * DescriptorWindow.ViewRecordBytes), carried.Length).ToArray());
+            Assert.Equal(DesktopStart + (nint)((Index + 2) * Increment), heap.Source(Index + 2));
         }
         finally
         {

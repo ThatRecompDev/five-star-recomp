@@ -123,6 +123,19 @@ internal sealed unsafe class ShaderVisibleHeap
         return _desktopStart + (nint)((ulong)Valid(Desktop(Record(index))) * Increment);
     }
 
+    /// <summary>
+    /// Writes <paramref name="buffer"/>'s V# fields into the record at <paramref name="index"/>, keeping the desktop
+    /// descriptor it names (a copy from a desktop heap, <see cref="DesktopRecords"/>).
+    /// </summary>
+    [HotPath]
+    public void SetFields(uint index, BufferRecord buffer)
+    {
+        if (index < Count)
+        {
+            WriteRecord(index, Desktop(Record(index)), buffer);
+        }
+    }
+
     /// <summary>Descriptors from <paramref name="index"/> that one desktop run holds.</summary>
     [HotPath]
     public uint RunLength(uint index)

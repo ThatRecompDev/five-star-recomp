@@ -41,9 +41,9 @@ public sealed partial class MeshStageRunner
     public const string SuperstepFallback = "msfb_ngg_supersteps";
 
     /// <summary>
-    /// The program with four loads first (results unused): a buffer of no records through the null page view (s[12:15]),
-    /// a good buffer (s[16:19]), a pointer whose page the address map has unmapped (s[20:21]) and a buffer through the
-    /// record naming no descriptor (s[24:27]), drawn with the probe (<see cref="RunProbed"/>).
+    /// The program with five loads first (results unused): a buffer of no records through the null page view (s[12:15]),
+    /// a good buffer (s[16:19]), a pointer whose page the address map has unmapped (s[20:21]), a buffer through the
+    /// record naming no descriptor (s[24:27]) and a 32-bit pointer into the descriptor window (s[28:29]), drawn with the probe (<see cref="RunProbed"/>).
     /// </summary>
     public const string Probe = "ms_ngg_probe";
 
@@ -56,10 +56,15 @@ public sealed partial class MeshStageRunner
         buffer_load_dword v21, off, s[16:19], 0
         s_load_dword s30, s[20:21], 0x0
         buffer_load_dword v22, off, s[24:27], 0
+        s_load_dword s31, s[28:29], 0x8
         s_waitcnt vmcnt(0) lgkmcnt(0)
         """;
 
-    private const int ProbeUserSgprs = 20;
+    private const int ProbeUserSgprs = 22;
+
+    /// <summary>The window address the 32-bit pointer load reads (s[28:29] + 8), and what the window holds at each dword.</summary>
+    public const uint WindowAddress = 0x48;
+    public const uint WindowFill = 0xD000;
     private const int ProbeBufferWords = 128;
     private const uint UnmappedFill = 0xA000;
     private const uint DataFill = 0xB000;
@@ -241,9 +246,11 @@ public sealed partial class MeshStageRunner
                 DataSlot, 0, Records, RawBuffer,
                 0x100, 1, 0, 0,
                 NullRecordSlot, 0, Records, RawBuffer,
+                WindowAddress - 8, 0,
             ],
             Buffers =
             [
+                new BufferResource(0, Filled(WindowFill), Writable: false),
                 new BufferResource((int)RingSlot, new uint[ProbeBufferWords], Writable: true),
                 new BufferResource((int)DataSlot, Filled(DataFill), Writable: false),
                 new BufferResource((int)NullRecordSlot, Filled(NullRecordFill), Writable: false),
