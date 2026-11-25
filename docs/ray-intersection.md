@@ -59,6 +59,18 @@ misses last and ties in node order; without it they stay in node order.
 extent is not tested; the sign of `t_denom` is the facing. Return mode 1 gives `{t_num, t_denom, I', J'}`, where I' and
 J' are picked from `{t_denom − I − J, I, J}` by the triangle_id byte of the node type (bits 1..0 for I', 3..2 for J').
 
+## Without a built structure
+
+The loader builds no acceleration structure without `--raytracing` (XboxBvhBuilder builds nothing), so programs it
+makes on demand define `FIVESTAR_BVH_MISS` (`BvhMiss`, part of the program cache identity): every node misses and
+nothing is read. A box node returns four invalid children, a triangle node t_num inf over t_denom 1 (return mode 0:
+hit_status 0). The game's traversal loops then end at once. Before, about 70 inline ray-tracing compute programs
+(`CS_RaytracingResolve`, the ray-traced shadows, `bvh_*`) traversed whatever title memory the T# base pointed at,
+following garbage child pointers until the driver reset the context: the world-load DEVICE_REMOVED of boot w63,
+gone when those programs were skipped. Their loops are bounded besides by the loop guard (65,536 iterations per
+compute invocation, [shader-translation.md](shader-translation.md#loop-guard)), which alone is no time bound for
+such loops.
+
 ## Exactness
 
 Every float operation is one IEEE f32 round-to-nearest operation in GPURT's order, written `precise` so the compiler

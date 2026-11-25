@@ -57,6 +57,12 @@ public sealed class ComputeCaseRunner
         return Run(testCase with { Threads = (2 * testCase.Wave, 1, 1) }, program => HlslTranslator.SuperstepVariant(program, options));
     }
 
+    /// <summary>Runs a case with <paramref name="defines"/> (HLSL #define lines) before its translation, as the loader's mode header.</summary>
+    public IReadOnlyList<string> RunDefined(ComputeCase testCase, string defines)
+    {
+        return Run(testCase, program => defines + ShaderWorkbench.Translate(program));
+    }
+
     /// <summary>Runs a case compiled by the DXIL backend instead of dxc (the same translation, the same expectations).</summary>
     public IReadOnlyList<string> RunDirect(ComputeCase testCase)
     {

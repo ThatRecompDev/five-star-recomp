@@ -30,4 +30,13 @@ public sealed class BvhTests : IClassFixture<WarpFixture>
 
         Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
     }
+
+    [WarpFact]
+    public void Without_a_built_structure_every_node_over_garbage_memory_misses()
+    {
+        // The loader defines FIVESTAR_BVH_MISS unless --raytracing: no node is read, so traversal loops end at once (w63).
+        var mismatches = new ComputeCaseRunner(_fixture).RunDefined(BvhCases.Garbage(), "#define FIVESTAR_BVH_MISS 1\n");
+
+        Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
+    }
 }
