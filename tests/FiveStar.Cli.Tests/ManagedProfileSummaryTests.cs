@@ -81,12 +81,18 @@ public sealed partial class ManagedProfileSummaryTests
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void BurnCpu()
     {
+        // The clock is read once per many iterations, so the samples land in this method and not in Stopwatch (which
+        // a Debug build does not inline).
+        const int Iterations = 1 << 16;
         var clock = Stopwatch.StartNew();
         double value = 1;
 
         while (clock.ElapsedMilliseconds < BurnMilliseconds)
         {
-            value = Math.Sqrt(value + clock.ElapsedTicks);
+            for (int index = 0; index < Iterations; index++)
+            {
+                value = Math.Sqrt(value + index);
+            }
         }
 
         GC.KeepAlive(value);
