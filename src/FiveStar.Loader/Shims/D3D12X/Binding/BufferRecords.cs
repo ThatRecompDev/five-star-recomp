@@ -34,6 +34,29 @@ internal static unsafe class BufferRecords
     /// </summary>
     public static bool HeapIndexOnly { get; set; }
 
+    /// <summary>
+    /// A read-only view's record (SRV, CBV, slot 70) with its console base (<see cref="BufferRecord.At"/>) when the
+    /// address map reaches the same desktop memory the view's resource is: the address table's range holding the base
+    /// is <paramref name="desktop"/> (any range for 0). Else, and for every UAV, the heap index stays: the GPU's writes
+    /// and the command processor's reads (indirect arguments, copies, index buffers) keep going through the desktop
+    /// resource. With every record based (3ac3312), boots hung or crashed at 120-130 s: writes reached memory through
+    /// the address map that the desktop resources the command processor reads did not show (a placed buffer is its first
+    /// page run, as its pages were when it was placed), and pool memory the game reuses.
+    /// </summary>
+    [HotPath]
+    public static BufferRecord ReadOnly(BufferRecord record, ulong address, ulong firstElement, nint desktop)
+    {
+        var based = record.At(address, firstElement);
+
+        if (based.Base == 0 || !ShimContext.Runtime.D3D12X.PlacedResources.Addresses.TryFind(based.Base, out var range)
+            || (desktop != 0 && range.Resource != desktop))
+        {
+            return record;
+        }
+
+        return based;
+    }
+
     /// <summary>The console GPU address of a resource the game placed (slot 133); 0 for one the desktop placed.</summary>
     [HotPath]
     public static ulong GameAddress(nint resource)

@@ -444,14 +444,17 @@ flowchart LR
   to 5 null descriptors for the mesh fallback table (root parameter 1; 5 is also what a record naming nothing
   reads), 6 a sink, 7 the address map (`GPU_MAP_HEAP`, below), 8 and 9 the null SRV and UAV its unmapped pages name.
 - **Buffer records** (`BufferRecord`, `BufferRecords`). A buffer view's record is its V# as the console lays it out:
-  stride and num_records, the format word with its OOB_SELECT, and the view's console GPU address in dword 0 and dword
-  1 bits 0-15 (the resource's slot-133 address plus the first element, a CBV's location, a slot-70 view's address).
-  Programs read V#s from tables and build pointers from their base: `MS_VS_Transform_PositionOnly` s_loads a V# and
-  then loads through base + 0x40; with the desktop heap index there, it read the window and its meshlet V#s came out
-  empty. Translated programs reach such a V# through the address map. The desktop index stays in dword 4 of the
-  record (the shim's copies to desktop heaps) and of its window mirror (the debug readers). A view of a resource the
-  desktop placed has no console address and keeps the heap index in dword 0 (base_hi 0), as
-  `--buffer-records-heap-index` makes every buffer record, the behaviour before.- **CPU-only view heaps** take title memory too (the game creates eleven of 3,128 descriptors and copies their
+  stride and num_records, the format word with its OOB_SELECT, and in dword 0 and dword 1 bits 0-15 either the desktop
+  heap index (base_hi 0) or, for a read-only view, its console GPU address (the resource's slot-133 address plus the
+  first element, a CBV's location, a slot-70 view's address). Programs read V#s from tables and build pointers from
+  their base: `MS_VS_Transform_PositionOnly` s_loads a V# and then loads through base + 0x40; with the heap index
+  there, it read the descriptor window and its meshlet V#s came out empty. A read-only view gets its address only when
+  the address table's range holding it is the view's own desktop resource, so the address map reaches the same memory.
+  UAVs keep the heap index: with every record based, boots hung or crashed at 120 to 130 s, the GPU's writes reaching
+  memory through the address map that the desktop resources the command processor reads (indirect arguments, copies)
+  did not show. A record with an address keeps the desktop index in dword 4 (the shim's copies to desktop heaps); the
+  window mirror holds it in dword 4 for every record (the debug readers). `--buffer-records-heap-index` keeps the heap
+  index in every record.- **CPU-only view heaps** take title memory too (the game creates eleven of 3,128 descriptors and copies their
   32-byte records into its per-draw tables itself, 0x144d9efc0). Their records name descriptors of the desktop
   shader-visible heap: every view written into one takes the next descriptors of a ring of 16 remap pages
   (`DescriptorRing`, 65,536 descriptors), so a record copied earlier keeps naming the view it copied until the ring

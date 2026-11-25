@@ -33,7 +33,7 @@ internal static unsafe class XboxAddressDescriptors
                 return;
             }
 
-            var record = BufferRecords.ShaderResource(view).At(view->Address, BufferRecords.FirstElement(view, unordered: false));
+            var record = BufferRecords.ReadOnly(BufferRecords.ShaderResource(view), view->Address, BufferRecords.FirstElement(view, unordered: false), 0);
             nint destination = D3D12X.DescriptorHeaps.Destination(handle, record);
             var texture = D3D12X.AddressViews.Create(self->Inner, resource, view, destination);
             D3D12X.DrawTrace?.AddressView(destination, resource, view, texture);

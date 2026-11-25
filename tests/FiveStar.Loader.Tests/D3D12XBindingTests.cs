@@ -241,6 +241,22 @@ public sealed unsafe class D3D12XBindingTests
         }
     }
 
+    [Fact]
+    public void Only_a_view_the_address_map_reaches_as_its_own_resource_gets_its_console_base()
+    {
+        const ulong Address = 0x27E_0006_0000;
+        using var test = TestRuntime.Create();
+        _ = new XboxDevice(test);
+        nint resource = Buffer(test.Runtime.D3D12X.Objects.DesktopDevice, new HeapProperties { Type = HeapProperties.Upload }, 0, GenericRead);
+        test.Runtime.D3D12X.PlacedResources.Addresses.Add(new FiveStar.Loader.Shims.D3D12X.AddressRange(Address, 0x10000, DesktopCalls.GpuAddress(resource), resource));
+        var raw = new BufferRecord(0, 256, Dword | RawBounds);
+
+        Assert.Equal(Address + 4, BufferRecords.ReadOnly(raw, Address, 1, resource).Base);
+        Assert.Equal(0ul, BufferRecords.ReadOnly(raw, Address, 1, resource + 1).Base);
+        Assert.Equal(0ul, BufferRecords.ReadOnly(raw, Address + 0x10000, 0, resource).Base);
+        Assert.Equal(Address, BufferRecords.ReadOnly(raw, Address, 0, 0).Base);
+    }
+
     [DxcFact]
     public void A_descriptor_table_set_through_the_game_slots_reaches_the_program()
     {
