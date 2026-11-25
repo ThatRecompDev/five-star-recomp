@@ -410,6 +410,11 @@ internal static unsafe class CommandListBindingMethods
             nint argumentBuffer = BufferCopies.Desktop(arguments, ref argumentOffset);
             nint countBuffer = BufferCopies.Desktop(count, ref countOffset);
 
+            if (NullAddressCheck.Enabled && IndirectUnsafe(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset))
+            {
+                return;
+            }
+
             if (IndirectClamp.Record(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
             {
                 RestoreCompute(self);
@@ -429,6 +434,18 @@ internal static unsafe class CommandListBindingMethods
         {
             UnmanagedGuard.Caught(exception, "CommandListBindingMethods.ExecuteIndirect");
         }
+    }
+
+    /// <summary>
+    /// <c>--check-null-addresses</c>: whether an ExecuteIndirect's desktop argument or count buffer is missing, at a low
+    /// address or read past its end (<see cref="NullAddressCheck"/>); true drops it.
+    /// </summary>
+    private static bool IndirectUnsafe(XboxObject* self, nint signature, uint maxCount, nint arguments, ulong argumentOffset, nint count, ulong countOffset)
+    {
+        ulong bytes = (ulong)CommandSignatures.Clampable(signature).Stride * maxCount;
+        string? problem = NullAddressCheck.Indirect(arguments, argumentOffset, bytes, count, countOffset);
+
+        return problem is not null && NullAddressCheck.Drop(NullAddressKind.IndirectBuffer, self, $"ExecuteIndirect of {maxCount}: {problem}");
     }
 
     /// <summary>After the argument clamp's dispatch: the list's compute root signature, user data and pipeline again.</summary>
@@ -785,6 +802,12 @@ internal static unsafe class CommandListBindingMethods
         else
         {
             ulong address = ring!.Upload(data, used);
+
+            if (NullAddressCheck.DropsRing(self, address))
+            {
+                return;
+            }
+
             int slot = compute ? DesktopSetComputeRootConstantBufferView : DesktopSetGraphicsRootConstantBufferView;
             ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(inner, slot))(inner, UserDataParameter, address);
         }
