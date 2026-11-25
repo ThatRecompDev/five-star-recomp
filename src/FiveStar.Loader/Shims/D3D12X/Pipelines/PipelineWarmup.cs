@@ -216,7 +216,22 @@ internal sealed unsafe class PipelineWarmup
 
     private void Report(int total, Stopwatch clock)
     {
-        _log.Info($"  warm-up {_tally.Done}/{total} after {clock.Elapsed:hh\\:mm\\:ss}: {_tally.Summary}; {_cache.Summary}; {CompileBudget.Summary}; {Diagnostics.MemorySnapshot.Summary()}; {Diagnostics.WriteCombinedMemory.Summary()}");
+        _log.Info($"  warm-up {Progress(_tally.Done, total, clock.Elapsed)}: {_tally.Summary}; {_cache.Summary}; {CompileBudget.Summary}; {CompileBudget.Refusals}; {Diagnostics.MemorySnapshot.Summary()}; {Diagnostics.WriteCombinedMemory.Summary()}");
+    }
+
+    /// <summary>Done of total after the time, what is left, the rate so far and the time left at that rate.</summary>
+    public static string Progress(int done, int total, TimeSpan elapsed)
+    {
+        int left = Math.Max(0, total - done);
+        double rate = done / Math.Max(elapsed.TotalSeconds, 1);
+        string remaining = "unknown";
+
+        if (rate > 0)
+        {
+            remaining = TimeSpan.FromSeconds(left / rate).ToString(@"hh\:mm\:ss", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{done}/{total} after {elapsed:hh\\:mm\\:ss}, {left} left at {rate:F2}/s (about {remaining})");
     }
 
     private static HashSet<string> ReadFailures(string path)
