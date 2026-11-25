@@ -8,8 +8,8 @@ using Xunit;
 namespace FiveStar.Loader.Tests;
 
 /// <summary>
-/// Programs made on demand: work a command list waits for runs before prefetched work, and a prefetched program asked
-/// for urgently is queued once more but made once.
+/// Programs made on demand: work a command list waits for runs before prefetched work, the work of the stand-ins the
+/// frame skips most first, and a prefetched program asked for urgently is queued once more but made once.
 /// </summary>
 public sealed class ProgramWorkerTests
 {
@@ -31,6 +31,43 @@ public sealed class ProgramWorkerTests
 
         Assert.True(SpinWait.SpinUntil(() => order.Count == 2, Limit));
         Assert.Equal(["first use", "journal"], order.ToArray());
+    }
+
+    [Fact]
+    public void Urgent_programs_go_by_the_frames_that_skip_their_stand_ins_read_when_a_worker_picks()
+    {
+        using var gate = new ManualResetEventSlim();
+        var order = new ConcurrentQueue<string>();
+        var workers = new ProgramWorkers(1, PipelineBuildQueue.AnyTime, PipelineBuildQueue.AnyTime);
+        workers.Start();
+
+        workers.Queue(() => gate.Wait(Limit), urgent: true);
+        Assert.True(SpinWait.SpinUntil(() => workers.Running == 1, Limit));
+
+        // A loading screen drew one stand-in 50 times in one frame; the lighting pass is skipped every present.
+        var (loadingScreen, lightingPass) = (new StandInUse(), new StandInUse());
+        var (loading, lighting) = (new ProgramJob("loading", 0), new ProgramJob("lighting", 0));
+        loading.WantedBy(loadingScreen);
+        lighting.WantedBy(lightingPass);
+
+        for (int draw = 0; draw < 50; draw++)
+        {
+            loadingScreen.Skipped(1);
+        }
+
+        workers.Queue(() => order.Enqueue("warm-up"), urgent: true);
+        workers.Queue(() => order.Enqueue("loading"), urgent: true, () => loading.Score);
+        workers.Queue(() => order.Enqueue("lighting"), urgent: true, () => lighting.Score);
+
+        for (long frame = 2; frame < 12; frame++)
+        {
+            lightingPass.Skipped(frame);
+        }
+
+        gate.Set();
+
+        Assert.True(SpinWait.SpinUntil(() => order.Count == 3, Limit));
+        Assert.Equal(["lighting", "loading", "warm-up"], order.ToArray());
     }
 
     [Fact]

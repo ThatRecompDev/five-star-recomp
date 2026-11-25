@@ -245,7 +245,7 @@ internal sealed class OnDemandStart
         var picker = new ProgramVariantPicker(new ShaderManifest([]), adapter, warnings);
         var workers = new ProgramWorkers(
             Jobs,
-            running => WarmMemoryGuard.RoomForBuild(running) && CompileBudget.RoomForPrograms(running),
+            running => WarmMemoryGuard.RoomForPrograms(running) && CompileBudget.RoomForPrograms(running),
             running => WarmMemoryGuard.RoomForHeavyBuild(running) && CompileBudget.RoomForPrograms(running));
         workers.Start();
         log.Detail($"  [d3d12_xs] programs on demand: {folder}, {Jobs} threads and one for heavy compiles, {slow.Count} sources slow at -O3");

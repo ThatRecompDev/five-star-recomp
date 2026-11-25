@@ -115,13 +115,14 @@ internal sealed class OnDemandPrograms : IProgramLibrary
 
     /// <summary>
     /// Makes the first of <paramref name="names"/> that can be made; ends true when one is ready.
-    /// <paramref name="urgent"/> when a command list waits for it, so it goes before prefetched work.
+    /// <paramref name="urgent"/> when a command list waits for it, so it goes before prefetched work, ordered by how
+    /// much the game misses <paramref name="use"/>, the stand-in that waits (none for the warm-up).
     /// </summary>
-    public async Task<bool> Request(IReadOnlyList<string> names, bool urgent)
+    public async Task<bool> Request(IReadOnlyList<string> names, bool urgent, StandInUse? use = null)
     {
         foreach (var name in names)
         {
-            if (await Job(name, urgent).ConfigureAwait(false))
+            if (await Job(name, urgent, use).ConfigureAwait(false))
             {
                 return true;
             }
@@ -179,13 +180,14 @@ internal sealed class OnDemandPrograms : IProgramLibrary
         return queued;
     }
 
-    private Task<bool> Job(string name, bool urgent)
+    private Task<bool> Job(string name, bool urgent, StandInUse? use)
     {
         var job = _jobs.GetOrAdd(name, static key => new ProgramJob(key, Stopwatch.GetTimestamp()));
+        job.WantedBy(use);
 
         if (job.Queue(urgent))
         {
-            _workers.Queue(() => Run(job), urgent);
+            _workers.Queue(() => Run(job), urgent, () => job.Score);
         }
 
         return job.Done;

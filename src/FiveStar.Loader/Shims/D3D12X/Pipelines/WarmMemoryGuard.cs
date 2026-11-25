@@ -30,6 +30,13 @@ internal static unsafe class WarmMemoryGuard
     /// <summary>What one compile of a translated program may grow to in the driver, for the count that may run at once.</summary>
     public const ulong BuildBytes = 2UL << 30;
 
+    /// <summary>
+    /// What one translation and compile of an ordinary program takes in this process: the largest tiled-lighting
+    /// program peaks at 175 MB private in a whole <c>fivestar shader dxil</c> process. Counting the driver's
+    /// <see cref="BuildBytes"/> for each held 11 to 15 of 16 program threads waiting in boot w36 while 3,000 programs were queued.
+    /// </summary>
+    public const ulong ProgramBytes = 512UL << 20;
+
     private const int PauseMilliseconds = 2000;
 
     /// <summary>How long a page-file growth reading is reused (it reads the registry and the drives).</summary>
@@ -60,8 +67,19 @@ internal static unsafe class WarmMemoryGuard
     /// </summary>
     public static bool RoomForBuild(int running)
     {
+        return Room(running, BuildBytes);
+    }
+
+    /// <summary>Whether ordinary program work may start beside <paramref name="running"/> others: as <see cref="RoomForBuild"/> with <see cref="ProgramBytes"/> each.</summary>
+    public static bool RoomForPrograms(int running)
+    {
+        return Room(running, ProgramBytes);
+    }
+
+    private static bool Room(int running, ulong each)
+    {
         var status = Status();
-        ulong builds = (ulong)(running + 1) * BuildBytes;
+        ulong builds = (ulong)(running + 1) * each;
 
         return CommitHeadroom(status) >= ReserveBytes + builds && status.AvailablePhysical >= PhysicalReserveBytes + builds;
     }
