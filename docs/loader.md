@@ -457,7 +457,7 @@ entry point (the CRT startup, the static initializers, then `main`) runs on a th
   256-entry ring (`lock xadd`, only r10 and r11 touched) and jumps on.
 - **Fault reporter.** A first vectored exception handler. For a hardware exception (NTSTATUS severity error, not a
   customer code) or a breakpoint whose first 12 stack frames include a mapped image, it logs the code (and the access
-  and address of an access violation), the image RVA, the `.pdata` function around it, 16 code bytes, the registers,
+  and address of an access violation), the image RVA, the `.pdata` function around it, 16 code bytes, the registers, the 48 bytes around each register that points at readable memory with its allocation (a pointer read from overwritten memory shows what overwrote it),
   the stack and the last 24 traced calls; after 3 such records one line per fault, at most 64. It always continues the
   search, so the game's own handlers still run. Its native entry skips threads without a TLS array (exiting ones):
   managed code cannot run there. Faults it cannot see (inside coreclr or the heap manager) need `fivestar-dbg`
