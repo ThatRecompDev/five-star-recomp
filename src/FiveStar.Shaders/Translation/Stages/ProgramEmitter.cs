@@ -32,6 +32,7 @@ internal sealed partial class ProgramEmitter
     private readonly OutputWriter _outputs;
     private readonly MeshDeclarations _mesh;
     private readonly BodyWriter _body;
+    private bool _codeLanesFromCode;
 
     public ProgramEmitter(TranslationState state, OutputWriter outputs, MeshDeclarations mesh, BodyWriter body)
     {
@@ -58,8 +59,15 @@ internal sealed partial class ProgramEmitter
         lines.Add(entry + " {");
         _body.Write(lines);
         ReadLiveLanes(lines);
+        var text = string.Join("\n", lines) + "\n";
 
-        return Finish(string.Join("\n", lines) + "\n");
+        if (_codeLanesFromCode)
+        {
+            // No table to index: the loads stay as they were, the program byte for byte as before.
+            text = text.Replace("CodeLoadLane(", "CodeLoad(", StringComparison.Ordinal);
+        }
+
+        return Finish(text);
     }
 
     private List<string> Header()
@@ -326,26 +334,28 @@ internal sealed partial class ProgramEmitter
     }
 
     /// <summary>
-    /// CodeLoadLane, a load at a per-lane address: from the data words after the reachable instructions (g_data,
-    /// <see cref="CodeData"/>), an address before them reading the first (as CodeLoad clamps one past the end). Indexed per lane, the whole code array cost a
-    /// driver 26 s and 1.9 GB to compile, its tables alone 14 s and 0.5 GB; a program without data words keeps g_code.
+    /// CodeLoadLane, a load at a per-lane address: from the code words of the tables the s_getpc pointers point to
+    /// (g_data, <see cref="CodeData"/>). Indexed per lane, the whole code array cost a driver 26 s and 1.9 GB to compile,
+    /// its tables alone 14 s and 0.5 GB. None when the tables are unknown: the loads then read CodeLoad.
     /// </summary>
     private List<string> LaneLoad(List<string> words)
     {
-        int start = CodeData.Start(_state.Translated);
-        int first = start / BytesPerDword;
+        int? start = CodeData.Start(_state.Translated);
 
-        if (first >= words.Count)
+        if (start is null || start.Value / BytesPerDword >= words.Count)
         {
-            return [$"uint CodeLoadLane(uint a) {{ return CodeLoad(a); }}"];
+            _codeLanesFromCode = true;
+
+            return [];
         }
 
-        var data = words.Skip(first).ToList();
+        var data = words.Skip(start.Value / BytesPerDword).ToList();
+        string from = Hlsl.HexUint((uint)start.Value);
 
         return
         [
-            $"static const uint g_data[{data.Count}] = {{{string.Join(",", data)}}};   // code words from {Hlsl.Hex(start)}",
-            $"uint CodeLoadLane(uint a) {{ return g_data[min(a >= {Hlsl.HexUint((uint)start)} ? (a - {Hlsl.HexUint((uint)start)}) >> 2 : 0u, {data.Count - 1}u)]; }}",
+            $"static const uint g_data[{data.Count}] = {{{string.Join(",", data)}}};   // code words from {Hlsl.Hex(start.Value)}",
+            $"uint CodeLoadLane(uint a) {{ return g_data[min(a >= {from} ? (a - {from}) >> 2 : 0u, {data.Count - 1}u)]; }}",
         ];
     }
 
