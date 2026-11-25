@@ -23,12 +23,19 @@ internal static unsafe class RtStandIns
     private const int IncrementSlot = 15;
     private const int ViewHeapType = 0;
 
-    private static readonly (string Name, FillValue Value, bool AfterRun, string Stands)[] Rules =
+    /// <summary>
+    /// DXGI R32G32B32A32_FLOAT, R16G16B16A16_FLOAT and R11G11B10_FLOAT: the formats a colour-only rule fills. The
+    /// screen-probe resolve also writes probe metadata through its tables (octahedral normals as x * 0.5 + 0.5, packed
+    /// bit fields), which a grey would corrupt.
+    /// </summary>
+    private static readonly int[] ColourFormats = [2, 10, 26];
+
+    private static readonly (string Name, FillValue Value, bool AfterRun, bool ColourOnly, string Stands)[] Rules =
     [
-        ("shadowmask~CS_TraceShadowRays", new FillValue(1, 1, 1, uint.MaxValue), false, "ray-traced shadow mask written fully lit"),
-        ("rtdirectionalshadows~", new FillValue(1, 1, 1, uint.MaxValue), false, "ray-traced directional shadows written fully lit"),
-        ("CS_PPR_Raytrace", new FillValue(0, 0, 0, 0), false, "planar reflections written black"),
-        ("CS_ScreenProbes_TemporalResolve", FillValue.Shared(AmbientLevel), true, "screen-probe light overwritten with grey 0.6 after it runs"),
+        ("shadowmask~CS_TraceShadowRays", new FillValue(1, 1, 1, uint.MaxValue), false, false, "ray-traced shadow mask written fully lit"),
+        ("rtdirectionalshadows~", new FillValue(1, 1, 1, uint.MaxValue), false, false, "ray-traced directional shadows written fully lit"),
+        ("CS_PPR_Raytrace", new FillValue(0, 0, 0, 0), false, false, "planar reflections written black"),
+        ("CS_ScreenProbes_TemporalResolve", FillValue.Shared(AmbientLevel), true, true, "screen-probe light overwritten with grey 0.6 after it runs"),
     ];
 
     /// <summary>The desktop pipelines whose outputs are overwritten after they run, with their rule (<see cref="Named"/>).</summary>
@@ -117,7 +124,6 @@ internal static unsafe class RtStandIns
     /// </summary>
     private static void Fill(XboxObject* list, int rule, string name)
     {
-        var value = Rules[rule].Value;
         var runtime = ShimContext.Runtime.D3D12X;
         var bindings = CommandListBindings.Of(list);
         var layout = bindings->ComputeLayout;
@@ -137,7 +143,7 @@ internal static unsafe class RtStandIns
             uint pointer = bindings->Compute[UserData.ComputeBase + layout->Offsets[layout->UavParameters[range]]];
             uint end = (uint)(layout->UavStarts[range] + layout->UavCounts[range]);
             runtime.DescriptorHeaps.MirrorTable(pointer, end);
-            filled += FillRecords(inner, window, pointer, layout->UavStarts[range], end, value, filled == 0);
+            filled += FillRecords(inner, window, pointer, layout->UavStarts[range], end, rule, filled == 0);
         }
 
         if (filled == 0)
@@ -157,8 +163,9 @@ internal static unsafe class RtStandIns
     }
 
     /// <summary>Fills the texture UAVs of records <paramref name="first"/> to <paramref name="end"/> of the table at window offset <paramref name="pointer"/>; how many.</summary>
-    private static int FillRecords(nint list, DescriptorWindow window, uint pointer, uint first, uint end, FillValue value, bool barrierFirst)
+    private static int FillRecords(nint list, DescriptorWindow window, uint pointer, uint first, uint end, int rule, bool barrierFirst)
     {
+        var value = Rules[rule].Value;
         nint device = ShimContext.Runtime.D3D12X.Objects.DesktopDevice;
         nint cpuStart = DesktopCalls.HeapCpuStart(window.ViewHeap);
         ulong gpuStart = DesktopCalls.HeapGpuStart(window.ViewHeap);
@@ -176,7 +183,7 @@ internal static unsafe class RtStandIns
 
             uint index = ((uint*)(window.Data + offset))[DescriptorWindow.MirroredDesktopDword];
 
-            if (!UavViews.TryFind(cpuStart + (nint)((ulong)index * increment), out var view))
+            if (!UavViews.TryFind(cpuStart + (nint)((ulong)index * increment), out var view) || !Takes(view.Format, Rules[rule].ColourOnly))
             {
                 continue;
             }
@@ -193,6 +200,20 @@ internal static unsafe class RtStandIns
         }
 
         return filled;
+    }
+
+    /// <summary>
+    /// Whether a rule writes a UAV of <paramref name="format"/>: never an integer view (tile lists, counters, packed
+    /// fields), and for a colour-only rule a float colour format alone.
+    /// </summary>
+    public static bool Takes(int format, bool colourOnly)
+    {
+        if (UavFill.Integer(format))
+        {
+            return false;
+        }
+
+        return !colourOnly || Array.IndexOf(ColourFormats, format) >= 0;
     }
 
     /// <summary>A UAV barrier on every resource: the fill after the pass's writes, the readers after the fill.</summary>
