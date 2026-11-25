@@ -64,6 +64,26 @@ public sealed unsafe class DepthTwinSidesTests : IDisposable
         Assert.Equal(DepthTwinSides.PlaneBehind, twin.Behind);
     }
 
+    [Fact]
+    public void A_twins_view_is_known_by_its_index_in_the_desktop_view_heap()
+    {
+        const nint Start = 0x10000;
+        const uint Increment = 32;
+        const uint Desktop = 93252;
+
+        DepthTwins.Detach();
+        var twin = new DepthTwin(1, 2, DepthTwins.Float32, Size, Size);
+
+        // The window records name the desktop index (a record's dword 0), not the game heap index the view was made at.
+        DepthTwins.NoteView(twin, Start + (nint)(Desktop * Increment), 3, Start, Increment);
+        var found = DepthTwins.AtIndex(Desktop);
+        DepthTwins.Overwritten(Desktop, 1);
+
+        Assert.Same(twin, found);
+        Assert.Null(DepthTwins.AtIndex(Desktop));
+        Assert.Equal(0, twin.ViewHandle);
+    }
+
     [WarpFact]
     public void Lists_recorded_out_of_order_see_the_twin_in_submission_order()
     {
