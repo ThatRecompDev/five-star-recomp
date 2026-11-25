@@ -721,11 +721,15 @@ viewport indices stay the corner's) and emits a strip of two triangles with the 
 | Compile one geometry shader per distinct output signature into `<translated>/rect-gs/gs_<hash>.dxil` | `fivestar shader rect-gs <translated>` (2,191 vertex programs, 211 shaders) |
 | Keep each created pipeline's description and programs | `RectanglePipelines.Remember` (pipeline factory) |
 | Record the pipeline (slot 25), the console topology (slot 20); clear on Reset | `RectangleDraws`, state at wrapper +0xF00 |
-| First draw under topology 17: build the variant once (by the same hash), bind it | `RectangleDraws.BeforeDraw` (slots 12, 13) |
+| First draw under topology 17: queue the variant's build on the pipeline build threads (urgent, within the compile budget) and skip the draw; once built, bind it after any depth-twin copy (which binds the game's pipeline again); a build that throws is reported once and leaves triangles | `RectangleDraws.Building` (skip), `RectangleDraws.BeforeDraw` (bind; slots 12, 13), `RectanglePipelines.Variant` |
 | Another topology: bind the game's pipeline again | slot 20 |
 
 A pipeline with a mesh or geometry stage, or without its `rect-gs` file, has no variant: its rectangle-list draws
-stay triangles (warned once). The log counts expanded draws every 4,096.
+stay triangles (warned once). The log counts expanded draws every 4,096, with the draws skipped while a variant
+built. The variant of a tiled-lighting pipeline is a full compile of its pixel program: built on the drawing game
+thread, one held a frame's job for over 25 s while eight other compiles ran, and the game's hang watchdog ended a run
+in the opening cutscene.
+
 ### Debug layer
 
 `--d3d12-debug` turns on the D3D12 debug layer before the device is created (`--d3d12-gpu-validation` adds

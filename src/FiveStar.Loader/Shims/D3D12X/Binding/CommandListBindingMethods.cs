@@ -339,6 +339,12 @@ internal static unsafe class CommandListBindingMethods
                 return;
             }
 
+            // A rectangle-list draw whose variant still builds is skipped; the variant is bound after CopyTwin.
+            if (ShimContext.Runtime.D3D12X.Rectangles.Building(self))
+            {
+                return;
+            }
+
             if (DepthTwins.Any)
             {
                 CopyTwin(self);
@@ -368,6 +374,12 @@ internal static unsafe class CommandListBindingMethods
         try
         {
             if (PipelinePending(self, draw: true))
+            {
+                return;
+            }
+
+            // A rectangle-list draw whose variant still builds is skipped; the variant is bound after CopyTwin.
+            if (ShimContext.Runtime.D3D12X.Rectangles.Building(self))
             {
                 return;
             }
