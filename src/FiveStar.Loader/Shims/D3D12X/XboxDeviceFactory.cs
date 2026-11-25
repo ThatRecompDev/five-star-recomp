@@ -223,14 +223,9 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
 
     private const int MebibyteShift = 20;
 
-    /// <summary>A page the game unmapped: the textures over it (at its GPU address, the alias of a CPU range) are retired.</summary>
+    /// <summary>A page the game mapped or unmapped: the textures over it (at its GPU address, the alias of a CPU range) are marked, or retired (<see cref="GpuTextureRegistry.RetireUnmapped"/>).</summary>
     private void UnmappedTextures(XMemPhysicalMemory memory, nint address, ulong frame)
     {
-        if (frame != 0)
-        {
-            return;
-        }
-
         nint page = (nint)((ulong)address & ~(XMemPhysicalMemory.PageSize - 1));
         nint alias = memory.GpuAlias(page);
         ulong gpu = (ulong)page;
@@ -240,7 +235,14 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
             gpu = (ulong)alias;
         }
 
-        Textures.Registry.Unmapped(gpu, XMemPhysicalMemory.PageSize);
+        if (frame == 0)
+        {
+            Textures.Registry.Unmapped(gpu, XMemPhysicalMemory.PageSize);
+
+            return;
+        }
+
+        Textures.Registry.Mapped(gpu, XMemPhysicalMemory.PageSize);
     }
 
     /// <summary>The GPU's memory groups and what of the game's memory the GPU reads in place, for the removal report.</summary>

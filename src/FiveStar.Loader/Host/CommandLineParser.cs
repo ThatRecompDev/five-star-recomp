@@ -574,6 +574,14 @@ internal sealed class CommandLineParser
         return true;
     }
 
+    /// <summary><c>--retire-unmapped-textures</c>.</summary>
+    private bool SetRetireUnmapped()
+    {
+        _options.RetireUnmappedTextures = true;
+
+        return true;
+    }
+
     /// <summary><c>--d3d12-nan-scan &lt;pipeline text&gt;</c>.</summary>
     private bool SetNanScan()
     {
@@ -618,6 +626,8 @@ internal sealed class CommandLineParser
                 return SetViewLiveness();
             case "--d3d12-nan-scan":
                 return SetNanScan();
+            case "--retire-unmapped-textures":
+                return SetRetireUnmapped();
             case "--min-free-memory":
                 return SetMemoryFloor();
             case "--max-commit":

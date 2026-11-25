@@ -121,6 +121,7 @@ internal static class HostUsage
           --gpu-timings          GPU time per pass and queue (timestamp queries), logged with the sample line
           --check-view-liveness  before each draw and dispatch, check the bound tables' views: released resources, wrong kinds
           --d3d12-nan-scan <t>   read back the inputs of draws whose pipeline contains t and log those holding NaN or Inf
+          --retire-unmapped-textures  release textures over memory the game unmaps (default: only counted)
           --frame-rate <r>       30 (the console's, default), 60 or uncapped: the frame events' interval and vsync
           --watch-transient      check the game's transient-memory pool and log the first corrupted node
           --watch-pool-pages     check the game's small-block pool pages for headers its allocator did not write
