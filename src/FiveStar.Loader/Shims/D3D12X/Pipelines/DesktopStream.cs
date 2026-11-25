@@ -25,7 +25,7 @@ internal sealed unsafe class DesktopStream : IDisposable
     private const int ElementFieldsOffset = PipelineLayout.PointerSize;
 
     private readonly List<byte> _bytes = [];
-    private readonly List<(int Offset, byte[] Bytecode)> _shaders = [];
+    private readonly List<(int Offset, ProgramCode Bytecode)> _shaders = [];
     private readonly List<(int Offset, IReadOnlyList<VertexElement> Elements)> _layouts = [];
     private readonly List<nint> _allocations = [];
     private readonly IncrementalHash _identity = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -70,7 +70,7 @@ internal sealed unsafe class DesktopStream : IDisposable
         {
             writer.Write(offset);
             writer.Write(bytecode.Length);
-            writer.Write(bytecode);
+            writer.Write(bytecode.Span);
         }
 
         writer.Write(_layouts.Count);
@@ -115,7 +115,7 @@ internal sealed unsafe class DesktopStream : IDisposable
             var offset = reader.ReadInt32();
             CheckSlot(offset, size);
             var bytecode = Bytes(reader, Length(reader));
-            stream._shaders.Add((offset, bytecode));
+            stream._shaders.Add((offset, ProgramCode.Copy(bytecode)));
             stream.ShaderBytes += bytecode.Length;
         }
 
@@ -136,8 +136,17 @@ internal sealed unsafe class DesktopStream : IDisposable
         return stream;
     }
 
-    /// <summary>A D3D12_SHADER_BYTECODE subobject over <paramref name="bytecode"/>, which must not change afterwards.</summary>
+    /// <summary>A D3D12_SHADER_BYTECODE subobject over a copy of <paramref name="bytecode"/> (our own small programs).</summary>
     public void AddShader(PipelineStateSubObjectType type, byte[] bytecode)
+    {
+        AddShader(type, ProgramCode.Copy(bytecode));
+    }
+
+    /// <summary>
+    /// A D3D12_SHADER_BYTECODE subobject over <paramref name="bytecode"/>'s native bytes, which the stream points at
+    /// (no copy) and keeps alive while it lives.
+    /// </summary>
+    public void AddShader(PipelineStateSubObjectType type, ProgramCode bytecode)
     {
         Begin(type, PipelineLayout.PointerSize);
         _shaders.Add((_bytes.Count, bytecode));
@@ -146,7 +155,7 @@ internal sealed unsafe class DesktopStream : IDisposable
 
         ShaderBytes += bytecode.Length;
         Identify(BitConverter.GetBytes(bytecode.Length));
-        Identify(bytecode);
+        Identify(bytecode.Span);
     }
 
     /// <summary>A subobject whose payload is a desc with the d3d12.h layout.</summary>
@@ -207,7 +216,7 @@ internal sealed unsafe class DesktopStream : IDisposable
         foreach (var (offset, bytecode) in _shaders)
         {
             CheckSlot(offset, _bytes.Count);
-            *(nint*)(stream + offset) = Native(bytecode);
+            *(nint*)(stream + offset) = (nint)bytecode.Pointer;
         }
 
         foreach (var (offset, elements) in _layouts)
@@ -229,7 +238,12 @@ internal sealed unsafe class DesktopStream : IDisposable
     /// <summary>ID3D12Device2::CreatePipelineState over the stream.</summary>
     public int Create(nint device2, Guid* iid, nint* result)
     {
-        return DesktopDevice.CreatePipelineState(device2, Describe(), iid, result);
+        int hr = DesktopDevice.CreatePipelineState(device2, Describe(), iid, result);
+
+        // The desc points at the programs' native bytes, which this stream keeps alive.
+        GC.KeepAlive(this);
+
+        return hr;
     }
 
     /// <summary>Frees the native copy <see cref="Describe"/> made; the next call makes a new one.</summary>

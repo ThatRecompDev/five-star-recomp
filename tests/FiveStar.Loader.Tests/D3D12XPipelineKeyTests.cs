@@ -39,9 +39,9 @@ public sealed unsafe class D3D12XPipelineKeyTests
         {
             using var device = GpuDevice.CreateWarp(debugLayer: false);
             var (device2, root) = DesktopObjects(device.Device.NativePointer);
-            var vertex = new TranslatedProgram("vs", HardwareStage.Vertex, Compile(folder.FullName, "vs_6_6", Vertex));
-            var pixel = new TranslatedProgram("ps", HardwareStage.Pixel, Compile(folder.FullName, "ps_6_6", Pixel));
-            var mesh = new TranslatedProgram("ms", HardwareStage.Ngg, Compile(folder.FullName, "ms_6_6", Mesh));
+            var vertex = TranslatedProgram.Of("vs", HardwareStage.Vertex, Compile(folder.FullName, "vs_6_6", Vertex));
+            var pixel = TranslatedProgram.Of("ps", HardwareStage.Pixel, Compile(folder.FullName, "ps_6_6", Pixel));
+            var mesh = TranslatedProgram.Of("ms", HardwareStage.Ngg, Compile(folder.FullName, "ms_6_6", Mesh));
 
             var plain = Description(0f);
             using var nanBias = DesktopPipelineBuilder.GraphicsStream(device2, root, Description(float.NaN), [vertex, pixel]);

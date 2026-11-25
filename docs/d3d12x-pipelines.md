@@ -102,7 +102,7 @@ Memory while builds wait (a cold story load queues thousands):
 | Item | Rule |
 |---|---|
 | Queued stream | keeps its subobjects and references the programs' DXIL; the native copy the driver reads is made for the cache lookup and again for the build, and freed while the stream waits in the queue (`DesktopStream.Release`) |
-| DXIL | `TranslatedProgramLibrary` keeps the most recently used programs up to 1 GiB and reads older ones again; rectangle-list recipes keep program names, not DXIL |
+| DXIL | `TranslatedProgramLibrary` keeps the most recently used programs up to 1 GiB and reads older ones again; rectangle-list recipes keep program names, not DXIL. A program's DXIL is native memory (`ProgramCode`), read from its file without a managed copy and freed by the finalizer once no library, recipe or pipeline stream holds the program; a stream points at it for pipeline creation instead of copying it. As managed arrays the ~475 MB sat on the large object heap, which the GC compacts with every thread stopped |
 | Build start | waits for the memory the compile is expected to take (`CompileBudget`, below), since one driver compile can take gigabytes; also the concurrency rule below |
 
 **Memory.** The story load asks for about 29,000 pipelines the warm cache did not hold (15,000 by 210 s, 14,000 more

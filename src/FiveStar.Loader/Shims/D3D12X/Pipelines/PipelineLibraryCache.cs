@@ -151,6 +151,9 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
             hr = segment.Load(key, stream.Describe(), iid, result);
         }
 
+        // Both loads read the programs' native bytes through the stream's desc.
+        GC.KeepAlive(stream);
+
         if (!HResult.Failed(hr))
         {
             Interlocked.Increment(ref _hits);
