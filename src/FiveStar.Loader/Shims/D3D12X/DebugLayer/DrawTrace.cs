@@ -540,15 +540,21 @@ internal sealed unsafe class DrawTrace
         }
     }
 
-    /// <summary>Whether <paramref name="address"/> has a desktop page in the address map.</summary>
+    /// <summary>
+    /// What translated programs read at <paramref name="address"/>: the entry of the address map their <c>gpu_page</c>
+    /// reads (view index and offset field). The null view means the GPU reads zeros there.
+    /// </summary>
     private string MapState(ulong address)
     {
-        if (_d3d12.GameMemory.TryTranslate(address, out ulong desktop))
+        var (view, field) = _d3d12.MemoryViews.Entry(address);
+        string range = _d3d12.GameMemory.TryTranslate(address, out ulong desktop) ? $"buffer 0x{desktop:x}" : "no buffer";
+
+        if (view == Binding.DescriptorWindow.UnmappedSlot || view == 0)
         {
-            return $"mapped (desktop 0x{desktop:x})";
+            return $"UNMAPPED in the address map (view {view}, field 0x{field:x}): programs read zeros there; {range}";
         }
 
-        return "UNMAPPED: the GPU reads zeros there";
+        return $"mapped (view {view}, field 0x{field:x}); {range}";
     }
 
     /// <summary>A root CBV, SRV or UAV: its console address and the first dwords there.</summary>
