@@ -6,6 +6,7 @@ using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
 using FiveStar.Loader.Shims.D3D12X.Present;
+using FiveStar.Loader.Shims.D3D12X.Resources;
 
 namespace FiveStar.Loader.Shims.D3D12X;
 
@@ -95,7 +96,53 @@ internal static unsafe class XboxQueueMethods
         nint inner = self->Inner;
         d3d12.Textures.Uploader.OrderBefore(inner);
 
-        var execute = (delegate* unmanaged<nint, uint, nint*, void>)ComObject.Slot(inner, DesktopExecuteSlot);
+        if (DepthTwinSides.Any)
+        {
+            ExecuteInTwinOrder(self, count, lists);
+        }
+        else
+        {
+            ExecuteRange(self, count, lists);
+        }
+
+        FrameLog.AddSubmit(start);
+    }
+
+    /// <summary>
+    /// <c>--depth-twins</c>: the lists in order, each after the copies between depth twins' sides it needs as the lists
+    /// before it left them (<see cref="DepthTwinSides.Plan"/>, run by <see cref="DepthTwinPrelude"/>).
+    /// </summary>
+    private static void ExecuteInTwinOrder(XboxObject* self, uint count, nint* lists)
+    {
+        var copies = new List<DepthTwinSides.Copy>();
+        nint device = ShimContext.Runtime.D3D12X.Objects.DesktopDevice;
+        uint start = 0;
+
+        for (uint i = 0; i < count; i++)
+        {
+            copies.Clear();
+            DepthTwinSides.Plan(lists[i], copies);
+
+            if (copies.Count == 0)
+            {
+                continue;
+            }
+
+            ExecuteRange(self, i - start, lists + start);
+            DepthTwinPrelude.Run(device, self->Inner, copies);
+            start = i;
+        }
+
+        ExecuteRange(self, count - start, lists + start);
+    }
+
+    /// <summary>The lists in batches of <see cref="Batch"/>, after the waits and segments they carry.</summary>
+    [HotPath]
+    private static void ExecuteRange(XboxObject* self, uint count, nint* lists)
+    {
+        var d3d12 = ShimContext.Runtime.D3D12X;
+        var objects = d3d12.Objects;
+        var execute = (delegate* unmanaged<nint, uint, nint*, void>)ComObject.Slot(self->Inner, DesktopExecuteSlot);
         nint* desktop = stackalloc nint[Batch];
 
         for (uint first = 0; first < count; first += Batch)
@@ -123,8 +170,6 @@ internal static unsafe class XboxQueueMethods
             Submit(self, lists + first, desktop, size, execute);
             d3d12.DrawTrace?.Submitted(((XboxQueueObject*)self)->Number, lists + first, size);
         }
-
-        FrameLog.AddSubmit(start);
     }
 
     /// <summary>
