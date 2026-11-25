@@ -90,6 +90,7 @@ internal static unsafe class ListSubmissions
         }
 
         QueueProgress.Executed(queue, lists, count, value, objects);
+        GpuTimings.Executed(queue->Number, inner, queue->Fence, value, new ReadOnlySpan<nint>(lists, (int)count));
     }
 
     private static ulong Completed(nint fence)

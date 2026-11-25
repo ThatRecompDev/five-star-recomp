@@ -129,8 +129,8 @@ internal sealed class CommandLineParser
                 return Add(_options.D3D12Skips);
             case "--d3d12-trace-queues":
                 return SetTraceQueues();
-            case "--d3d12-breadcrumbs":
-                return SetBreadcrumbs();
+            case "--d3d12-breadcrumbs" or "--gpu-timings":
+                return SetBreadcrumbs(option);
             case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
                 return SetTraceDraws(option);
             case "--capture-dir":
@@ -742,8 +742,16 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    private bool SetBreadcrumbs()
+    /// <summary><c>--d3d12-breadcrumbs</c> or <c>--gpu-timings</c>.</summary>
+    private bool SetBreadcrumbs(string option)
     {
+        if (option == "--gpu-timings")
+        {
+            _options.GpuTimings = true;
+
+            return true;
+        }
+
         _options.D3D12Breadcrumbs = true;
 
         return true;
