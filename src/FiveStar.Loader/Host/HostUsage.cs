@@ -60,8 +60,8 @@ internal static class HostUsage
                                  free memory and 10 minutes; one past a limit stays a stand-in (off by default)
           --plain-supersteps     superstep forms made on demand keep every register live around one dispatch
                                  switch (the form before the liveness carry); part of the cache identity
-          --placed-textures      read-only console textures share large placed heaps instead of a committed
-                                 resource each (the driver's write-combined memory grew about 0.55 MB per texture)
+          --committed-textures   a committed resource for each read-only console texture instead of the shared
+                                 placed heaps (the default, also --placed-textures), whose released ranges stay mapped
           --max-driver-compiles <n>  driver pipeline compiles of 256 KB of DXIL or more at once (default 4)
           --compile-ceiling <GB> no such compile starts while private bytes and the running ones' expected arenas
                                  would pass this (default none: free RAM less the game's growth decides); one
