@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Five Star Recomp contributors.
+﻿// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
@@ -8,7 +8,7 @@ using Xunit;
 namespace FiveStar.Loader.Tests;
 
 /// <summary>Draw probes read their readback buffers in place and keep the buffers alive under a cap.</summary>
-public sealed class DrawProbeReadbackTests
+public sealed unsafe class DrawProbeReadbackTests
 {
     private const int Bgra8Unorm = 87;
     private const int Width = 3;
@@ -69,6 +69,12 @@ public sealed class DrawProbeReadbackTests
 
         Assert.Equal("; stencil 2 values: 0x10 75.0%, 0x02 25.0%", DrawProbes.StencilSummary(texels, RowPitch, 4, 2, R8Uint));
         Assert.Equal(string.Empty, DrawProbes.StencilSummary(texels, RowPitch, 4, 2, 61));
+
+        // TL_PS's 0x6c0 record in w89 (a type dword of 1) names heap index 0x406a as the trace prints it; a T# names none.
+        uint* stencil = stackalloc uint[] { 0x406a, 0, 0, 1, 0x406a, 0, 0, 0 };
+        uint* image = stackalloc uint[] { 0x00168dc0, 0x000002b9, 0x01ff00ff, 0x90000000, 0, 0, 0, 0 };
+        Assert.Equal(0x406au, TraceRecords.HeapIndex(stencil));
+        Assert.Null(TraceRecords.HeapIndex(image));
 
         // The stencil plane of a 2D depth-stencil with 1 mip and 1 slice is subresource 1; with 3 mips and 6 slices, 18.
         Assert.Equal(1u, DrawProbes.PlaneSubresource(1, 1, 1));

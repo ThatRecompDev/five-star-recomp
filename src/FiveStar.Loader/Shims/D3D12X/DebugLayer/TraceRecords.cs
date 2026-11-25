@@ -142,6 +142,20 @@ internal static unsafe class TraceRecords
         }
     }
 
+    /// <summary>
+    /// The heap index a window record names, by the rule the trace prints it with: no image type and no console base
+    /// high bits (a record's other dwords may carry flags, such as the stencil plane's view); null otherwise.
+    /// </summary>
+    public static uint? HeapIndex(uint* record)
+    {
+        if (record[TypeDword] >> TypeShift >= FirstImageType || (record[BaseHigh] & BaseHighMask) != 0)
+        {
+            return null;
+        }
+
+        return record[0];
+    }
+
     private static void AppendRecord(StringBuilder text, uint* record, TraceRecordSources sources, uint? dword)
     {
         var mapState = sources.MapState;
