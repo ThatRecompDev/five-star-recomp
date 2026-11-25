@@ -38,4 +38,19 @@ public sealed class MeshRoundBoundTests : IClassFixture<WarpFixture>
         // Returns at all: the dispatch finished within the bound. Its exports come after the loop, so it draws nothing.
         Assert.NotEmpty(runner.RunBarrierLoop(supersteps, 0x80000000u, Small));
     }
+
+    [WarpFact]
+    public void A_superstep_program_names_its_stops_and_a_per_stop_budget_bounds_its_rounds()
+    {
+        var runner = new MeshStageRunner(_fixture);
+        string bounded = runner.TranslateBarrierLoop(true, LoopCaps.Default, roundsPerStop: 4);
+
+        // A few stops: the budget's floor of 256 rounds, below the caps' 65,536.
+        Assert.Matches(@"// superstep: \d+ stops, round bound 256\n", bounded);
+        Assert.Contains("const uint SS_ROUNDS = 0x100u;", bounded, StringComparison.Ordinal);
+        Assert.Contains("round bound 65536", runner.TranslateBarrierLoop(true, LoopCaps.Default), StringComparison.Ordinal);
+
+        // With the default caps and the budget, a garbage count still ends (in 256 rounds).
+        Assert.NotEmpty(runner.RunBarrierLoop(true, 0x80000000u, LoopCaps.Default, roundsPerStop: 4));
+    }
 }
