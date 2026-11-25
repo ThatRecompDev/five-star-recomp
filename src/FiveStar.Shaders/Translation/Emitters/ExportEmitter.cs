@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Globalization;
 using FiveStar.Shaders.Translation.Core;
 
 namespace FiveStar.Shaders.Translation.Emitters;
@@ -14,6 +15,7 @@ internal sealed class ExportEmitter
 {
     private const int Vec4 = 4;
     private const int CompressedRegisters = 2;
+    private const string TargetPrefix = "mrt";
 
     private readonly TranslationState _state;
     private readonly OperandAccess _operands;
@@ -50,7 +52,7 @@ internal sealed class ExportEmitter
             return;
         }
 
-        var values = Values(sources, modifiers.Has("compr"));
+        var values = Values(target, sources, modifiers.Has("compr"));
         _state.Outputs.Add(target);
         WriteTarget(target, sources, values);
     }
@@ -106,7 +108,7 @@ internal sealed class ExportEmitter
         }
     }
 
-    private List<string> Values(List<string> sources, bool compressed)
+    private List<string> Values(string target, List<string> sources, bool compressed)
     {
         var values = new List<string>();
 
@@ -121,8 +123,10 @@ internal sealed class ExportEmitter
             return values;
         }
 
-        // compr: each register holds two f16 values. The disassembler prints a compressed export as
-        // "src0, src0, src1, src1", so the registers are the first and the third operand.
+        // compr: each register holds two 16-bit channels (ExportPacking). The disassembler prints a compressed export
+        // as "src0, src0, src1, src1", so the registers are the first and the third operand.
+        var type = TargetType(target);
+
         foreach (var source in sources.Where((_, index) => index % CompressedRegisters == 0).Take(CompressedRegisters))
         {
             if (source == "off")
@@ -132,10 +136,24 @@ internal sealed class ExportEmitter
             }
 
             var packed = _operands.Read(OperandParser.Parse(source));
-            values.AddRange([$"f16tof32({packed})", $"f16tof32({packed} >> 16)"]);
+            values.AddRange([ExportPacking.Channel(packed, type), ExportPacking.Channel($"{packed} >> 16", type)]);
         }
 
         return values;
+    }
+
+    /// <summary>The component type of a pixel program's colour target (<c>float</c>, <c>uint</c> or <c>int</c>); <c>float</c> for any other export.</summary>
+    private string TargetType(string target)
+    {
+        if (_state.Stage != ShaderStage.Pixel || !target.StartsWith(TargetPrefix, StringComparison.Ordinal) || target == "mrtz")
+        {
+            return "float";
+        }
+
+        var number = int.Parse(target[TargetPrefix.Length..], CultureInfo.InvariantCulture);
+        var element = _state.Signatures.Outputs.FirstOrDefault(output => output.SystemValue == "SV_Target" && output.SemanticIndex == number);
+
+        return Stages.SignatureLayout.TypeName(element);
     }
 
     /// <summary>Stages a per-vertex export in groupshared memory, only as wide as written.</summary>

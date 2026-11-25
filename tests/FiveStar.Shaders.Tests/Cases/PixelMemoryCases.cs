@@ -38,6 +38,7 @@ public static class PixelMemoryCases
             ImageGatherAtLevel(),
             FloatExport(),
             CompressedExport(),
+            CompressedUintExport(),
         ];
     }
 
@@ -438,6 +439,24 @@ public static class PixelMemoryCases
         {
             Bindings = new Bindings { UserSgprs = [F(1.5), F(0.25), F(-2), F(0.5)] },
             FloatTargets = true,
+            Raw = true,
+        };
+    }
+
+    // A compressed export into a uint target: the colour buffer converts the FP16 channels to integers (the console's
+    // PS_ClearUint32 clears a uint target this way), negatives to 0.
+    private static PixelCase CompressedUintExport()
+    {
+        const string Program = """
+            v_cvt_pkrtz_f16_f32_e64 v0, s0, s1
+            v_cvt_pkrtz_f16_f32_e64 v1, s2, s3
+            exp mrt0 v0, v0, v1, v1 done compr vm
+            s_endpgm
+            """;
+
+        return new PixelCase("export_compressed_uint", Program, 4, _ => [1, 2, 300, 0])
+        {
+            Bindings = new Bindings { UserSgprs = [F(1), F(2), F(300), F(-4)] },
             Raw = true,
         };
     }

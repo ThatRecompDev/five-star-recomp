@@ -81,7 +81,9 @@ t13 at dword 0 and t0 at dword 16 (PS), t7 at dword 8 and b0 at dword 24 (VS); s
 
 - Compressed colour exports (`exp mrt0 v0, v0, v1, v1 compr`): LLVM prints the two packed registers as
   `src0, src0, src1, src1`; the translator read the first register twice, so blue and alpha were wrong in every
-  pixel shader that exports 16-bit colour.
+  pixel shader that exports 16-bit colour. Every compressed export packs FP16 (`v_cvt_pkrtz_f16_f32`); the colour
+  buffer converts the channels to the target's number type, so one bound for a uint or int target is rounded to an
+  integer (the console's `PS_ClearUint32` clears this way; shadPS4 unpacks by export format the same way).
 - VS / PS linkage: D3D12 links stages by semantic and register. Vertex shaders now declare their parameters in
   number order before the unpacked f16 copies, and pixel shaders declare every input register of their signature,
   read or not, with the f16 halves last.
