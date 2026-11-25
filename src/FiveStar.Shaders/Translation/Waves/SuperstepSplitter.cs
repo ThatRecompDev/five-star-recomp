@@ -21,6 +21,9 @@ internal sealed partial class SuperstepSplitter
     private readonly List<string> _hoisted = [];
     private int _next = FirstAddress;
 
+    // The mask the last step deposited, while nothing it reads has been written since; null after any other step.
+    private string? _deposited;
+
     /// <summary>Function-scope declarations of temporaries read across a cut.</summary>
     public IReadOnlyList<string> Hoisted => _hoisted;
 
@@ -40,6 +43,9 @@ internal sealed partial class SuperstepSplitter
     private List<CodeBlock> SplitBlock(CodeBlock block)
     {
         var parts = new List<(int Address, List<string> Lines)> { (block.Address, []) };
+
+        // Other paths reach a block: no step's mask carries into it.
+        _deposited = null;
 
         // A compound statement split over lines is one memory step: a step may not stop inside its braces. One with a
         // wave operation is cut line by line, as before.
@@ -121,10 +127,22 @@ internal sealed partial class SuperstepSplitter
 
         if (calls.Count == 1)
         {
-            var (deposit, replaced) = Operation(line, calls[0]);
+            var (deposit, replaced, bit) = Operation(line, calls[0]);
+
+            if (bit is not null && bit == _deposited)
+            {
+                // The last step's mask is this one's: a ballot's .y after its .x, an any of the mask a ballot took.
+                parts[^1].Lines.Add(replaced);
+                Forget(line);
+
+                return;
+            }
+
             parts[^1].Lines.Add($"  {deposit};");
             Stop(parts, "PC_WAVE");
+            _deposited = bit;
             parts[^1].Lines.Add(replaced);
+            Forget(line);
 
             return;
         }
@@ -139,6 +157,26 @@ internal sealed partial class SuperstepSplitter
         }
 
         parts[^1].Lines.Add(line);
+        Forget(line);
+    }
+
+    /// <summary>Forgets the last step's mask when <paramref name="line"/> writes a name it reads.</summary>
+    private void Forget(string line)
+    {
+        if (_deposited is null)
+        {
+            return;
+        }
+
+        foreach (Match write in AssignmentPattern().Matches(line))
+        {
+            if (Regex.IsMatch(_deposited, $@"(?<![.\w]){Regex.Escape(write.Groups["name"].Value)}\b"))
+            {
+                _deposited = null;
+
+                return;
+            }
+        }
     }
 
     private void Stop(List<(int Address, List<string> Lines)> parts, string stop)
@@ -147,10 +185,14 @@ internal sealed partial class SuperstepSplitter
         _next++;
         parts[^1].Lines.Add($"  pc_resume = {Hlsl.Hex(address)}; pc = {stop};");
         parts.Add((address, []));
+        _deposited = null;
     }
 
-    /// <summary>The deposit of a wave operation and the statement with the operation replaced by its result.</summary>
-    private static (string Deposit, string Replaced) Operation(string line, Match call)
+    /// <summary>
+    /// The deposit of a wave operation, the statement with the operation replaced by its result, and the mask whose
+    /// ballot the step leaves readable (null for a lane read, and for readfirstlane, whose value a later one may not share).
+    /// </summary>
+    private static (string Deposit, string Replaced, string? Bit) Operation(string line, Match call)
     {
         var open = call.Index + call.Length;
         var close = Closing(line, open - 1);
@@ -164,8 +206,26 @@ internal sealed partial class SuperstepSplitter
             "vw_count" => ($"vw_ss_put(0u, {arguments[0]}, 0u)", "vw_ss_count()"),
             _ => ($"vw_ss_put(0u, {arguments[0]}, 0u)", "vw_ss_ballot()"),
         };
+        string? bit = null;
 
-        return (deposit, line[..call.Index] + result + line[(close + 1)..]);
+        if (name is "vw_any" or "vw_count" or "vw_ballot")
+        {
+            bit = Unparenthesized(arguments[0]);
+        }
+
+        return (deposit, line[..call.Index] + result + line[(close + 1)..], bit);
+    }
+
+    private static string Unparenthesized(string text)
+    {
+        var trimmed = text.Trim();
+
+        while (trimmed.Length > 1 && trimmed[0] == '(' && Closing(trimmed, 0) == trimmed.Length - 1)
+        {
+            trimmed = trimmed[1..^1].Trim();
+        }
+
+        return trimmed;
     }
 
     /// <summary>Moves temporaries declared before a cut and read after it to function scope.</summary>
@@ -252,6 +312,9 @@ internal sealed partial class SuperstepSplitter
 
     [GeneratedRegex(@"\b(vw_read|vw_ballot|vw_any|vw_count|readfirstlane)\(")]
     private static partial Regex WaveCallPattern();
+
+    [GeneratedRegex(@"(?<![.\w])(?<name>[A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*(?:[-+*/&|^]|<<|>>)?=(?!=)")]
+    private static partial Regex AssignmentPattern();
 
     [GeneratedRegex(@"\bg_lds\[|\b\w*(?:Store|Atomic|Interlocked)\w*\s*\(")]
     private static partial Regex SharedPattern();
