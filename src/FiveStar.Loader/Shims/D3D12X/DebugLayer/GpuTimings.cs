@@ -14,7 +14,8 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// <summary>
 /// <c>--gpu-timings</c>: how long the GPU spends in each pass of the game's frames (issue #40). A pass is a run of work
 /// in one command list between render-target changes, a switch between draws and dispatches, or a change of compute
-/// pipeline (each compute program is its own pass), named by its first
+/// pipeline (each compute program is its own pass), or a split at a memory wait (the queue's wait between the list's segments is a
+/// pass of its own, "(memory wait)"), named by its first
 /// pipeline (<see cref="PassName"/>). Each pass begins with a timestamp query and the list's Close ends the last; Close
 /// resolves the list's block of <see cref="QueriesPerBlock"/> queries into a readback buffer. Each submission queues
 /// the lists' passes with the queue fence value they end at, and a thread reads them once the fence passed (no wait
@@ -58,6 +59,13 @@ internal static unsafe class GpuTimings
 
     private const int Graphics = 1;
     private const int Compute = 2;
+    private const int Waiting = 3;
+
+    /// <summary>The pass name of the time between a list's segments (<see cref="Split"/>).</summary>
+    private const string MemoryWaitPass = "(memory wait)";
+
+    /// <summary>The pipeline slot of a pass that begins where a list splits at a memory wait.</summary>
+    private static readonly nint MemoryWait = -1;
 
     private static readonly ConcurrentDictionary<nint, ListTimes> Lists = new();
     private static readonly ConcurrentQueue<Submission> Submitted = new();
@@ -192,6 +200,35 @@ internal static unsafe class GpuTimings
         times.Used++;
         times.Kind = kind;
         times.Boundary = false;
+    }
+
+    /// <summary>
+    /// <c>ListSplits.Split</c>, before the segment <paramref name="desktop"/> of <paramref name="list"/> closes at a
+    /// memory wait: the current pass ends there and a "(memory wait)" pass begins, which the next work ends. The queue
+    /// waits between the segments, so that time is the wait's (and the barriers around it), not the last timed pass's:
+    /// with the scattering passes skipped, a screen-probe pass took a wait's 250 ms or more this way (w81, w84). Nothing
+    /// when no pass began yet in this recording.
+    /// </summary>
+    [HotPath]
+    public static void Split(nint list, nint desktop)
+    {
+        if (_heap is null || !Lists.TryGetValue(list, out var times) || times.Block < 0 || times.Used == 0)
+        {
+            return;
+        }
+
+        if (times.Used == QueriesPerBlock - 1)
+        {
+            times.Overflow = true;
+
+            return;
+        }
+
+        EndQuery(desktop, (times.Block * QueriesPerBlock) + times.Used);
+        times.Pipelines[times.Used] = MemoryWait;
+        times.Used++;
+        times.Kind = Waiting;
+        times.Boundary = true;
     }
 
     /// <summary>
@@ -383,7 +420,12 @@ internal static unsafe class GpuTimings
 
             for (int i = 0; i < passes; i++)
             {
-                string pass = PassName(Name(recording.Pipelines[i]));
+                string pass = MemoryWaitPass;
+
+                if (recording.Pipelines[i] != MemoryWait)
+                {
+                    pass = PassName(Name(recording.Pipelines[i]));
+                }
 
                 if (recording.Overflow && i == passes - 1)
                 {
