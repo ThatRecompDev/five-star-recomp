@@ -31,6 +31,7 @@ internal sealed unsafe class RectanglePipelines
     private readonly string _folder;
     private readonly IProgramLibrary _programs;
     private readonly OnceLog _warnings;
+    private readonly PipelineBuildQueue _builds;
     private readonly ConcurrentDictionary<nint, RectangleRecipe> _recipes = new();
     private readonly ConcurrentDictionary<nint, nint> _variants = new();
     private readonly ConcurrentDictionary<nint, VariantBuild> _building = new();
@@ -41,8 +42,10 @@ internal sealed unsafe class RectanglePipelines
     /// <param name="folder">The compiled geometry shaders (<c>&lt;translated&gt;/rect-gs</c>).</param>
     /// <param name="programs">Where a variant's programs are read again by name.</param>
     /// <param name="warnings">Where missing shaders and failures are reported, once each.</param>
-    public RectanglePipelines(nint device2, nint rootSignature, string folder, IProgramLibrary programs, OnceLog warnings)
+    /// <param name="builds">The build threads that create the variants, as urgent creations (a draw waits for each).</param>
+    public RectanglePipelines(nint device2, nint rootSignature, string folder, IProgramLibrary programs, OnceLog warnings, PipelineBuildQueue builds)
     {
+        _builds = builds;
         _device2 = device2;
         _rootSignature = rootSignature;
         _folder = folder;
@@ -108,10 +111,10 @@ internal sealed unsafe class RectanglePipelines
     }
 
     /// <summary>
-    /// The variant of a desktop pipeline; 0 when it has none; <see cref="Pending"/> while it builds. The first call starts
-    /// the build on a thread of its own and never waits for it: the variant of a tiled-lighting pipeline is a full
-    /// compile of its pixel program, and built on the drawing game thread it held a frame's job for over 25 s, until the
-    /// game's hang watchdog ended the run in the opening cutscene.
+    /// The variant of a desktop pipeline; 0 when it has none; <see cref="Pending"/> while it builds. The first call queues
+    /// the build on the pipeline build threads (urgent) and never waits for it: the variant of a tiled-lighting pipeline
+    /// is a full compile of its pixel program, and built on the drawing game thread it held a frame's job for over 25 s,
+    /// until the game's hang watchdog ended the run in the opening cutscene.
     /// </summary>
     [HotPath]
     public nint Variant(nint pipeline)
@@ -129,7 +132,7 @@ internal sealed unsafe class RectanglePipelines
         return Start(pipeline);
     }
 
-    /// <summary>The first call for a pipeline: 0 without a recipe, otherwise its build started and <see cref="Pending"/>.</summary>
+    /// <summary>The first call for a pipeline: 0 without a recipe, otherwise its build queued and <see cref="Pending"/>.</summary>
     private nint Start(nint pipeline)
     {
         if (!_recipes.TryGetValue(pipeline, out var recipe))
@@ -141,11 +144,21 @@ internal sealed unsafe class RectanglePipelines
 
         var build = new VariantBuild(recipe);
 
-        if (_building.TryAdd(pipeline, build))
+        if (!_building.TryAdd(pipeline, build))
         {
-            var thread = new Thread(() => Finish(pipeline, build)) { IsBackground = true, Name = "fivestar rectangle variant" };
-            thread.Start();
+            return Pending;
         }
+
+        // A build that finished between the caller's two lookups left its variant: no second build.
+        if (_variants.TryGetValue(pipeline, out var built))
+        {
+            _building.TryRemove(new KeyValuePair<nint, VariantBuild>(pipeline, build));
+            build.Done.Set();
+
+            return built;
+        }
+
+        _builds.Queue(() => Finish(pipeline, build), urgent: true);
 
         return Pending;
     }
@@ -156,19 +169,28 @@ internal sealed unsafe class RectanglePipelines
         return !_building.TryGetValue(pipeline, out var build) || build.Done.Wait(timeout);
     }
 
-    /// <summary>Builds the variant within the compile budget, then keeps it unless the pipeline was remembered again since.</summary>
-    private void Finish(nint pipeline, VariantBuild build)
+    /// <summary>
+    /// On a build thread: builds the variant within the compile budget, then keeps it unless the pipeline was remembered
+    /// again since. A failure keeps 0 (drawn as triangles) and is reported once; an exception would end the build thread.
+    /// </summary>
+    private PipelineResult Finish(nint pipeline, VariantBuild build)
     {
         nint variant = 0;
+        nint kept = 0;
 
         try
         {
             variant = Build(build.Recipe);
         }
+        catch (Exception exception)
+        {
+            _warnings.Warn($"rect-throw-{build.Recipe.Vertex}", $"[d3d12_xs] rectangle-list pipeline for {build.Recipe.Vertex}: {exception.GetType().Name}: {exception.Message}; drawn as triangles");
+        }
         finally
         {
             if (_recipes.TryGetValue(pipeline, out var current) && ReferenceEquals(current, build.Recipe) && _variants.TryAdd(pipeline, variant))
             {
+                kept = variant;
                 variant = 0;
             }
 
@@ -180,6 +202,8 @@ internal sealed unsafe class RectanglePipelines
             _building.TryRemove(new KeyValuePair<nint, VariantBuild>(pipeline, build));
             build.Done.Set();
         }
+
+        return new PipelineResult(HResult.Ok, kept);
     }
 
     private nint Build(RectangleRecipe recipe)
