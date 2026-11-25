@@ -12,19 +12,24 @@ namespace FiveStar.Loader.Tests;
 /// </summary>
 public sealed class RayTracingProgramsTests : IDisposable
 {
-    private const string Tracing = "sgd1_0c2a3b4b_t41_indirect_diffuse_lighting~CS_ScreenProbes_TraceRays_43a82a92_Wrapped";
-    private const string Earlier = "sgd1_0d458407_t41_shadowmask~CS_TraceShadowRays_Checkerboard_c568be8a_Wrapped";
-    private const string Plain = "sgd1_0b7ec5e0_t32_PS_LinearDepthOpaque_f1f2249c_Wrapped";
-
+    // What a program does is known process-wide by its name, and other tests make programs too: each test's names carry
+    // a hash of their own, so no other test can have noted, marked or scanned them first.
+    private readonly string _hash = Convert.ToHexStringLower(BitConverter.GetBytes(Random.Shared.Next()));
     private readonly string _folder = Directory.CreateTempSubdirectory("fivestar-rt-").FullName;
+
+    private string Tracing => Program("indirect_diffuse_lighting~CS_ScreenProbes_TraceRays");
+
+    private string Earlier => Program("shadowmask~CS_TraceShadowRays_Checkerboard");
+
+    private string Plain => Program("PS_LinearDepthOpaque");
 
     [Fact]
     public void A_program_that_only_serves_ray_tracing_stays_a_stand_in_by_its_name()
     {
-        Assert.True(RayTracingPrograms.Skips("sgd1_0be781f2_t32_bvh_skinning~CSComputeSkinningDefaultVelocity_1c34db0a_Wrapped", _folder, scanner: null));
-        Assert.True(RayTracingPrograms.Skips("sgd1_0e14c743_t41_standard_doublesided~CS_RaytracingResolve_b1139868_Wrapped", _folder, scanner: null));
-        Assert.True(RayTracingPrograms.Skips("sgd1_0d11f39a_t41_rtdirectionalshadows~CS_RTDistantShadowFinalUpsample_588514d8_Wrapped", _folder, scanner: null));
-        Assert.False(RayTracingPrograms.Skips("sgd1_0d4187bb_t32_shadowmask~CS_ClearShadowMask_6367c9e9_Wrapped", _folder, scanner: null));
+        Assert.True(RayTracingPrograms.Skips(Program("bvh_skinning~CSComputeSkinningDefaultVelocity"), _folder, scanner: null));
+        Assert.True(RayTracingPrograms.Skips(Program("standard_doublesided~CS_RaytracingResolve"), _folder, scanner: null));
+        Assert.True(RayTracingPrograms.Skips(Program("rtdirectionalshadows~CS_RTDistantShadowFinalUpsample"), _folder, scanner: null));
+        Assert.False(RayTracingPrograms.Skips(Program("shadowmask~CS_ClearShadowMask"), _folder, scanner: null));
     }
 
     [Fact]
@@ -38,7 +43,7 @@ public sealed class RayTracingProgramsTests : IDisposable
 
         Assert.True(File.Exists(Path.Combine(_folder, Tracing + RayTracingPrograms.MarkerExtension)));
         Assert.True(RayTracingPrograms.Skips(Tracing, _folder, scanner: null));
-        Assert.False(RayTracingPrograms.Skips($"{Plain}.trim2 + sgd1_04ab63d7_t41_MSNC_VS_LinearDepthSkin_f1f2249c_Wrapped", _folder, scanner: null));
+        Assert.False(RayTracingPrograms.Skips($"{Plain}.trim2 + {Program("MSNC_VS_LinearDepthSkin")}", _folder, scanner: null));
 
         // A program made in an earlier boot (or by the compile host) has only its marker; it is read again once made.
         Assert.False(RayTracingPrograms.Skips(Earlier, _folder, scanner: null));
@@ -52,25 +57,31 @@ public sealed class RayTracingProgramsTests : IDisposable
     {
         // Found compiled with no marker: a game thread's check (no scanner) builds it, the check before a build reads
         // its code once, marks it and holds it; the next boot reads the marker.
-        const string Old = "sgd1_0c075372_t41_deferred_tiled~CS_LaserLightShadowRaytracing_c3ab3042_Wrapped";
-        const string Lit = "sgd1_0b12c1ad_t32_TL_PS_PBR_MATERIAL_STANDARD_42ad1e50_Wrapped";
+        string old = Program("deferred_tiled~CS_LaserLightShadowRaytracing");
+        string lit = Program("TL_PS_PBR_MATERIAL_STANDARD");
         int scans = 0;
 
         bool? Scan(string program)
         {
             scans++;
 
-            return program == Old;
+            return program == old;
         }
 
-        Assert.False(RayTracingPrograms.Skips(Old, _folder, scanner: null));
-        Assert.True(RayTracingPrograms.Skips(Old, _folder, Scan));
-        Assert.True(RayTracingPrograms.Skips(Old, _folder, Scan));
-        Assert.False(RayTracingPrograms.Skips(Lit, _folder, Scan));
+        Assert.False(RayTracingPrograms.Skips(old, _folder, scanner: null));
+        Assert.True(RayTracingPrograms.Skips(old, _folder, Scan));
+        Assert.True(RayTracingPrograms.Skips(old, _folder, Scan));
+        Assert.False(RayTracingPrograms.Skips(lit, _folder, Scan));
 
         Assert.Equal(2, scans);
-        Assert.True(File.Exists(Path.Combine(_folder, Old + RayTracingPrograms.MarkerExtension)));
-        Assert.True(File.Exists(Path.Combine(_folder, Lit + RayTracingPrograms.NoMarkerExtension)));
+        Assert.True(File.Exists(Path.Combine(_folder, old + RayTracingPrograms.MarkerExtension)));
+        Assert.True(File.Exists(Path.Combine(_folder, lit + RayTracingPrograms.NoMarkerExtension)));
+    }
+
+    /// <summary>A program name as the game's, with this test's hash.</summary>
+    private string Program(string what)
+    {
+        return $"sgd1_{_hash}_t41_{what}_{_hash}_Wrapped";
     }
 
     public void Dispose()

@@ -127,7 +127,11 @@ And workers slept in the loader: a small compute stand-in waited up to 250 ms at
 programs were still being made on demand (55 to 73 s on average during the story load), and a loading-screen frame
 met hundreds of them, so all five workers slept for more than 30 s. A first use now waits only when the programs are
 ready. Waits a game thread can reach inside the loader register with `BlockingWaits`, so a stack that ends in JIT
-code still names the wait (`(waiting in ... for N ms)`). The stall line gives the time spent in each since the
+code still names the wait (`(waiting in ... for N ms)`). This covers pipeline creation, the compile host and pipeline
+host, the program index and cache identity, present pacing (swap-chain latency, GPU frame throttle, the recorder's
+fence), XAsyncGetStatus, XTaskQueueDispatch and storage reads. w66's main thread sat in a compile-host request that
+showed only as an OS wait. Entering a wait allocates nothing: each thread has one slot, and a nested wait restores the
+outer one. The stall line gives the time spent in each since the
 heartbeat last moved, over all threads (a wait still running shows in its thread's stack instead), then the totals
 since the start: those are a whole boot's, so seconds of them say nothing about one stall.
 

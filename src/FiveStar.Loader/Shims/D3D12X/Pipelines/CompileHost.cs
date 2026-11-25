@@ -407,7 +407,14 @@ internal sealed class CompileHost : IBackendRunner
                 return (null, Delivery.NotSent);
             }
 
-            if (!answer.Task.Wait(limit) && _pending.TryRemove(id, out _))
+            bool answered;
+
+            using (Diagnostics.BlockingWaits.Enter("compile host request"))
+            {
+                answered = answer.Task.Wait(limit);
+            }
+
+            if (!answered && _pending.TryRemove(id, out _))
             {
                 if (Interlocked.Read(ref _lastAnswer) < sent)
                 {

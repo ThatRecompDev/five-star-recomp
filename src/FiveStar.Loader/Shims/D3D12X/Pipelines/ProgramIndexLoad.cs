@@ -29,6 +29,7 @@ internal sealed class ProgramIndexLoad
     public ProgramIndex Wait(out TimeSpan waited)
     {
         long start = Stopwatch.GetTimestamp();
+        using var wait = Diagnostics.BlockingWaits.Enter("program index load");
         var index = _index.GetAwaiter().GetResult();
         waited = Stopwatch.GetElapsedTime(start);
 
