@@ -50,6 +50,9 @@ public readonly record struct MeshProbeRecord(
     private const int ValuesMaskWord = 48;
     private const int AllocationWord = 49;
     private const int SitesWord = 50;
+    private const int WindowMaskWord = 52;
+    private const int WindowAddressWord = 53;
+    private const int WindowNoted = 4;
     private const int MarkWord = 51;
     private const uint Mark = 0x50524f42;
 
@@ -61,6 +64,12 @@ public readonly record struct MeshProbeRecord(
 
     /// <summary>The program's number of load sites.</summary>
     public uint Sites { get; init; }
+
+    /// <summary>Sites (bit = site) that loaded through a 32-bit pointer: the descriptor window, not game memory.</summary>
+    public uint WindowLoads { get; init; }
+
+    /// <summary>The first window address thread 0 loaded through a 32-bit pointer; null when none.</summary>
+    public uint? WindowAddress { get; init; }
 
     /// <summary>Whether the record's last dword is its id ^ the probe's mark: a record the probe wrote whole, not stray bytes.</summary>
     public bool Whole { get; init; }
@@ -102,7 +111,14 @@ public readonly record struct MeshProbeRecord(
             words[UnmappedWord],
             words[NullRecordWord]);
 
-        return record with { Values = values, Allocation = allocation, Sites = words[SitesWord], Whole = words[MarkWord] == (words[0] ^ Mark) };
+        uint? window = null;
+
+        if ((words[FlagsWord] & WindowNoted) != 0)
+        {
+            window = words[WindowAddressWord];
+        }
+
+        return record with { Values = values, Allocation = allocation, Sites = words[SitesWord], Whole = words[MarkWord] == (words[0] ^ Mark), WindowLoads = words[WindowMaskWord], WindowAddress = window };
     }
 
     private static float Float(ReadOnlySpan<uint> words, int at)

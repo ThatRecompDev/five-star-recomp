@@ -143,6 +143,8 @@ internal static unsafe class MeshProbes
         log.Info($"{Prefix}{name}: {groups.Count} groups, {empty} with no vertices or primitives; vertices {groups.Min(g => g.Vertices)} to {groups.Max(g => g.Vertices)}, primitives {groups.Min(g => g.Primitives)} to {groups.Max(g => g.Primitives)}, {culled} of {primitives} primitives culled");
         log.Info($"{Prefix}{name}: vertex 0 written by {positions.Count} groups, {degenerate} at w 0, NaN or the origin; first {shown}");
         log.Info($"{Prefix}{name}: m0 at GS_ALLOC_REQ (primitives << 12 | vertices): {Values(groups.Select(group => group.Allocation))}");
+        uint window = groups.Aggregate(0u, (mask, group) => mask | group.WindowLoads);
+        log.Info($"{Prefix}{name}: sites loading through a 32-bit pointer (the descriptor window) 0x{window:x8}; first window address thread 0 read: {Values(groups.Select(group => group.WindowAddress))} (view records from 0x{DescriptorWindow.ViewBase:x}, 32 bytes each)");
         LogSites(name, groups, log);
     }
 

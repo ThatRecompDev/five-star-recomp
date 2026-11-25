@@ -570,14 +570,15 @@ uint perm_b32(uint a, uint b, uint sel) {
 // the first time (probe_value), and m0 at GS_ALLOC_REQ (probe_alloc). At the end of the group thread 0 appends: {id,
 // group x y z; vertices, primitives as SetMeshOutputCounts got them, culled primitives, cull mask of primitives 0-31;
 // vertex 0's position; flags (bit 0: position written, bit 1: m0 noted), range, unmapped and null-record masks;
-// the values of sites 0-31; the mask of values noted; m0; the number of sites; id ^ PROBE_MARK}.
+// the values of sites 0-31; the mask of values noted; m0; the number of sites; id ^ PROBE_MARK; the mask of sites
+// that loaded through a 32-bit pointer (the window), the first such address thread 0 read (flags bit 2)}.
 #ifdef FIVESTAR_MESH_PROBE
 static const uint PROBE_RECORDS = 4096u;
 static const uint PROBE_RECORD_BYTES = 256u;
 static const uint PROBE_NULL_RECORD = 5u;
 static const uint PROBE_MARK = 0x50524f42u;   // a whole record's last dword: its id ^ this
-static uint g_probe_range, g_probe_unmapped, g_probe_record, g_probe_gi;
-groupshared uint g_probe_g[12];   // range, unmapped, null record, culled, cull mask, flags, position x y z w, values mask, m0
+static uint g_probe_range, g_probe_unmapped, g_probe_record, g_probe_window, g_probe_gi;
+groupshared uint g_probe_g[14];   // range, unmapped, null record, culled, cull mask, flags, position x y z w, values mask, m0, window mask, window address
 groupshared uint g_probe_v[32];
 uint probe_bit(uint site) { return 1u << min(site, 31u); }
 bool probe_sbuf_fits(uint site, bool fits) {
@@ -594,6 +595,10 @@ uint probe_BufLoadRW(uint site, uint heap_index, uint off) { probe_view(site, he
 uint4 probe_FmtLoad(uint site, uint heap_index, uint addr, uint code) { probe_view(site, heap_index); return FmtLoad(heap_index, addr, code); }
 uint probe_PtrLoad(uint site, uint lo, uint hi, uint off) {
     if (hi != 0u) { uint2 a = ptr_add(lo, hi, 0u, asint(off)); probe_view(site, gpu_page(a.x, a.y).x); }
+    else {   // a 32-bit pointer: the window (descriptor records); the first such address thread 0 reads is kept
+        g_probe_window |= probe_bit(site);
+        if (g_probe_gi == 0u && (g_probe_g[5] & 4u) == 0u) { g_probe_g[13] = lo + off; g_probe_g[5] |= 4u; }
+    }
     return PtrLoad(lo, hi, off);
 }
 void probe_value(uint site, uint v) {   // the register a site's line loaded, the first time on thread 0
@@ -608,7 +613,7 @@ void probe_alloc(uint m0) {   // GS_ALLOC_REQ's m0, the first time
 }
 void probe_begin(uint gi) {   // before the group's first barrier
     g_probe_gi = gi;
-    if (gi == 0u) { [unroll] for (uint i = 0u; i < 12u; i++) g_probe_g[i] = 0u; }
+    if (gi == 0u) { [unroll] for (uint i = 0u; i < 14u; i++) g_probe_g[i] = 0u; }
 }
 void probe_position(float4 p) {   // thread 0, writing vertex 0
     g_probe_g[5] |= 1u;
@@ -624,6 +629,7 @@ void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the 
     InterlockedOr(g_probe_g[0], g_probe_range);
     InterlockedOr(g_probe_g[1], g_probe_unmapped);
     InterlockedOr(g_probe_g[2], g_probe_record);
+    InterlockedOr(g_probe_g[12], g_probe_window);
     GroupMemoryBarrierWithGroupSync();
     if (gi != 0u) return;
     RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
@@ -636,5 +642,6 @@ void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the 
     m.Store4(at + 48u, uint4(g_probe_g[5], g_probe_g[0], g_probe_g[1], g_probe_g[2]));
     [unroll] for (uint k = 0u; k < 32u; k += 4u) m.Store4(at + 64u + k * 4u, uint4(g_probe_v[k], g_probe_v[k + 1u], g_probe_v[k + 2u], g_probe_v[k + 3u]));
     m.Store4(at + 192u, uint4(g_probe_g[10], g_probe_g[11], FIVESTAR_MESH_PROBE_SITES, FIVESTAR_MESH_PROBE ^ PROBE_MARK));
+    m.Store2(at + 208u, uint2(g_probe_g[12], g_probe_g[13]));
 }
 #endif
