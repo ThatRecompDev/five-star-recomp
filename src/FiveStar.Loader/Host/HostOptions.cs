@@ -250,6 +250,12 @@ internal sealed record HostOptions
     /// <summary>Pipelines whose draws the trace also logs after each captured present (<c>--d3d12-trace-pipeline</c>).</summary>
     public string? D3D12TracePipeline { get; set; }
 
+    /// <summary>Passes held while a producer is missing this frame (<c>--hold-passes consumer=producer|...;...</c>).</summary>
+    public string? HoldPasses { get; set; }
+
+    /// <summary>Passes whose draws clear their targets to a colour instead (<c>--stub-passes pass=r,g,b,a;...</c>).</summary>
+    public string? StubPasses { get; set; }
+
     /// <summary>Texts whose pipelines and targets every census lists in full (<c>--census-passes</c>, with the draw trace).</summary>
     public IReadOnlyList<string> CensusPasses { get; set; } = [];
 
