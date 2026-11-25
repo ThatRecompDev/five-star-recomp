@@ -238,6 +238,9 @@ internal sealed record HostOptions
     /// <summary>A GPU marker after every draw and dispatch, for the stall report (<c>--d3d12-breadcrumbs</c>).</summary>
     public bool D3D12Breadcrumbs { get; set; }
 
+    /// <summary>GPU time per pass and queue with the sample line (<c>--gpu-timings</c>).</summary>
+    public bool GpuTimings { get; set; }
+
     /// <summary>Check the game's transient-memory pool for corrupted nodes (<c>--watch-transient</c>).</summary>
     public bool WatchTransient { get; set; }
 
