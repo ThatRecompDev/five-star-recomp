@@ -49,6 +49,11 @@ flowchart LR
   commit, when commit reached its limit. Keeping them all was a leak: in the
   opening cutscene the game streams textures through the same memory, about 45,000 were made in 7 minutes, and once
   video memory was full the process grew by 2 to 3 GB every 30 s until the machine ran out.
+  Textures over memory the game unmaps (XMem pages unmapped at their GPU address) are counted (`N live over unmapped
+  memory` in the texture counters) and, with `--retire-unmapped-textures`, retired and released 8 presents later: only a
+  new texture over the same range retires one otherwise, and #13's long run (w79, w80 alike) grew its placed texture heaps
+  from 0.5 to 10.5 GB. Off by default: if the game maps the pages again at the same address and reads through descriptors
+  it made before (slot 70 or records copied from them), those would name a released texture.
 - **Placed textures** (on by default, `--committed-textures` turns it off, `PlacedTextureHeaps`; a released texture's range stays mapped,
   so a stale read the game still makes hits memory, as on the console, instead of a freed resource: issue #23, and w28
   lost the device at 185 s without it while w29 ran 1,018 s into gameplay with it): read-only single-sample textures

@@ -37,6 +37,8 @@ internal sealed class GpuTextureRegistry : IDisposable
     /// <summary>Presents before an older texture over the same range is released, its submitted work done.</summary>
     public const long AliasGraceFrames = 30;
 
+    private const double BytesPerGigabyte = 1UL << 30;
+
     private readonly object _gate = new();
     private readonly Dictionary<(ulong Address, ulong Size), Queue<GpuTexture>> _aliases = [];
     private readonly Queue<(GpuTexture Texture, long Frame, ulong[] Submitted)> _retired = new();
@@ -48,6 +50,9 @@ internal sealed class GpuTextureRegistry : IDisposable
     private GpuTexture[] _sorted = [];
     private long _frame;
     private long _released;
+    private long _unmapped;
+    private long _unmappedTextures;
+    private long _unmappedBytes;
 
     /// <summary>The registry of the loader's queues (<see cref="QueueProgress"/>).</summary>
     public static GpuTextureRegistry OfQueues()
@@ -112,7 +117,7 @@ internal sealed class GpuTextureRegistry : IDisposable
             {
                 int retired = _aliasCount + _retired.Count + _agedAliases.Count;
 
-                return $"{_sorted.Length} textures, retired {retired} (aliased {_aliasCount + _agedAliases.Count}), released {_released}";
+                return $"{_sorted.Length} textures, retired {retired} (aliased {_aliasCount + _agedAliases.Count}), released {_released}, {_unmapped} retired as their memory was unmapped, {_unmappedTextures} live over unmapped memory ({_unmappedBytes / BytesPerGigabyte:F2} GB)";
             }
         }
     }
@@ -139,6 +144,118 @@ internal sealed class GpuTextureRegistry : IDisposable
             kept.Sort((left, right) => left.Address.CompareTo(right.Address));
             Volatile.Write(ref _sorted, kept.ToArray());
         }
+    }
+
+    /// <summary>
+    /// <c>--retire-unmapped-textures</c>: textures over memory the game unmaps are retired (released after their grace).
+    /// Off by default: the game may map the pages again at the same address and read through descriptors it made
+    /// before, which would then name a released texture; without it they are only counted (<see cref="Summary"/>).
+    /// </summary>
+    public static bool RetireUnmapped { get; set; }
+
+    /// <summary>
+    /// The game unmapped the memory at [<paramref name="address"/>, + <paramref name="bytes"/>). Textures over it are
+    /// marked, and counted in <see cref="Summary"/>; with <see cref="RetireUnmapped"/> they are retired, released after
+    /// their grace like one a new texture replaced. Only a new texture over the same range retired one before, and #13's
+    /// long run grew its placed texture heaps from 0.5 to 10.5 GB. Returns how many textures it marked or retired.
+    /// </summary>
+    public int Unmapped(ulong address, ulong bytes)
+    {
+        if (!Overlaps(Volatile.Read(ref _sorted), address, bytes))
+        {
+            return 0;
+        }
+
+        lock (_gate)
+        {
+            if (!RetireUnmapped)
+            {
+                return Mark(address, bytes, unmapped: true);
+            }
+
+            var kept = new List<GpuTexture>(_sorted.Length);
+            int retired = 0;
+
+            foreach (var entry in _sorted)
+            {
+                if (entry.Address < address + bytes && address < entry.Address + entry.Size)
+                {
+                    _retired.Enqueue((entry, _frame, _submitted()));
+                    retired++;
+                }
+                else
+                {
+                    kept.Add(entry);
+                }
+            }
+
+            Volatile.Write(ref _sorted, kept.ToArray());
+            _unmapped += retired;
+
+            return retired;
+        }
+    }
+
+    /// <summary>The game mapped memory at the range again: textures over it are no longer counted as over unmapped memory.</summary>
+    public void Mapped(ulong address, ulong bytes)
+    {
+        if (RetireUnmapped || !Overlaps(Volatile.Read(ref _sorted), address, bytes))
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            Mark(address, bytes, unmapped: false);
+        }
+    }
+
+    /// <summary>Marks the textures over the range as over unmapped memory or not, under the lock; how many changed.</summary>
+    private int Mark(ulong address, ulong bytes, bool unmapped)
+    {
+        int changed = 0;
+
+        foreach (var entry in _sorted)
+        {
+            if (entry.Address < address + bytes && address < entry.Address + entry.Size && entry.OverUnmapped != unmapped)
+            {
+                entry.OverUnmapped = unmapped;
+                long sign = unmapped ? 1 : -1;
+                _unmappedTextures += sign;
+                _unmappedBytes += sign * (long)entry.Size;
+                changed++;
+            }
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// Whether a texture of the sorted array overlaps the range (lock-free, before the rebuild): registered ranges never
+    /// overlap, so only the last texture starting before the range's end can reach into it.
+    /// </summary>
+    private static bool Overlaps(GpuTexture[] sorted, ulong address, ulong bytes)
+    {
+        int low = 0;
+        int high = sorted.Length - 1;
+        int last = -1;
+
+        while (low <= high)
+        {
+            int middle = low + ((high - low) >> 1);
+
+            if (sorted[middle].Address < address + bytes)
+            {
+                last = middle;
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return last >= 0 && address < sorted[last].Address + sorted[last].Size;
     }
 
     /// <summary>Once per present: releases the retired textures whose grace period ended.</summary>
@@ -222,6 +339,13 @@ internal sealed class GpuTextureRegistry : IDisposable
 
     private void Retire(GpuTexture entry, GpuTexture replacement)
     {
+        if (entry.OverUnmapped)
+        {
+            entry.OverUnmapped = false;
+            _unmappedTextures--;
+            _unmappedBytes -= (long)entry.Size;
+        }
+
         if (entry.Address == replacement.Address && entry.Size == replacement.Size)
         {
             Alias(entry);
