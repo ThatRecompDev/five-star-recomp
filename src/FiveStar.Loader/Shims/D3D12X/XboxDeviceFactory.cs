@@ -56,6 +56,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         Objects = new XboxObjects(stubs, heap, Debugging, log);
         CommandLists = new XboxCommandLists(Objects);
         ListStates = new CommandListStates();
+        RenderTargets = new States.RenderTargetStates();
 
         MemorySource = new GameMemorySource(memory);
         Textures = new GpuTextures(MemorySource, Descriptions, log);
@@ -111,6 +112,9 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
 
     /// <summary>The textures each command list moved out of their home state (list slots 9 and 26).</summary>
     public CommandListStates ListStates { get; }
+
+    /// <summary>The render targets that rest in UNORDERED_ACCESS, by the views written of them (<see cref="States.RenderTargetStates"/>).</summary>
+    public States.RenderTargetStates RenderTargets { get; }
 
     /// <summary>The pipeline slots (55, 57, 62, 67, 86) once a device exists and the shader folders are known.</summary>
     public PipelineSlots? Pipelines { get; private set; }
@@ -307,8 +311,6 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         WaitForProgramIndex();
         var onDemand = _pipelineFolders.OnDemand?.Open(_programIndex!, programs!, translated, device2, warnings, _log);
         IProgramLibrary library = onDemand ?? (IProgramLibrary)TranslatedProgramLibrary.Open(_programIndex!, translated!, device2, warnings, _log);
-        var rectangles = new RectanglePipelines(device2, root, RectangleFolder(translated), library, warnings) { Compiler = _pipelineFolders.OnDemand?.RectangleCompiler };
-        Rectangles.Attach(rectangles);
 
         // Builds start only while the machine has the memory; heavy ones on their own thread (docs/d3d12x-pipelines.md#stand-ins).
         // The queues keep only the machine's reserves: each compile's own need is the compile budget's to count. Counting
@@ -318,6 +320,9 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         var heavyBuilds = new PipelineBuildQueue(1, _ => WarmMemoryGuard.RoomForHeavyBuild(0));
         builds.Start();
         heavyBuilds.Start();
+
+        var rectangles = new RectanglePipelines(device2, root, RectangleFolder(translated), library, warnings, builds) { Compiler = _pipelineFolders.OnDemand?.RectangleCompiler };
+        Rectangles.Attach(rectangles);
         var standIns = new StandInPipelines(PipelineSlots.CreationBudget, builds, heavyBuilds, warnings);
 
         var cache = OpenCache(device2);

@@ -199,7 +199,7 @@ public static partial class MeshComputeFallback
     [GeneratedRegex(@"^\s*(?:(?:nointerpolation|linear|noperspective|centroid|sample)\s+)*(float|uint|int)(?<width>[1-4]?)\s+(?<name>\w+)\s*:")]
     private static partial Regex MemberPattern();
 
-    [GeneratedRegex(@"\[numthreads\((?<threads>\d+), 1, 1\)\]\n\[outputtopology\(""triangle""\)\]\nvoid main\(uint3 in_gid : SV_GroupID, uint in_gi : SV_GroupIndex, out vertices Out verts\[(?<verts>\d+)\], out indices uint3 tris\[(?<prims>\d+)\], out primitives MSPrim prims\[\d+\]\) \{\n")]
+    [GeneratedRegex(@"\[numthreads\((?<threads>\d+), 1, 1\)\]\n\[outputtopology\(""triangle""\)\]\nvoid main\(uint3 in_gid : SV_GroupID, uint in_gi : SV_GroupIndex, out vertices Out verts\[(?<verts>\d+)\], out indices uint3 tris\[(?<prims>\d+)\], out primitives MSPrim prims\[\d+\](?:, in payload LaunchPayload \w+)?\) \{\n")]
     private static partial Regex EntryPattern();
 
     [GeneratedRegex(@"\breturn\b")]

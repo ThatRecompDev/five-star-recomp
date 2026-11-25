@@ -277,7 +277,7 @@ The D3D12.X layer creates the views and samplers, so it decides what descriptor 
 | V# base (dword0, dword1 bits 0-15) | a console GPU address, found in the address map (`buf_view`): the D3D12.X shim's records of read-only buffer views of game memory hold the view's address as the console's do, so a program can build pointers from it; base_hi 0: dword0 is a heap index (records of buffers the desktop placed, or `--buffer-records-heap-index`) |
 | V# dword1 bits 16-29 / dword3 | stride (idxen) / hardware format word: gfx10 unified format (bits 12-18, decoded by `buf_code`) and destination swizzle (bits 0-11, `fmt_swizzle`, loads only) |
 | 64-bit pointers (`s_load`, `global_*`) | high dword 0: byte address in the window `ResourceDescriptorHeap[GPU_MEM_HEAP]` (writable view at `+ 1`); otherwise a console GPU address in the address map (`PtrLoad`, `PtrStore`, `gpu_rw`). Offsets are added in 64 bits as the hardware does (`ptr_add`: the unsigned VGPR offset and the signed instruction offset carry into or borrow from the high dword); before, a carry out of the low dword was dropped and the access landed 4 GiB lower |
-| `s_getpc_b64` pointers | high dword `CODE_TAG`; loads read the program's own code, emitted as `g_code[]` |
+| `s_getpc_b64` pointers | high dword `CODE_TAG`; loads read the program's own code, emitted as `g_code[]`; a per-lane (vector) load indexes only the code words from the earliest table the program's s_getpc pointers are moved to (each s_getpc followed by `s_add_u32`/`s_sub_u32` of its low half; `g_data[]`, `CodeData`): indexed per lane, the whole code array cost the AMD driver 26 s and 1.9 GB for one tiled-lighting pixel program, its 53 table words 14 s and 0.5 GB. Lanes read at or after the table they point to (an address before it reads its first word). When one s_getpc is used otherwise, or there is no table, the loads keep `CodeLoad` and the program is unchanged |
 | BVH T# | dword0 = BVH base address >> 8 in the memory window (see [ray-intersection.md](ray-intersection.md)) |
 
 The **address map** (`ResourceDescriptorHeap[GPU_MAP_HEAP]`, slot 7; `AddressMap` writes it) holds a dword per 4 GiB
@@ -349,7 +349,7 @@ The other memory paths, the same way (opcodes counted in the corpus):
   same descriptor, the registers' bits passed through `asfloat`/`asuint`. A d16 load of an integer view keeps each
   value's low 16 bits instead of an f16. Class 3 is shared-exponent light: the game writes R9G9B9E5 bits into R32_UINT
   targets and reads them through R9G9B9E5 views, which no desktop view of an R32_UINT texture can be, so the view stays
-  R32_UINT and a load decodes the bits (9-bit mantissas at 0, 9, 18, the exponent at 27: m * 2^(e - 24)), alpha 1. Samples filter and stay `float4`; a compare gather and a gather at a level
+  R32_UINT and a load decodes the bits (9-bit mantissas at 0, 9, 18, the exponent at 27: m * 2^(e - 24)), alpha 1. By default the loader instead points such a view at an R9G9B9E5 shadow of the texture, copied from it before each read (`SharedExponentAliases`, after victory-fork), so the hardware decodes and filters it; class 3 remains with `--no-shared-exponent-copies`. Samples filter and stay `float4`; a compare gather and a gather at a level
   too. A record without a class (no desc, a view copied in from a desktop heap) reads as float, as before.
 - LDS byte and short accesses and their d16 forms (`ds_read_u16`, `ds_read_u16_d16_hi`, `ds_write_b16`,
   `ds_write_b16_d16_hi`: 110 instructions) read and write the right half (`cs_lds_d16_hi`); `global_load_ushort` (6) too.

@@ -37,12 +37,28 @@ internal sealed partial class MeshDeclarations
 
     public int MaxPrimitives => NonZero(_state.PipelineState?.MaxPrimitives);
 
-    /// <summary>The mesh entry point: numthreads, triangle topology and the vertex, index and primitive outputs.</summary>
+    /// <summary>The payload struct and parameter of a mesh entry with <see cref="TranslationState.MeshPayload"/>.</summary>
+    public const string PayloadStruct = "struct LaunchPayload { uint unused; };\n";
+    public const string PayloadParameter = ", in payload LaunchPayload launch_payload";
+
+    /// <summary>
+    /// The mesh entry point: numthreads, triangle topology and the vertex, index and primitive outputs, and with
+    /// <see cref="TranslationState.MeshPayload"/> the launch payload the loader's amplification shader passes (never read).
+    /// </summary>
     public string EntrySignature()
     {
-        return $"[numthreads({_state.MeshThreads}, 1, 1)]\n[outputtopology(\"triangle\")]\n"
+        var payloadStruct = string.Empty;
+        var payload = string.Empty;
+
+        if (_state.MeshPayload)
+        {
+            payloadStruct = PayloadStruct;
+            payload = PayloadParameter;
+        }
+
+        return $"{payloadStruct}[numthreads({_state.MeshThreads}, 1, 1)]\n[outputtopology(\"triangle\")]\n"
             + $"void main(uint3 in_gid : SV_GroupID, uint in_gi : SV_GroupIndex, out vertices Out verts[{MaxVertices}], "
-            + $"out indices uint3 tris[{MaxPrimitives}], out primitives MSPrim prims[{MaxPrimitives}])";
+            + $"out indices uint3 tris[{MaxPrimitives}], out primitives MSPrim prims[{MaxPrimitives}]{payload})";
     }
 
     /// <summary>

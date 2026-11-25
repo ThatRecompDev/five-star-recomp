@@ -36,6 +36,7 @@ public sealed class MeshShaderTests : IClassFixture<WarpFixture>
     [InlineData(MeshStageRunner.Native)]
     [InlineData(MeshStageRunner.Supersteps)]
     [InlineData(MeshStageRunner.SuperstepCarry)]
+    [InlineData(MeshStageRunner.Payload)]
     public void The_dxil_backend_compiles_the_mesh_program(string variant)
     {
         var mismatches = new MeshStageRunner(_fixture).Run(variant, direct: true);

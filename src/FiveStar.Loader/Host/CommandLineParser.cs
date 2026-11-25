@@ -133,7 +133,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs" or "--gpu-timings":
                 return SetBreadcrumbs(option);
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--capture-when-world" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--log-draws" or "--capture-when-world" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
                 return SetTraceDraws(option);
             case "--capture-dir":
                 return SetCaptureDirectory();
@@ -684,6 +684,10 @@ internal sealed class CommandLineParser
                 _options.TypedImageViews = true;
 
                 return true;
+            case "--no-shared-exponent-copies":
+                _options.SharedExponentCopies = false;
+
+                return true;
             case "--shared-exponent-programs":
                 _options.SharedExponentPrograms = Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
@@ -712,16 +716,34 @@ internal sealed class CommandLineParser
                 _options.WaitPipelines = Next();
 
                 return true;
+            case "--kept-aliases":
+                _options.KeptAliases = Math.Max(0, int.Parse(Next(), CultureInfo.InvariantCulture));
+
+                return true;
+            default:
+                return ApplyPerformance(option);
+        }
+    }
+
+    /// <summary>Frame-time measurement and the A/B switches of the perf work.</summary>
+    private bool ApplyPerformance(string option)
+    {
+        switch (option)
+        {
+            case "--gpu-upload-heaps":
+                _options.GpuUploadHeaps = true;
+
+                return true;
+            case "--mesh-launch":
+                _options.MeshLaunch = true;
+
+                return true;
             case "--gc-sustained":
                 _options.SustainedGc = true;
 
                 return true;
             case "--frame-log":
                 _options.FrameLog = Math.Max(1, int.Parse(Next(), CultureInfo.InvariantCulture));
-
-                return true;
-            case "--kept-aliases":
-                _options.KeptAliases = Math.Max(0, int.Parse(Next(), CultureInfo.InvariantCulture));
 
                 return true;
             default:
@@ -929,14 +951,11 @@ internal sealed class CommandLineParser
             _options.D3D12TraceRecords = Shims.D3D12X.DebugLayer.TraceRecords.Parse(Next());
         }
 
-        if (option == "--d3d12-watch-target")
-        {
-            _options.D3D12WatchTarget = Shims.D3D12X.DebugLayer.TargetShape.Parse(Next()) ?? throw new CommandLineException("--d3d12-watch-target takes WxH:format, e.g. 2560x1440:10");
-        }
+        SetWatchTarget(option);
 
-        if (option == "--d3d12-watch-limit")
+        if (option == "--log-draws")
         {
-            _options.D3D12WatchLimit = int.TryParse(Next(), out int limit) && limit > 0 ? limit : throw new CommandLineException("--d3d12-watch-limit takes a positive count");
+            _options.LogDraws = Enum.TryParse<Shims.D3D12X.DebugLayer.DrawLogLevel>(Next(), ignoreCase: true, out var level) ? level : throw new CommandLineException("--log-draws takes off, brief or full");
         }
 
         if (option == "--capture-when-world")
@@ -950,6 +969,25 @@ internal sealed class CommandLineParser
         }
 
         return true;
+    }
+
+    /// <summary><c>--d3d12-watch-target WxH:format</c>, <c>--d3d12-watch-limit n</c> and <c>--d3d12-watch-rendered</c>.</summary>
+    private void SetWatchTarget(string option)
+    {
+        if (option == "--d3d12-watch-target")
+        {
+            _options.D3D12WatchTarget = Shims.D3D12X.DebugLayer.TargetShape.Parse(Next()) ?? throw new CommandLineException("--d3d12-watch-target takes WxH:format, e.g. 2560x1440:10");
+        }
+
+        if (option == "--d3d12-watch-limit")
+        {
+            _options.D3D12WatchLimit = int.TryParse(Next(), out int limit) && limit > 0 ? limit : throw new CommandLineException("--d3d12-watch-limit takes a positive count");
+        }
+
+        if (option == "--d3d12-watch-rendered")
+        {
+            _options.D3D12WatchRendered = true;
+        }
     }
 
     /// <summary><c>--hold-passes consumer=producer|...;...</c> or <c>--stub-passes pass=r,g,b,a;...</c> (no trace).</summary>

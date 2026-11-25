@@ -339,6 +339,12 @@ internal static unsafe class CommandListBindingMethods
                 return;
             }
 
+            // A rectangle-list draw whose variant still builds is skipped; the variant is bound after CopyTwin.
+            if (ShimContext.Runtime.D3D12X.Rectangles.Building(self))
+            {
+                return;
+            }
+
             if (DepthTwins.Any)
             {
                 CopyTwin(self);
@@ -368,6 +374,12 @@ internal static unsafe class CommandListBindingMethods
         try
         {
             if (PipelinePending(self, draw: true))
+            {
+                return;
+            }
+
+            // A rectangle-list draw whose variant still builds is skipped; the variant is bound after CopyTwin.
+            if (ShimContext.Runtime.D3D12X.Rectangles.Building(self))
             {
                 return;
             }
@@ -456,37 +468,84 @@ internal static unsafe class CommandListBindingMethods
             var trace = ShimContext.Runtime.D3D12X.DrawTrace;
             trace?.Indirect(self, maxCount, ArgumentAddress(arguments, argumentOffset), CommandSignatures.Clampable(signature).Stride, count != 0, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind);
 
-            nint inner = self->Inner;
-            var execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
-
-            nint argumentBuffer = BufferCopies.Desktop(arguments, ref argumentOffset);
-            nint countBuffer = BufferCopies.Desktop(count, ref countOffset);
-
-            if (NullAddressCheck.Enabled && IndirectUnsafe(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset))
-            {
-                return;
-            }
-
-            if (IndirectClamp.Record(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
-            {
-                RestoreCompute(self);
-                inner = self->Inner;
-                execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
-                execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, scratch, scratchOffset, countBuffer, countOffset);
-                IndirectClamp.Done(self, scratch);
-                trace?.AfterIndirect(self);
-
-                return;
-            }
-
-            TimeIndirect(self, signature);
-            execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+            RunIndirect(self, signature, maxCount, BufferCopies.Desktop(arguments, ref argumentOffset), argumentOffset, BufferCopies.Desktop(count, ref countOffset), countOffset);
             trace?.AfterIndirect(self);
         }
         catch (Exception exception)
         {
             UnmanagedGuard.Caught(exception, "CommandListBindingMethods.ExecuteIndirect");
         }
+    }
+
+    /// <summary>
+    /// An ExecuteIndirect over its desktop argument and count buffers: dropped by the null-address check, launched by the
+    /// mesh launch stage when the bound pipeline has it (<see cref="MeshLaunch"/>), or run on the clamped copy of its
+    /// records (<see cref="IndirectClamp"/>), or as it is when the clamp cannot run.
+    /// </summary>
+    [HotPath]
+    private static void RunIndirect(XboxObject* self, nint signature, uint maxCount, nint argumentBuffer, ulong argumentOffset, nint countBuffer, ulong countOffset)
+    {
+        if (NullAddressCheck.Enabled && IndirectUnsafe(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset))
+        {
+            return;
+        }
+
+        if (ListActivity.Of(self)->Launches != 0 && CommandSignatures.Clampable(signature).Kind == IndirectClamp.MeshKind)
+        {
+            Launch(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+
+            return;
+        }
+
+        nint inner = self->Inner;
+        var execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
+
+        if (IndirectClamp.Record(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
+        {
+            RestoreCompute(self);
+            inner = self->Inner;
+            execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
+            execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, scratch, scratchOffset, countBuffer, countOffset);
+            IndirectClamp.Done(self, scratch);
+
+            return;
+        }
+
+        TimeIndirect(self, signature);
+        execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+    }
+
+    /// <summary>
+    /// A mesh ExecuteIndirect on a pipeline with the mesh launch stage, which an ExecuteIndirect would launch wrongly (its
+    /// records would count stage groups): one record without a count buffer is read by the stage where the game wrote it;
+    /// any other call is clamped and its clamped records launched one by one. Dropped (counted) when the clamp cannot run.
+    /// </summary>
+    [HotPath]
+    private static void Launch(XboxObject* self, nint signature, uint maxCount, nint argumentBuffer, ulong argumentOffset, nint countBuffer, ulong countOffset)
+    {
+        if (maxCount == 1 && countBuffer == 0 && argumentBuffer != 0)
+        {
+            ulong budget = IndirectClamp.LaunchBudget(self);
+
+            if (budget != 0)
+            {
+                TimeIndirect(self, signature);
+                MeshLaunch.Record(self->Inner, MeshLaunch.ChargedRecord, DesktopCalls.GpuAddress(argumentBuffer) + argumentOffset, budget);
+
+                return;
+            }
+        }
+
+        if (!IndirectClamp.Record(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
+        {
+            MeshLaunch.Drop();
+
+            return;
+        }
+
+        RestoreCompute(self);
+        IndirectClamp.LaunchClamped(self, scratch, scratchOffset, maxCount, CommandSignatures.Clampable(signature).Stride);
+        IndirectClamp.Done(self, scratch);
     }
 
     /// <summary>
@@ -515,16 +574,17 @@ internal static unsafe class CommandListBindingMethods
     }
 
     /// <summary>
-    /// <c>--depth-twins</c>, before a draw: when the bound depth-stencil view's texture has a depth or stencil twin that a
-    /// pass wrote since, the twin's values go into that plane (<see cref="DepthTwinCopy"/>), then the list's graphics
-    /// state is set again (heaps, input, targets, viewports, root signature, user data, pipeline).
+    /// <c>--depth-twins</c>, before a draw: the bound depth-stencil view's texture is a side the list uses
+    /// (<see cref="DepthTwinSides.UsePlane"/>); when the list wrote its depth or stencil twin since, the twin's values go
+    /// into that plane here (<see cref="DepthTwinCopy"/>), then the list's graphics state is set again (heaps, input,
+    /// targets, viewports, root signature, user data, pipeline). What lists submitted before it wrote is copied at
+    /// submission (<see cref="DepthTwinPrelude"/>).
     /// </summary>
     private static void CopyTwin(XboxObject* self)
     {
         var replay = ListReplayState.Of(self);
 
-        // The copy reads the twin through the bound view heap: a list without one set has nothing to read it by.
-        if ((replay->Set & ListReplayState.DepthStencilBit) == 0 || (replay->Set & ListReplayState.HeapsBit) == 0)
+        if ((replay->Set & ListReplayState.DepthStencilBit) == 0)
         {
             return;
         }
@@ -555,11 +615,22 @@ internal static unsafe class CommandListBindingMethods
         }
     }
 
-    /// <summary>Records the copy of <paramref name="twin"/> into its plane when a pass wrote it since; whether it was recorded.</summary>
+    /// <summary>
+    /// Notes the plane's use; records the copy of <paramref name="twin"/> into its plane when the list wrote the twin
+    /// since. The copy reads the twin through the bound view heap: a list without one set has nothing to read it by.
+    /// Whether it was recorded.
+    /// </summary>
     private static bool CopyPlane(XboxObject* self, DepthTwin? twin, nint view, int format)
     {
-        if (twin is null || twin.ViewHandle == 0 || !twin.TakeWritten())
+        if (twin is null || !DepthTwinSides.UsePlane((nint)self, twin, format))
         {
+            return false;
+        }
+
+        if (twin.ViewHandle == 0 || (ListReplayState.Of(self)->Set & ListReplayState.HeapsBit) == 0)
+        {
+            DepthTwinSides.PlaneLeftBehind((nint)self, twin);
+
             return false;
         }
 
@@ -568,7 +639,16 @@ internal static unsafe class CommandListBindingMethods
         ulong table = DesktopCalls.HeapGpuStart(heap) + (ulong)(twin.ViewHandle - DesktopCalls.HeapCpuStart(heap));
         int state = d3d12x.ListStates.For(self).Current(twin.Depth, twin.Home);
 
-        return DepthTwinCopy.Record(d3d12x.Objects.DesktopDevice, self->Inner, twin, view, format, state, table);
+        if (DepthTwinCopy.Record(d3d12x.Objects.DesktopDevice, self->Inner, twin, view, format, state, table))
+        {
+            DepthTwinLog.InList(true, twin);
+
+            return true;
+        }
+
+        DepthTwinSides.PlaneLeftBehind((nint)self, twin);
+
+        return false;
     }
 
     /// <summary>After the argument clamp's dispatch: the list's compute root signature, user data and pipeline again.</summary>
@@ -710,8 +790,14 @@ internal static unsafe class CommandListBindingMethods
 
         ListIndirectScratch.Of(self)->Used = 0;
         ListIndirectScratch.Of(self)->Budget = 0;
+        ListIndirectScratch.Of(self)->LaunchSegment = 0;
         ListActivity.Reset(self);
         ShimContext.Runtime.D3D12X.DrawTrace?.Reset(self);
+
+        if (DepthTwinSides.Any)
+        {
+            DepthTwinSides.Forget((nint)self);
+        }
 
         var objects = ShimContext.Runtime.D3D12X.Objects;
         nint inner = self->Inner;
@@ -725,6 +811,7 @@ internal static unsafe class CommandListBindingMethods
         }
 
         ShimContext.Runtime.D3D12X.Rectangles.Reset(self, pipeline);
+        ListActivity.Of(self)->Launches = MeshLaunch.Enabled && MeshLaunch.Has(pipeline) ? 1 : 0;
         nint desktop = objects.Unwrap(allocator);
         int hr = reset(inner, desktop, pipeline);
 
@@ -963,6 +1050,15 @@ internal static unsafe class CommandListBindingMethods
     private static void MirrorReach(XboxObject* self, CommandListBindings* bindings, bool compute)
     {
         nint pipeline = RectangleListState.Of(self)->Pipeline;
+        uint* data = compute ? bindings->Compute : bindings->Graphics;
+
+        // Every table the programs read, also one a bind mirrored whole (the tiled lighting's material-mask pass binds
+        // its depth twins' UAVs in a table of 8 records).
+        if (DepthTwins.Any)
+        {
+            DepthTwins.MarkWriters(self, data, ShimContext.Runtime.D3D12X.Bindings.Window.Data, TableReaches.AllOf(pipeline));
+        }
+
         var entries = TableReaches.Of(pipeline);
 
         if (entries.Length == 0)
@@ -970,16 +1066,14 @@ internal static unsafe class CommandListBindingMethods
             return;
         }
 
-        uint* data = compute ? bindings->Compute : bindings->Graphics;
-
         if (DepthUavs.Any)
         {
             DepthUavs.CheckFirstUse(pipeline, data, ShimContext.Runtime.D3D12X.Bindings.Window.Data);
         }
 
-        if (DepthTwins.Any)
+        if (SharedExponentAliases.Any)
         {
-            DepthTwins.MarkWriters(pipeline, data, ShimContext.Runtime.D3D12X.Bindings.Window.Data, entries);
+            SharedExponentAliases.BeforeWork(self->Inner, ShimContext.Runtime.D3D12X.ListStates.For(self), data, ShimContext.Runtime.D3D12X.Bindings.Window.Data, entries);
         }
 
         var heaps = ShimContext.Runtime.D3D12X.DescriptorHeaps;

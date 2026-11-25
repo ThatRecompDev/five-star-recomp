@@ -101,7 +101,7 @@ internal static unsafe class IndirectClamp
             for (uint word = 0; word < stride; word += 4) clamped.Store(at + word, arguments.Load(at + word));
             uint live = records;
             if (counted != 0u) live = min(live, countBuffer.Load(0));
-            if (id.x >= live) return;
+            if (id.x >= live) { for (uint past = 0; past < stride; past += 4) clamped.Store(at + past, 0u); return; }
             if (kind <= 1u) {
                 uint2 asked = arguments.Load2(at);
                 uint vertices = min(asked.x, MaxVertices);
@@ -250,6 +250,91 @@ internal static unsafe class IndirectClamp
 
     /// <summary>D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT.</summary>
     private const int IndirectArgumentState = 0x200;
+
+    /// <summary>D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE: the clamped copy as the mesh launch stage reads it.</summary>
+    private const int ShaderReadState = 0x40;
+
+    /// <summary>Bytes of a list's mesh launch budget buffer: its counter, and room.</summary>
+    private const ulong LaunchBudgetBytes = 256;
+
+    /// <summary>
+    /// The GPU address of the list's mesh launch budget (<see cref="MeshLaunch"/>), writable for the stage; 0 when it cannot
+    /// be made. The recording's first launch zeroes it (this program's zero pass, then a UAV barrier); a later segment of
+    /// the list, which runs as a list of its own after which the buffer is common again, makes it writable again. The
+    /// buffer stays writable for the rest of the segment: the stage's draws charge it with atomics and nothing of ours
+    /// waits between them.
+    /// </summary>
+    public static ulong LaunchBudget(XboxObject* self)
+    {
+        var state = ListIndirectScratch.Of(self);
+        int segment = ListSegments.Of(self)->Count + 1;
+
+        if (state->LaunchSegment == segment)
+        {
+            return DesktopCalls.GpuAddress(state->LaunchBudget);
+        }
+
+        if (!Ready())
+        {
+            return 0;
+        }
+
+        if (state->LaunchBudget == 0)
+        {
+            state->LaunchBudget = DesktopCalls.CreateBuffer(_device, new HeapProperties { Type = DefaultHeap }, LaunchBudgetBytes, DesktopCalls.UnorderedAccessFlag, ResourceStates.Common);
+
+            if (state->LaunchBudget == 0)
+            {
+                return 0;
+            }
+        }
+
+        nint list = self->Inner;
+        nint buffer = state->LaunchBudget;
+        ulong address = DesktopCalls.GpuAddress(buffer);
+        BarrierWriter.Transition(list, buffer, ResourceStates.Common, ResourceStates.UnorderedAccess);
+
+        if (state->LaunchSegment == 0)
+        {
+            ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetRootSignatureSlot))(list, _root);
+            ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetPipelineSlot))(list, _pipeline);
+
+            // The zero pass reads and writes nothing else; every root view names the budget.
+            ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetShaderResourceSlot))(list, ArgumentsParameter, address);
+            ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetShaderResourceSlot))(list, CountParameter, address);
+            ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetUnorderedAccessSlot))(list, ClampedParameter, address);
+            ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetUnorderedAccessSlot))(list, BudgetParameter, address);
+
+            ZeroBudget(list, buffer);
+            CommandListBindingMethods.RestoreCompute(self);
+        }
+
+        state->LaunchSegment = segment;
+
+        return address;
+    }
+
+    /// <summary>
+    /// After <see cref="Record"/> clamped <paramref name="records"/> mesh records of <paramref name="stride"/> bytes into
+    /// <paramref name="scratch"/> at <paramref name="offset"/>, with the pipeline's mesh launch stage bound: each clamped
+    /// record is launched (records past a count buffer's count were zeroed), and the scratch is left as <see cref="Done"/>
+    /// expects it.
+    /// </summary>
+    public static void LaunchClamped(XboxObject* self, nint scratch, ulong offset, uint records, uint stride)
+    {
+        ulong budget = LaunchBudget(self);
+        nint list = self->Inner;
+        ulong first = DesktopCalls.GpuAddress(scratch) + offset;
+        BarrierWriter.Transition(list, scratch, IndirectArgumentState, ShaderReadState);
+
+        // The stage does not charge a clamped record; its budget argument only has to be a writable buffer.
+        for (uint record = 0; record < records; record++)
+        {
+            MeshLaunch.Record(list, MeshLaunch.ClampedRecord, first + ((ulong)record * stride), budget);
+        }
+
+        BarrierWriter.Transition(list, scratch, ShaderReadState, IndirectArgumentState);
+    }
 
     /// <summary>The next aligned piece of <paramref name="bytes"/> in the list's scratch, growing it when full.</summary>
     private static bool Take(XboxObject* self, ulong bytes, out nint buffer, out ulong offset)

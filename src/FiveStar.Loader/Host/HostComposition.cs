@@ -60,6 +60,9 @@ internal static class HostComposition
     /// <summary>The binding and draw-diagnostic switches the options set.</summary>
     private static void ApplyBindingSwitches(HostOptions options)
     {
+        Shims.D3D12X.MeshLaunch.Enabled = options.MeshLaunch;
+        Shims.D3D12X.Binding.GpuUploadHeaps.Enabled = options.GpuUploadHeaps;
+
         Shims.D3D12X.DebugLayer.DrawCensus.Passes = options.CensusPasses;
         Shims.D3D12X.Binding.PassControls.Rules = Shims.D3D12X.Binding.PassRules.Parse(options.HoldPasses, options.StubPasses);
         Shims.D3D12X.Binding.BufferRecords.HeapIndexOnly = options.BufferRecordsHeapIndex;
@@ -159,7 +162,7 @@ internal static class HostComposition
         return FiveStar.Shaders.Compilation.CorpusOptions.DefaultTranslation with
         {
             Loops = options.LoopCaps, SuperstepCarry = options.SuperstepCarry, RoundsPerStop = options.SuperstepRoundsPerStop, FastWaves = options.FastWaves,
-            TypedImageViews = options.TypedImageViews, SharedExponentPrograms = sharedExponent,
+            TypedImageViews = options.TypedImageViews, SharedExponentPrograms = sharedExponent, MeshPayload = options.MeshLaunch,
         };
     }
 

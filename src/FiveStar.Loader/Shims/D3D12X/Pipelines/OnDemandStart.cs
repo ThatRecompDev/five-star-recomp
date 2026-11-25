@@ -175,10 +175,11 @@ internal sealed class OnDemandStart
         }
 
         var dxcCompiler = new DxcLibraryCompiler(DxcOptions.Defaults(library, retry: false));
+        string launch = MeshLaunch.Prepare(dxcCompiler, root);
 
         if (dxcOnly)
         {
-            message = $"programs made on demand with {library} into {root}";
+            message = $"programs made on demand with {library} into {root}{launch}";
 
             return new OnDemandStart(root, dxcCompiler, null, null, jobs ?? Math.Max(1, Environment.ProcessorCount / ProcessorsPerJob));
         }
@@ -190,7 +191,7 @@ internal sealed class OnDemandStart
         var validator = DxilBackendCompiler.ValidatorBeside(library);
         var runner = Runner(validator);
         var backend = new DxilBackendCompiler(dxcCompiler.Options, dxcCompiler, runner);
-        message = $"programs made on demand with the DXIL backend in a compile host (validated by {validator ?? "nothing: no dxil.dll"}), {library} for the rest, into {root}";
+        message = $"programs made on demand with the DXIL backend in a compile host (validated by {validator ?? "nothing: no dxil.dll"}), {library} for the rest, into {root}{launch}";
 
         return new OnDemandStart(root, backend, backend, runner, jobs.Value);
     }

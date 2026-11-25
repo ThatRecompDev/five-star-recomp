@@ -80,6 +80,9 @@ internal static class HostUsage
                                  game's hang watchdog paused) when a command list first sets it, instead of skipping its work
           --typed-image-views    image loads, gathers and stores of integer views (UINT/SINT, the stencil plane) go through
                                  uint4/int4 declarations chosen by a class the descriptor carries; part of the cache identity
+          --no-shared-exponent-copies
+                                 R9G9B9E5 views of R32_UINT light read the texture through the class-3 decode in the
+                                 programs, not an R9G9B9E5 shadow the texels are copied into before each read (the default)
           --shared-exponent-programs <text,...>
                                  with --typed-image-views, programs whose names hold a text filter sampled R9G9B9E5 light
                                  in R32_UINT themselves (default indirect_diffuse_lighting~; each sample grows a lot)
@@ -127,6 +130,10 @@ internal static class HostUsage
           --frame-log <n>        every n-th frame and every slow one: the CPU side of the frame (our submit path,
                                  texture refresh, descriptor mirroring, GC pauses and collections, the present)
           --gc-sustained         the GC in SustainedLowLatency mode: no blocking full collections unless memory is low
+          --gpu-upload-heaps     the descriptor window, address map and user-data ring in GPU upload heaps (resizable
+                                 BAR) where the device has them, not write-combined system memory
+          --mesh-launch          mesh draws launched by an amplification stage of ours (one record read where the game
+                                 wrote it) instead of a clamp pass before each; mesh programs take a 4-byte payload
           --check-view-liveness  before each draw and dispatch, check the bound tables' views: released resources, wrong kinds
           --d3d12-nan-scan <t>   read back the inputs of draws whose pipeline contains t and log those holding NaN or Inf
           --d3d12-nan-scan-dwords <offset>:<n>  also show n floats of every scanned buffer and CBV from that byte offset
@@ -165,6 +172,10 @@ internal static class HostUsage
           --d3d12-watch-target WxH:format  with the draw trace, every pass that renders into a target of this shape
                                  (and each traced dispatch) reads it back after captured presents, e.g. 2560x1440:10
           --d3d12-watch-limit <n>  watched-target readbacks per frame (16); each pipeline's first write to a target only
+          --d3d12-watch-rendered  watch only those targets the game binds as render targets (the lit HDR, not
+                                 the UAV-only outputs of the same shape)
+          --log-draws off|brief|full  per-draw text of the draw trace: brief (default) writes traced work only, full also
+                                 the first draws and those after each captured present (each read back), off none
           --capture-when-world   with the draw trace, capture 3 frames 100 presents apart from the first present that
                                  records over 1000 draws and dispatches (the world), wherever it arrives
           --probe-pipeline <text>  mesh programs named with <text> are made with probe code: per group its output
