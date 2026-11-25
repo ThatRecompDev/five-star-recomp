@@ -123,10 +123,8 @@ internal sealed class CommandLineParser
                 return SetTraceSystem();
             case "--ffx":
                 return SetFidelityFxLibrary();
-            case "--d3d12-debug":
-                return SetD3D12Debug(false);
-            case "--d3d12-gpu-validation":
-                return SetD3D12Debug(true);
+            case "--d3d12-debug" or "--d3d12-gpu-validation" or "--d3d12-dred":
+                return SetD3D12Debug(option);
             case "--d3d12-skip":
                 return Add(_options.D3D12Skips);
             case "--d3d12-trace-queues":
@@ -571,11 +569,18 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    /// <summary>--d3d12-debug, or --d3d12-gpu-validation, which implies it.</summary>
-    private bool SetD3D12Debug(bool gpuValidation)
+    /// <summary>--d3d12-debug, --d3d12-gpu-validation, which implies it, or --d3d12-dred (DRED without the debug layer).</summary>
+    private bool SetD3D12Debug(string option)
     {
+        if (option == "--d3d12-dred")
+        {
+            _options.D3D12Dred = true;
+
+            return true;
+        }
+
         _options.D3D12Debug = true;
-        _options.D3D12GpuValidation |= gpuValidation;
+        _options.D3D12GpuValidation |= option == "--d3d12-gpu-validation";
 
         return true;
     }
