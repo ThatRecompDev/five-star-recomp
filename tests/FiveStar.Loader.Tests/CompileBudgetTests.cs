@@ -36,14 +36,19 @@ public sealed class CompileBudgetTests
     }
 
     [Fact]
-    public void While_the_game_loads_only_urgent_compiles_over_4_MB_start()
+    public void Heavy_compiles_run_one_at_a_time_and_while_the_game_loads_only_when_urgent()
     {
-        long large = 9L << 20;
+        // The carry form of the foliage pipeline: 2.84 MB of DXIL.
+        long foliage = 2980000;
 
-        Assert.True(CompileBudget.HeldForLoad(large, urgent: false, loadWindow: true));
-        Assert.False(CompileBudget.HeldForLoad(large, urgent: true, loadWindow: true));
-        Assert.False(CompileBudget.HeldForLoad(large, urgent: false, loadWindow: false));
-        Assert.False(CompileBudget.HeldForLoad(CompileBudget.LoadWindowShaderBytes, urgent: false, loadWindow: true));
+        Assert.True(CompileBudget.HeldForLoad(foliage, urgent: false, loadWindow: true));
+        Assert.False(CompileBudget.HeldForLoad(foliage, urgent: true, loadWindow: true));
+        Assert.False(CompileBudget.HeldForLoad(foliage, urgent: false, loadWindow: false));
+        Assert.False(CompileBudget.HeldForLoad(CompileBudget.HeavyShaderBytes, urgent: false, loadWindow: true));
+
+        Assert.True(CompileBudget.HeavyRoom(foliage, 0));
+        Assert.False(CompileBudget.HeavyRoom(foliage, 1));
+        Assert.True(CompileBudget.HeavyRoom(1L << 20, 1));
     }
 
     [Fact]

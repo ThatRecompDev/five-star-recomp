@@ -21,8 +21,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// estimate would pass <see cref="CeilingBytes"/> (off by default); one always may when none runs, so builds go on.
 /// The physical reserve is the larger of 6 GB and the game's own RAM-backed growth over the last minute
 /// (<see cref="GrowthAllowance"/>), so compiles leave the game what it is about to take. Compiles of more than
-/// <see cref="LoadWindowShaderBytes"/> wait while the game loads (<see cref="LoadWindow"/>) unless a game thread or
-/// a command list waits for them. Program work waits
+/// <see cref="HeavyShaderBytes"/> run one at a time, and wait while the game loads (<see cref="LoadWindow"/>) unless a
+/// game thread or a command list waits for them. Program work waits
 /// while the compile host is large (<see cref="RoomForPrograms"/>), in a boot and in the warm-up alike. A cold boot to 450 s reached 40 GB
 /// private, 8 GB of it in the arenas of the 7 compiles that started at the story load.
 /// </summary>
@@ -37,8 +37,12 @@ internal static unsafe class CompileBudget
     /// <summary>The default of <see cref="CeilingBytes"/> (<c>--compile-ceiling</c>, in GB): none, free RAM decides.</summary>
     public const long DefaultCeilingBytes = 0;
 
-    /// <summary>DXIL above which a compile waits during the load window, unless it is urgent.</summary>
-    public const long LoadWindowShaderBytes = 4L << 20;
+    /// <summary>
+    /// DXIL above which a compile waits during the load window, unless it is urgent, and runs only while no other such
+    /// compile does: in boot w19 two carry-form foliage pipelines of 2.8 MB ran side by side from 47 s and neither had
+    /// finished at 245 s, against 93 s for one alone.
+    /// </summary>
+    public const long HeavyShaderBytes = 2L << 20;
 
     /// <summary>The least physical memory compiles leave free.</summary>
     public const long MinimumPhysicalReserve = 6L << 30;
@@ -80,6 +84,7 @@ internal static unsafe class CompileBudget
     private static readonly object Gate = new();
     private static int _running;
     private static int _runningLarge;
+    private static int _runningHeavy;
     private static long _expected;
     private static int _waiting;
     private static int _urgentWaiting;
@@ -147,7 +152,19 @@ internal static unsafe class CompileBudget
     /// <summary>Whether a compile of <paramref name="shaderBytes"/> waits for the load window to end.</summary>
     public static bool HeldForLoad(long shaderBytes, bool urgent, bool loadWindow)
     {
-        return loadWindow && !urgent && shaderBytes > LoadWindowShaderBytes;
+        return loadWindow && !urgent && IsHeavy(shaderBytes);
+    }
+
+    /// <summary>Whether a compile of <paramref name="shaderBytes"/> is heavy (<see cref="HeavyShaderBytes"/>).</summary>
+    public static bool IsHeavy(long shaderBytes)
+    {
+        return shaderBytes > HeavyShaderBytes;
+    }
+
+    /// <summary>Whether a compile may start beside <paramref name="runningHeavy"/> heavy ones: a heavy one only alone.</summary>
+    public static bool HeavyRoom(long shaderBytes, int runningHeavy)
+    {
+        return !IsHeavy(shaderBytes) || runningHeavy == 0;
     }
 
     /// <summary>Private bytes of helper processes that count toward the ceiling: the compile host (<see cref="CompileHost"/>).</summary>
@@ -290,6 +307,11 @@ internal static unsafe class CompileBudget
                 _runningLarge--;
                 _expected -= Estimate(shaderBytes);
             }
+
+            if (IsHeavy(shaderBytes))
+            {
+                _runningHeavy--;
+            }
         }
     }
 
@@ -333,7 +355,7 @@ internal static unsafe class CompileBudget
 
         lock (Gate)
         {
-            if (!tiny && !urgent && Volatile.Read(ref _urgentWaiting) > 0)
+            if ((!tiny && !urgent && Volatile.Read(ref _urgentWaiting) > 0) || !HeavyRoom(shaderBytes, _runningHeavy))
             {
                 return false;
             }
@@ -363,6 +385,11 @@ internal static unsafe class CompileBudget
             {
                 _runningLarge++;
                 _expected += estimate;
+            }
+
+            if (IsHeavy(shaderBytes))
+            {
+                _runningHeavy++;
             }
 
             return true;
