@@ -43,6 +43,21 @@ internal static partial class RayTracingPrograms
     /// </summary>
     public static Func<string, bool?>? Scanner { get; set; }
 
+    /// <summary>
+    /// The markers' folder for a program folder (<c>&lt;program cache&gt;/&lt;identity&gt;/&lt;adapter&gt;</c>):
+    /// <c>&lt;program cache&gt;/ray-tracing</c>, which every identity shares. Whether a console program traces rays does not
+    /// change with the translator, and markers kept per identity were lost at each new one, so every boot after an update
+    /// read programs again (boots w66d to w69).
+    /// </summary>
+    public static string MarkerFolder(string programFolder)
+    {
+        string root = Path.GetDirectoryName(Path.GetDirectoryName(programFolder)) ?? programFolder;
+        string folder = Path.Combine(root, "ray-tracing");
+        Directory.CreateDirectory(folder);
+
+        return folder;
+    }
+
     /// <summary>Records whether the program <paramref name="name"/> translated to <paramref name="hlsl"/> traces rays, with its marker.</summary>
     public static void Note(string name, string hlsl, string folder)
     {
@@ -96,6 +111,16 @@ internal static partial class RayTracingPrograms
 
         foreach (Match program in ProgramPattern().Matches(names))
         {
+            if (ServesRays(program.Value))
+            {
+                if (Logged.TryAdd(names, 0))
+                {
+                    ShimContext.Log?.Warn($"[d3d12_xs] pipeline {names} only serves ray tracing ({program.Value}) and no acceleration structure is built without --raytracing: it stays a stand-in and its work is skipped");
+                }
+
+                return true;
+            }
+
             if (!Is(program.Value, folder, scanner))
             {
                 continue;
@@ -189,6 +214,20 @@ internal static partial class RayTracingPrograms
             // Another process wrote it.
         }
     }
+
+    /// <summary>
+    /// Whether a program only serves ray tracing though it traces no rays, by its group or entry: the bvh_ groups skin
+    /// geometry for acceleration structures that are never built, CS_RaytracingResolve shades the hits of rays that are
+    /// never traced, and rtdirectionalshadows upsamples and feeds the held distant-shadow traces. Boot w70e, which held
+    /// only the tracing programs, lost the device after the world loaded; w71, which also skipped these, did not.
+    /// </summary>
+    public static bool ServesRays(string program)
+    {
+        return ServesRaysPattern().IsMatch(program);
+    }
+
+    [GeneratedRegex(@"_t[0-9a-f]+_(\w*bvh_\w*|rtdirectionalshadows)~|~CS_RaytracingResolve_")]
+    private static partial Regex ServesRaysPattern();
 
     /// <summary>A program's name in a pipeline's names (which add link and trim suffixes and " + ").</summary>
     [GeneratedRegex(@"sgd\d_[0-9a-f]{8}_t[0-9a-f]+_\S*?_Wrapped")]

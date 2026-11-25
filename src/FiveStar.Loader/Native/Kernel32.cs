@@ -195,6 +195,21 @@ internal static unsafe class Kernel32
     public static extern nint CreateSemaphoreExW(nint security, int initial, int maximum, char* name, uint flags, uint access);
 
     [DllImport(Library, SetLastError = true)]
+    public static extern nint CreateEventExW(nint security, char* name, uint flags, uint access);
+
+    [DllImport(Library, SetLastError = true)]
+    public static extern nint CreateSemaphoreW(nint security, int initial, int maximum, char* name);
+
+    [DllImport(Library)]
+    public static extern uint GetThreadId(nint thread);
+
+    [DllImport(Library)]
+    public static extern nint GetCurrentThread();
+
+    [DllImport(Library, SetLastError = true)]
+    public static extern int DuplicateHandle(nint sourceProcess, nint source, nint targetProcess, nint* target, uint access, int inherit, uint options);
+
+    [DllImport(Library, SetLastError = true)]
     public static extern int SetEvent(nint handle);
 
     [DllImport(Library, SetLastError = true)]
@@ -202,6 +217,10 @@ internal static unsafe class Kernel32
 
     [DllImport(Library, SetLastError = true)]
     public static extern uint WaitForSingleObjectEx(nint handle, uint milliseconds, int alertable);
+
+    /// <summary>GetCurrentThreadStackLimits: the calling thread's stack, lowest and highest address.</summary>
+    [DllImport(Library)]
+    public static extern void GetCurrentThreadStackLimits(nuint* low, nuint* high);
 
     /// <summary>RtlCaptureStackBackTrace: the return addresses of the calling thread, innermost first.</summary>
     [DllImport(Library)]

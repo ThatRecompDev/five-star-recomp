@@ -17,8 +17,8 @@ namespace FiveStar.Loader.Diagnostics;
 /// </summary>
 internal static unsafe class WaitObjects
 {
-    /// <summary>The return addresses kept per creation.</summary>
-    private const int Frames = 12;
+    /// <summary>The game frames kept per creation and per wait.</summary>
+    private const int Frames = 6;
 
     /// <summary>Waits shorter than this are not reported.</summary>
     private const double ReportedSeconds = 1;
@@ -37,16 +37,7 @@ internal static unsafe class WaitObjects
             return;
         }
 
-        nint* frames = stackalloc nint[Frames];
-        int count = Kernel32Frames(frames);
-        var addresses = new nint[count];
-
-        for (int index = 0; index < count; index++)
-        {
-            addresses[index] = frames[index];
-        }
-
-        Objects[handle] = new WaitObject(kind, Native.Kernel32.GetCurrentThreadId(), Now, addresses);
+        Objects[handle] = new WaitObject(kind, Native.Kernel32.GetCurrentThreadId(), Now, GameFrames());
     }
 
     /// <summary>The object was set or released by the calling thread.</summary>
@@ -67,7 +58,7 @@ internal static unsafe class WaitObjects
     /// <summary>The calling thread starts waiting on <paramref name="handle"/> for <paramref name="milliseconds"/>.</summary>
     public static void Waiting(nint handle, uint milliseconds)
     {
-        Waits[Native.Kernel32.GetCurrentThreadId()] = new ThreadWait(handle, milliseconds, Now);
+        Waits[Native.Kernel32.GetCurrentThreadId()] = new ThreadWait(handle, milliseconds, Now, GameFrames());
     }
 
     /// <summary>The calling thread's wait ended.</summary>
@@ -108,8 +99,10 @@ internal static unsafe class WaitObjects
             }
             else
             {
-                text.Append("not created through the shims");
+                text.Append(NotSeen(wait.Handle));
             }
+
+            text.Append(CultureInfo.InvariantCulture, $"; waiting at {WaitObject.Frames(wait.Frames, images)}");
         }
 
         if (text.Length == 0)
@@ -118,6 +111,19 @@ internal static unsafe class WaitObjects
         }
 
         return $"{prefix}threads blocked on the game's events and semaphores:{text}";
+    }
+
+    /// <summary>A handle the shims did not see created: a thread's (a join on it), or another object.</summary>
+    private static string NotSeen(nint handle)
+    {
+        uint thread = Native.Kernel32.GetThreadId(handle);
+
+        if (thread != 0)
+        {
+            return $"the handle of thread {thread} (waiting for it to end)";
+        }
+
+        return "not created through the shims";
     }
 
     private static string Timeout(uint milliseconds)
@@ -130,9 +136,16 @@ internal static unsafe class WaitObjects
         return $"timeout {milliseconds} ms";
     }
 
-    /// <summary>The return addresses above the shim, innermost first (the managed and stub frames are dropped later).</summary>
-    private static int Kernel32Frames(nint* frames)
+    /// <summary>The game frames of the calling thread above the shim, innermost first (<see cref="ReturnAddresses"/>); none without a runtime.</summary>
+    private static nint[] GameFrames()
     {
-        return Native.Kernel32.RtlCaptureStackBackTrace(0, Frames, frames, null);
+        var runtime = Shims.ShimContext.ActiveRuntime;
+
+        if (runtime is null)
+        {
+            return [];
+        }
+
+        return ReturnAddresses.Scan(runtime.Images, Frames);
     }
 }

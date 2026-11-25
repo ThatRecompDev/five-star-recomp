@@ -20,6 +20,9 @@ public sealed unsafe class D3D12XBottomOfPipeTests
     private const uint GpuReadWrite = 0x2404;
     private const nuint Bytes = 0x20000;
 
+    /// <summary>How long work that can run may take on a loaded machine (the full suite runs in parallel).</summary>
+    private static readonly TimeSpan RunLimit = TimeSpan.FromSeconds(30);
+
     [Fact]
     public void A_list_writes_its_dword_and_qword_values_into_game_memory()
     {
@@ -84,7 +87,6 @@ public sealed unsafe class D3D12XBottomOfPipeTests
         const uint GreaterEqual = 7;
 
         using var test = TestRuntime.Create();
-        ListSplits.Enabled = true;
         var virtualAlloc = (delegate* unmanaged<nint, nuint, uint, ulong, uint, nint>)test.Shim("xmem.dll", "XMemVirtualAlloc");
         ulong* cells = (ulong*)virtualAlloc(0, Bytes, ReserveCommitLargePages, Flags, GpuReadWrite);
 
@@ -101,15 +103,14 @@ public sealed unsafe class D3D12XBottomOfPipeTests
         Assert.Equal(0, write64(list, (ulong)(cells + 2), After, 0, 0));
         Assert.Equal(1, ListSegments.Of((XboxObject*)list)->Count);
 
+        // The work before the wait runs however long the machine takes; the work after it cannot until the cell is written.
         Run(queue, list, fence, 1);
-        Thread.Sleep(200);
-        Assert.Equal(Before, Volatile.Read(ref cells[0]));
+        Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref cells[0]) == Before, RunLimit));
         Assert.Equal(0ul, Volatile.Read(ref cells[2]));
 
         Volatile.Write(ref cells[1], Frame);
         Wait(fence, 1);
         Assert.Equal(After, cells[2]);
-        ListSplits.Enabled = false;
     }
 
     private static void Run(nint queue, nint list, nint fence, ulong value)

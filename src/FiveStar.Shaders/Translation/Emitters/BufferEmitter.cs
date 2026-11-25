@@ -146,7 +146,7 @@ internal sealed partial class BufferEmitter
         for (var dword = 0; dword < count; dword++)
         {
             var inRange = BufferAddress.InRange(range, dword * BytesPerDword);
-            _state.Emit($"  if (active && {inRange}) {{ TRACE_VSTORE({_operands.Read(resource, 0)}, {_operands.Read(resource, 1)}, {address} + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); BufStore({target}.x, {target}.y + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); }}");
+            _state.Emit($"  if (active && {inRange}) {{ vstore_span({_operands.Read(resource, 1)}); TRACE_VSTORE({_operands.Read(resource, 0)}, {_operands.Read(resource, 1)}, {address} + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); BufStore({target}.x, {target}.y + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); }}");
         }
     }
 
@@ -187,7 +187,7 @@ internal sealed partial class BufferEmitter
 
         var mask = Hlsl.HexUint((1L << bits) - 1);
         var name = $"_sb{_state.NextTemporary()}";
-        _state.Emit($"  if (active && buf_fits_bytes({range.Offset}, {bits / ByteBits}u, {range.Limit})) {{ RWByteAddressBuffer {name} = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot({view}.x))]; "
+        _state.Emit($"  if (active && buf_fits_bytes({range.Offset}, {bits / ByteBits}u, {range.Limit})) {{ vstore_span({_operands.Read(resource, 1)}); RWByteAddressBuffer {name} =ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot({view}.x))]; "
             + $"uint {name}s = ({view}.y & 3u) * 8u; {name}.InterlockedAnd({view}.y & ~3u, ~({mask} << {name}s)); {name}.InterlockedOr({view}.y & ~3u, ({_operands.Read(a[Data])} & {mask}) << {name}s); }}");
     }
 
@@ -223,7 +223,7 @@ internal sealed partial class BufferEmitter
                 data.Add(StoredComponent(a[Data], component, count, half, format));
             }
 
-            _state.Emit($"  if (active && {inRange}) FmtStore({view}.x, {byteAddress}, {format}, uint4({string.Join(", ", data)}), {count}u);");
+            _state.Emit($"  if (active && {inRange}) {{ vstore_span({_operands.Read(resource, 1)}); FmtStore({view}.x, {byteAddress}, {format}, uint4({string.Join(", ", data)}), {count}u); }}");
 
             return;
         }

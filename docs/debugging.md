@@ -127,18 +127,24 @@ And workers slept in the loader: a small compute stand-in waited up to 250 ms at
 programs were still being made on demand (55 to 73 s on average during the story load), and a loading-screen frame
 met hundreds of them, so all five workers slept for more than 30 s. A first use now waits only when the programs are
 ready. Waits a game thread can reach inside the loader register with `BlockingWaits`, so a stack that ends in JIT
-code still names the wait (`(waiting in ... for N ms)`). The stall line gives the time spent in each since the
+code still names the wait (`(waiting in ... for N ms)`). This covers pipeline creation, the compile host and pipeline
+host, the program index and cache identity, present pacing (swap-chain latency, GPU frame throttle, the recorder's
+fence), XAsyncGetStatus, XTaskQueueDispatch and storage reads. w66's main thread sat in a compile-host request that
+showed only as an OS wait. Entering a wait allocates nothing: each thread has one slot, and a nested wait restores the
+outer one. The stall line gives the time spent in each since the
 heartbeat last moved, over all threads (a wait still running shows in its thread's stack instead), then the totals
 since the start: those are a whole boot's, so seconds of them say nothing about one stall.
 
 `fivestar-loader --watch-hang` reads these globals every 100 ms and logs the main state, the loading-screen flags,
 the session byte, the pause flag and the handler when they change, a heartbeat that moves again after 2 s or more, and
 the loader counters and every thread's stack (64 frames, with thread names) when the heartbeat has stood still for 5,
-15 and 25 s. With it the loader keeps shims on the game's CreateEventW/A, CreateSemaphoreExW, SetEvent,
+15 and 25 s. With it the loader keeps shims on the game's CreateEventW/A/ExW, CreateSemaphoreW/ExW, SetEvent,
 ReleaseSemaphore, CloseHandle and WaitForSingleObject(Ex) (`WaitObjectShims`, removed otherwise), and the dump lists
 every thread blocked a second or more in one of those waits: the handle, the timeout, how the object was made (event
 kind or semaphore counts, creating thread and time, the game frames of the creating call) and whether it was signaled
-since, how often and by which thread last (`WaitObjects`). A stall whose waiter sits on an object nobody signals any
+since, how often and by which thread last (`WaitObjects`), and the game frames of the waiting call. A handle the shims did
+not see made is named when it is a thread's (a join). Frames come from a scan of the thread's stack for return addresses
+into the game (`ReturnAddresses`): a walk stops in the shims' generated code, and #13's first report named no creator. A stall whose waiter sits on an object nobody signals any
 more (a lost wake-up) then names that object and its creator. For each thread in the game's fence wait (0x144fb0ad0) it also names what the wait depends on
 (`StallCulprit`): the queue that was asked to signal that fence to the awaited value and the last six executions it
 was given before that Signal, newest first, each with its last pipeline and whether it finished, and any Wait on another

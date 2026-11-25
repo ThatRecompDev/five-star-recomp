@@ -73,6 +73,14 @@ public sealed unsafe class UavFillTests
         Assert.Equal(307u | (307u << 9) | (307u << 18) | (15u << 27), FillValue.SharedExponent(0.6f, 0.6f, 0.6f));
     }
 
+    [Fact]
+    public void The_sample_line_says_when_no_held_pass_was_filled_and_each_rule_names_its_passes()
+    {
+        Assert.Equal("ray-tracing stand-ins: none filled", RtStandIns.Summary);
+        Assert.Equal(0, RtStandIns.RuleOf("sgd1_0_t32_shadowmask~CS_TraceShadowRays_0_Wrapped"));
+        Assert.Equal(-1, RtStandIns.RuleOf("sgd1_0_t32_PS_DeferredTextured_0_Wrapped"));
+    }
+
     private static Shims.D3D12X.ResourceDescription Resource(Vortice.Direct3D12.ResourceDescription description)
     {
         return new Shims.D3D12X.ResourceDescription

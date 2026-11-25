@@ -68,6 +68,12 @@ flowchart LR
 - **Other types**: MEM_RESERVE_PLACEHOLDER makes a placeholder for the game to split; everything else goes to
   `VirtualAlloc` (or `VirtualAlloc2` with MEM_REPLACE_PLACEHOLDER) with MEM_RESERVE/MEM_COMMIT and the low protection
   byte.
+- **4 GiB lines**: a reservation or allocation whose address the game leaves to the system starts on a 4 GiB line
+  (`AlignedReservations`: VirtualAlloc2 with MEM_ADDRESS_REQUIREMENTS), as on the console. The game rebuilds addresses in
+  that memory as the base's high dword with a 32-bit offset: with a base off the line (0x1ce1f4c0000) the address of base +
+  0xc000 became 0x1ce0000c000, another allocation, and three world loads faulted reading or writing there (w62, w70c, w75).
+- **XMemAlloc alignment**: the alignment code of XALLOC_ATTRIBUTES (bits 24..28, 1 << (code - 1), up to 1 GiB) is
+  honoured; a block aligned past 64 KiB is a VirtualAlloc2 range of its own on that alignment.
 - **Protection**: a view is read-only when the reservation's CPU protection is PAGE_READONLY and read-write
   otherwise, including GPU-only ranges (0x801), which the D3D12 shim reaches through the CPU. Cache attributes cannot
   differ between views of a section and are dropped; the console also refuses aliases with differing cache attributes.

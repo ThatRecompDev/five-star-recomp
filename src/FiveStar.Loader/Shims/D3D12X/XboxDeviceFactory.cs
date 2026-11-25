@@ -433,6 +433,11 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
             _log.Info($"  {DebugLayer.PoolPageWatch.Summary}");
         }
 
+        if (DebugLayer.FourGiBLineWatch.Started)
+        {
+            _log.Info($"  {DebugLayer.FourGiBLineWatch.Summary}");
+        }
+
         var waits = MemoryWaits.Counts;
         _log.Info($"  [memory wait] {waits.Recorded} recorded: {waits.Held} met at submission, {waits.Deferred} waited for on the GPU, {waits.TimedOut} released by the timeout, {waits.ReleasedForCpu} released for a CPU wait, {waits.Dropped} not kept; {ListSplits.Splits} lists split");
         Pipelines?.Cache?.Dispose();

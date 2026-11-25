@@ -38,27 +38,14 @@ internal sealed class LoaderHost
 
     public int Run()
     {
-        // The wait-object shims cost a managed call on every wait; only the hang watch reads what they record.
-        if (!_options.WatchHang)
+        if (!DisableShims())
         {
-            foreach (string shim in WaitObjectShims.Names)
-            {
-                _runtime.Shims.Disable(shim);
-            }
-        }
-
-        foreach (string spec in _options.DisabledShims)
-        {
-            if (!_runtime.Shims.Disable(spec))
-            {
-                _log.Error($"no such shim {spec}");
-
-                return UsageError;
-            }
+            return UsageError;
         }
 
         string manual = string.Join(", ", _runtime.Loader.ManualModules.Order(StringComparer.Ordinal));
         string listed = manual.Length == 0 ? "(none)" : manual;
+        _log.Info($"fivestar-loader {RunIdentity.Line()}");
         _log.Info($"fivestar-loader pid {_processId}; manual modules: {listed}; unresolved={_options.Unresolved}");
 
         LoadAbiTable();
@@ -95,6 +82,31 @@ internal sealed class LoaderHost
         _log.Info($"done, exit code {rc}");
 
         return rc;
+    }
+
+    /// <summary>The shims the options turn off; false when one named does not exist.</summary>
+    private bool DisableShims()
+    {
+        // The wait-object shims cost a managed call on every wait; only the hang watch reads what they record.
+        if (!_options.WatchHang)
+        {
+            foreach (string shim in WaitObjectShims.Names)
+            {
+                _runtime.Shims.Disable(shim);
+            }
+        }
+
+        foreach (string spec in _options.DisabledShims)
+        {
+            if (!_runtime.Shims.Disable(spec))
+            {
+                _log.Error($"no such shim {spec}");
+
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -365,6 +377,7 @@ internal sealed class LoaderHost
         Shims.D3D12X.Binding.CommandListBindingMethods.SkipComputeChains = _options.SkipComputeChains;
         Shims.D3D12X.Binding.CommandListBindingMethods.EmptyIndirectAfterSkip = _options.EmptyIndirectAfterSkip;
         Shims.D3D12X.DebugLayer.DrawTrace.DumpTargets = _options.D3D12DumpTargets;
+        Shims.D3D12X.DebugLayer.DrawTrace.ProbeTraced = _options.D3D12ProbeTraced;
         Shims.D3D12X.DebugLayer.TraceRecords.Offsets = _options.D3D12TraceRecords;
 
         ApplyBindingOptions();
@@ -373,10 +386,7 @@ internal sealed class LoaderHost
         Shims.D3D12X.ListSplits.Enabled = _options.SplitAtWaits;
         Diagnostics.UnmanagedGuard.LogTo(_log.Error);
 
-        if (_options.WatchPoolPages)
-        {
-            Shims.D3D12X.DebugLayer.PoolPageWatch.Start(_log);
-        }
+        StartPageWatches();
 
         if (_options.SectionHeapBudget != 0)
         {
@@ -402,6 +412,20 @@ internal sealed class LoaderHost
     }
 
     /// <summary>The memory map (<c>--memory-map</c>) and the memory limits (<c>--min-free-memory</c>, <c>--max-commit</c>).</summary>
+    /// <summary><c>--watch-pool-pages</c> and <c>--watch-4g-lines</c>.</summary>
+    private void StartPageWatches()
+    {
+        if (_options.WatchPoolPages)
+        {
+            Shims.D3D12X.DebugLayer.PoolPageWatch.Start(_log);
+        }
+
+        if (_options.WatchFourGiBLines)
+        {
+            Shims.D3D12X.DebugLayer.FourGiBLineWatch.Start(_log);
+        }
+    }
+
     /// <summary>Pipeline and binding options the D3D12.X shim reads as static settings.</summary>
     private void ApplyBindingOptions()
     {
@@ -516,7 +540,7 @@ internal sealed class LoaderHost
 
         string audio = $"audio: {_runtime.Audio.Summary}; XDsp {_runtime.XDsp.Submitted} commands";
 
-        return $"DirectStorage {_runtime.Storage.Summary()}; {pipelines}; {_runtime.D3D12X.Presenter.Presents} presents, {_runtime.D3D12X.FrameThrottle.Summary}; {_runtime.D3D12X.Residency?.Summary ?? "section windows resident"}; {_runtime.Input.Summary}; {audio}; {memory}; {MemorySnapshot.Summary()}; {WriteCombinedMemory.Summary()}; {Commit(pages, helpers)}; {CommandObjectCounts.Summary}; {Shims.D3D12X.Binding.RawBufferViews.Summary}";
+        return $"DirectStorage {_runtime.Storage.Summary()}; {pipelines}; {_runtime.D3D12X.Presenter.Presents} presents, {_runtime.D3D12X.FrameThrottle.Summary}; {_runtime.D3D12X.Residency?.Summary ?? "section windows resident"}; {_runtime.Input.Summary}; {audio}; {memory}; {MemorySnapshot.Summary()}; {WriteCombinedMemory.Summary()}; {Commit(pages, helpers)}; {CommandObjectCounts.Summary}; {Shims.D3D12X.Binding.RawBufferViews.Summary}; {Shims.D3D12X.Binding.RtStandIns.Summary}";
     }
 
     /// <summary>
