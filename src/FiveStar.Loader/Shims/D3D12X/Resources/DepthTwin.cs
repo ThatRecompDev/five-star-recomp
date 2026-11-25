@@ -14,6 +14,9 @@ internal sealed class DepthTwin(nint depth, nint twin, int format, uint width, u
 
     public int Format { get; } = format;
 
+    /// <summary>Whether this is the stencil plane's twin (R8_UINT), written into the stencil instead of the depth.</summary>
+    public bool Stencil => Format == DepthTwins.Uint8;
+
     public uint Width { get; } = width;
 
     public uint Height { get; } = height;

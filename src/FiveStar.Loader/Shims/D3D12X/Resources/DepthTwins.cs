@@ -12,7 +12,9 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// material class into the main depth, then draws each class with depth EQUAL), which the desktop refuses. A depth
 /// plane UAV goes to a colour twin of the texture instead (R32_FLOAT for D32, R16_UNORM for D16), which rests in
 /// UNORDERED_ACCESS; <see cref="DepthTwinCopy"/> writes the twin back into the depth before a draw that tests against
-/// it. The design and the facts behind it follow VIctory's depth twins (GPL-3.0, facts only).
+/// it. A stencil plane UAV (R8_UINT, or a stencil plane format) goes to an R8_UINT twin the same way: the classify
+/// pass writes each pixel's material mask there, and the lighting reads it back through the stencil plane's SRV. The
+/// design and the facts behind it follow VIctory's depth twins (GPL-3.0, facts only).
 /// </summary>
 internal static unsafe class DepthTwins
 {
@@ -23,11 +25,19 @@ internal static unsafe class DepthTwins
     public const int Float32 = 41;
     public const int Unorm16 = 56;
 
+    /// <summary>R8_UINT: the stencil twin's format, and the UAV format the game gives a stencil plane.</summary>
+    public const int Uint8 = 62;
+
+    /// <summary>X32_TYPELESS_G8X24_UINT, X24_TYPELESS_G8_UINT and the console's X16_TYPELESS_G8_UINT: stencil plane views.</summary>
+    public const int StencilX32 = 22;
+    public const int StencilX24 = 47;
+    public const int StencilX16 = 120;
+
     private const int TextureDimension2D = 3;
     private const int DefaultHeap = 1;
 
     private static readonly Guid ResourceIid = new("696442be-a72e-4059-bc79-5b5c98040fad");
-    private static readonly ConcurrentDictionary<nint, DepthTwin> Twins = new();
+    private static readonly ConcurrentDictionary<(nint Depth, bool Stencil), DepthTwin> Twins = new();
     private static readonly ConcurrentDictionary<nint, (nint Depth, int Format)> DepthViews = new();
     private static readonly ConcurrentDictionary<uint, DepthTwin> Indices = new();
     private static readonly ConcurrentDictionary<nint, DepthTwin[]> Writers = new();
@@ -43,13 +53,35 @@ internal static unsafe class DepthTwins
     /// <summary>Whether a UAV of <paramref name="viewFormat"/> on a depth texture takes a twin.</summary>
     public static bool Twinned(int viewFormat)
     {
-        return viewFormat is Float32 or Unorm16;
+        return viewFormat is Float32 or Unorm16 || IsStencil(viewFormat);
     }
 
-    /// <summary>The twin of the desktop depth texture <paramref name="depth"/> (made on first use); null when the device refuses it.</summary>
+    /// <summary>Whether a view of <paramref name="viewFormat"/> on a depth texture is of its stencil plane.</summary>
+    public static bool IsStencil(int viewFormat)
+    {
+        return viewFormat is Uint8 or StencilX32 or StencilX24 or StencilX16;
+    }
+
+    /// <summary>The format of the twin a UAV of <paramref name="viewFormat"/> writes: R8_UINT for the stencil plane, else the view's.</summary>
+    public static int TwinFormat(int viewFormat)
+    {
+        if (IsStencil(viewFormat))
+        {
+            return Uint8;
+        }
+
+        return viewFormat;
+    }
+
+    /// <summary>
+    /// The twin of the plane of the desktop depth texture <paramref name="depth"/> a UAV of <paramref name="viewFormat"/>
+    /// writes (made on first use); null when the device refuses it.
+    /// </summary>
     public static DepthTwin? For(nint device, nint depth, ResourceDescription desc, int viewFormat)
     {
-        if (Twins.TryGetValue(depth, out var twin))
+        var key = (depth, IsStencil(viewFormat));
+
+        if (Twins.TryGetValue(key, out var twin))
         {
             return twin;
         }
@@ -61,7 +93,7 @@ internal static unsafe class DepthTwins
             Height = desc.Height,
             DepthOrArraySize = desc.DepthOrArraySize,
             MipLevels = desc.MipLevels,
-            Format = viewFormat,
+            Format = TwinFormat(viewFormat),
             SampleCount = 1,
             Flags = DesktopCalls.UnorderedAccessFlag,
         };
@@ -75,15 +107,21 @@ internal static unsafe class DepthTwins
             return null;
         }
 
-        twin = new DepthTwin(depth, resource, viewFormat, (uint)desc.Width, desc.Height);
+        twin = new DepthTwin(depth, resource, description.Format, (uint)desc.Width, desc.Height);
 
-        return Twins.GetOrAdd(depth, twin);
+        return Twins.GetOrAdd(key, twin);
     }
 
-    /// <summary>The twin of a desktop depth texture; null without one.</summary>
+    /// <summary>The depth plane's twin of a desktop depth texture; null without one.</summary>
     public static DepthTwin? Of(nint depth)
     {
-        return Twins.GetValueOrDefault(depth);
+        return Twins.GetValueOrDefault((depth, false));
+    }
+
+    /// <summary>The stencil plane's twin of a desktop depth texture; null without one.</summary>
+    public static DepthTwin? StencilOf(nint depth)
+    {
+        return Twins.GetValueOrDefault((depth, true));
     }
 
     /// <summary>A depth-stencil view of <paramref name="depth"/> in <paramref name="format"/> was written at desktop CPU handle <paramref name="handle"/>.</summary>
@@ -92,10 +130,14 @@ internal static unsafe class DepthTwins
         DepthViews[handle] = (depth, format);
     }
 
-    /// <summary>The twin behind a bound depth-stencil view and the view's format; null when the view's texture has none.</summary>
-    public static DepthTwin? OfView(nint handle, out int format)
+    /// <summary>
+    /// The depth plane's twin behind a bound depth-stencil view and the view's format; null when the view's texture has
+    /// none. <paramref name="stencil"/> is the stencil plane's twin, null without one.
+    /// </summary>
+    public static DepthTwin? OfView(nint handle, out int format, out DepthTwin? stencil)
     {
         format = 0;
+        stencil = null;
 
         if (handle == 0 || !DepthViews.TryGetValue(handle, out var view))
         {
@@ -103,6 +145,7 @@ internal static unsafe class DepthTwins
         }
 
         format = view.Format;
+        stencil = StencilOf(view.Depth);
 
         return Of(view.Depth);
     }
