@@ -250,6 +250,9 @@ internal sealed record HostOptions
     /// <summary>Scan the inputs of draws whose pipeline contains this text for NaN and Inf (<c>--d3d12-nan-scan</c>); null when off.</summary>
     public string? NanScan { get; set; }
 
+    /// <summary>The floats shown of every NaN-scanned memory input (<c>--d3d12-nan-scan-dwords</c>); null for none.</summary>
+    public (int Offset, int Count)? NanScanDwords { get; set; }
+
     /// <summary>Retire textures over memory the game unmaps (<c>--retire-unmapped-textures</c>); off: they are only counted.</summary>
     public bool RetireUnmappedTextures { get; set; }
 

@@ -64,6 +64,32 @@ public sealed unsafe class NanScanTests
         Assert.Null(FloatScan.Texture(dwords, dwords.Length, 1, 1, 95));
     }
 
+    /// <summary>
+    /// --d3d12-nan-scan-dwords shows the rows a program reads of every buffer input, finite or not: PS_VelocityFill's
+    /// previous view-projection (+0x1a0) with w's row all zero overflows the velocity target to Inf.
+    /// </summary>
+    [Fact]
+    public void The_floats_a_program_reads_are_shown_from_the_offset_asked_for()
+    {
+        var bytes = new byte[0x1a0 + 16];
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(0x1a0), 1.5f);
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(0x1ac), -2f);
+
+        try
+        {
+            NanScan.Dwords = NanScan.ParseDwords("0x1a0:4");
+            Assert.Equal("; floats at +0x1a0: 1.5, 0, 0, -2", NanScan.Values(bytes));
+
+            NanScan.Dwords = NanScan.ParseDwords("512:4");
+            Assert.Equal(string.Empty, NanScan.Values(bytes));
+            Assert.Throws<ArgumentException>(() => NanScan.ParseDwords("0x1a0"));
+        }
+        finally
+        {
+            NanScan.Dwords = null;
+        }
+    }
+
     /// <summary>A 4x4 R32G32B32A32_FLOAT texture of 0.5s in CPU-written memory, with a NaN green at <see cref="NanTexel"/>.</summary>
     private static ID3D12Resource Texture(ID3D12Device device, bool withNan)
     {
