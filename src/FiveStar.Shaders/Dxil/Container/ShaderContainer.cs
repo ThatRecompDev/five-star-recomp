@@ -43,9 +43,11 @@ public static class ShaderContainer
         (ShaderFlagBits.WaveOps, 0x4000),
         (ShaderFlagBits.Int64Ops, 0x8000),
         (ShaderFlagBits.Barycentrics, 0x20000),
+        (ShaderFlagBits.AtomicInt64OnTypedResource, 0x40_0000),
         (ShaderFlagBits.AtomicInt64OnGroupShared, 0x80_0000),
         (ShaderFlagBits.ResourceDescriptorHeapIndexing, 0x200_0000),
         (ShaderFlagBits.SamplerDescriptorHeapIndexing, 0x400_0000),
+        (ShaderFlagBits.AtomicInt64OnHeapResource, 0x1000_0000),
         (ShaderFlagBits.AdvancedTextureOps, 0x2000_0000),
     ];
 
