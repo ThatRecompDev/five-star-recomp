@@ -62,6 +62,25 @@ internal sealed unsafe class PlacedTextureHeaps
     /// <summary>Whether read-only textures are placed (on by default; <c>--committed-textures</c> turns it off).</summary>
     public static bool Enabled { get; set; }
 
+    /// <summary>Bytes of the shared heaps now.</summary>
+    public long Bytes
+    {
+        get
+        {
+            lock (_gate)
+            {
+                ulong bytes = 0;
+
+                foreach (var heap in _heaps)
+                {
+                    bytes += heap.Size;
+                }
+
+                return (long)bytes;
+            }
+        }
+    }
+
     /// <summary>"placed textures: N live in H heaps (G GB, U GB used), R heaps returned", for the texture counters.</summary>
     public string Summary
     {
