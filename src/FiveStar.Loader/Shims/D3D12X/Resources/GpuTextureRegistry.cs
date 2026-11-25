@@ -41,8 +41,8 @@ internal sealed class GpuTextureRegistry : IDisposable
 
     private readonly object _gate = new();
     private readonly Dictionary<(ulong Address, ulong Size), Queue<GpuTexture>> _aliases = [];
-    private readonly Queue<(GpuTexture Texture, long Frame, ulong[] Submitted)> _retired = new();
-    private readonly Queue<(GpuTexture Texture, long Frame, ulong[] Submitted)> _agedAliases = new();
+    private readonly Queue<RetiredTexture> _retired = new();
+    private readonly Queue<RetiredTexture> _agedAliases = new();
     private readonly HashSet<GpuTexture> _overUnmapped = [];
     private readonly Func<ulong[]> _submitted;
     private readonly Func<ulong[]> _completed;
@@ -238,7 +238,7 @@ internal sealed class GpuTextureRegistry : IDisposable
         foreach (var entry in due)
         {
             Unmark(entry);
-            _retired.Enqueue((entry, _frame, _submitted()));
+            _retired.Enqueue(new RetiredTexture(entry, _frame, _submitted()));
         }
 
         Volatile.Write(ref _sorted, _sorted.Where(entry => !due.Contains(entry)).ToArray());
@@ -276,6 +276,8 @@ internal sealed class GpuTextureRegistry : IDisposable
     /// <summary>Once per present: releases the retired textures whose grace period ended.</summary>
     public void Advance(long frame)
     {
+        var due = new List<GpuTexture>();
+
         lock (_gate)
         {
             _frame = frame;
@@ -291,17 +293,40 @@ internal sealed class GpuTextureRegistry : IDisposable
             }
 
             var completed = _completed();
-            ReleaseDue(_retired, frame - GraceFrames, completed);
-            ReleaseDue(_agedAliases, frame - AliasGraceFrames, completed);
+            ReleaseDue(_retired, frame - GraceFrames, completed, due);
+            ReleaseDue(_agedAliases, frame - AliasGraceFrames, completed, due);
+        }
+
+        // Released outside the lock: a release runs the driver and the placed range's owner (PlacedTextureHeaps).
+        foreach (var texture in due)
+        {
+            ComObject.Release(texture.Desktop);
         }
     }
 
-    /// <summary>Releases, oldest first, the textures retired by <paramref name="lastFrame"/> whose submitted work is done.</summary>
-    private void ReleaseDue(Queue<(GpuTexture Texture, long Frame, ulong[] Submitted)> queue, long lastFrame, ulong[] completed)
+    /// <summary>
+    /// Takes, oldest first, the textures retired by <paramref name="lastFrame"/> whose work is done. A texture's work is
+    /// what the queues had submitted when its grace ended, not only when it was retired: a list recorded before the
+    /// retire with a descriptor of the texture may be submitted during the grace, and the first snapshot misses it.
+    /// </summary>
+    private void ReleaseDue(Queue<RetiredTexture> queue, long lastFrame, ulong[] completed, List<GpuTexture> due)
     {
-        while (queue.Count > 0 && queue.Peek().Frame <= lastFrame && Finished(queue.Peek().Submitted, completed))
+        while (queue.Count > 0 && queue.Peek().Frame <= lastFrame)
         {
-            ComObject.Release(queue.Dequeue().Texture.Desktop);
+            var head = queue.Peek();
+
+            if (!head.Rearmed)
+            {
+                head.Submitted = _submitted();
+                head.Rearmed = true;
+            }
+
+            if (!Finished(head.Submitted, completed))
+            {
+                return;
+            }
+
+            due.Add(queue.Dequeue().Texture);
             _released++;
         }
     }
@@ -368,7 +393,7 @@ internal sealed class GpuTextureRegistry : IDisposable
             return;
         }
 
-        _retired.Enqueue((entry, _frame, _submitted()));
+        _retired.Enqueue(new RetiredTexture(entry, _frame, _submitted()));
     }
 
     /// <summary>
@@ -391,8 +416,21 @@ internal sealed class GpuTextureRegistry : IDisposable
 
         if (kept.Count > _keptAliases)
         {
-            _agedAliases.Enqueue((kept.Dequeue(), _frame, _submitted()));
+            _agedAliases.Enqueue(new RetiredTexture(kept.Dequeue(), _frame, _submitted()));
             _aliasCount--;
         }
+    }
+
+    /// <summary>A retired texture: the present it was retired at and the queues' submitted work it waits for.</summary>
+    private sealed class RetiredTexture(GpuTexture texture, long frame, ulong[] submitted)
+    {
+        public GpuTexture Texture { get; } = texture;
+
+        public long Frame { get; } = frame;
+
+        public ulong[] Submitted { get; set; } = submitted;
+
+        /// <summary>Whether <see cref="Submitted"/> was taken again when the grace ended.</summary>
+        public bool Rearmed { get; set; }
     }
 }

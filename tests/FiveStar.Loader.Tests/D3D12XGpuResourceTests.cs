@@ -133,6 +133,55 @@ public sealed unsafe class D3D12XGpuResourceTests
         registry.Dispose();
     }
 
+    /// <summary>
+    /// Unmaps, remaps, retirements and releases on the game's threads run beside the summary the sampler and the hang watch
+    /// read (w83's sampler went quiet after its first sample with the retire on): none waits on another for good.
+    /// </summary>
+    [Fact]
+    public void Unmaps_and_releases_run_beside_the_summary_without_blocking_it()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        var registry = new GpuTextureRegistry(() => [], () => []);
+        var textures = Enumerable.Range(0, 64).Select(i => Texture(test, device, 0x100000 + ((ulong)i * 0x10000))).ToArray();
+        GpuTextureRegistry.RetireUnmapped = true;
+
+        try
+        {
+            bool done = false;
+            var game = new Thread(() =>
+            {
+                for (int round = 0; round < 200; round++)
+                {
+                    var texture = textures[round % textures.Length];
+                    registry.Register(texture);
+                    registry.Unmapped(texture.Address, 0x10000);
+                    registry.Mapped(texture.Address, 0x10000);
+                    registry.Unmapped(texture.Address, 0x10000);
+                    registry.Advance(round * GpuTextureRegistry.UnmappedGraceFrames);
+                }
+
+                Volatile.Write(ref done, true);
+            });
+            var sampler = new Thread(() =>
+            {
+                while (!Volatile.Read(ref done))
+                {
+                    Assert.Contains("textures", registry.Summary, StringComparison.Ordinal);
+                }
+            });
+
+            game.Start();
+            sampler.Start();
+
+            Assert.True(game.Join(TimeSpan.FromSeconds(30)) && sampler.Join(TimeSpan.FromSeconds(30)));
+        }
+        finally
+        {
+            GpuTextureRegistry.RetireUnmapped = false;
+        }
+    }
+
     [Theory]
     [InlineData(GpuTextureRegistry.DefaultKeptAliases)]
     [InlineData(2)]
