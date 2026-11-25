@@ -17,7 +17,7 @@ internal static class ProgramTranslator
         // Compute programs pin their wave size instead; geometry programs run one lane per HLSL invocation.
         var emulate = options.EmulateWaveSize && !copyShader && stage is ShaderStage.Pixel or ShaderStage.Vertex or ShaderStage.Mesh;
 
-        return Emit(coherent => new TranslationState(program, instructions, stage, copyShader) { EmulateWaves = emulate, Coherent = coherent, Loops = options.Loops ?? LoopCaps.Default }, options);
+        return Emit(coherent => new TranslationState(program, instructions, stage, copyShader) { EmulateWaves = emulate, FastWaves = options.FastWaves, Coherent = coherent, Loops = options.Loops ?? LoopCaps.Default }, options);
     }
 
     /// <summary>

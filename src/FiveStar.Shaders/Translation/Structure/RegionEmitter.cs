@@ -383,7 +383,7 @@ internal sealed class RegionEmitter
         _loopGuards++;
 
         Add(depth, "[loop] for (;;) {");
-        Add(depth + 1, $"if (++loop_budget > {_cap}) {{ TRACE_GUARD({guard}, {_cap}); break; }}");
+        Add(depth + 1, $"if (++loop_budget > {_cap}) {{ loop_cap_hit({guard}, {_cap}); break; }}");
         EmitScope(scope, selector, depth + 1);
         Add(depth, "}");
 

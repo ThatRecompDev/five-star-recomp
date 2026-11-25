@@ -92,6 +92,61 @@ public sealed class DifferentialRunner
         }
     }
 
+    /// <summary>
+    /// A mesh program in the form --fast-waves gives it (the native form, approximate on narrower waves) against its
+    /// superstep form (console results), both through the compute fallback on WARP's 4-lane waves, the narrowest there
+    /// is. Skipped when fast waves leave the program as it was.
+    /// </summary>
+    public DifferentialOutcome RunFastWaves(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path);
+        var program = new ProgramLoader(new RdnaDecoder()).Load(path, null).Program;
+
+        if (program is null || program.Stage != ShaderStage.Mesh)
+        {
+            return new DifferentialOutcome(name, "ms", DifferentialVerdict.Skipped, "not a mesh program");
+        }
+
+        try
+        {
+            var fast = HlslTranslator.Translate(program, Dispatch with { FastWaves = true }).Hlsl;
+
+            if (!fast.Contains(TranslationOptions.FastWavesComment, StringComparison.Ordinal))
+            {
+                return new DifferentialOutcome(name, "ms", DifferentialVerdict.Skipped, "not a fast-waves program");
+            }
+
+            var superstep = HlslTranslator.SuperstepVariant(program, Dispatch);
+
+            if (superstep.Length > MaxBackendSource)
+            {
+                return new DifferentialOutcome(name, "ms", DifferentialVerdict.Skipped, $"large: {superstep.Length} characters");
+            }
+
+            var first = Prepare(name + ".fast", ShaderStage.Mesh, fast, string.Empty);
+            var second = Prepare(name + ".superstep", ShaderStage.Mesh, superstep, string.Empty);
+
+            if (first.Error is not null || second.Error is not null)
+            {
+                return CompileOutcome(name, "ms", first.Error, second.Error);
+            }
+
+            lock (_gpu)
+            {
+                if (_stalled is not null)
+                {
+                    return new DifferentialOutcome(name, "ms", DifferentialVerdict.Skipped, $"{NotRunNote} {_stalled}");
+                }
+
+                return Execute(name, "ms", first, second, StableSeed(name));
+            }
+        }
+        catch (UnsupportedProgramException exception)
+        {
+            return new DifferentialOutcome(name, "ms", DifferentialVerdict.Skipped, Cut("unsupported: " + exception.Message));
+        }
+    }
+
     private DifferentialOutcome Compare(string name, string stage, ShaderProgram program)
     {
         if (_backend)

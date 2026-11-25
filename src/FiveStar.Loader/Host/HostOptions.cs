@@ -217,6 +217,9 @@ internal sealed record HostOptions
     /// <summary>Superstep forms made on demand carry registers by liveness; <c>--plain-supersteps</c> turns it off.</summary>
     public bool SuperstepCarry { get; set; } = true;
 
+    /// <summary><c>--fast-waves</c>: mesh programs made on demand may run approximately instead of in the superstep form (TranslationOptions.FastWaves).</summary>
+    public bool FastWaves { get; set; }
+
     /// <summary>A superstep program's group rounds per wave-operation stop (<c>--superstep-round-budget</c>); null for the loop caps' bound.</summary>
     public int? SuperstepRoundsPerStop { get; set; }
 

@@ -116,7 +116,10 @@ for compute, 2^20 elsewhere; 2^24 for every stage before). A console program's l
 on the data the console gives it; on the PC one wrong input keeps a loop going until the driver removes the device.
 
 The console has no cap, so a cap is only a safety net against our own wrong inputs and must not bind for a correct
-program. The caps count all loops of one invocation together (a cap per loop let nested loops multiply it, 65,536² in
+program. It keeps the device alive, not the output right: a hit is a bug to fix where the wrong input or
+translation comes from. So every hit is counted (`loop_cap_hit`, once per wave, in dword 3 of the program's slot of
+the window guard's cap table, beside the superstep block and round caps) and the loader names the programs at each
+captured present (`[window guard] present N: K programs ran into a cap`). The caps count all loops of one invocation together (a cap per loop let nested loops multiply it, 65,536² in
 `CS_InitDepthPyramidWithCpuOcclusion3x3`):
 
 | Stage | Cap | Why |
@@ -214,7 +217,7 @@ The D3D12.X layer creates the views and samplers, so it decides what descriptor 
 | Descriptor | Meaning in translated code |
 |---|---|
 | T# dword0 | `ResourceDescriptorHeap` index |
-| S# dword0 | `SamplerDescriptorHeap` index (`sampler_slot`: at most the heap's last); an S# built from literal constants gets `STATIC_SAMPLER_BASE + k` and its words are listed at the top of the program. An S# loaded through a 32-bit pointer (the s_load dword an image instruction samples with, `SamplerLoads`) reads the sampler heap's records (`SamplerPtrLoad`): pointers are relative to their own heap, each based at 0, and Scaleform's FTexTG programs read their S# at a root constant + index × 16 |
+| S# dword0 | `SamplerDescriptorHeap` index (`sampler_slot`: at most the heap's last); an S# built from literal constants gets the slot its words and use give (`StaticSampler`, from `STATIC_SAMPLER_BASE`) and is listed at the top of the program; one with FORCE_UNNORMALIZED or FORCE_DEGAMMA set (applied in the shader; none in the corpus) refuses the program. An S# loaded through a 32-bit pointer (the s_load dword an image instruction samples with, `SamplerLoads`) reads the sampler heap's records (`SamplerPtrLoad`): pointers are relative to their own heap, each based at 0, and Scaleform's FTexTG programs read their S# at a root constant + index × 16 |
 | T# / V# dword0 heap index | `view_slot` / `uav_slot`: an index past the desktop view heap names the null SRV or UAV of unmapped pages. A texture goes through `tex_slot` (`NullTextureSlots`): an index below `FIVESTAR_FIRST_GAME_VIEW` (the loader's 21: the reserved buffers 0 to 9, then a null SRV per dimension and a null UAV per writable one at 10 to 20) or past the heap reads the null texture of its own dimension, never a buffer as a texture (a zero T# named the raw window at slot 0; XCL reports a zero T# indexing slot 0 hung NVIDIA). Without the define (offline) only the heap's end applies |
 | V# base (dword0, dword1 bits 0-15) | a console GPU address, found in the address map (`buf_view`): the D3D12.X shim's records of read-only buffer views of game memory hold the view's address as the console's do, so a program can build pointers from it; base_hi 0: dword0 is a heap index (records of buffers the desktop placed, or `--buffer-records-heap-index`) |
 | V# dword1 bits 16-29 / dword3 | stride (idxen) / hardware format word: gfx10 unified format (bits 12-18, decoded by `buf_code`) and destination swizzle (bits 0-11, `fmt_swizzle`, loads only) |
@@ -508,7 +511,12 @@ one under a per-lane condition (`if (active)`, `&&`, `||`, `?:` before the call)
 from the structured form, since WARP's shader compiler crashes on barriers inside the dispatch `switch`. A program whose
 group holds several console waves (they branch apart, so one barrier cannot stand in for a wave) or that calls a wave
 operation under a per-lane condition gets the superstep form instead: console waves are consecutive group indices, as
-on RDNA. The result's reason says `wave32 variant ok` or why there is none.
+on RDNA. The result's reason says `wave32 variant ok` or why there is none. A group of more than 32 threads runs as
+two 32-lane hardware waves, where an LDS read can race a store of the other wave that the console's one wave ordered
+in lockstep: the variant puts a group barrier before such a read (`GroupLdsBarriers`: after a plain store or a
+store-like atomic not yet ordered by a barrier or wave operation, on either path of a branch or anywhere in a loop that
+writes; before the lane-conditioned block a read sits in; an atomic needs one only after a plain store). shadPS4 does
+the same for one-wave groups (facts only). 6 of 14 such programs in a 400-program sample get 1 to 3.
 
 **Variant selection** (`FiveStar.Graphics.Programs.VariantSelector`). `fivestar shader translate` writes
 `<out>/variants.json` (`ShaderManifest`): per compiled program its stage, native DXIL, console wave, floor, pinned
@@ -579,7 +587,16 @@ What cannot be emulated:
   memory and no barrier, so the value exists in no wave that could share it. Example: a wave64 reduction that ends with
   `v_readlane 32` or `63` on a 32-lane GPU.
 - Mesh programs the window analysis rejects run correctly on narrower waves only in the superstep form or, without
-  mesh shaders, the pinned or superstep fallback.
+  mesh shaders, the pinned or superstep fallback. `--fast-waves` (`TranslationOptions.FastWaves`, off by default, in
+  the program cache identity) trades that for speed, approximately: such a program keeps the native form when it passes
+  with each hardware wave's `readfirstlane` taken for its console wave's and its branches on "any lane" of a mask or a
+  ballot decided per hardware wave, and reads no lane by number (`vw_read`, `vw_count`, native wave operations, shared
+  LDS). A path a hardware wave skips must still change nothing read after it, as for the exact analysis; a skip whose
+  path writes scalars read after it is taken by every hardware wave instead (a jump replaces the branch), as the
+  console takes it whenever another of its lanes is active. Its header says
+  `// fast waves: approximate on narrower hardware waves: <why the exact analysis refused>`, and the loader logs it.
+  Of the 2,540 mesh programs that need their whole console wave, 1,399 run this way (none of 049945c2, 04a7a7b5,
+  LinearDepthSkin: their GS_ALLOC_REQ counts are the whole console wave's); the other 1,141 keep the superstep form.
 - Mesh lane numbers assume `SV_GroupIndex` fills hardware lanes in order. Drivers do this; D3D12 does not promise it.
 
 ## Runtime headers
@@ -598,7 +615,7 @@ cost tens of minutes.
 ```
 fivestar shader translate <program.fssm | folder> <out> [--cache <dir>] [--retry results.json]
                           [--stages ps,vs,cs,ms,gs] [--jobs N] [--limit N] [--step K] [--no-compile] [--dispatch]
-                          [--native-waves] [--mesh-fallbacks] [--plain-supersteps] [--waves min-max,...] [--first-used <pipelines-used.bin>]
+                          [--native-waves] [--mesh-fallbacks] [--plain-supersteps] [--fast-waves] [--waves min-max,...] [--first-used <pipelines-used.bin>]
                           [--llvm-disassembler] [--llvm <folder>] [--dxc <path>] [--backend hlsl|dxil|dxil-only]
 ```
 

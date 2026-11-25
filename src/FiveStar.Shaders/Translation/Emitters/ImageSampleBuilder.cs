@@ -152,7 +152,7 @@ internal sealed class ImageSampleBuilder
     {
         var sampler = request.SamplerOperand ?? throw new UnsupportedProgramException("compare sample without a sampler");
 
-        return _operands.SamplerIndex(sampler);
+        return _operands.SamplerIndex(sampler, comparison: true);
     }
 
     private static string LevelOfDetail(ImageRequest request)

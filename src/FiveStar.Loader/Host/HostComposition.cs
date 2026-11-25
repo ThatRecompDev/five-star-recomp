@@ -58,6 +58,7 @@ internal static class HostComposition
 
         // No acceleration structure is built without --raytracing: programs made on demand miss every BVH node.
         Shims.D3D12X.Binding.BvhMiss.Enabled = !options.RayTracing;
+        Shims.D3D12X.Pipelines.RayTracingPrograms.StandIns = !options.RayTracing;
         Shims.D3D12X.Binding.WindowGuard.Enabled = !options.NoWindowGuard;
     }
 
@@ -104,7 +105,7 @@ internal static class HostComposition
             Shims.D3D12X.DebugLayer.PoolStoreTrace.Enabled = options.TracePoolStores;
             Shims.D3D12X.Binding.UserDataConstants.Enabled = options.UserDataConstants;
             Shims.D3D12X.Binding.WindowFeedback.Enabled = options.EvictWindows;
-            OnDemandStart.Translation = FiveStar.Shaders.Compilation.CorpusOptions.DefaultTranslation with { Loops = options.LoopCaps, SuperstepCarry = options.SuperstepCarry, RoundsPerStop = options.SuperstepRoundsPerStop };
+            OnDemandStart.Translation = FiveStar.Shaders.Compilation.CorpusOptions.DefaultTranslation with { Loops = options.LoopCaps, SuperstepCarry = options.SuperstepCarry, RoundsPerStop = options.SuperstepRoundsPerStop, FastWaves = options.FastWaves };
             folders = folders with { OnDemand = OnDemandStart.Begin(root, options.Dxc, options.DxcBackend, options.ShaderJobs, out var message), OnDemandNote = message };
         }
 

@@ -122,7 +122,7 @@ internal sealed class StatementTransfer
     {
         var calls = statement.Calls.Where(call => !statement.IsAllocation || call != AllocationProbe).ToList();
         var exact = ValueRules.IsExact(statement.Reads, calls, _state);
-        var held = !calls.Any(WindowNames.IsWindowFunction) && statement.Reads.All(name => _state.Get(name).IsHeld);
+        var held = !calls.Any(call => ValueRules.IsWindowCall(call, _state)) && statement.Reads.All(name => _state.Get(name).IsHeld);
         var guardedHeld = statement.IsGuarded && _state.Get(WindowNames.Active).IsExact && held;
 
         if (statement.Kind == StatementKind.Effect && !exact && !guardedHeld)

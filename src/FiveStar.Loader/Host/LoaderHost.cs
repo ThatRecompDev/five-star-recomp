@@ -38,6 +38,15 @@ internal sealed class LoaderHost
 
     public int Run()
     {
+        // The wait-object shims cost a managed call on every wait; only the hang watch reads what they record.
+        if (!_options.WatchHang)
+        {
+            foreach (string shim in WaitObjectShims.Names)
+            {
+                _runtime.Shims.Disable(shim);
+            }
+        }
+
         foreach (string spec in _options.DisabledShims)
         {
             if (!_runtime.Shims.Disable(spec))
@@ -475,6 +484,8 @@ internal sealed class LoaderHost
     /// <summary>The loader counters each thread sample logs.</summary>
     private string SampledCounters()
     {
+        Shims.D3D12X.Binding.WindowGuard.ReportCaps(_runtime.D3D12X.Presenter.Presents, _log);
+
         string pipelines = _runtime.D3D12X.Pipelines?.Summary ?? "pipeline slots off";
 
         var prebuild = Shims.D3D12X.Pipelines.JournalPrebuild.Current;

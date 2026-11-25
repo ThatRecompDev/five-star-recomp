@@ -51,7 +51,7 @@ What the runtime must provide for a translated program, as found for this pass:
 | Heap slot 0 | `ByteAddressBuffer` over the GPU-memory window; a 32-bit pointer in user data is a byte address in it |
 | Heap slot 1 | writable view of the window (only programs that store through pointers use it) |
 | Any other slot | whatever a descriptor's dword 0 names |
-| Sampler slot 2032 + k | the k-th literal S# of the program (`// static sampler k` comment in the HLSL) |
+| Sampler slot 1024 to 2047 | the program's literal S#s, each at the slot its words give (`// static sampler <slot>: S# = ...[ compare]` lines in the HLSL) |
 | Vertex input | translated vertex shaders read `ATTR0..n`; element n of the cache's input layout becomes `ATTR` n with the cache's format, slot and offset |
 
 Both programs of the pass read only user SGPR s8: the low half of a pointer whose high half the code sets to 0. It

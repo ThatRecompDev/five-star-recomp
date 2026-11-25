@@ -27,15 +27,16 @@ internal static class TranslateCommand
     private const string NativeWavesFlag = "native-waves";
     private const string MeshFallbacksFlag = "mesh-fallbacks";
     private const string PlainSuperstepsFlag = "plain-supersteps";
+    private const string FastWavesFlag = "fast-waves";
 
     public static int Run(IReadOnlyList<string> args)
     {
-        var arguments = new CommandArguments(args, new HashSet<string> { NoCompileFlag, DispatchFlag, StructuredFlag, NativeWavesFlag, MeshFallbacksFlag, PlainSuperstepsFlag, ShaderTools.LlvmDisassemblerFlag });
+        var arguments = new CommandArguments(args, new HashSet<string> { NoCompileFlag, DispatchFlag, StructuredFlag, NativeWavesFlag, MeshFallbacksFlag, PlainSuperstepsFlag, FastWavesFlag, ShaderTools.LlvmDisassemblerFlag });
 
         if (arguments.Positional.Count != TwoPaths)
         {
             throw new ArgumentException(
-                "translate <fssm-or-folder> <out> [--cache <dir>] [--retry results.json] [--stages ps,vs,cs,ms,gs] [--jobs N] [--dispatch] [--native-waves] [--mesh-fallbacks] [--plain-supersteps] [--waves min-max,...] [--first-used pipelines-used.bin] [--llvm-disassembler] [--backend hlsl|dxil|dxil-only]");
+                "translate <fssm-or-folder> <out> [--cache <dir>] [--retry results.json] [--stages ps,vs,cs,ms,gs] [--jobs N] [--dispatch] [--native-waves] [--mesh-fallbacks] [--plain-supersteps] [--fast-waves] [--waves min-max,...] [--first-used pipelines-used.bin] [--llvm-disassembler] [--backend hlsl|dxil|dxil-only]");
         }
 
         var programs = Programs(arguments);
@@ -46,6 +47,7 @@ internal static class TranslateCommand
             Translation = new TranslationOptions(!arguments.Flag(DispatchFlag), PinWaveSize: true, EmulateWaveSize: !arguments.Flag(NativeWavesFlag))
             {
                 SuperstepCarry = !arguments.Flag(PlainSuperstepsFlag),
+                FastWaves = arguments.Flag(FastWavesFlag),
             },
             MeshFallbacks = arguments.Flag(MeshFallbacksFlag),
             Waves = Waves(arguments.Option("waves")),

@@ -182,6 +182,7 @@ public sealed partial class CorpusTranslator
 
         var hlslPath = Path.Combine(options.OutputFolder, translated.Name + ".hlsl");
         File.WriteAllText(hlslPath, translated.Hlsl);
+        StaticSampler.Keep(options.OutputFolder, translated.Hlsl);
 
         if (_compiler is null)
         {
