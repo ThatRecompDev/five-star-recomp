@@ -278,6 +278,12 @@ internal static unsafe class CompileBudget
     /// <summary>Private bytes of helper processes that count toward the ceiling: the compile host (<see cref="CompileHost"/>).</summary>
     public static Func<long> HelperPrivateBytes { get; set; } = static () => 0;
 
+    /// <summary>The machine's free physical memory now; tests replace it so the host's memory does not decide them.</summary>
+    public static Func<ulong> AvailablePhysical { get; set; } = WarmMemoryGuard.AvailablePhysical;
+
+    /// <summary>The commit the machine can still give now; tests replace it as <see cref="AvailablePhysical"/>.</summary>
+    public static Func<ulong> CommitAvailable { get; set; } = WarmMemoryGuard.CommitAvailableNow;
+
     /// <summary>The compile host's private bytes above which program work runs one at a time.</summary>
     public const long HostCeilingBytes = 8L << 30;
 
@@ -634,12 +640,12 @@ internal static unsafe class CompileBudget
             remaining = Remaining();
         }
 
-        if (!Room(estimate, WarmMemoryGuard.AvailablePhysical(), ulong.MaxValue, remaining, CurrentReserve(urgent)))
+        if (!Room(estimate, AvailablePhysical(), ulong.MaxValue, remaining, CurrentReserve(urgent)))
         {
             return Refused(ref _refusedMemory);
         }
 
-        if (!Room(estimate, ulong.MaxValue, WarmMemoryGuard.CommitAvailableNow(), remaining, 0))
+        if (!Room(estimate, ulong.MaxValue, CommitAvailable(), remaining, 0))
         {
             return Refused(ref _refusedCommit);
         }
