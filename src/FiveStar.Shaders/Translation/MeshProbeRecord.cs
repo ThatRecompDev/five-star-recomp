@@ -83,6 +83,16 @@ public readonly record struct MeshProbeRecord(
     /// </summary>
     public bool Stage { get; init; }
 
+    /// <summary>A stage record's earliest site whose value came out NaN or infinite on a lane of its wave (NanProbe); null for none.</summary>
+    public uint? NonFiniteSite { get; init; }
+
+    /// <summary>The value at <see cref="NonFiniteSite"/>, the pixel (x | y &lt;&lt; 16) or group x of a lane that hit it, and the lanes that hit any.</summary>
+    public uint NonFiniteValue { get; init; }
+
+    public uint NonFiniteAt { get; init; }
+
+    public uint NonFiniteLanes { get; init; }
+
     /// <summary>Whether the record's last dword is its id ^ the probe's mark: a record the probe wrote whole, not stray bytes.</summary>
     public bool Whole { get; init; }
 
@@ -136,7 +146,16 @@ public readonly record struct MeshProbeRecord(
             window = words[WindowAddressWord];
         }
 
-        return record with { Values = values, Allocation = allocation, Sites = words[SitesWord], Whole = words[MarkWord] == (words[0] ^ Mark), WindowLoads = words[WindowMaskWord], WindowAddress = window, WindowAddresses = windows, Stage = (words[FlagsWord] & StageRecord) != 0 };
+        bool stage = (words[FlagsWord] & StageRecord) != 0;
+        record = record with { Values = values, Allocation = allocation, Sites = words[SitesWord], Whole = words[MarkWord] == (words[0] ^ Mark), WindowLoads = words[WindowMaskWord], WindowAddress = window, WindowAddresses = windows, Stage = stage };
+
+        // A stage record keeps its wave's first non-finite site (+ 1) in dword 4 (NanProbe).
+        if (!stage || words[VerticesWord] == 0)
+        {
+            return record;
+        }
+
+        return record with { NonFiniteSite = words[VerticesWord] - 1, NonFiniteValue = words[PrimitivesWord], NonFiniteAt = words[CulledWord], NonFiniteLanes = words[CullMaskWord] };
     }
 
     private static float Float(ReadOnlySpan<uint> words, int at)
