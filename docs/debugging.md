@@ -132,7 +132,11 @@ code still names the wait (`(waiting in ... for N ms)`), and the stall line sums
 `fivestar-loader --watch-hang` reads these globals every 100 ms and logs the main state, the loading-screen flags,
 the session byte, the pause flag and the handler when they change, a heartbeat that moves again after 2 s or more, and
 the loader counters and every thread's stack (64 frames, with thread names) when the heartbeat has stood still for 5,
-15 and 25 s. The game's code is read, never changed.
+15 and 25 s. For each thread in the game's fence wait (0x144fb0ad0) it also names what the wait depends on
+(`StallCulprit`): the queue that was asked to signal that fence to the awaited value and the last six executions it
+was given before that Signal, newest first, each with its last pipeline and whether it finished, and any Wait on another
+fence among them; or, when no queue was asked yet, the fence's last Signal. The queues keep their last 1,024 calls in
+any case (`QueueProgress`), so this costs nothing until a stall. The game's code is read, never changed.
 
 ## Memory map
 

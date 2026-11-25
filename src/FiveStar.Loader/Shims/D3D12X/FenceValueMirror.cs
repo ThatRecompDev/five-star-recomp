@@ -110,6 +110,29 @@ internal sealed unsafe class FenceValueMirror : IDisposable
         return string.Empty;
     }
 
+    /// <summary>The fence wrapper whose completed-value cell is at <paramref name="cell"/>, or 0.</summary>
+    public nint FenceAt(ulong cell)
+    {
+        lock (_gate)
+        {
+            foreach (nint fence in _fences)
+            {
+                if ((ulong)&((XboxFenceObject*)fence)->CompletedValue == cell)
+                {
+                    return fence;
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    /// <summary>A game thread waits for the fence at <paramref name="cell"/> to reach <paramref name="target"/>: the fence and the work it waits for.</summary>
+    public string DescribeWait(ulong cell, ulong target)
+    {
+        return $"{DescribeCell(cell)}; {QueueProgress.DescribeFenceWait(FenceAt(cell), target)}";
+    }
+
     public void Dispose()
     {
         _stopping = true;
