@@ -583,8 +583,15 @@ internal sealed class CommandLineParser
     }
 
     /// <summary><c>--d3d12-nan-scan &lt;pipeline text&gt;</c>.</summary>
-    private bool SetNanScan()
+    private bool SetNanScan(string option)
     {
+        if (option == "--d3d12-nan-scan-dwords")
+        {
+            _options.NanScanDwords = Shims.D3D12X.DebugLayer.NanScan.ParseDwords(Next());
+
+            return true;
+        }
+
         _options.NanScan = Next();
 
         return true;
@@ -624,8 +631,8 @@ internal sealed class CommandLineParser
                 return SetFrameRate();
             case "--check-view-liveness":
                 return SetViewLiveness();
-            case "--d3d12-nan-scan":
-                return SetNanScan();
+            case "--d3d12-nan-scan" or "--d3d12-nan-scan-dwords":
+                return SetNanScan(option);
             case "--retire-unmapped-textures":
                 return SetRetireUnmapped();
             case "--min-free-memory":

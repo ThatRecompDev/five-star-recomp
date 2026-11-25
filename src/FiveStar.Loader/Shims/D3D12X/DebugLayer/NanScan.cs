@@ -25,6 +25,10 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 internal static unsafe class NanScan
 {
     private const int ScansPerWindow = 3;
+
+    /// <summary>--d3d12-nan-scan-dwords: offset and count.</summary>
+    private const int DwordsParts = 2;
+    private const string HexPrefix = "0x";
     private const double WindowSeconds = 30;
     private const int PollMilliseconds = 200;
     private const double GiveUpSeconds = 30;
@@ -59,6 +63,32 @@ internal static unsafe class NanScan
     public static string? Filter { get; set; }
 
     public static bool Enabled => Filter is not null;
+
+    /// <summary><c>--d3d12-nan-scan-dwords &lt;offset&gt;:&lt;count&gt;</c>: the floats of every memory input shown from that byte offset; null for none.</summary>
+    public static (int Offset, int Count)? Dwords { get; set; }
+
+    /// <summary>"0x1a0:16" (or decimal) as (byte offset, dwords).</summary>
+    public static (int Offset, int Count) ParseDwords(string text)
+    {
+        var parts = text.Split(':');
+
+        if (parts.Length != DwordsParts)
+        {
+            throw new ArgumentException($"--d3d12-nan-scan-dwords takes <offset>:<count>, not '{text}'");
+        }
+
+        return (Number(parts[0]), Number(parts[1]));
+    }
+
+    private static int Number(string text)
+    {
+        if (text.StartsWith(HexPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return int.Parse(text.AsSpan(HexPrefix.Length), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+        }
+
+        return int.Parse(text, CultureInfo.InvariantCulture);
+    }
 
     /// <summary>A list's Reset: readback buffers of its earlier recordings can go once reported.</summary>
     [HotPath]
@@ -354,16 +384,23 @@ internal static unsafe class NanScan
 
         foreach (var input in scan.Memory)
         {
-            var result = ReadMemory(input);
+            var bytes = ReadMemory(input);
+            var result = FloatScan.Dwords(bytes);
+            string values = Values(bytes);
 
             if (result.Count == 0)
             {
                 clean++;
 
+                if (values.Length != 0)
+                {
+                    findings.Append(CultureInfo.InvariantCulture, $"\n      {input.Label}: memory 0x{input.Address:x}, clean{values}");
+                }
+
                 continue;
             }
 
-            findings.Append(CultureInfo.InvariantCulture, $"\n      {input.Label}: memory 0x{input.Address:x}, {input.Bytes} bytes as float32: {result} (X = byte offset)");
+            findings.Append(CultureInfo.InvariantCulture, $"\n      {input.Label}: memory 0x{input.Address:x}, {input.Bytes} bytes as float32: {result} (X = byte offset){values}");
         }
 
         lock (Gate)
@@ -374,8 +411,8 @@ internal static unsafe class NanScan
         log.Info($"  [nan scan] {scan.Pipeline}: {clean} inputs scanned clean, {scan.Textures.Count + scan.Memory.Count} in all (block-compressed and non-float textures are not scanned){findings}");
     }
 
-    /// <summary>The non-finite float32 values of game memory at a console address (read through the kernel: an unmapped range reads as nothing).</summary>
-    private static FloatScanResult ReadMemory(MemoryInput input)
+    /// <summary>Game memory at a console address, as far as it reads (through the kernel: an unmapped range reads as nothing).</summary>
+    private static byte[] ReadMemory(MemoryInput input)
     {
         var bytes = new byte[input.Bytes];
         nuint done = 0;
@@ -385,7 +422,30 @@ internal static unsafe class NanScan
             _ = Kernel32.ReadProcessMemory(Kernel32.GetCurrentProcess(), (nint)input.Address, to, (nuint)bytes.Length, &done);
         }
 
-        return FloatScan.Dwords(bytes.AsSpan(0, (int)done));
+        return bytes.AsSpan(0, (int)done).ToArray();
+    }
+
+    /// <summary>
+    /// "; floats at +0x1a0: 1, 0, ..." for <see cref="Dwords"/> (<c>--d3d12-nan-scan-dwords</c>: the rows a program reads,
+    /// such as PS_VelocityFill's previous view-projection at +0x1a0); empty when off or past the input.
+    /// </summary>
+    public static string Values(ReadOnlySpan<byte> bytes)
+    {
+        var dwords = Dwords;
+
+        if (dwords is null || dwords.Value.Offset >= bytes.Length)
+        {
+            return string.Empty;
+        }
+
+        var shown = new List<string>();
+
+        for (int at = dwords.Value.Offset; at + sizeof(float) <= bytes.Length && shown.Count < dwords.Value.Count; at += sizeof(float))
+        {
+            shown.Add(BitConverter.ToSingle(bytes.Slice(at, sizeof(float))).ToString("G6", CultureInfo.InvariantCulture));
+        }
+
+        return string.Create(CultureInfo.InvariantCulture, $"; floats at +0x{dwords.Value.Offset:x}: {string.Join(", ", shown)}");
     }
 
     /// <summary>A copied texture: its label, desktop resource, readback buffer and footprint.</summary>
