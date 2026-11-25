@@ -30,4 +30,7 @@ internal sealed class DrawTraceList
 
     /// <summary>The list recorded traced work since it was last submitted: its submission names the queue.</summary>
     public bool Traced { get; set; }
+
+    /// <summary>The last ExecuteIndirect recorded was a compute one: it renders into no target, whatever the list left bound.</summary>
+    public bool IndirectCompute { get; set; }
 }

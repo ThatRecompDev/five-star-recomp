@@ -283,7 +283,7 @@ internal sealed unsafe class DrawTrace
             }
 
             int current = _d3d12.ListStates.Find(list)?.Current(resource, home) ?? home;
-            string label = $"watch {what} {Label(pipeline)} (target 0x{resource:x})";
+            string label = $"watch {what} {QueueProgress.PipelineName(pipeline)} (target 0x{resource:x})";
             _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, resource, current, label, (nint)list, state.Resets);
             Interlocked.CompareExchange(ref _reportAt, Volatile.Read(ref _lastPresent) + ReportDelay, 0);
         }
@@ -519,6 +519,11 @@ internal sealed unsafe class DrawTrace
     {
         var rectangles = RectangleListState.Of(list);
 
+        if (WatchShape is not null)
+        {
+            List(list).IndirectCompute = compute;
+        }
+
         if (!Matches(rectangles->Pipeline))
         {
             return;
@@ -650,7 +655,12 @@ internal sealed unsafe class DrawTrace
         // A traced one may write the watched target through a UAV, so it reads them all back; others only those it renders into.
         bool traced = _indirectProbes.TryRemove((nint)list, out _);
         var state = List(list);
-        Watch(list, state, "indirect", boundOnly: !traced);
+
+        // An untraced compute one renders into nothing: the targets a draw left bound on the list are not its writes.
+        if (traced || !state.IndirectCompute)
+        {
+            Watch(list, state, "indirect", boundOnly: !traced);
+        }
 
         if (!traced)
         {
