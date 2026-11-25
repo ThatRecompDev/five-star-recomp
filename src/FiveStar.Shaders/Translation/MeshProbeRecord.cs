@@ -55,6 +55,7 @@ public readonly record struct MeshProbeRecord(
     private const int WindowSitesWord = 54;
     private const int WindowAddressesWord = 64;
     private const int WindowNoted = 4;
+    private const int StageRecord = 8;
     private const int MarkWord = 51;
     private const uint Mark = 0x50524f42;
 
@@ -75,6 +76,12 @@ public readonly record struct MeshProbeRecord(
 
     /// <summary>The first window address thread 0 read at each of sites 0 to 31; null where none was noted.</summary>
     public IReadOnlyList<uint?> WindowAddresses { get; init; } = [];
+
+    /// <summary>
+    /// A pixel or compute program's record (one per wave): <see cref="Group"/> is the first lane's pixel (x, y) or
+    /// its group, <see cref="Position"/> the colour it returns (null for compute), the masks the wave's.
+    /// </summary>
+    public bool Stage { get; init; }
 
     /// <summary>Whether the record's last dword is its id ^ the probe's mark: a record the probe wrote whole, not stray bytes.</summary>
     public bool Whole { get; init; }
@@ -129,7 +136,7 @@ public readonly record struct MeshProbeRecord(
             window = words[WindowAddressWord];
         }
 
-        return record with { Values = values, Allocation = allocation, Sites = words[SitesWord], Whole = words[MarkWord] == (words[0] ^ Mark), WindowLoads = words[WindowMaskWord], WindowAddress = window, WindowAddresses = windows };
+        return record with { Values = values, Allocation = allocation, Sites = words[SitesWord], Whole = words[MarkWord] == (words[0] ^ Mark), WindowLoads = words[WindowMaskWord], WindowAddress = window, WindowAddresses = windows, Stage = (words[FlagsWord] & StageRecord) != 0 };
     }
 
     private static float Float(ReadOnlySpan<uint> words, int at)
