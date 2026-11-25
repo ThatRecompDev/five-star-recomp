@@ -214,6 +214,36 @@ at https://gitlab.xiph.org/xiph/opus/-/tags/v1.5.2, and all binaries are being
 redistributed to you under the same terms of the general Opus license dictated above.
 ```
 
+## TraceEvent
+
+https://github.com/microsoft/perfview, NuGet package `Microsoft.Diagnostics.Tracing.TraceEvent` 3.1.21 (with its
+dependency `Microsoft.Diagnostics.NETCore.Client`), licensed under the MIT license below.
+
+- `fivestar profile summary` (`src/FiveStar.Cli/Profile`) reads the loader's managed profiles with it, and the
+  summary's test records one with the client; they are package dependencies, not copied code. The loader opens its
+  own sessions through the documented diagnostics IPC protocol with code of its own.
+
+```
+Copyright (c) .NET Foundation and Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 ## FFmpeg
 
 https://github.com/FFmpeg/FFmpeg, file `libavcodec/wmaprodata.h` as of commit
