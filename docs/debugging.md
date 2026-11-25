@@ -144,7 +144,7 @@ every thread blocked a second or more in one of those waits: the handle, the tim
 kind or semaphore counts, creating thread and time, the game frames of the creating call) and whether it was signaled
 since, how often and by which thread last (`WaitObjects`), and the game frames of the waiting call. A handle the shims did
 not see made is named when it is a thread's (a join). Frames come from a scan of the thread's stack for return addresses
-into the game (`ReturnAddresses`): a walk stops in the shims' generated code, and #13's first report named no creator. A stall whose waiter sits on an object nobody signals any
+into the game (`ReturnAddresses`; only values whose call bytes sit in committed readable code, so never in an execute-only section): a walk stops in the shims' generated code, and #13's first report named no creator. A stall whose waiter sits on an object nobody signals any
 more (a lost wake-up) then names that object and its creator. For each thread in the game's fence wait (0x144fb0ad0) it also names what the wait depends on
 (`StallCulprit`): the queue that was asked to signal that fence to the awaited value and the last six executions it
 was given before that Signal, newest first, each with its last pipeline and whether it finished, and any Wait on another

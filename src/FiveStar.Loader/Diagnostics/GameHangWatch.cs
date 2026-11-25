@@ -198,8 +198,11 @@ internal sealed unsafe class GameHangWatch
         return $"main state {(short)state} (next {(short)next}), loading screen {loading}, loading render callback {loadingRender}, session 0x{session:x} ready {ready}, watchdog paused {paused}, handler 0x{handler:x}";
     }
 
-    /// <summary>Whether <paramref name="address"/> is committed and accessible in this process.</summary>
-    internal static bool IsReadable(ulong address)
+    /// <summary>
+    /// Whether <paramref name="address"/> is committed and accessible in this process; with <paramref name="protections"/>,
+    /// also whether its page has one of them.
+    /// </summary>
+    internal static bool IsReadable(ulong address, uint protections = 0)
     {
         MemoryBasicInformation info;
 
@@ -210,6 +213,8 @@ internal sealed unsafe class GameHangWatch
 
         bool blocked = (info.Protect & (Win32Constants.PageNoAccess | Win32Constants.PageGuard)) != 0;
 
-        return info.State == Win32Constants.MemCommit && !blocked;
+        bool allowed = protections == 0 || (info.Protect & protections) != 0;
+
+        return info.State == Win32Constants.MemCommit && !blocked && allowed;
     }
 }
