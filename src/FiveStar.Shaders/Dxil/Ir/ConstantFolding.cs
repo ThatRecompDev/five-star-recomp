@@ -1,6 +1,10 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Parts follow VIctory (fork https://github.com/fxceless/victory-fork, crates/victory-shader/src/emit/bitcode/opt.rs,
+// commit 1684989; marked where they are): Copyright (c) the VIctory contributors, GPL-3.0-or-later. See
+// THIRD_PARTY_NOTICES.md.
+
 namespace FiveStar.Shaders.Dxil.Ir;
 
 /// <summary>
@@ -31,6 +35,16 @@ internal static class ConstantFolding
             return Fold(module, op, a, b);
         }
 
+        if (ReferenceEquals(left, right) && op is BinaryOp.And or BinaryOp.Or)
+        {
+            return left;
+        }
+
+        if (ReferenceEquals(left, right) && op is BinaryOp.Sub or BinaryOp.Xor)
+        {
+            return module.Int(left.Type, 0);
+        }
+
         if (b is not null)
         {
             return RightIdentity(module, op, left, b);
@@ -51,6 +65,11 @@ internal static class ConstantFolding
         {
             return module.Bool(predicate is Predicate.Equal or Predicate.UnsignedGreaterOrEqual or Predicate.UnsignedLessOrEqual
                 or Predicate.SignedGreaterOrEqual or Predicate.SignedLessOrEqual);
+        }
+
+        if (predicate <= Predicate.FloatTrue)
+        {
+            return FloatCompare(module, predicate, left, right);
         }
 
         var a = IntegerConstant(left);
@@ -82,6 +101,40 @@ internal static class ConstantFolding
         }
 
         return module.Bool(result.Value);
+    }
+
+    /// <summary>
+    /// A comparison of two 32-bit float constants (<c>v_mul_legacy</c> asks whether its constant factor is zero): bits 0-2
+    /// of the predicate are equal, greater and less, bit 3 "or unordered".
+    /// </summary>
+    private static Value? FloatCompare(DxilModule module, Predicate predicate, Value left, Value right)
+    {
+        const int EqualBit = 1;
+        const int GreaterBit = 2;
+        const int LessBit = 4;
+        const int UnorderedBit = 8;
+
+        var a = left as Constant;
+        var b = right as Constant;
+
+        if (a is null || b is null || a.Kind != ConstantKind.FloatingPoint || b.Kind != ConstantKind.FloatingPoint
+            || a.Type.Kind != IrTypeKind.Float || b.Type.Kind != IrTypeKind.Float)
+        {
+            return null;
+        }
+
+        var x = BitConverter.Int32BitsToSingle((int)a.Bits);
+        var y = BitConverter.Int32BitsToSingle((int)b.Bits);
+        var code = (int)predicate;
+
+        if (float.IsNaN(x) || float.IsNaN(y))
+        {
+            return module.Bool((code & UnorderedBit) != 0);
+        }
+
+        var holds = ((code & EqualBit) != 0 && x == y) || ((code & GreaterBit) != 0 && x > y) || ((code & LessBit) != 0 && x < y);
+
+        return module.Bool(holds);
     }
 
     /// <summary>An integer-to-integer cast of a constant; null otherwise.</summary>
@@ -181,6 +234,7 @@ internal static class ConstantFolding
             BinaryOp.Mul or BinaryOp.UDiv or BinaryOp.SDiv when one => value,
             BinaryOp.And when allOnes => value,
             BinaryOp.And or BinaryOp.Mul when zero => module.Int(value.Type, 0),
+            BinaryOp.Or when allOnes => constant,
             _ => null,
         };
     }
