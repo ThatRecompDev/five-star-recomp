@@ -19,6 +19,14 @@ namespace FiveStar.Loader.Shims.Input;
 /// motions and marks of the blocks before it that have not started yet are dropped. The lines before the first
 /// <c>screen</c> line are block 0, which begins at loader start.
 /// </para>
+/// <para>
+/// A line <c>change &lt;name&gt; [&lt;min changed cells&gt;]</c> starts a block that begins once the frame differs from
+/// the first frame seen after the block before began: a press repeated there (<c>repeat &lt;n&gt; every &lt;s&gt;</c>)
+/// stops once it took, and is pressed again while it did not. Both block lines take <c>region &lt;first column&gt;
+/// &lt;first row&gt; &lt;last column&gt; &lt;last row&gt;</c> (cells of <see cref="ScreenSignature"/>, 48 x 27) to compare
+/// only that part of the frame, and <c>timeout &lt;s&gt;</c> to begin anyway, warned, that long after the block before
+/// began (<see cref="ScriptBlock"/>).
+/// </para>
 /// </summary>
 internal sealed class InputScript
 {
@@ -32,6 +40,16 @@ internal sealed class InputScript
     private const string LearnWord = "learn";
     private const string CursorWord = "cursor";
     private const string ScreenWord = "screen";
+    private const string ChangeWord = "change";
+    private const string RegionWord = "region";
+    private const string TimeoutWord = "timeout";
+
+    /// <summary>A region names four cells: first column, first row, last column, last row.</summary>
+    private const int RegionFields = 4;
+    private const int FirstColumnField = 0;
+    private const int FirstRowField = 1;
+    private const int LastColumnField = 2;
+    private const int LastRowField = 3;
 
     /// <summary>A line starts with the time and the key; the options follow as word and value pairs.</summary>
     private const int FixedFields = 2;
@@ -47,15 +65,16 @@ internal sealed class InputScript
 
     private readonly double[] _starts;
 
-    private InputScript(IReadOnlyList<ScriptedPress> presses, IReadOnlyList<ScriptedMotion> motions, IReadOnlyList<ScriptedMark> marks, IReadOnlyList<string> screens, IReadOnlyList<int> limits)
+    private InputScript(IReadOnlyList<ScriptedPress> presses, IReadOnlyList<ScriptedMotion> motions, IReadOnlyList<ScriptedMark> marks, IReadOnlyList<ScriptBlock> blocks)
     {
         Presses = presses;
         Motions = motions;
         Marks = marks;
-        Screens = screens;
-        Limits = limits;
+        Blocks = blocks;
+        Screens = [.. blocks.Select(b => b.Name)];
+        Limits = [.. blocks.Select(b => b.Limit)];
 
-        _starts = new double[screens.Count];
+        _starts = new double[blocks.Count];
         Array.Fill(_starts, double.NaN);
         _starts[0] = 0;
     }
@@ -69,7 +88,10 @@ internal sealed class InputScript
     /// <summary>The <c>capture</c> and <c>learn</c> lines, in block and start order.</summary>
     public IReadOnlyList<ScriptedMark> Marks { get; }
 
-    /// <summary>The screen each block waits for; block 0's is empty.</summary>
+    /// <summary>What each block waits for; block 0 begins at loader start.</summary>
+    public IReadOnlyList<ScriptBlock> Blocks { get; }
+
+    /// <summary>The screen each block waits for (a <c>change</c> block's name); block 0's is empty.</summary>
     public IReadOnlyList<string> Screens { get; }
 
     /// <summary>The changed cells each block allows (<c>screen &lt;name&gt; &lt;max changed cells&gt;</c>); 0: the learned screen's limit.</summary>
@@ -117,8 +139,7 @@ internal sealed class InputScript
         var presses = new List<ScriptedPress>();
         var motions = new List<ScriptedMotion>();
         var marks = new List<ScriptedMark>();
-        var screens = new List<string> { string.Empty };
-        var limits = new List<int> { 0 };
+        var blocks = new List<ScriptBlock> { ScriptBlock.First };
         double previous = 0;
 
         foreach (string raw in lines)
@@ -130,10 +151,9 @@ internal sealed class InputScript
                 continue;
             }
 
-            if (fields[0].Equals(ScreenWord, StringComparison.OrdinalIgnoreCase))
+            if (fields[0].Equals(ScreenWord, StringComparison.OrdinalIgnoreCase) || fields[0].Equals(ChangeWord, StringComparison.OrdinalIgnoreCase))
             {
-                screens.Add(ScreenName(fields));
-                limits.Add(ScreenLimit(fields));
+                blocks.Add(ParseBlock(fields));
                 previous = 0;
 
                 continue;
@@ -146,10 +166,10 @@ internal sealed class InputScript
 
             previous = LineTime(fields[0], previous);
             fields[0] = previous.ToString(CultureInfo.InvariantCulture);
-            ParseLine(fields, screens.Count - 1, presses, motions, marks);
+            ParseLine(fields, blocks.Count - 1, presses, motions, marks);
         }
 
-        return new InputScript([.. presses.OrderBy(p => p.Block).ThenBy(p => p.Start)], motions, [.. marks.OrderBy(m => m.Block).ThenBy(m => m.Start)], screens, limits);
+        return new InputScript([.. presses.OrderBy(p => p.Block).ThenBy(p => p.Start)], motions, [.. marks.OrderBy(m => m.Block).ThenBy(m => m.Start)], blocks);
     }
 
     /// <summary>Takes over the begun blocks of <paramref name="older"/> while its screens match this script's (a reload).</summary>
@@ -166,6 +186,12 @@ internal sealed class InputScript
 
             _starts[block] = start;
         }
+    }
+
+    /// <summary>When <paramref name="block"/> started waiting (the block before it began); NaN while it does not wait yet.</summary>
+    public double WaitingSince(int block)
+    {
+        return Volatile.Read(ref _starts[block - 1]);
     }
 
     /// <summary>Begins <paramref name="block"/> at <paramref name="seconds"/>.</summary>
@@ -206,6 +232,29 @@ internal sealed class InputScript
         var press = Presses[index];
 
         return TryTime(press.Block, press.Start, out double at) && at <= seconds;
+    }
+
+    /// <summary>Whether a press of <paramref name="block"/> started by <paramref name="seconds"/>; true for a block without presses.</summary>
+    public bool Pressed(int block, double seconds)
+    {
+        bool any = false;
+
+        for (int i = 0; i < Presses.Count; i++)
+        {
+            if (Presses[i].Block != block)
+            {
+                continue;
+            }
+
+            any = true;
+
+            if (Started(i, seconds))
+            {
+                return true;
+            }
+        }
+
+        return !any;
     }
 
     /// <summary>How far the scripted cursor motions moved the cursor by <paramref name="seconds"/>, in pixels.</summary>
@@ -301,24 +350,76 @@ internal sealed class InputScript
         return fields[LearnNameField];
     }
 
-    private static int ScreenLimit(string[] fields)
+    /// <summary>
+    /// A <c>screen</c> or <c>change</c> line: <c>&lt;word&gt; &lt;name&gt; [&lt;cells&gt;] [region &lt;first column&gt;
+    /// &lt;first row&gt; &lt;last column&gt; &lt;last row&gt;] [timeout &lt;s&gt;]</c>.
+    /// </summary>
+    private static ScriptBlock ParseBlock(string[] fields)
     {
-        if (fields.Length <= ScreenLimitField)
-        {
-            return 0;
-        }
+        bool change = fields[0].Equals(ChangeWord, StringComparison.OrdinalIgnoreCase);
 
-        return int.Parse(fields[ScreenLimitField], CultureInfo.InvariantCulture);
-    }
-
-    private static string ScreenName(string[] fields)
-    {
         if (fields.Length <= ScreenNameField)
         {
-            throw new FormatException("input script: screen needs a screen name");
+            throw new FormatException($"input script: {fields[0]} needs a name");
         }
 
-        return fields[ScreenNameField];
+        int at = ScreenLimitField;
+        int limit = 0;
+
+        if (at < fields.Length && int.TryParse(fields[at], NumberStyles.Integer, CultureInfo.InvariantCulture, out int cells))
+        {
+            limit = cells;
+            at++;
+        }
+
+        var (region, timeout) = BlockOptions(fields, at);
+
+        return new ScriptBlock(fields[ScreenNameField], limit, change, region, timeout);
+    }
+
+    private static (CellRegion Region, double Timeout) BlockOptions(string[] fields, int at)
+    {
+        var region = CellRegion.Whole;
+        double timeout = 0;
+
+        while (at < fields.Length)
+        {
+            if (fields[at].Equals(RegionWord, StringComparison.OrdinalIgnoreCase) && at + RegionFields < fields.Length)
+            {
+                region = Region(fields, at + 1);
+                at += RegionFields + 1;
+            }
+            else if (fields[at].Equals(TimeoutWord, StringComparison.OrdinalIgnoreCase) && at + 1 < fields.Length)
+            {
+                timeout = Number(fields[at + 1]);
+                at += OptionFields;
+            }
+            else
+            {
+                throw new FormatException($"input script: unknown word '{fields[at]}' after {fields[0]} {fields[ScreenNameField]}");
+            }
+        }
+
+        return (region, timeout);
+    }
+
+    private static CellRegion Region(string[] fields, int first)
+    {
+        var cells = new int[RegionFields];
+
+        for (int i = 0; i < RegionFields; i++)
+        {
+            cells[i] = int.Parse(fields[first + i], CultureInfo.InvariantCulture);
+        }
+
+        var region = new CellRegion(cells[FirstColumnField], cells[FirstRowField], cells[LastColumnField], cells[LastRowField]);
+
+        if (!region.IsValid())
+        {
+            throw new FormatException($"input script: region {region} is not inside the {ScreenSignature.Columns}x{ScreenSignature.Rows} cells");
+        }
+
+        return region;
     }
 
     /// <summary>The line's time and its hold, repeat and every options, which start at field <paramref name="first"/>.</summary>

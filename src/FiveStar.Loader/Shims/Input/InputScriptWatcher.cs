@@ -9,17 +9,16 @@ namespace FiveStar.Loader.Shims.Input;
 /// <summary>
 /// Follows the <c>--input-script</c> file while the game runs. Every <see cref="Interval"/> it reloads the file when
 /// its write time changed (a file that does not parse keeps the old script, warned once per change; begun blocks stay
-/// begun), starts the <c>capture</c> and <c>learn</c> lines whose time has come, and while a <c>screen</c> block waits
-/// asks for the next present's signature. A block begins when <see cref="RequiredMatches"/> signatures in a row show
-/// its learned screen, or when the teach key (<see cref="TeachKey"/>) is pressed: the screen showing then is learned
-/// under the block's name. Marks already due when a script is loaded are skipped.
+/// begun), starts the <c>capture</c> and <c>learn</c> lines whose time has come, and while a <c>screen</c> or
+/// <c>change</c> block waits asks for the next present's signature. A block begins when the <see cref="BlockMatcher"/>
+/// sees its screen or its change, when its timeout passes (warned), or when the teach key (<see cref="TeachKey"/>) is
+/// pressed while a screen block waits: the screen showing then is learned under the block's name. Marks already due when
+/// a script is loaded are skipped.
 /// </summary>
 internal sealed class InputScriptWatcher : IDisposable
 {
     /// <summary>F8 on the real keyboard.</summary>
     public const int TeachKey = 0x77;
-
-    private const int RequiredMatches = 2;
 
     private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(250);
 
@@ -39,9 +38,8 @@ internal sealed class InputScriptWatcher : IDisposable
     private readonly List<string> _learning = [];
     private InputScript _script;
     private bool[] _marksDone;
+    private readonly BlockMatcher _matcher = new();
     private DateTime _written;
-    private int _matches;
-    private int _nearest = int.MaxValue;
     private int _unlearnedBlock;
     private double _nextReport;
     private bool _teachHeld;
@@ -178,7 +176,10 @@ internal sealed class InputScriptWatcher : IDisposable
         }
     }
 
-    /// <summary>Asks for a signature while a block waits for a learned screen or the teach key was pressed.</summary>
+    /// <summary>
+    /// Asks for a signature while a block waits for a learned screen or a change, or the teach key was pressed; begins a
+    /// block that ran past its timeout.
+    /// </summary>
     private void Watch(double seconds)
     {
         int block = _script.WaitingBlock;
@@ -197,17 +198,25 @@ internal sealed class InputScriptWatcher : IDisposable
             return;
         }
 
-        string name = _script.Screens[block];
+        var waiting = _script.Blocks[block];
 
-        if (_teaching || _screens.TryGet(name, out _, out _))
+        if (BlockMatcher.TimedOut(waiting, _script.WaitingSince(block), seconds))
+        {
+            _log.Warn($"[input] {Kind(waiting)} {waiting.Name} did not show within {waiting.Timeout:F1} s: block {block} begins anyway");
+            Begin(block, waiting.Name, seconds, "timed out");
+
+            return;
+        }
+
+        if (_teaching || waiting.Change || _screens.TryGet(waiting.Name, out _, out _))
         {
             _sample();
-            Report(name, seconds);
+            Report(waiting, seconds);
         }
         else if (_unlearnedBlock != block)
         {
             _unlearnedBlock = block;
-            _log.Info($"  [input] script waits for screen {name}, which is not learned yet: press F8 when it shows");
+            _log.Info($"  [input] script waits for screen {waiting.Name}, which is not learned yet: press F8 when it shows");
         }
     }
 
@@ -220,58 +229,68 @@ internal sealed class InputScriptWatcher : IDisposable
             return;
         }
 
-        string name = _script.Screens[block];
+        var waiting = _script.Blocks[block];
 
-        if (_teaching)
+        if (_teaching && !waiting.Change)
         {
             _teaching = false;
-            _screens.Learn(name, signature);
-            Begin(block, name, seconds, "taught");
+            _screens.Learn(waiting.Name, signature);
+            Begin(block, waiting.Name, seconds, "taught");
 
             return;
         }
 
-        if (!_screens.TryGet(name, out var learned, out int maxChanged))
+        ScreenSignature? learned = null;
+        int limit = 0;
+
+        if (!waiting.Change && _screens.TryGet(waiting.Name, out var stored, out limit))
         {
-            return;
+            learned = stored;
         }
 
-        if (_script.Limits[block] > 0)
-        {
-            maxChanged = _script.Limits[block];
-        }
+        string? how = _matcher.Seen(waiting, block, signature, learned, limit, !_script.Pressed(block - 1, seconds));
 
-        int distance = learned.Distance(signature);
-        _nearest = Math.Min(_nearest, distance);
-        _matches = distance <= maxChanged ? _matches + 1 : 0;
-
-        if (_matches >= RequiredMatches)
+        if (how is not null)
         {
-            Begin(block, name, seconds, $"{distance} cells changed");
+            Begin(block, waiting.Name, seconds, how);
         }
     }
 
     private void Begin(int block, string name, double seconds, string how)
     {
         _script.Begin(block, seconds);
-        _matches = 0;
-        _nearest = int.MaxValue;
-        _log.Info($"  [input] screen {name} at {seconds:F1} s ({how}): block {block} begins");
+        _matcher.Began();
+        _teaching = false;
+        _log.Info($"  [input] {Kind(_script.Blocks[block])} {name} at {seconds:F1} s ({how}): block {block} begins");
     }
 
-    private void Report(string name, double seconds)
+    private static string Kind(ScriptBlock block)
+    {
+        if (block.Change)
+        {
+            return "change";
+        }
+
+        return "screen";
+    }
+
+    private void Report(ScriptBlock waiting, double seconds)
     {
         if (seconds < _nextReport)
         {
             return;
         }
 
-        if (_nextReport > 0 && _nearest != int.MaxValue)
+        if (_nextReport > 0 && waiting.Change)
         {
-            _log.Info($"  [input] waiting for screen {name} at {seconds:F1} s: nearest frame {_nearest} cells changed");
+            _log.Info($"  [input] waiting for change {waiting.Name} at {seconds:F1} s: at most {_matcher.Largest} cells changed");
+        }
+        else if (_nextReport > 0 && _matcher.Nearest != int.MaxValue)
+        {
+            _log.Info($"  [input] waiting for screen {waiting.Name} at {seconds:F1} s: nearest frame {_matcher.Nearest} cells changed");
         }
 
         _nextReport = seconds + ReportSeconds;
-        _nearest = int.MaxValue;
+        _matcher.ResetNearest();
     }
 }
