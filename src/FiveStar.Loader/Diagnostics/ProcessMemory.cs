@@ -25,7 +25,7 @@ internal static unsafe class ProcessMemory
             privateBytes = counters.PrivateUsage;
         }
 
-        return $"memory: private {Gigabytes((long)privateBytes)}, managed heap {Gigabytes(GC.GetTotalMemory(false))}, XMem allocations {Gigabytes(xmemBytes)}, physical pages {Gigabytes(physicalBytes)}";
+        return $"memory: private {Gigabytes((long)privateBytes)} ({Gigabytes(WriteCombinedMemory.CachedBytes)} of it write-combined: the driver's mapping of video memory, not RAM), managed heap {Gigabytes(GC.GetTotalMemory(false))}, XMem allocations {Gigabytes(xmemBytes)}, physical pages {Gigabytes(physicalBytes)}";
     }
 
     private static string Gigabytes(long bytes)

@@ -159,6 +159,13 @@ its arena 1, 2, 4, 8 GB. Everything else stayed flat: heaps 1.5 to 2 GB, `XMemVi
 0.2 GB, managed heap 1 to 1.5 GB, write-combined 5.2 GB. [d3d12x-pipelines.md](d3d12x-pipelines.md#stand-ins) has
 the compile budget.
 
+**Write-combined private memory is video memory.** On the RTX 4090 the driver maps device-local allocations into the
+process as committed private write-combined regions (0x404, often 32 MiB): 400 default-heap textures of 1 MB added
+400 MB of write-combined private memory, 400 MB of private bytes and 400 MB of GPU local memory, and 2 MB of working
+set. A cold boot's grew from 5 to 12.6 GB after the story load step for step with GPU local memory (non-local flat).
+It is charged to commit but not backed by RAM, so the sample summary names it inside private bytes, and the compile
+ceiling leaves it out.
+
 ## Unknown
 
 - Whether ntdll keeps honouring `PEB.NtGlobalFlag` set at the create-process event in later Windows releases (checked
