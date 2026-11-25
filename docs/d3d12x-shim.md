@@ -469,6 +469,14 @@ flowchart LR
   (`DesktopRecords`), and a copy from one into a title heap writes them into the copied records: before, those copies
   wrote none, and PositionOnly's per-meshlet V#s, read from such copies, came out as {heap index, 0, 0, 0}. The first
   16 copies that carry fields are logged with their game index.
+- **Raw views at kept-index slots** (`RawBufferViews`, on unless `--typed-buffer-views`). A program reaches the slot of a
+  record that keeps the heap index (or has no V# fields) directly and reads it as a ByteAddressBuffer, writes it as a
+  RWByteAddressBuffer at the same index, and issues the load even when its range check fails; a typed, structured or
+  constant-buffer view there is a type mismatch, undefined in D3D12 (w47 kept a 16-bit typed view of 3,072 indices).
+  Such SRVs, UAVs (without their counter) and slot-70 views are written raw over the same bytes, or null (reads 0)
+  when they start off D3D12's 16 raw bytes or have no element size; a constant-buffer view in a game heap that gets
+  no raw view becomes a null raw SRV. Based records are left alone. The sample summary counts the views made raw, the
+  null ones and the read-only kept-index slots a program's write could reach (the case a UAV alias would cover).
 - **Window guard** (`WindowGuard`, on unless `--no-window-guard`). The window holds room for 2,097,152 view records
   (the game's main heap has 1,245,184; the regions past the records started after 1,000,000 before, so the shim's
   mirror of records 1,000,000 and up wrote into the store-trace ring, the window flags and the mesh probe's ring), then
