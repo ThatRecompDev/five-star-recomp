@@ -28,8 +28,11 @@ internal static unsafe class UavViews
 
     private static readonly ConcurrentDictionary<nint, UavView> Views = new();
 
-    /// <summary>Notes the texture UAV the game wrote to desktop descriptor <paramref name="handle"/> (a buffer or other view is forgotten there).</summary>
-    public static void Note(nint handle, ResourceDescription resource, void* description)
+    /// <summary>Desktop resources the game also reads as shared-exponent light (an R9G9B9E5 view of an R32_UINT texture).</summary>
+    private static readonly ConcurrentDictionary<nint, byte> SharedExponentResources = new();
+
+    /// <summary>Notes the texture UAV of <paramref name="desktop"/> the game wrote to desktop descriptor <paramref name="handle"/> (a buffer or other view is forgotten there).</summary>
+    public static void Note(nint handle, nint desktop, ResourceDescription resource, void* description)
     {
         var view = Of(resource, (uint*)description);
 
@@ -40,7 +43,22 @@ internal static unsafe class UavViews
             return;
         }
 
-        Views[handle] = view.Value;
+        Views[handle] = view.Value with { Resource = desktop };
+    }
+
+    /// <summary>The game made an R9G9B9E5 view of desktop resource <paramref name="desktop"/> (an R32_UINT texture it writes light into).</summary>
+    public static void NoteSharedExponent(nint desktop)
+    {
+        if (desktop != 0)
+        {
+            SharedExponentResources.TryAdd(desktop, 0);
+        }
+    }
+
+    /// <summary>Whether the game reads desktop resource <paramref name="desktop"/> as shared-exponent light.</summary>
+    public static bool SharedExponent(nint desktop)
+    {
+        return desktop != 0 && SharedExponentResources.ContainsKey(desktop);
     }
 
     /// <summary>Desktop descriptors <paramref name="first"/> on are rewritten (any view, or a copy): what they held is forgotten.</summary>

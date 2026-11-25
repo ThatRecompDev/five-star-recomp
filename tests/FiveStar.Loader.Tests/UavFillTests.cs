@@ -85,10 +85,27 @@ public sealed unsafe class UavFillTests
     public void Integer_views_are_never_filled_and_the_probe_grey_only_reaches_float_colour()
     {
         // R32_UINT (packed probe fields), R8G8B8A8_UNORM (encoded normals), R16G16B16A16_FLOAT and R8_UNORM.
-        Assert.False(RtStandIns.Takes(42, colourOnly: false));
-        Assert.False(RtStandIns.Takes(28, colourOnly: true));
-        Assert.True(RtStandIns.Takes(10, colourOnly: true));
-        Assert.True(RtStandIns.Takes(61, colourOnly: false));
+        Assert.False(RtStandIns.Takes(View(42, 0), colourOnly: false));
+        Assert.False(RtStandIns.Takes(View(28, 0), colourOnly: true));
+        Assert.True(RtStandIns.Takes(View(10, 0), colourOnly: true));
+        Assert.True(RtStandIns.Takes(View(61, 0), colourOnly: false));
+    }
+
+    [Fact]
+    public void An_r32_uint_view_takes_the_probe_grey_only_when_its_texture_is_read_as_shared_exponent_light()
+    {
+        const nint Light = 0x5150;
+        const nint Fields = 0x5160;
+        UavViews.NoteSharedExponent(Light);
+
+        Assert.True(RtStandIns.Takes(View(42, Light), colourOnly: true));
+        Assert.False(RtStandIns.Takes(View(42, Light), colourOnly: false));
+        Assert.False(RtStandIns.Takes(View(42, Fields), colourOnly: true));
+    }
+
+    private static UavView View(int format, nint resource)
+    {
+        return new UavView(format, UavViews.Texture2D, Size, Size, 1, resource);
     }
 
     private static Shims.D3D12X.ResourceDescription Resource(Vortice.Direct3D12.ResourceDescription description)

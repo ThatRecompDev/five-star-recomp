@@ -307,7 +307,7 @@ internal static unsafe class XboxDescriptorMethods
 
             if (RtStandIns.Enabled)
             {
-                UavViews.Note(destination, desc, view);
+                UavViews.Note(destination, desktop, desc, view);
             }
 
             create(inner, desktop, objects.Unwrap(counter), view, destination);

@@ -46,6 +46,12 @@ internal static unsafe class ImageViewClasses
         return Float;
     }
 
+    /// <summary>Whether a view in <paramref name="viewFormat"/> read in <paramref name="readFormat"/> is shared-exponent light in an R32_UINT texture.</summary>
+    public static bool SharedExponentRead(int viewFormat, int readFormat)
+    {
+        return viewFormat == SharedExponentFormat && readFormat == R32Uint;
+    }
+
     /// <summary>
     /// <paramref name="record"/> with the class a view in <paramref name="viewFormat"/> needs when the desktop reads it in
     /// <paramref name="readFormat"/>: a shared-exponent view of an R32_UINT texture the GPU wrote (the game writes its
@@ -55,7 +61,7 @@ internal static unsafe class ImageViewClasses
     [HotPath]
     public static BufferRecord Read(BufferRecord record, int viewFormat, int readFormat)
     {
-        if (!Enabled || record.IsBuffer || viewFormat != SharedExponentFormat || readFormat != R32Uint)
+        if (!Enabled || record.IsBuffer || !SharedExponentRead(viewFormat, readFormat))
         {
             return record;
         }
