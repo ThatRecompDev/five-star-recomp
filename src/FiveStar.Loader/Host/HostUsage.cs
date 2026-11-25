@@ -49,6 +49,8 @@ internal static class HostUsage
                                  default: FIVESTAR_DXC, beside the loader, then the Windows SDK
           --shader-jobs <n>      threads that make programs on first use (default: half the processors with the
                                  DXIL backend, a quarter with dxc)
+          --placed-textures      read-only console textures share large placed heaps instead of a committed
+                                 resource each (the driver's write-combined memory grew about 0.55 MB per texture)
           --max-driver-compiles <n>  driver pipeline compiles of 256 KB of DXIL or more at once (default 4)
           --compile-ceiling <GB> no such compile starts while private bytes and the running ones' expected arenas
                                  would pass this (default 28); one always may when none runs

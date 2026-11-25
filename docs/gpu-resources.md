@@ -45,6 +45,12 @@ flowchart LR
   released 120 presents later (the memory went to something else). Keeping them all was a leak: in the
   opening cutscene the game streams textures through the same memory, about 45,000 were made in 7 minutes, and once
   video memory was full the process grew by 2 to 3 GB every 30 s until the machine ran out.
+- **Placed textures** (`--placed-textures`, off by default, `PlacedTextureHeaps`): read-only single-sample textures
+  are placed in shared 256 MB default heaps (non-RT/DS textures only, every heap tier) instead of a committed resource
+  each; the driver's write-combined system memory grew by about 0.55 MB per committed texture (22,000 textures, 17 GB
+  by 275 s of a cold boot). A texture larger than 64 MB gets a heap of its own. A COM object set as the texture's
+  private data gives its range back when the runtime destroys the texture; the registry's grace periods keep the GPU
+  off a range before it is reused, and the upload writes the new texture whole before it is read.
 - **Slot 133** (`GpuTextures.CreatePlaced`): a committed desktop texture in its home state ([Barriers](#barriers)).
   With ALLOW_RENDER_TARGET, ALLOW_DEPTH_STENCIL or ALLOW_UNORDERED_ACCESS it is GPU-written and never filled from
   memory; otherwise it is filled at creation.

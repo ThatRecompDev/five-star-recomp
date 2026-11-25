@@ -504,6 +504,10 @@ internal sealed class CommandLineParser
                 return true;
             case "--max-driver-compiles" or "--compile-ceiling":
                 return SetCompileLimit(option);
+            case "--placed-textures":
+                _options.PlacedTextures = true;
+
+                return true;
             default:
                 throw new CommandLineException($"unknown argument {option}");
         }

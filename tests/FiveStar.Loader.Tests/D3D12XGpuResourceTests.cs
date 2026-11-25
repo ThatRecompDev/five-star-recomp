@@ -24,6 +24,7 @@ public sealed unsafe class D3D12XGpuResourceTests
     /// <summary>D3D12_TEX2D_SRV::MipLevels: the union starts at +0x10 (8-byte aligned), MostDetailedMip first.</summary>
     private const int TextureMipLevelsWord = 5;
     private const int ShaderResourceLayout = 6;
+    private const int ShaderResourceState = 0xC0;
     private const ulong RangeBytes = 0x20000;
     private const uint Reserve64K = 0x20402000;
     private const uint CpuReadWrite = 0x4;
@@ -70,6 +71,26 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.Equal(1, registry.Released);
         Assert.Equal(GpuTextureRegistry.KeptAliases, registry.RetiredCount);
         registry.Dispose();
+    }
+
+    [Fact]
+    public void A_placed_texture_gives_its_heap_range_back_when_it_is_destroyed()
+    {
+        using var test = TestRuntime.Create();
+        _ = new XboxDevice(test);
+        nint device = test.Runtime.D3D12X.Objects.DesktopDevice;
+        var heaps = new PlacedTextureHeaps();
+        var description = new ResourceDescription { Dimension = Texture2D, Width = Size, Height = Size, DepthOrArraySize = 1, MipLevels = 1, Format = Rgba8Unorm, SampleCount = 1 };
+
+        Assert.Equal(0, heaps.Create(device, &description, ShaderResourceState, null, out nint first));
+        Assert.StartsWith("placed textures: 1 live in 1 heaps", heaps.Summary, StringComparison.Ordinal);
+
+        // The runtime releases the range's owner with the texture; the next texture takes the range again.
+        FiveStar.Loader.Native.ComObject.Release(first);
+        Assert.StartsWith("placed textures: 0 live in 1 heaps", heaps.Summary, StringComparison.Ordinal);
+        Assert.Equal(0, heaps.Create(device, &description, ShaderResourceState, null, out nint second));
+        Assert.StartsWith("placed textures: 1 live in 1 heaps", heaps.Summary, StringComparison.Ordinal);
+        FiveStar.Loader.Native.ComObject.Release(second);
     }
 
     [Fact]
