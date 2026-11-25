@@ -59,6 +59,9 @@ internal sealed unsafe class DrawTrace
 
     /// <summary>D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV and ID3D12Device::GetDescriptorHandleIncrementSize (d3d12.h).</summary>
     private const int ViewHeapType = 0;
+
+    /// <summary>D3D12_RESOURCE_DIMENSION_TEXTURE3D.</summary>
+    private const int Texture3D = 4;
     private const int IncrementSlot = 15;
 
     private readonly TracedViews _views = new();
@@ -154,6 +157,13 @@ internal sealed unsafe class DrawTrace
             return;
         }
 
+        View(handle, text);
+    }
+
+    /// <summary>Slot 19 wrote a UAV of desktop <paramref name="resource"/> at <paramref name="handle"/> (a writer's target).</summary>
+    public void UnorderedAccessView(nint resource, nint handle)
+    {
+        string text = resource == 0 ? "UAV of null" : $"UAV of 0x{resource:x} {Describe(resource)}";
         View(handle, text);
     }
 
@@ -986,6 +996,28 @@ internal sealed unsafe class DrawTrace
         using var desktop = new ID3D12Resource(resource);
         var description = desktop.Description;
 
-        return $"{description.Width}x{description.Height} format {(int)description.Format}";
+        return DescribeShape((int)description.Dimension, description.Width, description.Height, description.DepthOrArraySize, description.MipLevels, (int)description.Format);
+    }
+
+    /// <summary>"WxH format F", with ", 3D depth D", ", N slices" and ", M mips" when they are not 1 (a buffer is only its width).</summary>
+    internal static string DescribeShape(int dimension, ulong width, uint height, int depth, int mips, int format)
+    {
+        string shape = $"{width}x{height} format {format}";
+
+        if (dimension == Texture3D)
+        {
+            shape += $", 3D depth {depth}";
+        }
+        else if (depth > 1)
+        {
+            shape += $", {depth} slices";
+        }
+
+        if (mips > 1)
+        {
+            shape += $", {mips} mips";
+        }
+
+        return shape;
     }
 }

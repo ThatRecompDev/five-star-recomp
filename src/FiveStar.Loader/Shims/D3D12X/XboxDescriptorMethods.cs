@@ -201,7 +201,7 @@ internal static unsafe class XboxDescriptorMethods
         try
         {
             nint desktop = D3D12X.Objects.Unwrap(resource);
-            D3D12X.DrawTrace?.ShaderResourceView(desktop, Destination(handle), resource);
+            nint traced = desktop;
             var record = ImageViewClasses.With(BufferRecords.Based(BufferRecords.ShaderResource(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: false), desktop, ViewKind.ShaderResource), description);
             NoteFieldless(description, record, unordered: false);
 
@@ -212,6 +212,9 @@ internal static unsafe class XboxDescriptorMethods
             void* view = TargetViewDescriptions.ShaderResourceView(desktop, fitted, copy);
 
             nint destination = D3D12X.DescriptorHeaps.Destination(handle, record);
+
+            // Traced at the handle the view is written to: a second Destination call takes another ring slot.
+            D3D12X.DrawTrace?.ShaderResourceView(traced, destination, resource);
             void* written = DepthViewDescriptions.ShaderResourceView(desktop, view, copy);
             CreateDesktopView(self, CreateShaderResourceViewSlot, desktop, written, destination);
             Written(destination, resource, desktop, written, unordered: false);
@@ -283,7 +286,7 @@ internal static unsafe class XboxDescriptorMethods
                 }
 
                 WarnNullUnorderedAccessView(desc, resource, description, handle);
-                create(inner, 0, 0, TargetViewDescriptions.NullUnorderedAccessView(description, copy), Destination(handle));
+                NullUnorderedAccessView(create, inner, description, copy, handle);
 
                 return;
             }
@@ -451,6 +454,14 @@ internal static unsafe class XboxDescriptorMethods
     }
 
     /// <summary>Warns once; a depth texture's UAV is also noted by resource and heap index (<see cref="DepthUavs"/>).</summary>
+    /// <summary>Writes a null UAV in place of one the desktop resource cannot take, traced at the handle it went to.</summary>
+    private static void NullUnorderedAccessView(delegate* unmanaged<nint, nint, nint, void*, nint, void> create, nint inner, void* description, byte* copy, nint handle)
+    {
+        nint destination = Destination(handle);
+        create(inner, 0, 0, TargetViewDescriptions.NullUnorderedAccessView(description, copy), destination);
+        D3D12X.DrawTrace?.UnorderedAccessView(0, destination);
+    }
+
     private static void WarnNullUnorderedAccessView(ResourceDescription desc, nint resource, void* description, nint handle)
     {
         var game = D3D12X.Objects.AsResource(resource);
@@ -630,11 +641,16 @@ internal static unsafe class XboxDescriptorMethods
         }
     }
 
-    /// <summary>The view just written at <paramref name="destination"/>: its dimension checked, and with <c>--check-view-liveness</c> noted.</summary>
+    /// <summary>The view just written at <paramref name="destination"/>: its dimension checked, a UAV traced, and with <c>--check-view-liveness</c> noted.</summary>
     [HotPath]
     private static void Written(nint destination, nint resource, nint desktop, void* view, bool unordered)
     {
         ViewDimensions.Check(desktop, view, unordered);
+
+        if (unordered)
+        {
+            D3D12X.DrawTrace?.UnorderedAccessView(desktop, destination);
+        }
 
         if (ViewLiveness.Noting)
         {

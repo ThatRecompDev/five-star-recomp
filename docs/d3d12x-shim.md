@@ -810,7 +810,7 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
 - `--d3d12-trace-draws` logs the first 24 draws, and 32 after each captured present: pipeline (programs, input
   layout, target formats, blend, rasterizer and depth state), render targets, viewport, scissor, depth view, vertex
   buffers with their first vertices, the graphics user SGPRs, the first 8 records of every table with the view
-  each names, the game's own record and a buffer's first values, and every root CBV, SRV or UAV with its address and
+  each names (SRVs and UAVs with their resource's size, format, 3D depth or slices and mips), the game's own record and a buffer's first values, and every root CBV, SRV or UAV with its address and
   the first 16 dwords there. After each traced draw the first render target is
   copied inside the game's list (`DrawProbes`) and summarized two presents later (non-black pixels, their box, mean
   colour). At each captured present a census (`DrawCensus`) logs every draw, dispatch and ExecuteIndirect since the

@@ -53,6 +53,19 @@ public sealed class DrawProbeReadbackTests
         Assert.False(views.TryTexture(Handle, out _));
     }
 
+    /// <summary>A 3D volume and a 2D view of its first slice read apart in the trace (the scattering distance volume).</summary>
+    [Fact]
+    public void A_traced_resource_shows_its_depth_slices_and_mips()
+    {
+        const int Texture2D = 3;
+        const int Texture3D = 4;
+        const int R16Float = 54;
+
+        Assert.Equal("60x34 format 54, 3D depth 512", DrawTrace.DescribeShape(Texture3D, 60, 34, 512, 1, R16Float));
+        Assert.Equal("60x34 format 54", DrawTrace.DescribeShape(Texture2D, 60, 34, 1, 1, R16Float));
+        Assert.Equal("512x512 format 71, 6 slices, 9 mips", DrawTrace.DescribeShape(Texture2D, 512, 512, 6, 9, 71));
+    }
+
     [Fact]
     public void A_mapped_readback_summarizes_and_converts_as_a_managed_copy_did()
     {
