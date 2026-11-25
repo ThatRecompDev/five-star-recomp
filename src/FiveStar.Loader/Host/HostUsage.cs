@@ -115,6 +115,9 @@ internal static class HostUsage
                                  view's base address (the behaviour before; programs that build pointers from a V# break)
           --typed-buffer-views   buffer views at slots programs reach by heap index keep the game's typed or structured
                                  kind (the behaviour before); by default they are raw, as programs read them
+          --check-null-addresses  root views, indirect argument and count buffers, bottom-of-pipe writes and buffer
+                                 copies that would reach a null GPU address or read past their buffer are logged
+                                 (the first 8 of each kind, with list and pipeline) and dropped
           --user-data-constants  draws pass their user data as root constants, not a root CBV in upload memory (needs
                                  programs made on demand)
           --trace-pool-stores    programs made on demand log their stores into the transient pool and the game heap
