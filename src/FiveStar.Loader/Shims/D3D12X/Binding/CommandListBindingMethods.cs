@@ -836,11 +836,6 @@ internal static unsafe class CommandListBindingMethods
             extent = layout->Extents[parameter];
         }
 
-        if (extent < DescriptorWindow.MinTableRecords)
-        {
-            extent = DescriptorWindow.MinTableRecords;
-        }
-
-        return ShimContext.Runtime.D3D12X.DescriptorHeaps.TableAddress(handle, extent);
+        return ShimContext.Runtime.D3D12X.DescriptorHeaps.TableAddress(handle, DescriptorWindow.MirroredRecords(extent));
     }
 }

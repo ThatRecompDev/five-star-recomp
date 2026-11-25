@@ -38,10 +38,18 @@ internal sealed unsafe class DescriptorWindow
 
     /// <summary>
     /// Records mirrored for any table, whatever its root-signature ranges say: the game places a table's descriptors
-    /// at the offsets of its own binding entries (0x144d9efc0), and its programs read them there (default_ps_tex reads
-    /// its T# at record 1 of a table whose root signature spans one descriptor).
+    /// at the offsets of its own binding entries (0x144d9efc0) by copying their bytes, and its programs read them there
+    /// (default_ps_tex reads its T# at record 1 of a table whose root signature spans one descriptor;
+    /// VS_PassthroughComposite reads records 28 and 41 of a table that spans 7, so 16 left the composite's constants
+    /// stale and it drew a sliver).
     /// </summary>
-    public const uint MinTableRecords = 16;
+    public const uint MinTableRecords = 64;
+
+    /// <summary>The records a table bind mirrors: its root signature's extent, at least <see cref="MinTableRecords"/>.</summary>
+    public static uint MirroredRecords(uint extent)
+    {
+        return Math.Max(extent, MinTableRecords);
+    }
 
     /// <summary>Heap slots the programs reach by constant: the window (rdna_prelude GPU_MEM_HEAP), its writable view, the mesh fallback table.</summary>
     public const uint WindowSlot = 0;
