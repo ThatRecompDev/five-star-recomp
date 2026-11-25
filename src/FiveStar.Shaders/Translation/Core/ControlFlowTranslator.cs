@@ -316,6 +316,13 @@ internal sealed class ControlFlowTranslator
             return true;
         }
 
+        if (mnemonic == "v_readfirstlane_b32" && _state.FirstLaneDirect.TryGetValue(instruction.Address, out var first))
+        {
+            _operands.Write(OperandParser.Parse(operands.Split(',')[0].Trim()), first, 0);
+
+            return false;
+        }
+
         if (mnemonic == "v_readfirstlane_b32" && _state.FirstLaneExchanges.TryGetValue(instruction.Address, out var site))
         {
             Exchange(instruction, operands, site);
