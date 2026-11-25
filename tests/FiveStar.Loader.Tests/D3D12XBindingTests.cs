@@ -234,8 +234,10 @@ public sealed unsafe class D3D12XBindingTests
     public void A_buffer_view_record_holds_its_console_base_and_the_window_mirrors_it()
     {
         const uint Increment = 32;
-        const uint Records = 16;
-        const uint Index = 12;
+        const uint Records = 32;
+
+        // A game view's desktop index: past the reserved buffers and null textures (DescriptorWindow.ReservedViews).
+        const uint Index = 24;
         const nint DesktopStart = 0x1000;
         const ulong Address = 0x27E_0005_0010;
 
