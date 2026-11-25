@@ -9,7 +9,8 @@ namespace FiveStar.Shaders.Translation;
 /// primitives (count, and which of primitives 0 to 31), vertex 0's position when written, per mask the load sites (bit =
 /// site, 31 for any past it) whose range check failed, that read an unmapped page of the address map, or that read
 /// through a record naming no descriptor, the register each of sites 0 to 31 loaded the first time on thread 0 (null
-/// when its line ran on no thread 0 or loads no register), m0 at GS_ALLOC_REQ and the program's number of load sites.
+/// when its line ran on no thread 0 or loads no register), m0 at GS_ALLOC_REQ and the program's number of load sites. Culled
+/// primitives count once each, and only below the group's primitive count.
 /// </summary>
 public readonly record struct MeshProbeRecord(
     uint Id,
@@ -49,6 +50,8 @@ public readonly record struct MeshProbeRecord(
     private const int ValuesMaskWord = 48;
     private const int AllocationWord = 49;
     private const int SitesWord = 50;
+    private const int MarkWord = 51;
+    private const uint Mark = 0x50524f42;
 
     /// <summary>The register each of sites 0 to 31 loaded the first time on thread 0; null where none was noted.</summary>
     public IReadOnlyList<uint?> Values { get; init; } = [];
@@ -58,6 +61,9 @@ public readonly record struct MeshProbeRecord(
 
     /// <summary>The program's number of load sites.</summary>
     public uint Sites { get; init; }
+
+    /// <summary>Whether the record's last dword is its id ^ the probe's mark: a record the probe wrote whole, not stray bytes.</summary>
+    public bool Whole { get; init; }
 
     /// <summary>A record from its <see cref="Dwords"/> dwords (rdna_prelude probe_end).</summary>
     public static MeshProbeRecord Read(ReadOnlySpan<uint> words)
@@ -96,7 +102,7 @@ public readonly record struct MeshProbeRecord(
             words[UnmappedWord],
             words[NullRecordWord]);
 
-        return record with { Values = values, Allocation = allocation, Sites = words[SitesWord] };
+        return record with { Values = values, Allocation = allocation, Sites = words[SitesWord], Whole = words[MarkWord] == (words[0] ^ Mark) };
     }
 
     private static float Float(ReadOnlySpan<uint> words, int at)

@@ -415,6 +415,13 @@ uint fmt_limit(uint limit, uint code) {
     uint n = FMT_BYTES[(code >> 3) & 15u];
     return select(limit < n, 0u, select(limit > 0xfffffff0u, limit, limit - n + 4u));
 }
+// The d16 forms (buffer_load_format_d16_*, tbuffer_store_format_d16_*, ...) carry a component as a 16-bit half: an
+// integer format's low 16 bits, any other format's value as f16; fmt_unhalf widens a stored half back (SINT sign-extended).
+uint fmt_half(uint v, uint code) { return select((code & 7u) - 4u <= 1u, v & 0xffffu, f32tof16(asfloat(v))); }
+uint fmt_unhalf(uint h, uint code) {
+    uint num = code & 7u;
+    return select(num == 4u, h, select(num == 5u, (h ^ 0x8000u) - 0x8000u, asuint(f16tof32(h))));
+}
 uint fmt_select(uint4 v, uint sel, uint one) {
     uint c = select((sel & 3u) == 0u, v.x, select((sel & 3u) == 1u, v.y, select((sel & 3u) == 2u, v.z, v.w)));
     return select(sel >= 4u, c, select(sel == 1u, one, 0u));
@@ -563,11 +570,12 @@ uint perm_b32(uint a, uint b, uint sel) {
 // the first time (probe_value), and m0 at GS_ALLOC_REQ (probe_alloc). At the end of the group thread 0 appends: {id,
 // group x y z; vertices, primitives as SetMeshOutputCounts got them, culled primitives, cull mask of primitives 0-31;
 // vertex 0's position; flags (bit 0: position written, bit 1: m0 noted), range, unmapped and null-record masks;
-// the values of sites 0-31; the mask of values noted; m0; the number of sites}.
+// the values of sites 0-31; the mask of values noted; m0; the number of sites; id ^ PROBE_MARK}.
 #ifdef FIVESTAR_MESH_PROBE
 static const uint PROBE_RECORDS = 4096u;
 static const uint PROBE_RECORD_BYTES = 256u;
 static const uint PROBE_NULL_RECORD = 5u;
+static const uint PROBE_MARK = 0x50524f42u;   // a whole record's last dword: its id ^ this
 static uint g_probe_range, g_probe_unmapped, g_probe_record, g_probe_gi;
 groupshared uint g_probe_g[12];   // range, unmapped, null record, culled, cull mask, flags, position x y z w, values mask, m0
 groupshared uint g_probe_v[32];
@@ -606,10 +614,11 @@ void probe_position(float4 p) {   // thread 0, writing vertex 0
     g_probe_g[5] |= 1u;
     g_probe_g[6] = asuint(p.x); g_probe_g[7] = asuint(p.y); g_probe_g[8] = asuint(p.z); g_probe_g[9] = asuint(p.w);
 }
-void probe_cull(uint prim, bool culled) {
-    if (!culled) return;
-    InterlockedAdd(g_probe_g[3], 1u);
-    if (prim < 32u) InterlockedOr(g_probe_g[4], 1u << prim);
+void probe_cull(uint prim, bool culled, uint np) {   // a primitive of the group's count (np) exported culled, once
+    if (!culled || prim >= np) return;
+    uint before = 0u;
+    if (prim < 32u) InterlockedOr(g_probe_g[4], 1u << prim, before);
+    if ((before & (1u << min(prim, 31u))) == 0u || prim >= 32u) InterlockedAdd(g_probe_g[3], 1u);
 }
 void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the group, at its end
     InterlockedOr(g_probe_g[0], g_probe_range);
@@ -626,6 +635,6 @@ void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the 
     m.Store4(at + 32u, uint4(g_probe_g[6], g_probe_g[7], g_probe_g[8], g_probe_g[9]));
     m.Store4(at + 48u, uint4(g_probe_g[5], g_probe_g[0], g_probe_g[1], g_probe_g[2]));
     [unroll] for (uint k = 0u; k < 32u; k += 4u) m.Store4(at + 64u + k * 4u, uint4(g_probe_v[k], g_probe_v[k + 1u], g_probe_v[k + 2u], g_probe_v[k + 3u]));
-    m.Store4(at + 192u, uint4(g_probe_g[10], g_probe_g[11], FIVESTAR_MESH_PROBE_SITES, 0u));
+    m.Store4(at + 192u, uint4(g_probe_g[10], g_probe_g[11], FIVESTAR_MESH_PROBE_SITES, FIVESTAR_MESH_PROBE ^ PROBE_MARK));
 }
 #endif

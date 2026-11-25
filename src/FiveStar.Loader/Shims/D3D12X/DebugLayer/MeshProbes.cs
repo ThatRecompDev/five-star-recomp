@@ -108,9 +108,10 @@ internal static unsafe class MeshProbes
             records.Add(MeshProbeRecord.Read(new ReadOnlySpan<uint>(at, MeshProbeRecord.Dwords)));
         }
 
-        log.Info($"{Prefix}present {present}: {written} groups probed so far, the last {records.Count}:");
+        int broken = records.Count(record => !record.Whole);
+        log.Info($"{Prefix}present {present}: {written} groups probed so far, the last {records.Count}, {broken} not whole (stray writes into the ring; left out):");
 
-        foreach (var program in records.GroupBy(record => record.Id))
+        foreach (var program in records.Where(record => record.Whole).GroupBy(record => record.Id))
         {
             Summarize(program.Key, [.. program], log);
         }

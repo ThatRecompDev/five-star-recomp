@@ -81,7 +81,7 @@ public static partial class MeshProbe
         text = text.Insert(start + GroupStart.Length, " probe_begin(in_gi);");
         text = text.Replace(Allocation, "g_ms_alloc = 1; probe_alloc(s_m0); }", StringComparison.Ordinal);
         text = NotePosition(text);
-        text = CullPattern().Replace(text, "$0 probe_cull(in_gi, ($1 >> 31) != 0);");
+        text = CullPattern().Replace(text, "$0 probe_cull(in_gi, ($1 >> 31) != 0, g_ms_np);");
         var defines = string.Create(CultureInfo.InvariantCulture, $"#define {Define} {id}u\n#define {Define}_BASE {ringOffset}u\n#define {Define}_SITES {sites.Count}u\n");
 
         return (defines + text, sites);
