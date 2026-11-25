@@ -29,6 +29,11 @@ public sealed unsafe class D3D12XGpuResourceTests
     private const uint Reserve64K = 0x20402000;
     private const uint CpuReadWrite = 0x4;
     private const uint GpuOnly = 0x801;
+    private const int MapSlot = 8;
+    private const int CloseSlot = 9;
+    private const int CopyTextureRegionXSlot = 85;
+    private const int UploadHeap = 2;
+    private const int GenericRead = 0xAC3;
 
     [Fact]
     public void A_texture_whose_memory_went_to_another_is_released_after_its_grace_period()
@@ -122,6 +127,47 @@ public sealed unsafe class D3D12XGpuResourceTests
 
         // The empty memory at creation, then the tiled bytes the view found changed.
         Assert.Equal(2, counters[GpuResourceEvent.Upload]);
+    }
+
+    [Fact]
+    public void A_mapped_texture_a_gpu_copy_wrote_keeps_the_copy_when_its_memory_changes()
+    {
+        using var test = TestRuntime.Create();
+        var (cpu, gpu) = AliasedPages(test);
+        var device = new XboxDevice(test);
+        var description = Description();
+        nint device12 = test.Runtime.D3D12X.Objects.DesktopDevice;
+        var textures = test.Runtime.D3D12X.Textures;
+
+        // The game maps the texture (checked every frame) and writes it; the frame check uploads that.
+        nint placed = PlaceTexture(device, gpu, description);
+        void* mapped = null;
+        Assert.Equal(0, ((delegate* unmanaged<nint, uint, void*, void**, int>)XboxDevice.Vtable(placed)[MapSlot])(placed, 0, null, &mapped));
+        Tile(description, cpu, [Pattern(Size, 4), Pattern(Size / 2, 5)]);
+        textures.RefreshWatched(device12, 1);
+
+        // A glyph-cache style update: list slot 85 copies new texels from an upload buffer into mip 0.
+        byte[] copied = Pattern(Size, 6);
+        nint upload = device.Buffer(UploadHeap, (ulong)copied.Length, GenericRead);
+        void* staging = null;
+        Assert.Equal(0, ((delegate* unmanaged<nint, uint, void*, void**, int>)XboxDevice.Vtable(upload)[MapSlot])(upload, 0, null, &staging));
+        copied.CopyTo(new Span<byte>(staging, copied.Length));
+
+        nint list = device.DirectList();
+        var to = new CopyLocation { Resource = placed };
+        var from = new CopyLocation { Resource = upload, Type = 1, Format = Rgba8Unorm, Width = Size, Height = Size, Depth = 1, RowPitch = Size * sizeof(uint) };
+        ((delegate* unmanaged<nint, CopyLocation*, uint, uint, uint, CopyLocation*, void*, uint, void>)XboxDevice.Vtable(list)[CopyTextureRegionXSlot])(list, &to, 0, 0, 0, &from, null, 0);
+        Assert.Equal(0, ((delegate* unmanaged<nint, int>)XboxDevice.Vtable(list)[CloseSlot])(list));
+        device.Run(list);
+
+        // The memory changes again (on the console it would now hold the copy): the frame check must not undo the copy.
+        Tile(description, cpu, [Pattern(Size, 7), Pattern(Size / 2, 8)]);
+        textures.RefreshWatched(device12, 2);
+
+        using var probe = new TextureProbe(device12);
+        CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
+        Assert.Equal(copied, probe.Read(Size, Size, 0).SelectMany(BitConverter.GetBytes).ToArray());
+        Assert.True(textures.Counters[GpuResourceEvent.UploadKeptCopy] >= 1);
     }
 
     [Fact]
@@ -257,6 +303,20 @@ public sealed unsafe class D3D12XGpuResourceTests
                 Assert.Equal(0, XgCopier.Into(surface, (byte*)memory, 0, (uint)mip, linear, pitch, pitch * (uint)(Size >> mip)));
             }
         }
+    }
+
+    /// <summary>D3D12_TEXTURE_COPY_LOCATION: a subresource index (0 here) or a placed footprint.</summary>
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct CopyLocation
+    {
+        public nint Resource;
+        public int Type;
+        public ulong Offset;
+        public int Format;
+        public uint Width;
+        public uint Height;
+        public uint Depth;
+        public uint RowPitch;
     }
 
     private static byte[] Pattern(int extent, int seed)

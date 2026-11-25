@@ -122,6 +122,13 @@ internal sealed unsafe class GpuTextures : IDisposable
             return;
         }
 
+        if (texture.CopiedInto)
+        {
+            Counters.Add(GpuResourceEvent.UploadKeptCopy);
+
+            return;
+        }
+
         byte* source = _source.Find(texture.Address, texture.Size);
 
         if (source == null)
@@ -178,6 +185,21 @@ internal sealed unsafe class GpuTextures : IDisposable
         if (failure is not null && Counters.Add(GpuResourceEvent.UploadFailed) <= LoggedFailures)
         {
             _log.Warn($"[d3d12_xs] texture at 0x{texture.Address:x} ({texture.Size} bytes) not filled from memory: {failure}");
+        }
+    }
+
+    /// <summary>
+    /// A GPU copy writes <paramref name="desktop"/>, the texture registered at <paramref name="address"/>: from now on
+    /// its memory no longer refreshes it (victory-gta6 keeps a host-written texture the same way).
+    /// </summary>
+    [HotPath]
+    public void MarkCopiedInto(ulong address, nint desktop)
+    {
+        var texture = Registry.Find(address);
+
+        if (texture is not null && texture.Address == address && texture.Desktop == desktop)
+        {
+            texture.CopiedInto = true;
         }
     }
 

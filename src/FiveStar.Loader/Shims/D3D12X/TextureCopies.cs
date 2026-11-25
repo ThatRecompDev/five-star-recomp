@@ -174,6 +174,11 @@ internal static unsafe class TextureCopies
             return default;
         }
 
+        if (copyState == ResourceStates.CopyDest && wrapper->GameAddress != 0)
+        {
+            D3D12X.Textures.MarkCopiedInto(wrapper->GameAddress, location.Resource);
+        }
+
         int current = states.Current(location.Resource, wrapper->HomeState);
 
         if (current == copyState)
