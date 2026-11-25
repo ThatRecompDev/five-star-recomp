@@ -70,6 +70,12 @@ internal sealed unsafe class AddressShaderViews
             desktop.ComponentMapping = TargetFormats.ComponentMapping(viewFormat, desktop.ComponentMapping);
             target = texture.Desktop;
             NoteLoss(texture, viewFormat, desktop.Format);
+
+            // The screen-probe light stand-in fills this R32_UINT texture's UAVs as shared-exponent light (RtStandIns).
+            if (Binding.RtStandIns.Enabled && Binding.ImageViewClasses.SharedExponentRead(viewFormat, desktop.Format))
+            {
+                Binding.UavViews.NoteSharedExponent(target);
+            }
         }
 
         if (target == 0 || desktop.Format == ViewFormats.Unknown)
