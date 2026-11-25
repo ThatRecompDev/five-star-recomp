@@ -172,6 +172,41 @@ public sealed unsafe class CpuEmulationTests
         }
     }
 
+    /// <summary>
+    /// The handler-order race of issue #13: a module's first handler (Bink) continues the search, and the fault reporter's
+    /// own first registration is gone at that moment (it was being moved back to the front). The backstop at the end of
+    /// the list still emulates every instruction.
+    /// </summary>
+    [Fact]
+    public void The_backstop_emulates_when_another_first_handler_runs_and_ours_left_the_front()
+    {
+        using var test = Support.TestRuntime.Create();
+        var faults = test.Runtime.Faults;
+        faults.Install();
+        delegate* unmanaged<nint, int> foreign = &ContinueSearch;
+        nint bink = Kernel32.AddVectoredExceptionHandler(1, (nint)foreign);
+        _ = Kernel32.RemoveVectoredExceptionHandler(faults.FirstRegistration);
+
+        try
+        {
+            var result = new AmdInstructionSelfTest(new CodeHeap(), test.Runtime.Cpu).Run();
+
+            Assert.True(result.Failures.Count == 0, string.Join(Environment.NewLine, result.Failures));
+            Assert.True(test.Runtime.Cpu.Emulated > 0);
+        }
+        finally
+        {
+            _ = Kernel32.RemoveVectoredExceptionHandler(bink);
+            faults.Uninstall();
+        }
+    }
+
+    [UnmanagedCallersOnly]
+    private static int ContinueSearch(nint pointers)
+    {
+        return 0;
+    }
+
     [UnmanagedCallersOnly]
     private static int OnException(nint pointers)
     {
