@@ -625,7 +625,7 @@ internal sealed unsafe class DrawTrace
     {
         var heap = _d3d12.DescriptorHeaps.Views;
 
-        if (heap is null || windowOffset < DescriptorWindow.ViewBase)
+        if (heap is null || windowOffset >= DescriptorWindow.NullTableBase)
         {
             return;
         }

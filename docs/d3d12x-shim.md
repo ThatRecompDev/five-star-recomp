@@ -513,12 +513,17 @@ flowchart LR
 - **Draws and dispatches (12 to 14, 61)** upload the bind point's 128 dwords when they changed (a 64 MiB upload ring
   of 512-byte blocks, a block reused after 131,072 others) and point root parameter 0 at them; ExecuteIndirect
   unwraps its signature and buffers. Reset (10, 139) clears the list's binding state.
-- **Descriptor window.** A buffer (custom heap, write-combined system memory, UAV; 0x2610000 bytes for the game):
-  one 16-byte record per sampler, a 1024-record null table at 0x8000, then from 0x10000 one 32-byte record per game
-  view descriptor in game order (a T#; buffers and CBVs use the first 16 bytes). Dwords 0 to 3 of each mirror those
+- **Descriptor window.** A buffer (custom heap, write-combined system memory, UAV): from 0 one 32-byte record per
+  game view descriptor in game order (a T#; buffers and CBVs use the first 16 bytes), room for 2,097,152, then a
+  1024-record null table at 0x4000000 and one 16-byte record per sampler at 0x4008000. A 32-bit descriptor address is
+  heap-relative on the console, and the game makes such addresses itself: MS_VS_Transform_PositionOnly reads its
+  meshlet V# at root constant 2 (the game sets 0) + (root constant 0 & 0x3ff) × 32, game index 147. With the view
+  records at 0x10000 that address read sampler record 0x126 and every typed load through the V# failed its range
+  check (w26); with them at 0 it reads the descriptor's record (VIctory models the console the same way, THIRD_PARTY_NOTICES.md: tables are
+  byte offsets in their heap, the heap pointer is 0). Dwords 0 to 3 of each mirror those
   of the title record: the desktop index (a record naming no desktop descriptor reads 5) and a buffer view's V#
   dwords 1 to 3 (below). A table's user SGPR is the window offset of its
-  first record (base + (handle - title start) / increment × record size), so a program's `MemLoad(table + k * 32)`
+  first record (base + (handle - title start) / increment × record size, for views the heap-relative address), so a program's `MemLoad(table + k * 32)`
   reads the heap index of the table's k-th descriptor wherever the game put the table. Records are mirrored when the
   shim writes them and, for a table, at SetRootDescriptorTable: as many as the root signature's table spans (end of
   its last range, at most 1024, unbounded ranges 1024) and at least 16, skipping records whose dwords 0 to 3 did not

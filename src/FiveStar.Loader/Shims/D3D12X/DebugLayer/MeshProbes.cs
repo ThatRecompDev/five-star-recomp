@@ -33,7 +33,7 @@ internal static unsafe class MeshProbes
     private const int PositionsShown = 4;
     private const int MaskBits = 32;
     private const int SiteFields = 2;
-    private const uint BelowViews = 0x80000000;
+    private const uint PastViews = 0x80000000;
 
     private static readonly ConcurrentDictionary<uint, string> Names = new();
     private static uint _reported;
@@ -186,7 +186,7 @@ internal static unsafe class MeshProbes
 
     /// <summary>
     /// The view record a window address falls in (its game descriptor index, the index copies and writes name), or the
-    /// address itself with bit 31 set when it lies below the view records (samplers, the null table).
+    /// address itself with bit 31 set when it lies past the view records (the null table, samplers).
     /// </summary>
     private static uint? WindowIndex(uint? address)
     {
@@ -195,9 +195,9 @@ internal static unsafe class MeshProbes
             return null;
         }
 
-        if (at < DescriptorWindow.ViewBase)
+        if (at >= DescriptorWindow.NullTableBase)
         {
-            return at | BelowViews;
+            return at | PastViews;
         }
 
         return (at - DescriptorWindow.ViewBase) / DescriptorWindow.ViewRecordBytes;
