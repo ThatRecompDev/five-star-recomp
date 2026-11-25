@@ -59,6 +59,7 @@ internal sealed unsafe class DrawTrace
 
     /// <summary>D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV and ID3D12Device::GetDescriptorHandleIncrementSize (d3d12.h).</summary>
     private const int ViewHeapType = 0;
+    private const int RenderTargetHeapType = 2;
 
     /// <summary>Watched-target readbacks per frame by default (a 2560x1440 RGBA16F one is 28 MB; the probes' cap is 512 MB).</summary>
     public const int DefaultWatchLimit = 16;
@@ -249,7 +250,7 @@ internal sealed unsafe class DrawTrace
 
         var shape = WatchShape;
 
-        if (shape.HasValue && Shape(desktop, shape.Value))
+        if (shape.HasValue && Shape(desktop, shape.Value, viewFormat))
         {
             _watched[desktop] = home;
         }
@@ -317,14 +318,18 @@ internal sealed unsafe class DrawTrace
         return bound;
     }
 
-    /// <summary>Whether desktop <paramref name="resource"/> has the width, height and format of <paramref name="shape"/>.</summary>
-    private static bool Shape(nint resource, TargetShape shape)
+    /// <summary>
+    /// Whether desktop <paramref name="resource"/> has the width and height of <paramref name="shape"/> and its format,
+    /// as the resource's or as <paramref name="viewFormat"/>, the RTV's: a typeless target (R16G16B16A16_TYPELESS) is
+    /// rendered through a typed view, and TL_PS's lit HDR was missed that way.
+    /// </summary>
+    private static bool Shape(nint resource, TargetShape shape, int viewFormat)
     {
         Marshal.AddRef(resource);
         using var desktop = new ID3D12Resource(resource);
         var description = desktop.Description;
 
-        return shape.Matches(description.Width, description.Height, (int)description.Format);
+        return shape.Matches(description.Width, description.Height, (int)description.Format) || shape.Matches(description.Width, description.Height, viewFormat);
     }
 
     /// <summary>
@@ -342,12 +347,14 @@ internal sealed unsafe class DrawTrace
     /// <summary>List slot 50 (<paramref name="single"/> ranges are not followed).</summary>
     public void RenderTargets(XboxObject* list, uint count, nint* handles, bool single, nint depthStencil)
     {
-        uint used = handles == null || single ? 0 : count;
+        uint used = handles == null ? 0 : count;
         var targets = new nint[used];
+        uint increment = single && used > 0 ? RenderTargetIncrement() : 0;
 
+        // A single range holds its targets one descriptor apart from the first (TL_PS binds its two that way).
         for (int i = 0; i < targets.Length; i++)
         {
-            targets[i] = handles[i];
+            targets[i] = single ? handles[0] + (nint)(i * increment) : handles[i];
         }
 
         var state = List(list);
@@ -359,6 +366,14 @@ internal sealed unsafe class DrawTrace
 
         state.Targets = targets;
         state.DepthStencil = depthStencil;
+    }
+
+    /// <summary>The desktop RTV descriptor size (D3D12_DESCRIPTOR_HEAP_TYPE_RTV).</summary>
+    private uint RenderTargetIncrement()
+    {
+        nint device = _d3d12.Objects.DesktopDevice;
+
+        return ((delegate* unmanaged<nint, int, uint>)ComObject.Slot(device, IncrementSlot))(device, RenderTargetHeapType);
     }
 
     /// <summary>List slot 21: the first viewport.</summary>
