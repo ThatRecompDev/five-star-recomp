@@ -156,9 +156,17 @@ so the join after the switch and the loop header carry phis with thousands of op
 instructions). `fivestar shader dxil --memory-locals N` (`DxilBackend.MemoryLocalsCases`, off by default) keeps
 numeric locals and non-constant statics in memory when the entry point has a switch of N cases or more: 8.78 MB (37%
 less, 1.2 million instructions, 15,000 phis), valid under dxil.dll; `DxilMemoryLocalsTests` checks a dispatch loop's
-results on WARP both ways. The driver compile of the 13 MB form took about 20 GB; a smaller form is still to be
-measured on the driver, and carrying only the registers live across a step (the translator knows them) would cut
-further.
+results on WARP both ways. The driver compile of the 13 MB form took about 20 GB.
+
+The translator's superstep carry (`TranslationOptions.SuperstepCarry`; the loader's `--superstep-carry`, `shader
+translate --superstep-carry`; off by default until a boot shows it) removes the cause instead. Registers pass between
+cases through slots (`Waves/SuperstepCarry`): from each case's reads and certain writes it computes which registers
+are live at each case boundary, gives registers never live at the same boundary one slot, and has a case load the
+slots it reads before writing and store what it touched that a later case reads; no register is then live at the
+loop header. The cases also sit in a tree of switches of 8 by address, so a value one case writes is joined over its
+leaf and up the tree. Foliage: 362 registers in 236 slots; 9.41 MB with the slots alone, 4.64 MB with the tree alone,
+2.75 MB with both (native 2.07 MB). The compute superstep cases and the mesh superstep programs run on WARP with and
+without it.
 
 ## Open
 
