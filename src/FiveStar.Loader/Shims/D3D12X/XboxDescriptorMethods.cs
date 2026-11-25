@@ -199,7 +199,7 @@ internal static unsafe class XboxDescriptorMethods
         {
             nint desktop = D3D12X.Objects.Unwrap(resource);
             D3D12X.DrawTrace?.ShaderResourceView(desktop, Destination(handle));
-            var record = BufferRecords.Based(BufferRecords.ShaderResource(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: false), desktop, ViewKind.ShaderResource);
+            var record = ImageViewClasses.With(BufferRecords.Based(BufferRecords.ShaderResource(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: false), desktop, ViewKind.ShaderResource), description);
             NoteFieldless(description, record, unordered: false);
 
             byte* copy = stackalloc byte[DepthViewDescriptions.ShaderResourceViewSize];
@@ -271,7 +271,7 @@ internal static unsafe class XboxDescriptorMethods
                 return;
             }
 
-            var record = BufferRecords.Based(BufferRecords.UnorderedAccess(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: true), desktop, ViewKind.UnorderedAccess);
+            var record = ImageViewClasses.With(BufferRecords.Based(BufferRecords.UnorderedAccess(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: true), desktop, ViewKind.UnorderedAccess), description);
             NoteFieldless(description, record, unordered: true);
             desktop = BufferViewRanges.Fit(resource, desktop, description, copy, true, out void* fitted);
             byte* raw = stackalloc byte[TargetViewDescriptions.UnorderedAccessViewSize];

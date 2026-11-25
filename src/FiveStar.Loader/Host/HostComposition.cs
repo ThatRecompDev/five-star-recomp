@@ -88,6 +88,8 @@ internal static class HostComposition
         Shims.D3D12X.Pipelines.PipelineWaits.Current = Shims.D3D12X.Pipelines.PipelineWaits.Parse(options.WaitPipelines);
         Shims.D3D12X.SectionHeaps.InPlaceWindow = InPlaceWindow(options.InPlaceWindowMegabytes);
         Shims.D3D12X.Resources.TypelessTargets.Enabled = options.TypelessTargets;
+        Shims.D3D12X.Binding.ImageViewClasses.Enabled = options.TypedImageViews;
+
         Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
 
         ApplyBindingSwitches(options);
@@ -108,7 +110,7 @@ internal static class HostComposition
             Shims.D3D12X.DebugLayer.PoolStoreTrace.Enabled = options.TracePoolStores;
             Shims.D3D12X.Binding.UserDataConstants.Enabled = options.UserDataConstants;
             Shims.D3D12X.Binding.WindowFeedback.Enabled = options.EvictWindows;
-            OnDemandStart.Translation = FiveStar.Shaders.Compilation.CorpusOptions.DefaultTranslation with { Loops = options.LoopCaps, SuperstepCarry = options.SuperstepCarry, RoundsPerStop = options.SuperstepRoundsPerStop, FastWaves = options.FastWaves };
+            OnDemandStart.Translation = FiveStar.Shaders.Compilation.CorpusOptions.DefaultTranslation with { Loops = options.LoopCaps, SuperstepCarry = options.SuperstepCarry, RoundsPerStop = options.SuperstepRoundsPerStop, FastWaves = options.FastWaves, TypedImageViews = options.TypedImageViews };
             folders = folders with { OnDemand = OnDemandStart.Begin(root, options.Dxc, options.DxcBackend, options.ShaderJobs, out var message), OnDemandNote = message };
         }
 
