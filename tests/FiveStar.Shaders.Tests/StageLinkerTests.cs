@@ -55,7 +55,7 @@ public sealed class StageLinkerTests
         var pixel = workbench.Compile("ps", Consumer, "ps");
         var inputs = PsvSignatureParser.Parse(DxbcContainer.Parse(pixel).Find(PsvSignatureParser.ChunkCode)!.Data.Span).Inputs;
         using var device = new WarpDevice();
-        var runner = new WarpRunner(device);
+        var runner = new WarpRunner(device, UserDataBinding.RootConstants);
 
         var unlinked = workbench.Compile("vs", Producer, "vs");
         Assert.ThrowsAny<SharpGenException>(() => runner.Graphics(Job(unlinked, pixel)));

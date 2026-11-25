@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FiveStar.Graphics.Pipelines;
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.Pipelines;
@@ -53,6 +54,11 @@ internal sealed unsafe class XboxBindings
 
         Root = root;
         Ring = UserDataRing.Create(device);
+
+        if (UserDataConstants.Enabled)
+        {
+            _log.Info($"[d3d12_xs] user data as {BindlessRootSignature.UserConstants} root constants (--user-data-constants)");
+        }
 
         if (Ring is null)
         {

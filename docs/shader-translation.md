@@ -589,7 +589,7 @@ CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED | SAMPLER_HEAP_DIRECTLY_INDEXED | ALLOW_INPUT_
 
 | Parameter | Content |
 |---|---|
-| 0 | root CBV `b0` space 0: `cbuffer UserData` (128 dwords, more than root constants allow) |
+| 0 | root CBV `b0` space 0: `cbuffer UserData` (128 dwords); with `--user-data-constants` 32 root constants, programs compiled with `FIVESTAR_USER_CONSTANTS` (`g_user4[8]`, s0..s31: no RDNA program is preloaded with more; reads past them are 0) |
 | 1 | descriptor table, space 9: UAV `u0`-`u2`, SRV `t0` (mesh fallback) |
 
 Everything else goes through `ResourceDescriptorHeap[]` / `SamplerDescriptorHeap[]`.

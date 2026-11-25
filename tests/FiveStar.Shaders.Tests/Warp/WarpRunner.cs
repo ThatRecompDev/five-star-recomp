@@ -16,10 +16,13 @@ public sealed class WarpRunner
     private const int DrawIndexedStride = 20;
 
     private readonly WarpDevice _device;
+    private readonly UserDataBinding _userData;
 
-    public WarpRunner(WarpDevice device)
+    /// <summary>A runner that binds the user SGPRs as <paramref name="userData"/> says.</summary>
+    public WarpRunner(WarpDevice device, UserDataBinding userData)
     {
         _device = device;
+        _userData = userData;
     }
 
     public WarpResult Compute(ComputeJob job)
@@ -33,7 +36,7 @@ public sealed class WarpRunner
                 layout = RootLayout.FallbackTable;
             }
 
-            var root = recording.Own(PipelineFactory.RootSignature(_device.Device, job.Bindings.RootConstantCount, layout));
+            var root = recording.Own(PipelineFactory.RootSignature(_device.Device, job.Bindings.RootConstantCount, layout, _userData));
             var state = recording.Own(PipelineFactory.Compute(_device.Device, root, job.Shader));
             recording.CreateHeaps(job.Bindings);
             recording.SetComputeRoot(root, job.Bindings);
@@ -53,7 +56,7 @@ public sealed class WarpRunner
     {
         return Run(recording =>
         {
-            var root = recording.Own(PipelineFactory.RootSignature(_device.Device, job.Bindings.RootConstantCount, RootLayout.Bindless));
+            var root = recording.Own(PipelineFactory.RootSignature(_device.Device, job.Bindings.RootConstantCount, RootLayout.Bindless, _userData));
             recording.CreateHeaps(job.Bindings);
             var formats = recording.CreateTargets(job.Framebuffer);
             var state = recording.Own(PipelineFactory.Graphics(_device.Device, root, job, formats));
@@ -80,7 +83,7 @@ public sealed class WarpRunner
     {
         return Run(recording =>
         {
-            var root = recording.Own(PipelineFactory.RootSignature(_device.Device, job.Bindings.RootConstantCount, RootLayout.Bindless));
+            var root = recording.Own(PipelineFactory.RootSignature(_device.Device, job.Bindings.RootConstantCount, RootLayout.Bindless, _userData));
             recording.CreateHeaps(job.Bindings);
             var formats = recording.CreateTargets(job.Framebuffer);
             var state = recording.Own(MeshPipelineState.Create(_device.Device, root, job.MeshShader, job.PixelShader, formats));
@@ -103,7 +106,7 @@ public sealed class WarpRunner
         return Run(recording =>
         {
             var layout = job.RootDescriptors ? RootLayout.FallbackRoot : RootLayout.FallbackTable;
-            var root = recording.Own(PipelineFactory.RootSignature(_device.Device, job.Bindings.RootConstantCount, layout));
+            var root = recording.Own(PipelineFactory.RootSignature(_device.Device, job.Bindings.RootConstantCount, layout, _userData));
             recording.CreateHeaps(job.Bindings);
             var formats = recording.CreateTargets(job.Framebuffer);
 
@@ -193,7 +196,7 @@ public sealed class WarpRunner
     private WarpResult Run(Action<Recording> record)
     {
         _device.Recover();
-        using var recording = new Recording(_device.Device);
+        using var recording = new Recording(_device.Device) { UserData = _userData };
         record(recording);
 
         return recording.Finish(_device);

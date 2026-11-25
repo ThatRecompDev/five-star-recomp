@@ -26,10 +26,10 @@ internal static unsafe class BindlessRoot
         }
     }
 
-    /// <summary>The serialized bindless layout, or null when the runtime refuses it.</summary>
+    /// <summary>The serialized bindless layout (its user data as root constants with <see cref="Binding.UserDataConstants"/>), or null when the runtime refuses it.</summary>
     public static byte[]? Serialized()
     {
-        var description = new VersionedRootSignatureDescription(BindlessRootSignature.Description());
+        var description = new VersionedRootSignatureDescription(BindlessRootSignature.Description(Binding.UserDataConstants.Enabled));
         var error = D3D12.D3D12SerializeVersionedRootSignature(description, out var blob);
 
         if (!string.IsNullOrEmpty(error) || blob is null)

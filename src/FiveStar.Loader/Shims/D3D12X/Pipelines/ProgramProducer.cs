@@ -122,6 +122,11 @@ internal sealed class ProgramProducer
             hlsl = DebugLayer.PoolStoreTrace.Header(name) + hlsl;
         }
 
+        if (Binding.UserDataConstants.Enabled)
+        {
+            hlsl = Binding.UserDataConstants.Header + hlsl;
+        }
+
         var slow = hlsl.Length > _compiler.Options.LargeSourceLength || _slow.Contains(source);
 
         return new ProgramForm(name, new CompileRequest(Path.Combine(_folder, source), hlsl, profile, slow), null);
