@@ -46,7 +46,9 @@ public sealed class MeshRoundBoundTests : IClassFixture<WarpFixture>
         // iteration (here 64 x 2), not the dispatch form's 256 (w39/w40: MSNC_VS_LinearDepthSkin's constant-buffer count).
         var runner = new MeshStageRunner(_fixture);
 
-        Assert.Contains("if (++ss_steps > 0x80u)", runner.TranslateBarrierLoop(true, Small, spin: true), StringComparison.Ordinal);
+        string spinning = runner.TranslateBarrierLoop(true, Small, spin: true);
+        Assert.Contains("if (++ss_steps > 0x80u) { ss_cap_hit(0u); pc = PC_END; break; }", spinning, StringComparison.Ordinal);
+        Assert.Contains("if (++ss_rounds > SS_ROUNDS) { if (g_ss_gi == 0u) ss_cap_hit(1u); break; }", spinning, StringComparison.Ordinal);
         Assert.Contains("if (++ss_steps > 0x2000u)", runner.TranslateBarrierLoop(true, LoopCaps.Default, spin: true), StringComparison.Ordinal);
 
         var few = runner.RunBarrierLoop(true, 3, Small, spin: true);

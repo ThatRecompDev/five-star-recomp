@@ -248,6 +248,7 @@ internal sealed unsafe class Presenter : IDisposable
         {
             DebugLayer.MeshProbes.Report(_presents, _log);
             Binding.WindowGuard.Report(_presents, _log);
+            Binding.WindowGuard.ReportCaps(_presents, _log);
         }
     }
 
