@@ -100,6 +100,12 @@ The loader is a separate program, `fivestar-loader`; see [docs/loader.md](docs/l
 | `docs/wiki/` | the source of the project wiki: status, roadmap and research notes |
 | `vendor/` | third-party test data, each folder with its provenance and licenses |
 
+## Related projects
+
+- [VIctory](https://github.com/marvisak/victory) (GPL-3.0-or-later, Rust): another PC port of the same Xbox build. We
+  compare our results with its translator and port fixes from it with its notices kept; see
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Contributing
 
 Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains the ground rules, the code style and how
@@ -107,7 +113,7 @@ to submit a change.
 
 ## License
 
-GNU General Public License v3.0 or later. See [LICENSE](LICENSE). Parts based on MIT-licensed projects are listed in
+GNU General Public License v3.0 or later. See [LICENSE](LICENSE). Parts based on other projects (MIT and GPL-3.0) are listed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Five Star Recomp is a fan project. It is not affiliated with or endorsed by Rockstar Games, Take-Two Interactive or
