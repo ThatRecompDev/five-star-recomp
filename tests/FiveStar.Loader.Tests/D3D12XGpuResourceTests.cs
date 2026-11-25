@@ -84,8 +84,8 @@ public sealed unsafe class D3D12XGpuResourceTests
     }
 
     /// <summary>
-    /// A texture over memory the game unmapped is counted, and with --retire-unmapped-textures retired and released after
-    /// its grace (#13's long run grew its placed texture heaps to 10.5 GB); a texture elsewhere and an unmap with no texture stay.
+    /// A texture over memory the game unmapped is counted, and with --retire-unmapped-textures retired once it stays unmapped
+    /// for 600 presents (#13's long run grew its placed texture heaps to 10.5 GB); a texture elsewhere and a remapped one stay.
     /// </summary>
     [Fact]
     public void A_texture_over_memory_the_game_unmapped_is_retired_and_released()
@@ -117,12 +117,17 @@ public sealed unsafe class D3D12XGpuResourceTests
 
     private static void Retires(GpuTextureRegistry registry)
     {
+        // Unmapped again: retired only once it stays unmapped for the grace, then released after the usual one.
         Assert.Equal(0, registry.Unmapped(0x300000, 0x10000));
         Assert.Equal(1, registry.Unmapped(0x100000, 0x10000));
+        registry.Advance(GpuTextureRegistry.UnmappedGraceFrames - 1);
+        Assert.NotNull(registry.Find(0x100000));
+
+        registry.Advance(GpuTextureRegistry.UnmappedGraceFrames);
         Assert.Null(registry.Find(0x100000));
         Assert.NotNull(registry.Find(0x200000));
 
-        registry.Advance(GpuTextureRegistry.GraceFrames);
+        registry.Advance(GpuTextureRegistry.UnmappedGraceFrames + GpuTextureRegistry.GraceFrames);
         Assert.Equal(1, registry.Released);
         Assert.Contains("1 retired as their memory was unmapped", registry.Summary, StringComparison.Ordinal);
         registry.Dispose();

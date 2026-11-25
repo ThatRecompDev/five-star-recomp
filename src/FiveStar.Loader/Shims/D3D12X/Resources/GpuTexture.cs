@@ -50,8 +50,14 @@ internal sealed class GpuTexture
     /// <summary>Whether the CPU maps the texture's memory, so it is checked for new bytes every frame (<see cref="GpuTextures.Watch"/>).</summary>
     public bool Watched { get; set; }
 
-    /// <summary>Whether memory under the texture is unmapped now (<see cref="GpuTextureRegistry.Unmapped"/>).</summary>
-    public bool OverUnmapped { get; set; }
+    /// <summary><see cref="UnmappedSince"/> of a texture whose memory is mapped.</summary>
+    public const long Mapped = -1;
+
+    /// <summary>The present at which memory under the texture was unmapped (<see cref="GpuTextureRegistry.Unmapped"/>); <see cref="Mapped"/> while it is mapped.</summary>
+    public long UnmappedSince { get; set; } = Mapped;
+
+    /// <summary>Whether memory under the texture is unmapped now.</summary>
+    public bool OverUnmapped => UnmappedSince != Mapped;
 
     /// <summary>
     /// Whether a GPU copy (list slots 85, 86) wrote the desktop texture. Its contents are then on the desktop, not in
