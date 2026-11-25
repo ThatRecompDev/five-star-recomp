@@ -21,8 +21,10 @@ internal sealed class BodyWriter
     // the console s_barrier waits only for waves that have not ended (s_endpgm); a D3D12 group barrier waits for every
     // thread, so a thread that ended keeps meeting the barrier (counted out of g_ms_live) until no thread runs: a
     // console wave that ends while another of its group meets an s_barrier would otherwise leave that barrier unfilled
-    // (a group hang). The counters rotate as vw_ss_step's do.
-    private static readonly string[] BarrierStep =
+    // (a group hang). The counters rotate as vw_ss_step's do. The rounds are bounded (LoopCaps.Rounds): a console loop
+    // around an s_barrier runs one round per iteration, which no structured loop counts, so a garbage trip count held
+    // the group for good. ms_step is the same on every thread, so all leave on the same round.
+    private string[] BarrierStep =>
     [
         "    if (pc != PC_END) InterlockedAdd(g_ms_live[ms_step % 3u], 1u);",
         "    if (in_gi == 0) g_ms_live[(ms_step + 1u) % 3u] = 0;",
@@ -30,10 +32,11 @@ internal sealed class BodyWriter
         "    uint ms_live = g_ms_live[ms_step % 3u];",
         "    ms_step++;",
         "    if (ms_live == 0u) break;",
+        $"    if (ms_step > {LoopGuard.RoundsHex(_state.Stage, _state.Loops)}) break;",
         "    if (pc != PC_END) pc = pc_resume;",
     ];
 
-    private static readonly string[] PhaseTwoEnd = [.. BarrierStep, "  }"];
+    private string[] PhaseTwoEnd => [.. BarrierStep, "  }"];
 
     // Phase two when none of its blocks yields: the barrier could never run, and NVIDIA's driver (RTX 5070, 621.40) hangs
     // the group on dxc's optimized form of the program while it is there.
@@ -43,7 +46,7 @@ internal sealed class BodyWriter
     ];
 
     // Phase one also stops once the output counts are known, all threads on the flag read before any can set it again.
-    private static readonly string[] PhaseOneEnd =
+    private string[] PhaseOneEnd =>
     [
         .. BarrierStep, "    bool ms_alloc = g_ms_alloc != 0;", "    GroupMemoryBarrierWithGroupSync();", "    if (ms_alloc) break;", "  }",
     ];
@@ -204,6 +207,7 @@ internal sealed class BodyWriter
         if (PhaseTwoYields())
         {
             lines.AddRange(PhaseTwoEnd);
+            lines.AddRange(_mesh.CutEpilogue($"ms_step > {LoopGuard.RoundsHex(_state.Stage, _state.Loops)}"));
         }
         else
         {

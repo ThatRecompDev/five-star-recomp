@@ -71,11 +71,24 @@ internal static unsafe class CompileBudget
     /// </summary>
     private const long MaximumEstimate = 16L << 30;
 
+    /// <summary>How long a running compile keeps its whole estimate reserved (<see cref="Reservation"/>).</summary>
+    private const double SettleSeconds = 30;
+
+    /// <summary>A settled compile keeps at least its estimate over this.</summary>
+    private const long SettledShare = 4;
+
     /// <summary>AMD's PCI vendor id; its driver's compile memory grows about quadratically (<see cref="Estimate(long, uint)"/>).</summary>
     public const uint AmdVendorId = 0x1002;
 
     private const double AmdLinearGigabytes = 4;
     private const double AmdSquareGigabytes = 2;
+
+    /// <summary>
+    /// Past 1 MB the AMD estimate rises 40 GB per MB more: in game the 1.25 to 2.25 MB mesh + pixel pipelines peaked
+    /// at 11 to 23 GB on average and 24 to 37.5 GB at most (issue #19, 79 compiles), past the quadratic's 9 to 17 GB.
+    /// </summary>
+    private const double AmdSteepGigabytes = 40;
+    private const double AmdSteepFromMegabytes = 1;
 
     /// <summary>
     /// The most an AMD compile is expected to take: a 5 MB program is past it, so on a 64 GB machine it starts only
@@ -102,6 +115,13 @@ internal static unsafe class CompileBudget
     private static int _runningLarge;
     private static int _runningHeavy;
     private static long _expected;
+    private static long _refusedLoad;
+    private static long _refusedUrgentFirst;
+    private static long _refusedHeavy;
+    private static long _refusedMemory;
+    private static long _refusedCommit;
+    private static long _refusedCeiling;
+    private static readonly List<RunningCompile> Compiles = [];
     private static int _waiting;
     private static int _urgentWaiting;
 
@@ -110,6 +130,20 @@ internal static unsafe class CompileBudget
 
     [ThreadStatic]
     private static bool _noWaitThread;
+
+    [ThreadStatic]
+    private static bool _giveBackThread;
+
+    /// <summary>
+    /// Whether this thread gives a compile that may not start now back to its queue instead of waiting for room (a
+    /// build thread with a creation no command list waits for): nine such waits held every budget slot in boot w32
+    /// while urgent creations queued behind them.
+    /// </summary>
+    public static bool GiveBack
+    {
+        get => _giveBackThread;
+        set => _giveBackThread = value;
+    }
 
     /// <summary>
     /// Whether this thread must not wait for room (a game thread building at first use): <see cref="TryEnterNow"/>
@@ -286,7 +320,9 @@ internal static unsafe class CompileBudget
     /// (<see cref="BytesPerShaderByte"/>), quadratic for AMD (issue #19, an RX 7800 XT with Adrenalin 32.0.32029: one
     /// compute program cut to 0.48, 1.5, 2.9 and 5.0 MB of DXIL peaked at 1.0, 4.9, 17.2 and over 30 GB alone; in game,
     /// with others running, 0.48 MB passed 10 GB). <see cref="AmdLinearGigabytes"/> × MB + <see cref="AmdSquareGigabytes"/>
-    /// × MB² gives 2.4, 10.5, 28 and 70 GB there, about twice the isolated peaks as the NVIDIA rate is.
+    /// × MB² gives 2.4, 10.5, 28 and 70 GB there, about twice the isolated peaks as the NVIDIA rate is; past 1 MB
+    /// <see cref="AmdSteepGigabytes"/> per MB more (30 GB at 1.5 MB, 48 GB, the cap, from 1.75 MB), as mesh + pixel
+    /// pipelines of that size took in game.
     /// </summary>
     public static long Estimate(long shaderBytes, uint vendorId)
     {
@@ -296,7 +332,8 @@ internal static unsafe class CompileBudget
         }
 
         double megabytes = shaderBytes / BytesPerMegabyte;
-        double gigabytes = (AmdLinearGigabytes * megabytes) + (AmdSquareGigabytes * megabytes * megabytes);
+        double gigabytes = (AmdLinearGigabytes * megabytes) + (AmdSquareGigabytes * megabytes * megabytes)
+            + (AmdSteepGigabytes * Math.Max(0, megabytes - AmdSteepFromMegabytes));
 
         return Math.Clamp((long)(gigabytes * BytesPerGigabyte), MinimumEstimate, AmdMaximumEstimate);
     }
@@ -335,13 +372,17 @@ internal static unsafe class CompileBudget
     {
         bool urgent = _urgentThread || _noWaitThread;
         bool counted = false;
+        bool countedUrgent = false;
         using var wait = BlockingWaits.Enter("driver compile memory budget");
 
         while (!TryEnter(shaderBytes, urgent))
         {
+            // An urgent compile that waits for the heavy slot holds no other back: in boot w32 a 2.8 MB one waited
+            // behind a 2 MB link for minutes and, as urgent, kept every other compile out.
             if (!counted)
             {
-                Count(urgent, 1);
+                countedUrgent = urgent && !IsHeavy(shaderBytes);
+                Count(countedUrgent, 1);
                 counted = true;
             }
 
@@ -350,7 +391,7 @@ internal static unsafe class CompileBudget
 
         if (counted)
         {
-            Count(urgent, -1);
+            Count(countedUrgent, -1);
         }
     }
 
@@ -373,7 +414,14 @@ internal static unsafe class CompileBudget
             if (shaderBytes >= TinyShaderBytes)
             {
                 _runningLarge--;
-                _expected -= Estimate(shaderBytes);
+                long estimate = Estimate(shaderBytes);
+                _expected -= estimate;
+                int index = Compiles.FindIndex(compile => compile.Estimate == estimate);
+
+                if (index >= 0)
+                {
+                    Compiles.RemoveAt(index);
+                }
             }
 
             if (IsHeavy(shaderBytes))
@@ -416,36 +464,24 @@ internal static unsafe class CompileBudget
 
         if (!tiny && HeldForLoad(shaderBytes, urgent, LoadWindow()))
         {
-            return false;
+            return Refused(ref _refusedLoad);
         }
 
         _ = GrowthSampler.Value;
 
         lock (Gate)
         {
-            if ((!tiny && !urgent && Volatile.Read(ref _urgentWaiting) > 0) || !HeavyRoom(shaderBytes, _runningHeavy))
+            if (!tiny && !urgent && Volatile.Read(ref _urgentWaiting) > 0)
             {
-                return false;
+                return Refused(ref _refusedUrgentFirst);
             }
 
-            long privateBytes = PrivateBytes();
-
-            // The running compiles' whole estimates: their growth so far is not subtracted. It was (the private growth
-            // since compiles began), but that growth was mostly textures and their video-memory mapping, so the running
-            // ones counted as done and seven ran at once; boot w11b's working set rose by 20 GB in 30 s.
-            long remaining = _expected;
-
-            if (urgent)
+            if (!HeavyRoom(shaderBytes, _runningHeavy))
             {
-                remaining = 0;
+                return Refused(ref _refusedHeavy);
             }
 
-            if (!tiny && !Room(estimate, WarmMemoryGuard.AvailablePhysical(), WarmMemoryGuard.CommitAvailable(), remaining, CurrentReserve(urgent)))
-            {
-                return false;
-            }
-
-            if (!tiny && !UnderCeiling(estimate, _runningLarge, CountedBytes(privateBytes), remaining, MaxCompiles, CeilingBytes))
+            if (!tiny && !MemoryRoom(estimate, urgent))
             {
                 return false;
             }
@@ -456,6 +492,7 @@ internal static unsafe class CompileBudget
             {
                 _runningLarge++;
                 _expected += estimate;
+                Compiles.Add(new RunningCompile(estimate, System.Diagnostics.Stopwatch.GetTimestamp(), RamBackedBytes()));
             }
 
             if (IsHeavy(shaderBytes))
@@ -464,6 +501,96 @@ internal static unsafe class CompileBudget
             }
 
             return true;
+        }
+    }
+
+    /// <summary>
+    /// What a compile running for <paramref name="seconds"/> is still reserved, given the process's RAM-backed growth
+    /// since it started (<paramref name="grown"/>, its own and everything else's): its whole estimate for the first
+    /// <see cref="SettleSeconds"/>, since driver arenas grow early; then that growth, between a quarter of the estimate
+    /// and the whole. Boot w32's 2 MB compile kept 7.5 GB reserved for 135 s while the process grew 4 GB.
+    /// </summary>
+    public static long Reservation(long estimate, double seconds, long grown)
+    {
+        if (seconds < SettleSeconds)
+        {
+            return estimate;
+        }
+
+        return Math.Clamp(grown, estimate / SettledShare, estimate);
+    }
+
+    /// <summary>The running compiles' reservations now (<see cref="Reservation"/>); call under the gate.</summary>
+    private static long Remaining()
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        long bytes = RamBackedBytes();
+
+        return Compiles.Sum(compile => Reservation(compile.Estimate, System.Diagnostics.Stopwatch.GetElapsedTime(compile.Started, now).TotalSeconds, bytes - compile.StartBytes));
+    }
+
+    /// <summary>One admitted compile: its estimate, when it started, and the RAM-backed bytes then.</summary>
+    private readonly record struct RunningCompile(long Estimate, long Started, long StartBytes);
+
+    /// <summary>
+    /// Whether free memory, commit and the ceiling take <paramref name="estimate"/> beside the running compiles'
+    /// reservations (an urgent compile's only the floor and its own estimate); counts the rule that refused. Call under
+    /// the gate.
+    /// </summary>
+    private static bool MemoryRoom(long estimate, bool urgent)
+    {
+        // The running compiles' reservations (Reservation): their whole estimates at first. Subtracting all their
+        // growth (as before boot w11b) let seven run at once, since the growth was mostly textures; keeping the whole
+        // estimate of one 2 MB compile that ran for minutes starved boot w32.
+        long remaining = 0;
+
+        if (!urgent)
+        {
+            remaining = Remaining();
+        }
+
+        if (!Room(estimate, WarmMemoryGuard.AvailablePhysical(), ulong.MaxValue, remaining, CurrentReserve(urgent)))
+        {
+            return Refused(ref _refusedMemory);
+        }
+
+        if (!Room(estimate, ulong.MaxValue, WarmMemoryGuard.CommitAvailable(), remaining, 0))
+        {
+            return Refused(ref _refusedCommit);
+        }
+
+        if (!UnderCeiling(estimate, _runningLarge, CountedBytes(PrivateBytes()), remaining, MaxCompiles, CeilingBytes))
+        {
+            return Refused(ref _refusedCeiling);
+        }
+
+        return true;
+    }
+
+    /// <summary>Counts a refusal by its rule.</summary>
+    private static bool Refused(ref long counter)
+    {
+        Interlocked.Increment(ref counter);
+
+        return false;
+    }
+
+    /// <summary>
+    /// The refusals so far by rule (the load window, urgent compiles first, one heavy at a time, free memory, commit,
+    /// the ceiling) and what the running compiles are reserved now: the sample line names what holds compiles back.
+    /// </summary>
+    public static string Refusals
+    {
+        get
+        {
+            long reserved;
+
+            lock (Gate)
+            {
+                reserved = Remaining();
+            }
+
+            return $"refused by load window {Interlocked.Read(ref _refusedLoad)}, urgent first {Interlocked.Read(ref _refusedUrgentFirst)}, one heavy {Interlocked.Read(ref _refusedHeavy)}, free memory {Interlocked.Read(ref _refusedMemory)}, commit {Interlocked.Read(ref _refusedCommit)}, ceiling {Interlocked.Read(ref _refusedCeiling)}; {reserved / BytesPerGigabyte:F1} GB reserved for running compiles, reserve {PhysicalReserve(Interlocked.Read(ref _growthAllowance)) / BytesPerGigabyte:F1} GB";
         }
     }
 

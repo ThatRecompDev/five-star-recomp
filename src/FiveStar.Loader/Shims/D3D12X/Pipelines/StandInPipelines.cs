@@ -31,6 +31,7 @@ internal sealed unsafe class StandInPipelines
     private const int SkipsShown = 4;
 
     private readonly ConcurrentDictionary<nint, string> _names = new();
+    private readonly ConcurrentDictionary<nint, StandInUse> _uses = new();
     private readonly ConcurrentDictionary<string, long> _skippedByName = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, long> _skippedBefore = new(StringComparer.Ordinal);
     private readonly HashSet<nint> _small = [];
@@ -118,6 +119,8 @@ internal sealed unsafe class StandInPipelines
         }
 
         nint standIn = NewStandIn(what, small);
+        queued.Use = Use(standIn);
+
         Track(standIn, new StandInWork { Creation = (queued, queue) });
         build.ContinueWith(task => Complete(standIn, task.Result, what, started, built), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
         Interlocked.Increment(ref _created);
@@ -144,7 +147,7 @@ internal sealed unsafe class StandInPipelines
                 used();
                 var queue = heavy ? _heavyBuilds : _builds;
                 long started = Stopwatch.GetTimestamp();
-                var queued = queue.Queue(create, urgent: true);
+                var queued = queue.Queue(create, urgent: true, Use(standIn));
                 Track(standIn, new StandInWork { Creation = (queued, queue) });
                 queued.Done.Task.ContinueWith(task => Complete(standIn, task.Result, what, started, built), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
             };
@@ -228,7 +231,7 @@ internal sealed unsafe class StandInPipelines
         lock (_gate)
         {
             // A stand-in a command list set already goes first; one set later is promoted then (Promote).
-            queued = queue.Queue(build.Create, Volatile.Read(ref ((StandInPipelineObject*)standIn)->Used) == 1);
+            queued = queue.Queue(build.Create, Volatile.Read(ref ((StandInPipelineObject*)standIn)->Used) == 1, Use(standIn));
 
             if (_work.TryGetValue(standIn, out var work))
             {
@@ -380,6 +383,17 @@ internal sealed unsafe class StandInPipelines
     {
         Interlocked.Increment(ref _skipped);
         CountSkipped(standIn);
+
+        if (_uses.TryGetValue(standIn, out var use))
+        {
+            use.Skipped(StandInUse.Frame);
+        }
+    }
+
+    /// <summary>How much the game misses <paramref name="standIn"/>, kept while it lives.</summary>
+    private StandInUse Use(nint standIn)
+    {
+        return _uses.GetOrAdd(standIn, static _ => new StandInUse());
     }
 
     /// <summary>The last reference went: releases the desktop pipeline (or lets the build release it) and frees the stand-in.</summary>
@@ -397,6 +411,7 @@ internal sealed unsafe class StandInPipelines
         }
 
         _names.TryRemove((nint)standIn, out _);
+        _uses.TryRemove((nint)standIn, out _);
         ComObject.Release(desktop);
         NativeMemory.Free(standIn);
     }
@@ -432,8 +447,11 @@ internal sealed unsafe class StandInPipelines
 
     private string SkippedBeforeSummary()
     {
-        var total = _skippedBefore.Values.Sum();
-        var top = string.Join(", ", _skippedBefore.OrderByDescending(entry => entry.Value).Take(SkipsShown).Select(entry => $"{entry.Key} x{entry.Value}"));
+        // A snapshot: LINQ over the dictionary itself sizes an array by Count, then copies while lists add entries
+        // (ArgumentException on the sampler thread, which ended a boot at 4,200 presents).
+        var entries = _skippedBefore.ToArray();
+        var total = entries.Sum(entry => entry.Value);
+        var top = string.Join(", ", entries.OrderByDescending(entry => entry.Value).Take(SkipsShown).Select(entry => $"{entry.Key} x{entry.Value}"));
 
         return $"{total} lists ran work after a skipped one ({top})";
     }
@@ -588,6 +606,7 @@ internal sealed unsafe class StandInPipelines
         standIn->Vtable = (nint)_vtable;
         standIn->References = 1;
         standIn->Owner = GCHandle.ToIntPtr(_self);
+        _uses[(nint)standIn] = new StandInUse();
 
         lock (_gate)
         {

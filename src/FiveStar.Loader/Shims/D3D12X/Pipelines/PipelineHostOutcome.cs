@@ -15,6 +15,13 @@ internal enum PipelineHostOutcome
     /// <summary>The host passed its time limit and was ended.</summary>
     KilledTime,
 
-    /// <summary>The host did not start or failed otherwise: the loader builds the pipeline itself.</summary>
+    /// <summary>The host did not start, or the driver refused the pipeline: the loader builds it itself.</summary>
     Failed,
+
+    /// <summary>
+    /// The host ended without an answer, short of its limits: the driver crashed in the compile (amdxc64 reads address 0
+    /// when the commit charge is exhausted, issue #19), so the loader does not build it in its own process; it stays a
+    /// stand-in for this boot, not recorded.
+    /// </summary>
+    Crashed,
 }

@@ -1,7 +1,6 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-using System.Collections.Concurrent;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
@@ -13,11 +12,14 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// 64 GB machine to its commit limit, which ended the process (docs/d3d12x-pipelines.md#stand-ins). Urgent creations,
 /// those of pipelines a command list has set, start before all others; a queued creation can be made urgent later.
 /// Only half the threads take the others, and those wait in the driver compile budget while an urgent one does: at a
-/// warm boot the journal's creations held the budget the game's first uses needed.
+/// warm boot the journal's creations held the budget the game's first uses needed. Among urgent creations, the one
+/// whose stand-in the game misses most goes first (<see cref="StandInUse.Score"/>: skipped in the most frames, then
+/// the most draws), so what is drawn every frame is built before what was drawn once; a cold boot queued about 1,500.
 /// </summary>
 internal sealed class PipelineBuildQueue
 {
     private const int PauseMilliseconds = 2000;
+    private const int GiveBackPauseMilliseconds = 250;
 
     // One thread in this many also takes creations no command list waits for.
     private const int SpeculativeShare = 2;
@@ -25,8 +27,9 @@ internal sealed class PipelineBuildQueue
     /// <summary>For <see cref="PipelineBuildQueue(int, Func{int, bool})"/>: creations start whenever a thread is free.</summary>
     public static readonly Func<int, bool> AnyTime = _ => true;
 
-    private readonly BlockingCollection<PipelineBuild> _urgent = [];
-    private readonly BlockingCollection<PipelineBuild> _builds = [];
+    private readonly object _gate = new();
+    private readonly List<PipelineBuild> _urgent = [];
+    private readonly Queue<PipelineBuild> _builds = [];
     private readonly Func<int, bool> _room;
     private int _waiting;
     private int _running;
@@ -43,7 +46,16 @@ internal sealed class PipelineBuildQueue
     public int Workers { get; }
 
     /// <summary>Creations queued and not yet started.</summary>
-    public int Backlog => _urgent.Count + _builds.Count;
+    public int Backlog
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _urgent.Count + _builds.Count;
+            }
+        }
+    }
 
     /// <summary>Threads waiting for memory before their next creation.</summary>
     public int WaitingForMemory => Volatile.Read(ref _waiting);
@@ -51,19 +63,10 @@ internal sealed class PipelineBuildQueue
     /// <summary>Starts the threads; call once.</summary>
     public void Start()
     {
-        BlockingCollection<PipelineBuild>[] both = [_urgent, _builds];
-        BlockingCollection<PipelineBuild>[] urgentOnly = [_urgent];
-
         for (int i = 0; i < Workers; i++)
         {
-            var queues = urgentOnly;
-
-            if (i < SpeculativeWorkers)
-            {
-                queues = both;
-            }
-
-            var thread = new Thread(() => Run(queues)) { IsBackground = true, Name = "fivestar pipeline build" };
+            bool speculative = i < SpeculativeWorkers;
+            var thread = new Thread(() => Run(speculative)) { IsBackground = true, Name = "fivestar pipeline build" };
             thread.Start();
         }
     }
@@ -83,16 +86,17 @@ internal sealed class PipelineBuildQueue
     /// <summary>Queues <paramref name="create"/>, before every creation that is not urgent when <paramref name="urgent"/>.</summary>
     public PipelineBuild Queue(Func<PipelineResult> create, bool urgent)
     {
-        var build = new PipelineBuild(create, urgent);
+        return Queue(create, urgent, null);
+    }
 
-        if (urgent)
-        {
-            _urgent.Add(build);
-        }
-        else
-        {
-            _builds.Add(build);
-        }
+    /// <summary>
+    /// Queues <paramref name="create"/> as <see cref="Queue(Func{PipelineResult}, bool)"/>, ordered among urgent ones by
+    /// <paramref name="use"/>, the stand-in it replaces.
+    /// </summary>
+    public PipelineBuild Queue(Func<PipelineResult> create, bool urgent, StandInUse? use)
+    {
+        var build = new PipelineBuild(create, urgent, use);
+        Add(build, urgent);
 
         return build;
     }
@@ -102,22 +106,85 @@ internal sealed class PipelineBuildQueue
     {
         if (build.MakeUrgent())
         {
-            _urgent.Add(build);
+            Add(build, urgent: true);
         }
     }
 
-    private void Run(BlockingCollection<PipelineBuild>[] queues)
+    /// <summary>The next creation for a thread: the urgent one the game misses most, else (<paramref name="speculative"/>) the oldest other.</summary>
+    public PipelineBuild Take(bool speculative)
+    {
+        lock (_gate)
+        {
+            while (true)
+            {
+                if (_urgent.Count > 0)
+                {
+                    var best = Best(_urgent);
+                    var build = _urgent[best];
+                    _urgent.RemoveAt(best);
+
+                    return build;
+                }
+
+                if (speculative && _builds.Count > 0)
+                {
+                    return _builds.Dequeue();
+                }
+
+                Monitor.Wait(_gate);
+            }
+        }
+    }
+
+    /// <summary>The index of the highest score; the earliest of equal ones.</summary>
+    public static int Best(IReadOnlyList<PipelineBuild> builds)
+    {
+        int best = 0;
+        long score = builds[0].Score;
+
+        for (int index = 1; index < builds.Count; index++)
+        {
+            long candidate = builds[index].Score;
+
+            if (candidate > score)
+            {
+                (best, score) = (index, candidate);
+            }
+        }
+
+        return best;
+    }
+
+    private void Add(PipelineBuild build, bool urgent)
+    {
+        lock (_gate)
+        {
+            if (urgent)
+            {
+                _urgent.Add(build);
+            }
+            else
+            {
+                _builds.Enqueue(build);
+            }
+
+            Monitor.PulseAll(_gate);
+        }
+    }
+
+    private void Run(bool speculative)
     {
         while (true)
         {
             // Memory first, then the work: a thread waiting for memory holds no creation, so an urgent one queued
-            // meanwhile is the next taken. TakeFromAny takes from the first queue that has work.
+            // meanwhile is the next taken.
             WaitForRoom();
-            BlockingCollection<PipelineBuild>.TakeFromAny(queues, out var build);
+            var build = Take(speculative);
 
-            if (build!.Claim())
+            // A creation given back waits its turn again; a short pause keeps a thread with only those from spinning.
+            if (build.Claim() && Execute(build, build.Urgent))
             {
-                Execute(build, build.Urgent);
+                Thread.Sleep(GiveBackPauseMilliseconds);
             }
         }
     }
@@ -144,7 +211,7 @@ internal sealed class PipelineBuildQueue
             if (result.Hr == HResult.Pending)
             {
                 build.Release();
-                _urgent.Add(build);
+                Add(build, urgent: true);
 
                 return false;
             }
@@ -160,20 +227,37 @@ internal sealed class PipelineBuildQueue
         }
     }
 
-    /// <summary>Runs a build; an urgent one goes before the others in the driver compile budget (<see cref="CompileBudget"/>).</summary>
-    private void Execute(PipelineBuild build, bool urgent)
+    /// <summary>
+    /// Runs a build; an urgent one goes before the others in the driver compile budget (<see cref="CompileBudget"/>). One
+    /// no command list waits for does not wait there: it goes back to the queue (<see cref="CompileBudget.GiveBack"/>),
+    /// so the thread is free for urgent ones; true when it went back.
+    /// </summary>
+    private bool Execute(PipelineBuild build, bool urgent)
     {
         Interlocked.Increment(ref _running);
-        var previous = CompileBudget.Urgent;
+        var (previous, giveBack) = (CompileBudget.Urgent, CompileBudget.GiveBack);
         CompileBudget.Urgent = urgent;
+        CompileBudget.GiveBack = !urgent;
 
         try
         {
-            build.Done.SetResult(build.Create());
+            var result = build.Create();
+
+            if (result.Hr == HResult.Pending)
+            {
+                build.Release();
+                Add(build, build.Urgent);
+
+                return true;
+            }
+
+            build.Done.SetResult(result);
+
+            return false;
         }
         finally
         {
-            CompileBudget.Urgent = previous;
+            (CompileBudget.Urgent, CompileBudget.GiveBack) = (previous, giveBack);
             Interlocked.Decrement(ref _running);
         }
     }
