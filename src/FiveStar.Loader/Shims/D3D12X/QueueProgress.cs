@@ -52,6 +52,9 @@ internal static unsafe class QueueProgress
     private static int _count;
     private static int _removed;
 
+    /// <summary>The GPU memory line of a report (the segment groups, local and non-local, and what is open in place); null for none.</summary>
+    public static Func<string>? Memory { get; set; }
+
     /// <summary>Starts the watch thread; the queues register themselves on their first call.</summary>
     public static void Start(LoaderLog log)
     {
@@ -145,6 +148,26 @@ internal static unsafe class QueueProgress
         return reason;
     }
 
+    /// <summary>"; " and <see cref="Memory"/>, or empty; a query that fails after the removal says so.</summary>
+    internal static string MemoryLine()
+    {
+        var memory = Memory;
+
+        if (memory is null)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return "; " + memory();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return $"; GPU memory unread: {exception.Message}";
+        }
+    }
+
     /// <summary>Logs every queue as last seen, after <paramref name="reason"/>.</summary>
     public static void Report(string reason)
     {
@@ -153,7 +176,7 @@ internal static unsafe class QueueProgress
             return;
         }
 
-        _log.Error($"[gpu] {reason} ({MemorySnapshot.Summary()}); the queues as last seen:");
+        _log.Error($"[gpu] {reason} ({MemorySnapshot.Summary()}{MemoryLine()}); the queues as last seen:");
 
         for (int i = 0; i < Volatile.Read(ref _count); i++)
         {

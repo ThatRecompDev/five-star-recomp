@@ -77,6 +77,13 @@ internal static unsafe class MemoryWaits
         lock (Gate)
         {
             _log = log;
+
+            // A queue of the old device still waiting goes on: no ticket is left without its Signal.
+            foreach (var state in Queues.Values)
+            {
+                SignalAll(state);
+            }
+
             Queues.Clear();
             GivenUp.Clear();
         }
@@ -390,12 +397,21 @@ internal static unsafe class MemoryWaits
             bool waiting = false;
             bool released = false;
 
-            lock (Gate)
+            try
             {
-                foreach (var state in Queues.Values)
+                lock (Gate)
                 {
-                    released |= Release(state, ref waiting);
+                    foreach (var state in Queues.Values)
+                    {
+                        released |= Release(state, ref waiting);
+                    }
                 }
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                // The watcher is the only Signal of the queues' waits: it never ends, and what it held goes on.
+                ReleaseAfter(exception);
+                waiting = true;
             }
 
             if (_stallToDump != 0)
@@ -417,6 +433,27 @@ internal static unsafe class MemoryWaits
                 Pause(ref polls);
             }
         }
+    }
+
+    /// <summary>After a failed watch every queue's pending waits are released, so no queue waits on a ticket nobody signals.</summary>
+    private static void ReleaseAfter(Exception exception)
+    {
+        _log?.Error($"[memory wait] the watcher failed ({exception.GetType().Name}: {exception.Message}): every pending wait is released");
+
+        lock (Gate)
+        {
+            foreach (var state in Queues.Values)
+            {
+                state.ReleaseNow = true;
+            }
+        }
+    }
+
+    /// <summary>Signals the queue's last ticket and drops its pending waits.</summary>
+    private static void SignalAll(QueueWaits state)
+    {
+        state.Pending.Clear();
+        _ = ((delegate* unmanaged<nint, ulong, int>)ComObject.Slot(state.Fence, FenceSignalSlot))(state.Fence, state.Tickets);
     }
 
     private static void Pause(ref int polls)
