@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X.Present;
@@ -120,6 +121,7 @@ internal sealed unsafe class DxgiSwapChain : IDisposable
     [HotPath]
     public void WaitForFrame()
     {
+        using var wait = BlockingWaits.Enter("swap chain frame latency");
         _ = PresentNative.WaitForSingleObject(_waitable, LatencyTimeoutMilliseconds);
     }
 

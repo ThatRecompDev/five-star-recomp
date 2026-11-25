@@ -3,6 +3,7 @@
 
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.Gdk;
@@ -161,6 +162,7 @@ internal sealed unsafe class AsyncService
         // frees the block in its routine after XAsyncGetStatus(block, true)), and Done is set only after the routine.
         if (wait && state.Status == HResult.Pending)
         {
+            using var waiting = BlockingWaits.Enter("XAsyncGetStatus");
             state.Done.Wait();
         }
 

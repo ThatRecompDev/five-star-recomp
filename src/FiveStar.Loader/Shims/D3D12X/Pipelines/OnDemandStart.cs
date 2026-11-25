@@ -215,6 +215,7 @@ internal sealed class OnDemandStart
     public string Identity(out TimeSpan waited)
     {
         long start = Stopwatch.GetTimestamp();
+        using var wait = Diagnostics.BlockingWaits.Enter("program cache identity");
         var identity = _identity.GetAwaiter().GetResult();
         waited = Stopwatch.GetElapsedTime(start);
 
