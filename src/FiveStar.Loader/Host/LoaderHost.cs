@@ -38,23 +38,9 @@ internal sealed class LoaderHost
 
     public int Run()
     {
-        // The wait-object shims cost a managed call on every wait; only the hang watch reads what they record.
-        if (!_options.WatchHang)
+        if (!DisableShims())
         {
-            foreach (string shim in WaitObjectShims.Names)
-            {
-                _runtime.Shims.Disable(shim);
-            }
-        }
-
-        foreach (string spec in _options.DisabledShims)
-        {
-            if (!_runtime.Shims.Disable(spec))
-            {
-                _log.Error($"no such shim {spec}");
-
-                return UsageError;
-            }
+            return UsageError;
         }
 
         string manual = string.Join(", ", _runtime.Loader.ManualModules.Order(StringComparer.Ordinal));
@@ -96,6 +82,31 @@ internal sealed class LoaderHost
         _log.Info($"done, exit code {rc}");
 
         return rc;
+    }
+
+    /// <summary>The shims the options turn off; false when one named does not exist.</summary>
+    private bool DisableShims()
+    {
+        // The wait-object shims cost a managed call on every wait; only the hang watch reads what they record.
+        if (!_options.WatchHang)
+        {
+            foreach (string shim in WaitObjectShims.Names)
+            {
+                _runtime.Shims.Disable(shim);
+            }
+        }
+
+        foreach (string spec in _options.DisabledShims)
+        {
+            if (!_runtime.Shims.Disable(spec))
+            {
+                _log.Error($"no such shim {spec}");
+
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
