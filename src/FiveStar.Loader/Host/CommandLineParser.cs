@@ -115,8 +115,8 @@ internal sealed class CommandLineParser
                 return SetInputScript();
             case "--sample-threads":
                 return SetSampleThreads();
-            case "--profile-threads":
-                return SetProfileThreads();
+            case "--profile-threads" or "--profile-managed":
+                return SetProfile(option);
             case "--trace-module":
                 return Add(_options.TracedModules);
             case "--trace-system":
@@ -535,9 +535,24 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    private bool SetProfileThreads()
+    /// <summary>--profile-threads, or --profile-managed &lt;start&gt;[:&lt;seconds&gt;].</summary>
+    private bool SetProfile(string option)
     {
-        _options.ProfileThreads = true;
+        if (option == "--profile-threads")
+        {
+            _options.ProfileThreads = true;
+
+            return true;
+        }
+
+        string value = Next();
+
+        if (!Diagnostics.ManagedProfile.TryParse(value, out var start, out var length))
+        {
+            throw new CommandLineException($"--profile-managed {value}: expected <start seconds>[:<seconds>]");
+        }
+
+        (_options.ProfileManagedStart, _options.ProfileManagedLength) = (start, length);
 
         return true;
     }

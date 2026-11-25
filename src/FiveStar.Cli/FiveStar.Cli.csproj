@@ -13,6 +13,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Reads the loader's managed profiles (fivestar profile summary). -->
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\FiveStar.Formats\FiveStar.Formats.csproj" />
     <ProjectReference Include="..\FiveStar.Graphics\FiveStar.Graphics.csproj" />
     <ProjectReference Include="..\FiveStar.Shaders\FiveStar.Shaders.csproj" />
