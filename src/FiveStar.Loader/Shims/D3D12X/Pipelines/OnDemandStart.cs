@@ -83,7 +83,7 @@ internal sealed class OnDemandStart
     /// </summary>
     private static string Identity(IShaderCompiler compiler)
     {
-        string identity = ContentHash.OfText(ShadersIdentity(), nameof(RdnaDecoder), Translation.ToString(), compiler.Identity);
+        string identity = ContentHash.OfText(ShadersIdentity(), nameof(RdnaDecoder), Translation.ToString(), compiler.Identity, Binding.DescriptorWindow.Header);
 
         if (DebugLayer.PoolStoreTrace.Enabled)
         {
