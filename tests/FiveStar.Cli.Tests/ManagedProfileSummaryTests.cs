@@ -13,12 +13,14 @@ namespace FiveStar.Cli.Tests;
 
 /// <summary>
 /// A small managed profile of this process, recorded the way the loader records one (sample profiler, method events,
-/// rundown) while a thread the table calls "build" spins in one method: the summary names that method at the top of
-/// the class, exclusive and inclusive.
+/// rundown) while a thread the table calls "build" spins in one method: the summary names that method among the top of
+/// the class, exclusive and inclusive. Among the top, not first: on a loaded CI machine the samples of the thread's start
+/// (JIT, thread setup) or of a helper the loop calls can outnumber a short burn's, which failed PR #26's Windows run.
 /// </summary>
 public sealed partial class ManagedProfileSummaryTests
 {
-    private const int BurnMilliseconds = 400;
+    private const int BurnMilliseconds = 1500;
+    private const int TopExclusive = 3;
     private const int Top = 5;
 
     [Fact]
@@ -43,9 +45,11 @@ public sealed partial class ManagedProfileSummaryTests
             var output = new StringWriter();
             summary.Write(output, Top);
 
-            Assert.EndsWith("." + nameof(BurnCpu), build.Exclusive.MaxBy(pair => pair.Value).Key, StringComparison.Ordinal);
+            var leading = build.Exclusive.OrderByDescending(pair => pair.Value).Take(TopExclusive).Select(pair => pair.Key);
+            Assert.Contains(leading, method => method.EndsWith("." + nameof(BurnCpu), StringComparison.Ordinal));
             Assert.Contains(build.Inclusive.Keys, method => method.EndsWith("." + nameof(BurnCpu), StringComparison.Ordinal));
             Assert.Contains("== build: ", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains(nameof(BurnCpu), output.ToString(), StringComparison.Ordinal);
             Assert.Equal(ManagedProfileSummary.All, summary.Classes[^1].Name);
         }
         finally
