@@ -118,8 +118,12 @@ program. The caps count all loops of one invocation together (a cap per loop let
 `TranslationOptions.Loops` (`LoopCaps`; the loader's `--loop-caps`) replaces these per stage: `victory` is
 victory-gta6's 4,096 compute, 256 vertex and mesh, 128 pixel, and also bounds the dispatch form at 256 blocks per
 allowed iteration; `compute,geometry,pixel` gives other numbers. The caps are part of the translation options, so of
-the program cache identity. The superstep form had no bound at all; it now ends a thread that has run the stage's
-dispatch steps (`ss_steps`), which then meets every later barrier as an ended thread.
+the program cache identity. The superstep form had no bound at all; it now ends a thread that has run 16 blocks per
+allowed iteration (`ss_steps`, `LoopCaps.SuperstepSteps`: 65,536 for mesh), which then meets every later barrier as
+an ended thread. A loop with no wave operation (a scalar count loop) stays inside one round, so the round bound below
+never sees it; with the dispatch form's 256 blocks per iteration (2^20) the loop of `MSNC_VS_LinearDepthSkin_f1f2249c`
+over a constant-buffer count (dword 0x11c), a sample and about thirty dependent loads per pass, could run 2^20
+passes per thread, the likely cause of the w39 and w40 removals.
 
 A mesh program's group rounds are bounded too (`LoopCaps.Rounds`: 16 per allowed iteration, 65,536 for mesh by
 default, 4,096 with `victory`): the barriers of the two-phase form (`ms_step`) and the steps of the superstep form
