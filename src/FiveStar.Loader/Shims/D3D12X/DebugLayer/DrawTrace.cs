@@ -63,6 +63,11 @@ internal sealed unsafe class DrawTrace
     /// <summary>Watched-target readbacks per frame by default (a 2560x1440 RGBA16F one is 28 MB; the probes' cap is 512 MB).</summary>
     public const int DefaultWatchLimit = 16;
 
+    /// <summary>Work recorded in one present above which the world is drawn (a world frame records thousands, a menu dozens).</summary>
+    private const long WorldWork = 1000;
+    private const int WorldCaptures = 3;
+    private const int WorldCaptureSpacing = 100;
+
     /// <summary>D3D12_RESOURCE_DIMENSION_TEXTURE3D.</summary>
     private const int Texture3D = 4;
     private const int IncrementSlot = 15;
@@ -73,6 +78,8 @@ internal sealed unsafe class DrawTrace
     private readonly ConcurrentDictionary<nint, int> _watched = new();
     private readonly ConcurrentDictionary<(nint Target, nint Pipeline), byte> _watchedWriters = new();
     private int _watchReads;
+    private long _presentWork;
+    private bool _worldSeen;
     private readonly ConcurrentDictionary<nint, (int Game, int View)> _viewFormats = new();
     private readonly ConcurrentDictionary<nint, string> _targetDescriptions = new();
     private readonly ConcurrentDictionary<nint, int> _dumped = new();
@@ -745,11 +752,46 @@ internal sealed unsafe class DrawTrace
         }
 
         _census.Add(pipeline, target, skipped);
+        Interlocked.Increment(ref _presentWork);
+    }
+
+    /// <summary>
+    /// <c>--capture-when-world</c>: the first present after which the game recorded more than <see cref="WorldWork"/>
+    /// draws, dispatches and ExecuteIndirects (the menus and loading screens record a few dozen) starts captures of
+    /// <see cref="WorldCaptures"/> frames <see cref="WorldCaptureSpacing"/> presents apart, whenever the world arrives.
+    /// </summary>
+    public static bool CaptureWhenWorld { get; set; }
+
+    /// <summary>Starts the world captures at the first present of the world (<see cref="CaptureWhenWorld"/>).</summary>
+    private void TriggerOnWorld(long present)
+    {
+        long work = Interlocked.Exchange(ref _presentWork, 0);
+
+        if (!CaptureWhenWorld || _worldSeen || work <= WorldWork)
+        {
+            return;
+        }
+
+        _worldSeen = true;
+
+        foreach (long frame in WorldFrames(present))
+        {
+            _capture.Add(frame);
+        }
+
+        _log.Info($"  [capture] the world at present {present} ({work} draws and dispatches in it): capturing presents {string.Join(", ", WorldFrames(present))}");
+    }
+
+    /// <summary>The presents the world trigger captures after the first world present <paramref name="present"/>.</summary>
+    public static IEnumerable<long> WorldFrames(long present)
+    {
+        return Enumerable.Range(0, WorldCaptures).Select(i => present + 1 + (i * WorldCaptureSpacing));
     }
 
     /// <summary>Called after every present; true when probes are due (the caller then waits for the GPU and calls <see cref="Report"/>).</summary>
     public bool ReportDue(long present)
     {
+        TriggerOnWorld(present);
         bool wanted = _capture.Wants(present);
         Volatile.Write(ref _filterOpen, wanted);
         Interlocked.Exchange(ref _filtered, 0);
