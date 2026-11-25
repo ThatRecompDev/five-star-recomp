@@ -42,6 +42,14 @@ public sealed class VariantSelectionTests
         Assert.Equal((ChoiceOutcome.Variant, "wm.w32.dxil"), Pick(Nvidia, WideMesh));
         Assert.Equal((ChoiceOutcome.Variant, "wm.w32.dxil"), Pick(Nvidia, WideMesh with { Dxil = null }));
 
+        // An adapter whose probe ran mesh shaders in 64-lane waves (an RX 7800 XT, 32-64) runs the native form; one that
+        // was not measured or ran them in 32 keeps the superstep form. The measurement is for mesh shaders only.
+        var rdna3 = new AdapterInfo(2, "wave32-64, mesh shaders in 64-lane waves", false, "6.8", 32, 64, "Tier1") { MeshWaveLanes = 64 };
+        Assert.Equal((ChoiceOutcome.Native, "wm.dxil"), Pick(rdna3, WideMesh));
+        Assert.Equal((ChoiceOutcome.Variant, "wm.w32.dxil"), Pick(rdna3 with { MeshWaveLanes = null }, WideMesh));
+        Assert.Equal((ChoiceOutcome.Variant, "wm.w32.dxil"), Pick(rdna3 with { MeshWaveLanes = 32 }, WideMesh));
+        Assert.Equal(ChoiceOutcome.Incorrect, VariantSelector.Choose(rdna3, WidePixel).Outcome);
+
         // A fallback below its floor runs pinned where 64-lane waves exist, else in supersteps.
         Assert.Equal((ChoiceOutcome.Fallback, "wf.msfb_cs.w64.dxil"), Pick(Amd, WideFallback));
         Assert.Equal((ChoiceOutcome.Fallback, "wf.w32.msfb_cs.dxil"), Pick(Nvidia, WideFallback));

@@ -8,6 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- MeshWaveProbe: built from Probes/mesh_wave_probe.hlsl with the dxc line in its header. -->
+    <EmbeddedResource Include="Probes/mesh_wave_probe.dxil" LogicalName="FiveStar.Graphics.Probes.mesh_wave_probe.dxil" />
+    <None Include="Probes/mesh_wave_probe.hlsl" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Vortice.Direct3D12" />
     <PackageReference Include="Vortice.DXGI" />
   </ItemGroup>
