@@ -43,11 +43,12 @@ public sealed class ComputeCaseRunner
 
     /// <summary>
     /// Runs a case in the superstep form (HlslTranslator.SuperstepVariant) with groups of two console waves, which
-    /// branch apart: every thread is compared with full-wave expectations.
+    /// branch apart: every thread is compared with full-wave expectations. <paramref name="carry"/> adds the liveness
+    /// carry (TranslationOptions.SuperstepCarry).
     /// </summary>
-    public IReadOnlyList<string> RunSupersteps(ComputeCase testCase)
+    public IReadOnlyList<string> RunSupersteps(ComputeCase testCase, bool carry)
     {
-        var options = new TranslationOptions(StructuredControlFlow: false, PinWaveSize: false, EmulateWaveSize: true);
+        var options = new TranslationOptions(StructuredControlFlow: false, PinWaveSize: false, EmulateWaveSize: true) { SuperstepCarry = carry };
 
         return Run(testCase with { Threads = (2 * testCase.Wave, 1, 1) }, program => HlslTranslator.SuperstepVariant(program, options));
     }

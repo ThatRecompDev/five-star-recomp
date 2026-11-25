@@ -176,6 +176,9 @@ internal sealed record HostOptions
     /// <summary>Loop caps of programs made on demand (<c>--loop-caps victory|default|compute,geometry,pixel</c>); null for the translator's own.</summary>
     public FiveStar.Shaders.Translation.Core.LoopCaps? LoopCaps { get; set; }
 
+    /// <summary>Superstep forms made on demand carry registers by liveness (<c>--superstep-carry</c>).</summary>
+    public bool SuperstepCarry { get; set; }
+
     /// <summary>With the debug layer, also GPU-based validation (<c>--d3d12-gpu-validation</c>).</summary>
     public bool D3D12GpuValidation { get; set; }
 

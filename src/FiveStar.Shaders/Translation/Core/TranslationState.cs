@@ -88,6 +88,9 @@ internal sealed class TranslationState
     /// <summary>Superstep form (mesh or compute): wave operations exchange through groupshared memory, one group step each.</summary>
     public bool Supersteps { get; init; }
 
+    /// <summary>Superstep form: registers pass between cases through carry slots (TranslationOptions.SuperstepCarry).</summary>
+    public bool SuperstepCarry { get; init; }
+
     /// <summary>Superstep form: temporaries declared at function scope because a step cuts their block.</summary>
     public List<string> Hoisted { get; } = [];
 
