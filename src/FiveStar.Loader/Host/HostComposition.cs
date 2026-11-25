@@ -60,7 +60,15 @@ internal static class HostComposition
         {
             var root = options.ProgramCache ?? Path.Combine(WorkDirectory(options), OnDemandStart.FolderName);
             Shims.D3D12X.DebugLayer.PoolStoreTrace.Enabled = options.TracePoolStores;
+            Shims.D3D12X.Binding.UserDataConstants.Enabled = options.UserDataConstants;
             folders = folders with { OnDemand = OnDemandStart.Begin(root, options.Dxc, options.DxcBackend, options.ShaderJobs, out var message), OnDemandNote = message };
+        }
+
+        // Root constants need programs compiled for them: without programs made on demand the user data stays in the ring.
+        if (options.UserDataConstants && folders.OnDemand is null)
+        {
+            Shims.D3D12X.Binding.UserDataConstants.Enabled = false;
+            folders = folders with { OnDemandNote = $"{folders.OnDemandNote}; --user-data-constants needs programs made on demand: user data stays a root CBV".TrimStart(';', ' ') };
         }
 
         if (!folders.Enabled)

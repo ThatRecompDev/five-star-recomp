@@ -143,6 +143,12 @@ internal sealed record HostOptions
     /// <summary>With --sample-threads, also a profile burst of the running threads per sample (<c>--profile-threads</c>).</summary>
     public bool ProfileThreads { get; set; }
 
+    /// <summary>With --run, a managed CPU profile from this far into the run (<c>--profile-managed</c>).</summary>
+    public TimeSpan? ProfileManagedStart { get; set; }
+
+    /// <summary>How long the managed CPU profile samples.</summary>
+    public TimeSpan ProfileManagedLength { get; set; }
+
     /// <summary>With --run, also trace calls into these mapped images (<c>--trace-module</c>).</summary>
     public List<string> TracedModules { get; } = [];
 
@@ -185,6 +191,9 @@ internal sealed record HostOptions
     /// <summary>A memory wait recorded after work splits its list there; <c>--no-split-at-waits</c> turns it off.</summary>
     public bool SplitAtWaits { get; set; } = true;
 
+    /// <summary>User data as root constants instead of the ring's root CBV (<c>--user-data-constants</c>), with programs made on demand.</summary>
+    public bool UserDataConstants { get; set; }
+
     /// <summary>Programs made on demand trace stores into the transient pool and the game heap (<c>--trace-pool-stores</c>).</summary>
     public bool TracePoolStores { get; set; }
 
@@ -193,6 +202,9 @@ internal sealed record HostOptions
 
     /// <summary>What draws bind and what their targets hold, in the log (<c>--d3d12-trace-draws</c>).</summary>
     public bool D3D12TraceDraws { get; set; }
+
+    /// <summary>With the draw trace, every target of the frame after a captured present as a PNG (<c>--d3d12-dump-targets</c>).</summary>
+    public bool D3D12DumpTargets { get; set; }
 
     /// <summary>Pipelines whose draws the trace also logs after each captured present (<c>--d3d12-trace-pipeline</c>).</summary>
     public string? D3D12TracePipeline { get; set; }

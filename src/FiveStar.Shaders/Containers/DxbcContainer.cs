@@ -61,19 +61,37 @@ public sealed class DxbcContainer
     {
         var span = bytes.Span;
 
-        if (!HasMagic(span))
+        if (!HasMagic(span) || span.Length < HeaderSize)
         {
             throw new InvalidDataException("not a DXBC container");
         }
 
         var count = BinaryPrimitives.ReadInt32LittleEndian(span[ChunkCountOffset..]);
+
+        if (count < 0 || count > (span.Length - HeaderSize) / DwordSize)
+        {
+            throw new InvalidDataException("chunk table outside the container");
+        }
+
         var chunks = new List<DxbcChunk>(count);
 
         for (var index = 0; index < count; index++)
         {
             var offset = BinaryPrimitives.ReadInt32LittleEndian(span[(ChunkOffsetsStart + (index * DwordSize))..]);
+
+            if (offset < ChunkOffsetsStart + (count * DwordSize) || offset > span.Length - ChunkHeaderSize)
+            {
+                throw new InvalidDataException("chunk header outside the container");
+            }
+
             var fourCc = Encoding.Latin1.GetString(span.Slice(offset, FourCcSize));
             var size = BinaryPrimitives.ReadInt32LittleEndian(span[(offset + FourCcSize)..]);
+
+            if (size < 0)
+            {
+                throw new InvalidDataException("negative chunk size");
+            }
+
             var start = offset + ChunkHeaderSize;
             var length = Math.Min(size, bytes.Length - start);
             chunks.Add(new DxbcChunk(fourCc, bytes.Slice(start, length)));

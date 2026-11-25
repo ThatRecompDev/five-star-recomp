@@ -3,6 +3,7 @@
 
 using System.Diagnostics;
 using FiveStar.Graphics;
+using FiveStar.Graphics.Pipelines;
 using FiveStar.Graphics.Programs;
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Shaders.Cache;
@@ -75,14 +76,22 @@ internal sealed class OnDemandStart
         _runner!.Run(new CompileRequest(Path.Combine(Root, WarmUpFile), WarmUpSource, ComputeProfile, DisableOptimizations: false));
     }
 
-    /// <summary>The translator and compiler build's identity; programs that trace their stores (--trace-pool-stores) have their own.</summary>
+    /// <summary>
+    /// The translator and compiler build's identity; programs that trace their stores (--trace-pool-stores) or read
+    /// their user data from root constants (--user-data-constants) have their own.
+    /// </summary>
     private static string Identity(IShaderCompiler compiler)
     {
         string identity = ContentHash.OfText(ShadersIdentity(), nameof(RdnaDecoder), CorpusOptions.DefaultTranslation.ToString(), compiler.Identity);
 
         if (DebugLayer.PoolStoreTrace.Enabled)
         {
-            return ContentHash.OfText(identity, "store-trace");
+            identity = ContentHash.OfText(identity, "store-trace");
+        }
+
+        if (Binding.UserDataConstants.Enabled)
+        {
+            identity = ContentHash.OfText(identity, BindlessRootSignature.UserConstantsDefine);
         }
 
         return identity;
@@ -205,7 +214,8 @@ internal sealed class OnDemandStart
         List<string> logs = [ownLog];
         TranslatedProgramLibrary? ahead = null;
 
-        if (translated is not null && Directory.Exists(translated))
+        // The ahead-of-time translation reads its user data from a root CBV.
+        if (translated is not null && Directory.Exists(translated) && !Binding.UserDataConstants.Enabled)
         {
             ahead = TranslatedProgramLibrary.Open(index, translated, device, warnings, log);
             logs.Add(Path.Combine(translated, TimedCompiler.LogName));

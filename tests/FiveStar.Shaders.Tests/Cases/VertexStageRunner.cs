@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Shaders.Containers;
-using FiveStar.Shaders.Dxil;
 using FiveStar.Shaders.Hardware;
 using FiveStar.Shaders.Tests.Reference;
 using FiveStar.Shaders.Tests.Toolchain;
@@ -58,7 +57,7 @@ public sealed class VertexStageRunner
         var vertexData = Enumerable.Range(0, Width).SelectMany(j => new[] { FloatBits.Of(1.5 * j), FloatBits.Of(-2.0 - j), 0x3F800000 + (uint)j, 0x12345678 + (uint)j }).ToArray();
         var hlsl = Translate();
         var (pixelSource, _) = PassThroughPixelShader.Build(hlsl, ["p0_xyzw", "p1_xyzw"], flat: true);
-        var vertex = direct ? DxilBackend.Compile(hlsl, "vs") : _fixture.Workbench.Compile(Name, hlsl, "vs");
+        var vertex = _fixture.Workbench.Compile(Name, hlsl, "vs", direct);
         var job = new GraphicsJob(
             vertex,
             _fixture.Workbench.Compile(Name + "_ps", pixelSource, "ps"),

@@ -7,8 +7,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 
 /// <summary>
 /// Read-back texels as 8-bit RGBA with opaque alpha, for PNG captures and summaries: the 8-bit RGBA and BGRA families,
-/// R10G10B10A2, R16G16B16A16_FLOAT (clamped to 0..1) and one-channel 8-bit formats (as grey). DXGI_FORMAT values from
-/// dxgiformat.h.
+/// R10G10B10A2, R16G16B16A16_FLOAT and R11G11B10_FLOAT (clamped to 0..1), one-channel 8-bit formats, depth (the 32-bit
+/// plane) and one-channel floats (as grey). DXGI_FORMAT values from dxgiformat.h.
 /// </summary>
 internal static class ReadbackPixels
 {
@@ -23,6 +23,20 @@ internal static class ReadbackPixels
     private const int A8Unorm = 65;
     private const int Bgra8Unorm = 87;
     private const int Bgra8SrgbX = 93;
+    private const int DepthStencilTypeless = 19;
+    private const int DepthStencilFloat = 20;
+    private const int R11G11B10Float = 26;
+    private const int R32Typeless = 39;
+    private const int D32Float = 40;
+    private const int R32Float = 41;
+    private const int R16Float = 54;
+
+    private const uint ElevenBitMask = 0x7FF;
+    private const int GreenElevenShift = 11;
+    private const int BlueTenShift = 22;
+    private const int MantissaEleven = 6;
+    private const int MantissaTen = 5;
+    private const int SmallFloatBias = 15;
 
     private const int Channels = 4;
 
@@ -134,7 +148,78 @@ internal static class ReadbackPixels
             return true;
         }
 
+        return MoreFormats(format, row, output, width);
+    }
+
+    /// <summary>Depth and the float formats of the frame's targets: depth and one-channel floats as grey, R11G11B10 as colour.</summary>
+    private static bool MoreFormats(int format, ReadOnlySpan<byte> row, Span<byte> output, int width)
+    {
+        if (format is DepthStencilTypeless or DepthStencilFloat or R32Typeless or D32Float or R32Float)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                Put(output, x, BinaryPrimitives.ReadSingleLittleEndian(row[(x * sizeof(float))..]));
+            }
+
+            return true;
+        }
+
+        if (format == R16Float)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                Put(output, x, (float)BitConverter.UInt16BitsToHalf(BinaryPrimitives.ReadUInt16LittleEndian(row[(x * HalfBytes)..])));
+            }
+
+            return true;
+        }
+
+        if (format == R11G11B10Float)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                uint texel = BinaryPrimitives.ReadUInt32LittleEndian(row[(x * Channels)..]);
+                int at = x * Channels;
+                output[at] = ToByte(SmallFloat(texel & ElevenBitMask, MantissaEleven));
+                output[at + Green] = ToByte(SmallFloat((texel >> GreenElevenShift) & ElevenBitMask, MantissaEleven));
+                output[at + Blue] = ToByte(SmallFloat(texel >> BlueTenShift, MantissaTen));
+                output[at + Alpha] = Opaque;
+            }
+
+            return true;
+        }
+
         return false;
+    }
+
+    /// <summary>An unsigned 11- or 10-bit float (5-bit exponent, bias 15, no sign).</summary>
+    private static float SmallFloat(uint bits, int mantissaBits)
+    {
+        uint exponent = bits >> mantissaBits;
+        uint mantissa = bits & ((1u << mantissaBits) - 1);
+        float fraction = mantissa / (float)(1u << mantissaBits);
+
+        if (exponent == 0)
+        {
+            return MathF.ScaleB(fraction, 1 - SmallFloatBias);
+        }
+
+        return MathF.ScaleB(1 + fraction, (int)exponent - SmallFloatBias);
+    }
+
+    private static byte ToByte(float value)
+    {
+        return (byte)(Math.Clamp(value, 0f, 1f) * Scale);
+    }
+
+    private static void Put(Span<byte> output, int x, float value)
+    {
+        int at = x * Channels;
+        byte grey = ToByte(value);
+        output[at] = grey;
+        output[at + Green] = grey;
+        output[at + Blue] = grey;
+        output[at + Alpha] = Opaque;
     }
 
     private static void Swizzle(ReadOnlySpan<byte> row, Span<byte> output, int width, int redAt, int blueAt)

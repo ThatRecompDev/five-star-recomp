@@ -3,7 +3,6 @@
 
 using System.Globalization;
 using FiveStar.Shaders.Containers;
-using FiveStar.Shaders.Dxil;
 using FiveStar.Shaders.Hardware;
 using FiveStar.Shaders.Tests.Toolchain;
 using FiveStar.Shaders.Tests.Warp;
@@ -123,7 +122,7 @@ public sealed class ComputeCaseRunner
 
         if (direct)
         {
-            return DxilBackend.Compile(ShaderWorkbench.Translate(program), "cs");
+            return _fixture.Workbench.Compile(testCase.Name, ShaderWorkbench.Translate(program), "cs", direct: true);
         }
 
         return _fixture.Workbench.Compile(testCase.Name, ShaderWorkbench.Translate(program), "cs");

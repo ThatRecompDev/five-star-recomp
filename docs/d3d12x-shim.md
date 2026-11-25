@@ -469,6 +469,13 @@ flowchart LR
   descriptor the console GPU address as passed (its memory gets a desktop buffer if none covers it yet, so the
   address map holds it). Graphics SGPRs 8 to 15 are also written to dwords 0 to 7, where mesh and geometry programs
   read them (`user_sgpr(n - 8)`).
+- **User data** goes out at the next draw or dispatch after a change, only the dwords the root signature uses: by
+  default copied to a 512-byte block of `UserDataRing` (write-combined upload memory) with root parameter 0, a root
+  CBV, pointed at it. `--user-data-constants` makes parameter 0 32 root constants (33 of the 64 root-signature
+  DWORDs with the fallback table) set straight from the list's SGPRs, 30 to 47 ns a draw instead of about 130
+  (`D3D12XUserDataBenchmarks`). Programs must read them so (`FIVESTAR_USER_CONSTANTS`), so the mode takes programs
+  made on demand, in a program cache of their own and with a pipeline cache key of their own (the root signature
+  salts it); the ahead-of-time translation is not used, and without a compiler the user data stays in the ring.
 - **Address map** (`GameMemoryViews`). Programs read a root descriptor's address, and any pointer or V# the game
   builds in memory, as a console GPU address: `VS_Clear`, the executable's clear, builds its V# from a root SRV
   (`s_mov s0, s8; s_or s1, s9, 0x10000; s_mov s2, -1; s_mov s3, 0x11014fac`), as about 970 of a sample of 2,591
@@ -731,7 +738,10 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   copied inside the game's list (`DrawProbes`) and summarized two presents later (non-black pixels, their box, mean
   colour). At each captured present a census (`DrawCensus`) logs every draw, dispatch and ExecuteIndirect since the
   previous one, counted by pipeline and first render target, recorded or skipped (a stand-in's work); for a dispatch
-  the target is the list's last one. The game executes some closed lists again, so a probe's buffer is released only once its list was reset
+  the target is the list's last one. `--d3d12-dump-targets` adds, in the frame after each captured present, a readback
+  of every render and depth target at least 1024 wide the 1st, 2nd, 4th, 8th... time a list leaves it, at most 96, written
+  as `present-N-target-0x<resource>-leave-K.png` beside the captures (depth and one-channel floats as grey, float colour formats
+  clamped to 0..1). The game executes some closed lists again, so a probe's buffer is released only once its list was reset
   (releasing it at the report removed the device, debug-layer error #921).
 - `--d3d12-trace-pipeline <text>` (implies the draw trace) also logs, in the frame after each captured present, up to
   64 draws whose pipeline name holds the text, without probes: a frame's UI draws (`sgd2_` Scaleform programs such as

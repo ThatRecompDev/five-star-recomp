@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Diagnostics;
+using FiveStar.Graphics.Pipelines;
 using FiveStar.Loader.Shims.D3D12X.Binding;
 using FiveStar.Loader.Tests.Support;
 using FiveStar.Shaders.Translation;
@@ -76,6 +77,22 @@ public sealed unsafe class D3D12XBindingTests
         }
         """;
 
+    /// <summary>As <see cref="Program"/> through the translator's runtime: the table address is user SGPR s4 (compute).</summary>
+    private const string PreludeProgram = """
+        #include "rdna_prelude.hlsli"
+        [numthreads(1, 1, 1)]
+        void main()
+        {
+            uint table = user_sgpr(4);
+            ByteAddressBuffer window = ResourceDescriptorHeap[0];
+            ByteAddressBuffer source = ResourceDescriptorHeap[window.Load(table)];
+            RWByteAddressBuffer destination = ResourceDescriptorHeap[window.Load(table + 32)];
+            destination.Store(0, source.Load(0) + 1);
+        }
+        """;
+
+    private const int DwordsPerVector = 4;
+
     /// <summary>
     /// Table entry 0 holds a console GPU address (low, high) and a value: the program stores the value there and stores
     /// the dword 4 bytes further on into table entry 1, both through the address map (PtrStore, PtrLoad).
@@ -118,6 +135,16 @@ public sealed unsafe class D3D12XBindingTests
         Assert.Equal(new byte[] { 0, 1, 4, 6 }, new[] { layout.Offsets[0], layout.Offsets[1], layout.Offsets[2], layout.Offsets[3] });
         Assert.Equal(new byte[] { 1, 3, 2, 1 }, new[] { layout.Sizes[0], layout.Sizes[1], layout.Sizes[2], layout.Sizes[3] });
         Assert.Equal(7, layout.Sgprs());
+
+        // A draw uploads the dwords up to the root signature's last SGPR, in 16-byte steps: compute s4 + 7, graphics s8 + 7.
+        var bindings = (CommandListBindings*)System.Runtime.InteropServices.NativeMemory.AllocZeroed((nuint)sizeof(CommandListBindings));
+        Assert.Equal((uint)CommandListBindings.UserDataDwords, UserData.Used(bindings, true));
+
+        bindings->ComputeLayout = &layout;
+        bindings->GraphicsLayout = &layout;
+        Assert.Equal(12u, UserData.Used(bindings, true));
+        Assert.Equal(16u, UserData.Used(bindings, false));
+        System.Runtime.InteropServices.NativeMemory.Free(bindings);
     }
 
     [Fact]
@@ -184,6 +211,41 @@ public sealed unsafe class D3D12XBindingTests
         var heap = ViewHeap(device, SmallHeap);
 
         Assert.Equal(Marker + 1, Dispatch(test, device, heap, 0, 1, heap.Gpu));
+    }
+
+    [Fact]
+    public void User_data_as_root_constants_fits_the_root_signature_and_the_prelude_reads_as_many()
+    {
+        var prelude = RuntimeIncludes.Read("rdna_prelude.hlsli");
+        int start = prelude.IndexOf("#ifdef " + BindlessRootSignature.UserConstantsDefine, StringComparison.Ordinal);
+        string constants = prelude[start..prelude.IndexOf("#else", start, StringComparison.Ordinal)];
+
+        Assert.True(BindlessRootSignature.Dwords(userConstants: true) <= BindlessRootSignature.MaxDwords);
+        Assert.Contains($"g_user4[{BindlessRootSignature.UserConstants / DwordsPerVector}]", constants, StringComparison.Ordinal);
+        Assert.Contains($"i < {BindlessRootSignature.UserConstants}u", constants, StringComparison.Ordinal);
+    }
+
+    [DxcFact]
+    public void A_table_reaches_a_translated_program_as_a_root_cbv_or_as_root_constants()
+    {
+        foreach (bool constants in new[] { false, true })
+        {
+            UserDataConstants.Enabled = constants;
+
+            try
+            {
+                using var test = TestRuntime.Create();
+                var device = new XboxDevice(test);
+                var heap = ViewHeap(device, SmallHeap);
+                string header = constants ? UserDataConstants.Header : string.Empty;
+
+                Assert.Equal(Marker + 1, Dispatch(test, device, heap, 0, 1, heap.Gpu, program: header + PreludeProgram));
+            }
+            finally
+            {
+                UserDataConstants.Enabled = false;
+            }
+        }
     }
 
     [DxcFact]

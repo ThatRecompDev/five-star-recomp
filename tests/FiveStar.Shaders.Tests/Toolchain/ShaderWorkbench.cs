@@ -32,6 +32,9 @@ public sealed class ShaderWorkbench
         RuntimeIncludes.WriteTo(folder);
     }
 
+    /// <summary>The lines every compiled source starts with (<see cref="Warp.UserDataBindings.Header"/>).</summary>
+    public string Header { get; init; } = string.Empty;
+
     public AssembledProgram Assemble(string name, string source, int waveSize)
     {
         return _assembler.Assemble(name, source, waveSize);
@@ -47,6 +50,7 @@ public sealed class ShaderWorkbench
     public byte[] Compile(string name, string hlsl, string profile)
     {
         var path = Path.Combine(_folder, name + ".hlsl");
+        hlsl = Header + hlsl;
         File.WriteAllText(path, hlsl);
         var outcome = _compiler.Compile(new CompileRequest(path, hlsl, profile, DisableOptimizations: false), CompileTimeout);
 
@@ -63,7 +67,7 @@ public sealed class ShaderWorkbench
     {
         if (direct)
         {
-            return DxilBackend.Compile(hlsl, profile);
+            return DxilBackend.Compile(Header + hlsl, profile);
         }
 
         return Compile(name, hlsl, profile);
@@ -76,7 +80,7 @@ public sealed class ShaderWorkbench
     public byte[] CompileStrict(string name, string hlsl, string profile)
     {
         var path = Path.Combine(_folder, name + ".strict.hlsl");
-        File.WriteAllText(path, hlsl);
+        File.WriteAllText(path, Header + hlsl);
         var dxil = Path.ChangeExtension(path, ".dxil");
         string[] arguments = ["-T", profile + "_6_7", "-E", "main", "-HV", "2021", "-Gis", "-I", _folder, "-Fo", dxil, path];
         var result = ExternalTool.Run(_dxc, arguments, CompileTimeout);

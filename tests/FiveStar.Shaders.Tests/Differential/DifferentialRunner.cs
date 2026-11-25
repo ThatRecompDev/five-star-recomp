@@ -60,7 +60,7 @@ public sealed class DifferentialRunner
         _fixture = fixture;
         _folder = folder;
         _backend = backend;
-        _workbench = new ShaderWorkbench(ShaderToolchain.Find(), folder);
+        _workbench = new ShaderWorkbench(ShaderToolchain.Find(), folder) { Header = fixture.Workbench.Header };
         var prelude = Path.Combine(folder, RuntimeIncludes.Names[0]);
         File.WriteAllText(prelude, HeapSlots.Rewrite(RuntimeIncludes.Read(RuntimeIncludes.Names[0])));
     }
@@ -220,7 +220,7 @@ public sealed class DifferentialRunner
 
         try
         {
-            return form with { Shader = DxilBackend.Compile(form.Source, form.Profile, include => File.ReadAllText(Path.Combine(_folder, include))) };
+            return form with { Shader = DxilBackend.Compile(_workbench.Header + form.Source, form.Profile, include => File.ReadAllText(Path.Combine(_folder, include))) };
         }
         catch (DxilBackendException exception)
         {

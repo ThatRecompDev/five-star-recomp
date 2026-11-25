@@ -42,6 +42,8 @@ public static class Program
                 return ModelCommands.Run(rest);
             case "progress":
                 return ProgressCommands.Run(rest);
+            case "profile":
+                return ProfileCommands.Run(rest);
             case "setup":
                 return SetupCommand.Run(rest);
             case "run":
@@ -60,7 +62,7 @@ public static class Program
         Console.Error.WriteLine("usage: fivestar run <dump folder> [options]       set up what is missing and boot the game (fivestar run help)");
         Console.Error.WriteLine("       fivestar doctor <dump folder> [options]    check the prerequisites and the work folder");
         Console.Error.WriteLine("       fivestar setup <dump folder> [options]     prepare everything the port needs (fivestar setup help)");
-        Console.Error.WriteLine("       fivestar <archive|audio|texture|platform|exe|shader|graphics|model|progress> <command> [arguments]");
+        Console.Error.WriteLine("       fivestar <archive|audio|texture|platform|exe|shader|graphics|model|progress|profile> <command> [arguments]");
         Console.Error.WriteLine("       fivestar <group> help    lists the commands of a group");
     }
 }

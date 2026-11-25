@@ -304,6 +304,23 @@ internal sealed class LoaderHost
         return result;
     }
 
+    /// <summary>--sample-threads (with --profile-threads) and --profile-managed.</summary>
+    private void StartSampling()
+    {
+        var interval = _options.SampleThreads;
+        var profileStart = _options.ProfileManagedStart;
+
+        if (interval.HasValue)
+        {
+            new ThreadSampler(_runtime.Images, _runtime.Trace, SampledCounters, _options.ProfileThreads, _log).Start(interval.Value);
+        }
+
+        if (profileStart.HasValue)
+        {
+            ManagedProfile.Start(_runtime.Images, ManagedProfile.TracePath(_options.LogFile), profileStart.Value, _options.ProfileManagedLength, _log);
+        }
+    }
+
     private int RunMain(int rc)
     {
         var main = _runtime.Loader.MainImage;
@@ -320,19 +337,15 @@ internal sealed class LoaderHost
             return Failure;
         }
 
-        var interval = _options.SampleThreads;
-
-        if (interval.HasValue)
-        {
-            new ThreadSampler(_runtime.Images, _runtime.Trace, SampledCounters, _options.ProfileThreads, _log).Start(interval.Value);
-        }
-
+        StartSampling();
         StartMemoryWatch();
         ManagedExceptions.Watch(_log);
 
         GpuBreadcrumbs.Enable(_options.D3D12Breadcrumbs);
         Shims.D3D12X.Binding.CommandListBindingMethods.SkipComputeChains = _options.SkipComputeChains;
         Shims.D3D12X.Binding.CommandListBindingMethods.EmptyIndirectAfterSkip = _options.EmptyIndirectAfterSkip;
+        Shims.D3D12X.DebugLayer.DrawTrace.DumpTargets = _options.D3D12DumpTargets;
+
         Shims.D3D12X.RetireWaits.Enable(_options.RetireWaitsAllQueues, _log);
         Shims.D3D12X.ListSplits.Enabled = _options.SplitAtWaits;
         Diagnostics.UnmanagedGuard.LogTo(_log.Error);

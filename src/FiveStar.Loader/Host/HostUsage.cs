@@ -23,6 +23,8 @@ internal static class HostUsage
           --screens <file>       learned screens of --input-script (default %LOCALAPPDATA%\FiveStar\screens.txt)
                                  added to the desktop keys, so the keyboard and the virtual gamepad see them
           --profile-threads      with --sample-threads: also log the main image's busiest functions on running threads
+          --profile-managed <start>[:<seconds>]  from <start> s into the run sample managed stacks for <seconds> (20)
+                                 into <log>.managed.nettrace; fivestar profile summary reads it
           --trace-module <dll>   with --run: the call trace also records calls into this mapped image
           --sample-threads <s>   with --run: every s seconds log the calls per shim since the last sample,
                                  DirectStorage totals and every thread's stack
@@ -79,6 +81,8 @@ internal static class HostUsage
           --skip-compute-chains  skip the rest of a command list's dispatches after one skipped for a stand-in
           --empty-indirect-after-skip  a command list's ExecuteIndirects after a compute dispatch skipped for a stand-in run nothing
           --retire-waits-all-queues  a submission holding the game's retire write waits for every other queue
+          --user-data-constants  draws pass their user data as root constants, not a root CBV in upload memory (needs
+                                 programs made on demand)
           --trace-pool-stores    programs made on demand log their stores into the transient pool and the game heap
           --watch-hang           log the game's main state, loading-screen flags and heartbeat, and every thread's
                                  stack while the heartbeat its hang watchdog checks stands still
@@ -86,6 +90,8 @@ internal static class HostUsage
                                  their render targets back
           --d3d12-trace-pipeline <text>  with the draw trace, also log the draws of pipelines named with <text> in
                                  the frame after each captured present
+          --d3d12-dump-targets   the draw trace, and in the frame after each captured present every render and depth
+                                 target read back when a list leaves it, as PNG in the capture folder
           --capture-dir <dir>    write read-back planes and render targets there as PNG
           --capture-presents <n,...> present numbers whose plane is read back (default 60,300,900,1500)
           --present-test         present moving color bars instead of the game's frame (checks the swap chain)

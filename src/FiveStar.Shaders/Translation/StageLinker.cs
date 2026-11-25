@@ -21,6 +21,7 @@ public static partial class StageLinker
     private const string LowHalf = "ATTRLO";
     private const string HighHalf = "ATTRHI";
     private const string AddedPrefix = "lnk";
+    private const string DroppedPrefix = "unread_";
     private const string ReturnAnchor = "\n  return o;";
     private const string StagedAnchor = "\n    verts[in_gi] = o;";
     private const string MeshEntry = "out vertices Out verts[";
@@ -30,6 +31,16 @@ public static partial class StageLinker
 
     /// <summary>The producer HLSL with its <c>Out</c> struct laid out for the consumer's PSV0 input elements.</summary>
     public static string Link(string producerHlsl, IReadOnlyList<PsvElement> consumerInputs)
+    {
+        return Link(producerHlsl, consumerInputs, dropUnread: false);
+    }
+
+    /// <summary>
+    /// As <see cref="Link(string, IReadOnlyList{PsvElement})"/>; with <paramref name="dropUnread"/> the outputs the
+    /// consumer does not read (but the position) leave the <c>Out</c> struct and are written to static variables
+    /// instead, so a mesh shader's outputs fit its 32 KB.
+    /// </summary>
+    public static string Link(string producerHlsl, IReadOnlyList<PsvElement> consumerInputs, bool dropUnread)
     {
         var match = OutStructPattern().Match(producerHlsl);
 
@@ -46,14 +57,45 @@ public static partial class StageLinker
             layout.Place(element);
         }
 
-        var linked = producerHlsl[..group.Index] + string.Join("\n", layout.Lines()) + producerHlsl[(group.Index + group.Length)..];
+        var dropped = new List<OutStructMember>();
+
+        if (dropUnread)
+        {
+            dropped = layout.Unplaced().Where(member => member.Semantic != Position).ToList();
+        }
+
+        var lines = layout.Lines().Where(line => !dropped.Exists(member => line.Trim() == member.Declaration));
+        var linked = producerHlsl[..group.Index] + string.Join("\n", lines) + producerHlsl[(group.Index + group.Length)..];
 
         foreach (var half in layout.Halves)
         {
             linked = CopyHalf(linked, layout.Members, half);
         }
 
-        return linked;
+        return Drop(linked, dropped);
+    }
+
+    /// <summary>Writes and reads of dropped outputs go to a static variable of their type each.</summary>
+    private static string Drop(string hlsl, List<OutStructMember> dropped)
+    {
+        if (dropped.Count == 0)
+        {
+            return hlsl;
+        }
+
+        var statics = new System.Text.StringBuilder();
+
+        foreach (var member in dropped)
+        {
+            var type = member.Declaration[..member.Declaration.IndexOf(' ', StringComparison.Ordinal)];
+            var variable = $"{DroppedPrefix}{member.Name}";
+            statics.Append(CultureInfo.InvariantCulture, $"static {type} {variable};\n");
+            hlsl = Regex.Replace(hlsl, $@"(?:verts\[in_gi\]|\bo)\.{Regex.Escape(member.Name)}\b", variable);
+        }
+
+        var at = OutStructPattern().Match(hlsl).Index;
+
+        return hlsl.Insert(at, statics.ToString());
     }
 
     /// <summary>
@@ -273,6 +315,12 @@ public static partial class StageLinker
             {
                 Halves.Add(($"{AddedPrefix}{number}", element.SemanticIndex, name == HighHalf));
             }
+        }
+
+        /// <summary>The producer's members the consumer reads none of.</summary>
+        public IEnumerable<OutStructMember> Unplaced()
+        {
+            return Members.Where(member => !_placed.Contains(member));
         }
 
         /// <summary>The placed members, then the producer's other members in their order.</summary>

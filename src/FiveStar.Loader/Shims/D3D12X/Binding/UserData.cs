@@ -18,6 +18,9 @@ internal static unsafe class UserData
     /// <summary>System SGPRs before the user data of merged (mesh, geometry) programs.</summary>
     private const uint MergedShift = 8;
 
+    /// <summary>Dwords per 16 bytes, the unit of the upload.</summary>
+    private const uint DwordsPerVector = 4;
+
     /// <summary>Bits of the low dword of an address.</summary>
     private const int HighShift = 32;
 
@@ -49,6 +52,38 @@ internal static unsafe class UserData
         }
 
         bindings->GraphicsDirty = 1;
+    }
+
+    /// <summary>
+    /// The user-data dwords a draw or dispatch must upload: up to the last SGPR of the bind point's root signature (the
+    /// graphics base covers dwords 0 to 7, the copy mesh programs read), rounded up to 16 bytes; all 128 without a
+    /// known layout.
+    /// </summary>
+    [HotPath]
+    public static uint Used(CommandListBindings* bindings, bool compute)
+    {
+        RootLayout* layout = compute ? bindings->ComputeLayout : bindings->GraphicsLayout;
+
+        if (layout == null)
+        {
+            return CommandListBindings.UserDataDwords;
+        }
+
+        uint used = GraphicsBase;
+
+        if (compute)
+        {
+            used = ComputeBase;
+        }
+
+        used = (used + (uint)layout->Sgprs() + DwordsPerVector - 1) & ~(DwordsPerVector - 1);
+
+        if (used > CommandListBindings.UserDataDwords)
+        {
+            used = CommandListBindings.UserDataDwords;
+        }
+
+        return used;
     }
 
     /// <summary>Writes a 64-bit address to the two SGPRs of a root descriptor.</summary>

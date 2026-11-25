@@ -12,14 +12,12 @@ public static class PipelineFactory
     private const int FallbackSpace = 9;
     private const int FallbackUavs = 3;
 
-    public static ID3D12RootSignature RootSignature(ID3D12Device device, int rootConstants, RootLayout layout)
+    /// <summary>The root signature with the user data at b0 bound as <paramref name="binding"/> says, then <paramref name="layout"/>'s parameters.</summary>
+    public static ID3D12RootSignature RootSignature(ID3D12Device device, int rootConstants, RootLayout layout, UserDataBinding binding)
     {
         var flags = RootSignatureFlags.ConstantBufferViewShaderResourceViewUnorderedAccessViewHeapDirectlyIndexed
             | RootSignatureFlags.SamplerHeapDirectlyIndexed | RootSignatureFlags.AllowInputAssemblerInputLayout;
-        var parameters = new List<RootParameter1>
-        {
-            new(new RootConstants(0, 0, (uint)rootConstants), ShaderVisibility.All),
-        };
+        var parameters = new List<RootParameter1> { UserData(rootConstants, binding) };
 
         if (layout == RootLayout.FallbackRoot)
         {
@@ -42,6 +40,21 @@ public static class PipelineFactory
         }
 
         return device.CreateRootSignature(new RootSignatureDescription1(flags, [.. parameters]));
+    }
+
+    private static RootParameter1 UserData(int rootConstants, UserDataBinding binding)
+    {
+        if (binding == UserDataBinding.Buffer)
+        {
+            return new RootParameter1(RootParameterType.ConstantBufferView, new RootDescriptor1(0, 0, RootDescriptorFlags.DataVolatile), ShaderVisibility.All);
+        }
+
+        if (binding == UserDataBinding.UserConstants)
+        {
+            rootConstants = UserDataBindings.UserConstants;
+        }
+
+        return new RootParameter1(new RootConstants(0, 0, (uint)rootConstants), ShaderVisibility.All);
     }
 
     public static ID3D12PipelineState Compute(ID3D12Device device, ID3D12RootSignature root, byte[] shader)

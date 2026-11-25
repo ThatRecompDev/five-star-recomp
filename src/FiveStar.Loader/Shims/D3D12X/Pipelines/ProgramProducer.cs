@@ -122,6 +122,11 @@ internal sealed class ProgramProducer
             hlsl = DebugLayer.PoolStoreTrace.Header(name) + hlsl;
         }
 
+        if (Binding.UserDataConstants.Enabled)
+        {
+            hlsl = Binding.UserDataConstants.Header + hlsl;
+        }
+
         var slow = hlsl.Length > _compiler.Options.LargeSourceLength || _slow.Contains(source);
 
         return new ProgramForm(name, new CompileRequest(Path.Combine(_folder, source), hlsl, profile, slow), null);
@@ -214,11 +219,11 @@ internal sealed class ProgramProducer
 
     /// <summary>
     /// Compiles the program's form with its outputs laid out for a pixel shader's <paramref name="inputs"/>
-    /// (<see cref="StageLinker.Link"/>) into <paramref name="dxilPath"/>; null when it did, else why not (kept beside it).
+    /// (<see cref="StageLinker.Link(string, IReadOnlyList{PsvElement}, bool)"/>; <paramref name="dropUnread"/> for a mesh program) into <paramref name="dxilPath"/>; null when it did, else why not (kept beside it).
     /// </summary>
-    public string? Link(string name, IReadOnlyList<PsvElement> inputs, string dxilPath)
+    public string? Link(string name, IReadOnlyList<PsvElement> inputs, string dxilPath, bool dropUnread)
     {
-        return Remake(name, hlsl => StageLinker.Link(hlsl, inputs), dxilPath);
+        return Remake(name, hlsl => StageLinker.Link(hlsl, inputs, dropUnread), dxilPath);
     }
 
     /// <summary>Compiles a pixel shader without the inputs it never reads (<see cref="StageLinker.TrimInputs"/>), as <see cref="Link"/>.</summary>

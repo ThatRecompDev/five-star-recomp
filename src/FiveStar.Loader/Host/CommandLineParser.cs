@@ -115,8 +115,8 @@ internal sealed class CommandLineParser
                 return SetInputScript();
             case "--sample-threads":
                 return SetSampleThreads();
-            case "--profile-threads":
-                return SetProfileThreads();
+            case "--profile-threads" or "--profile-managed":
+                return SetProfile(option);
             case "--trace-module":
                 return Add(_options.TracedModules);
             case "--trace-system":
@@ -133,7 +133,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs":
                 return SetBreadcrumbs();
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-dump-targets":
                 return SetTraceDraws(option);
             case "--capture-dir":
                 return SetCaptureDirectory();
@@ -161,7 +161,7 @@ internal sealed class CommandLineParser
     {
         switch (option)
         {
-            case "--watch-transient" or "--watch-hang" or "--skip-compute-chains" or "--empty-indirect-after-skip" or "--retire-waits-all-queues" or "--no-split-at-waits" or "--trace-pool-stores" or "--watch-pool-pages":
+            case "--watch-transient" or "--watch-hang" or "--skip-compute-chains" or "--empty-indirect-after-skip" or "--retire-waits-all-queues" or "--no-split-at-waits" or "--user-data-constants" or "--trace-pool-stores" or "--watch-pool-pages":
                 return SetWatch(option);
             case "--screens":
                 return SetScreensFile();
@@ -535,9 +535,24 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    private bool SetProfileThreads()
+    /// <summary>--profile-threads, or --profile-managed &lt;start&gt;[:&lt;seconds&gt;].</summary>
+    private bool SetProfile(string option)
     {
-        _options.ProfileThreads = true;
+        if (option == "--profile-threads")
+        {
+            _options.ProfileThreads = true;
+
+            return true;
+        }
+
+        string value = Next();
+
+        if (!Diagnostics.ManagedProfile.TryParse(value, out var start, out var length))
+        {
+            throw new CommandLineException($"--profile-managed {value}: expected <start seconds>[:<seconds>]");
+        }
+
+        (_options.ProfileManagedStart, _options.ProfileManagedLength) = (start, length);
 
         return true;
     }
@@ -602,6 +617,10 @@ internal sealed class CommandLineParser
         {
             _options.SplitAtWaits = false;
         }
+        else if (option == "--user-data-constants")
+        {
+            _options.UserDataConstants = true;
+        }
         else if (option == "--skip-compute-chains")
         {
             _options.SkipComputeChains = true;
@@ -626,6 +645,11 @@ internal sealed class CommandLineParser
         if (option == "--d3d12-trace-pipeline")
         {
             _options.D3D12TracePipeline = Next();
+        }
+
+        if (option == "--d3d12-dump-targets")
+        {
+            _options.D3D12DumpTargets = true;
         }
 
         return true;

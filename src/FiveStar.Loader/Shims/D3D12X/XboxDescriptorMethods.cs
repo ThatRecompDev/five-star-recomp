@@ -201,6 +201,7 @@ internal static unsafe class XboxDescriptorMethods
     {
         try
         {
+            D3D12X.DrawTrace?.RenderTargetView(resource, Destination(handle));
             nint desktop = D3D12X.Objects.Unwrap(resource);
             byte* copy = stackalloc byte[DepthViewDescriptions.DepthStencilViewSize];
             CreateDesktopView(self, CreateDepthStencilViewSlot, desktop, DepthViewDescriptions.DepthStencilView(desktop, description, copy), Destination(handle));

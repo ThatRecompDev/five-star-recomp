@@ -23,7 +23,8 @@ public unsafe class D3D12XCallBenchmarks : IDisposable
     private const int ThunkSlot = 0;
     private const int UnwrapSlot = 1;
     private const int ManagedSlot = 2;
-    private const int WrapperSlots = ManagedSlot + 1;
+    private const int GuardedSlot = 3;
+    private const int WrapperSlots = GuardedSlot + 1;
 
     /// <summary>An object is its vtable pointer plus, for a wrapper, the desktop object at D3D12XLayout.InnerOffset.</summary>
     private static readonly nuint ObjectBytes = (nuint)(D3D12XLayout.InnerOffset + sizeof(nint));
@@ -37,6 +38,7 @@ public unsafe class D3D12XCallBenchmarks : IDisposable
     private delegate* unmanaged<nint, nint, uint> _thunk;
     private delegate* unmanaged<nint, nint, uint> _unwrap;
     private delegate* unmanaged<nint, nint, uint> _managed;
+    private delegate* unmanaged<nint, nint, uint> _guarded;
 
     [GlobalSetup]
     public void Setup()
@@ -58,12 +60,16 @@ public unsafe class D3D12XCallBenchmarks : IDisposable
         _wrapperVtable[UnwrapSlot] = ForwardingThunk.Emit(heap, new ForwardedSlot(UnwrapSlot, DesktopSlot, false, ArgumentRegisters.Rdx), (nint)_wrapperVtable, vtableBytes, 0);
         delegate* unmanaged<nint, nint, uint> managed = &ManagedForward;
         _wrapperVtable[ManagedSlot] = (nint)managed;
+
+        delegate* unmanaged<nint, nint, uint> guarded = &GuardedForward;
+        _wrapperVtable[GuardedSlot] = (nint)guarded;
         heap.Seal();
 
         _direct = (delegate* unmanaged<nint, nint, uint>)_desktopVtable[DesktopSlot];
         _thunk = (delegate* unmanaged<nint, nint, uint>)_wrapperVtable[ThunkSlot];
         _unwrap = (delegate* unmanaged<nint, nint, uint>)_wrapperVtable[UnwrapSlot];
         _managed = (delegate* unmanaged<nint, nint, uint>)_wrapperVtable[ManagedSlot];
+        _guarded = (delegate* unmanaged<nint, nint, uint>)_wrapperVtable[GuardedSlot];
     }
 
     [Benchmark(Baseline = true)]
@@ -91,6 +97,13 @@ public unsafe class D3D12XCallBenchmarks : IDisposable
         return _managed(_wrapper, 0);
     }
 
+    /// <summary>The same handler inside the try statement every product entry point has (UnmanagedCallersGuardRule).</summary>
+    [Benchmark]
+    public uint GuardedHandler()
+    {
+        return _guarded(_wrapper, 0);
+    }
+
     [GlobalCleanup]
     public void Dispose()
     {
@@ -110,6 +123,22 @@ public unsafe class D3D12XCallBenchmarks : IDisposable
         nint* vtable = *(nint**)inner;
 
         return ((delegate* unmanaged<nint, nint, uint>)vtable[DesktopSlot])(inner, argument);
+    }
+
+    [UnmanagedCallersOnly]
+    private static uint GuardedForward(nint self, nint argument)
+    {
+        try
+        {
+            nint inner = *(nint*)(self + D3D12XLayout.InnerOffset);
+            nint* vtable = *(nint**)inner;
+
+            return ((delegate* unmanaged<nint, nint, uint>)vtable[DesktopSlot])(inner, argument);
+        }
+        catch (Exception)
+        {
+            return 0;
+        }
     }
 
     private static nint WriteDesktopMethod(CodeHeap heap)
