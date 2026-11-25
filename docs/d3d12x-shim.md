@@ -779,7 +779,7 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
 - `--d3d12-trace-pipeline <text>` (implies the draw trace) also logs, in the frame after each captured present, up to
   64 draws whose pipeline name holds the text, without probes: a frame's UI draws (`sgd2_` Scaleform programs such as
   `FVertexCxform`) come long after its first 32.
-- `--probe-pipeline <text>` makes the mesh programs whose name holds the text with probe code (`MeshProbe`,
+- `--probe-pipeline <text,...>` makes the mesh, pixel and compute programs whose name holds one of the texts with probe code (`MeshProbe`,
   `MeshProbes`), in any of its forms (two-phase, staged, the superstep form of the wave32 variant): every load site (a
   buffer, formatted or pointer load with the range check before it, an s_buffer_load's compare included) marks itself
   when its range check fails, it reads an unmapped page of the address map or a record naming no descriptor, and thread
@@ -791,7 +791,11 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   `<name>.probe-<ring offset>`, so its DXIL, links and pipelines are cache entries of their own and the other programs
   stay warm. At each captured present the records since the last are summed up per program, each flagged site with its
   text (kept as `<name>.sites.txt` beside the DXIL) and, for a window load, the view record index it read (the game
-  index the copies and writes log).
+  index the copies and writes log). A pixel or compute program (FIVESTAR_STAGE_PROBE) keeps its notes per invocation,
+  and at its end the first lane of each wave appends a record: the wave's site masks, its own values and window
+  addresses, its pixel (x, y) from SV_Position or its group, and the colour a pixel program returns in its first
+  float4 target. The summary gives the waves, the colours (how many black, NaN or infinite) and the sites, so a pass
+  that comes out black shows whether it read zeros, failed its checks or read null records.
 - `--capture-presents 60,300` reads the presented plane back at those present numbers once the presenting queue is
   idle and logs the same summary; `--capture-dir <dir>` also writes `present-N.png` there. Only the plane is read,
   never the window or the desktop.

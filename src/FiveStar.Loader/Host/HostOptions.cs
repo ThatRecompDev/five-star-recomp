@@ -233,7 +233,10 @@ internal sealed record HostOptions
     /// <summary>Pipelines whose draws the trace also logs after each captured present (<c>--d3d12-trace-pipeline</c>).</summary>
     public string? D3D12TracePipeline { get; set; }
 
-    /// <summary>Mesh programs named with this text are made with probe code (<c>--probe-pipeline</c>).</summary>
+    /// <summary>Texts whose pipelines and targets every census lists in full (<c>--census-passes</c>, with the draw trace).</summary>
+    public IReadOnlyList<string> CensusPasses { get; set; } = [];
+
+    /// <summary>Mesh, pixel and compute programs named with one of these comma-separated texts are made with probe code (<c>--probe-pipeline</c>).</summary>
     public string? ProbePipeline { get; set; }
 
     /// <summary>Where captured presents go as PNG files (<c>--capture-dir</c>); null captures nothing to disk.</summary>

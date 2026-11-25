@@ -22,6 +22,10 @@ public sealed class ComputeCaseRunner
 
     private readonly WarpFixture _fixture;
 
+    /// <summary>The probe ring's heap slot (the writable window, rdna_prelude GPU_MEM_HEAP + 1) and its records.</summary>
+    private const int ProbeRingSlot = 1;
+    private const int ProbeRecords = 64;
+
     public ComputeCaseRunner(WarpFixture fixture)
     {
         _fixture = fixture;
@@ -56,6 +60,38 @@ public sealed class ComputeCaseRunner
     public IReadOnlyList<string> RunDirect(ComputeCase testCase)
     {
         return Run(testCase, null, direct: true);
+    }
+
+    /// <summary>
+    /// Runs a case with the stage probe (MeshProbe on a compute program, its ring at the start of the writable window,
+    /// heap slot 1): the case's mismatches, the records its waves wrote and the text of each load site.
+    /// </summary>
+    public (IReadOnlyList<string> Mismatches, IReadOnlyList<MeshProbeRecord> Records, IReadOnlyList<string> Sites) RunProbed(ComputeCase testCase, uint id)
+    {
+        IReadOnlyList<string> sites = [];
+        testCase = testCase with { Name = testCase.Name + "_probe" };
+        var shader = Build(testCase, program =>
+        {
+            var (probed, numbered) = MeshProbe.Instrument(ShaderWorkbench.Translate(program), id, 0);
+            sites = numbered;
+
+            return probed;
+        }, direct: false);
+        uint[] user = [.. ComputeCase.Descriptor(ComputeCase.OutputHeap), .. testCase.SecondDescriptor, .. testCase.User, .. new uint[ComputeCase.UserSgprCount]];
+        var output = new BufferResource(ComputeCase.OutputHeap, [.. Enumerable.Repeat(testCase.Fill, testCase.TotalThreads * testCase.Outputs)], Writable: true);
+
+        var ring = new BufferResource(ProbeRingSlot, new uint[(MeshProbe.RecordsOffset / sizeof(uint)) + (ProbeRecords * MeshProbeRecord.Dwords)], Writable: true);
+        var bindings = new Bindings { UserSgprs = user[..ComputeCase.UserSgprCount], Buffers = [output, ring, .. testCase.Buffers], Textures = testCase.Textures };
+        var (x, y, z) = testCase.Groups;
+        var result = _fixture.Runner.Compute(new ComputeJob(shader, x, y, z, bindings));
+
+        var words = result.Buffers[ProbeRingSlot];
+        var records = Enumerable.Range(0, (int)Math.Min(words[0], ProbeRecords))
+            .Select(index => MeshProbeRecord.Read(words.AsSpan((int)(MeshProbe.RecordsOffset / sizeof(uint)) + (index * MeshProbeRecord.Dwords), MeshProbeRecord.Dwords)))
+            .ToList();
+        var written = result.Buffers.Concat(result.Textures).ToDictionary(pair => pair.Key, pair => pair.Value);
+
+        return (Compare(testCase, written, Math.Min(_fixture.ComputeWaveSize, testCase.Wave)), records, sites);
     }
 
     private static string GroupWave(ShaderProgram program)

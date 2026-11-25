@@ -11,7 +11,8 @@ using FiveStar.Shaders.Translation;
 namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 
 /// <summary>
-/// <c>--probe-pipeline &lt;text&gt;</c>: the mesh programs whose name holds the text are made on demand with probe code
+/// <c>--probe-pipeline &lt;text,...&gt;</c>: the mesh, pixel and compute programs whose name holds one of the texts are
+/// made on demand with probe code
 /// (<see cref="MeshProbe"/>) under their name plus <see cref="Suffix"/> (the program index renames them), so their DXIL,
 /// links and pipelines are cache entries of their own and every other program stays warm. Each group of such a program
 /// appends a record to a ring in the descriptor window past the window flags; at every captured present the records
@@ -120,7 +121,7 @@ internal static unsafe class MeshProbes
 
     private static bool Matches(string name)
     {
-        if (!name.Contains(Filter!, StringComparison.OrdinalIgnoreCase))
+        if (!Filter!.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Any(text => name.Contains(text, StringComparison.OrdinalIgnoreCase)))
         {
             return false;
         }
@@ -133,6 +134,14 @@ internal static unsafe class MeshProbes
     private static void Summarize(uint id, List<MeshProbeRecord> groups, LoaderLog log)
     {
         string name = Names.GetValueOrDefault(id, $"program 0x{id:x8}");
+
+        if (groups.All(group => group.Stage))
+        {
+            SummarizeStage(name, groups, log);
+
+            return;
+        }
+
         int empty = groups.Count(group => group.Vertices == 0 || group.Primitives == 0);
         long primitives = groups.Sum(group => (long)group.Primitives);
         long culled = groups.Sum(group => (long)group.Culled);
@@ -147,6 +156,30 @@ internal static unsafe class MeshProbes
         uint window = groups.Aggregate(0u, (mask, group) => mask | group.WindowLoads);
         log.Info($"{Prefix}{name}: sites loading through a 32-bit pointer (the descriptor window) 0x{window:x8}; first window address thread 0 read: {Values(groups.Select(group => group.WindowAddress))} (view records from 0x{DescriptorWindow.ViewBase:x}, 32 bytes each)");
         LogSites(name, groups, log);
+    }
+
+    /// <summary>
+    /// A pixel or compute program's waves: where they ran (pixels or groups), the colours a pixel program returned (how
+    /// many black, NaN or infinite), then its sites as a mesh program's.
+    /// </summary>
+    private static void SummarizeStage(string name, List<MeshProbeRecord> waves, LoaderLog log)
+    {
+        var colours = waves.Where(wave => wave.Position is not null).Select(wave => wave.Position!.Value).ToList();
+        int black = colours.Count(c => c.X == 0 && c.Y == 0 && c.Z == 0);
+        int invalid = colours.Count(c => !float.IsFinite(c.X) || !float.IsFinite(c.Y) || !float.IsFinite(c.Z) || !float.IsFinite(c.W));
+        string shown = string.Join(" ", colours.Take(PositionsShown).Select(c => $"({c.X:G4}, {c.Y:G4}, {c.Z:G4}, {c.W:G4})"));
+        string at = string.Join(" ", waves.Take(PositionsShown).Select(wave => $"({wave.Group.X}, {wave.Group.Y}, {wave.Group.Z})"));
+
+        log.Info($"{Prefix}{name}: {waves.Count} waves (pixel or compute), first lanes at {at}");
+
+        if (colours.Count > 0)
+        {
+            log.Info($"{Prefix}{name}: returned colours: {black} of {colours.Count} black, {invalid} NaN or infinite; first {shown}");
+        }
+
+        uint window = waves.Aggregate(0u, (mask, wave) => mask | wave.WindowLoads);
+        log.Info($"{Prefix}{name}: sites loading through a 32-bit pointer (the descriptor window) 0x{window:x8}");
+        LogSites(name, waves, log);
     }
 
     /// <summary>

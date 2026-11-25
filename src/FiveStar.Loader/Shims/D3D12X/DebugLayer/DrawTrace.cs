@@ -352,7 +352,7 @@ internal sealed unsafe class DrawTrace
         if (wanted)
         {
             Volatile.Write(ref _windowEnd, Interlocked.Read(ref _draws) + WindowDraws);
-            _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"));
+            _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"), standIn => _d3d12.Pipelines?.StandIns.State(standIn) ?? "unknown");
         }
 
         // Targets are dumped during the one frame after a captured present.
