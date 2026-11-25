@@ -238,18 +238,19 @@ internal sealed unsafe class DrawTrace
         }
 
         var state = List(list);
-        string pipeline = _d3d12.Rectangles.Pipelines?.Describe(rectangles->Pipeline) ?? "unknown";
+        state.Traced = true;
+        string pipeline = Label(rectangles->Pipeline);
         var text = new StringBuilder($"  [draws] draw {draw}: list 0x{(nint)list:x}, {vertices} vertices x {instances}");
         text.Append($"\n      pipeline 0x{rectangles->Pipeline:x} topology {rectangles->Topology} variant {rectangles->VariantBound}: {pipeline}");
 
         AppendTargets(text, state);
         text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x}");
         text.Append(state.VertexBuffers);
-        AppendUserData(text, CommandListBindings.Of(list));
+        AppendUserData(text, CommandListBindings.Of(list), compute: false);
 
         if (filtered)
         {
-            AppendWindowRecords(text, CommandListBindings.Of(list));
+            AppendWindowRecords(text, CommandListBindings.Of(list), compute: false);
             state.ProbeNext = ProbeTraced;
         }
 
@@ -257,11 +258,37 @@ internal sealed unsafe class DrawTrace
     }
 
     /// <summary>The window records at <see cref="TraceRecords.Offsets"/> from the user SGPRs (<c>--d3d12-trace-records</c>).</summary>
-    private void AppendWindowRecords(StringBuilder text, CommandListBindings* bindings)
+    private void AppendWindowRecords(StringBuilder text, CommandListBindings* bindings, bool compute)
     {
-        var graphics = new ReadOnlySpan<uint>(bindings->Graphics, UserDwordsShown);
         var sources = new TraceRecordSources(MapState, (address, bytes) => (nint)_memory.Find(address, (ulong)bytes), GameRecord, TextureState, ViewAt);
-        TraceRecords.Append(text, _d3d12.Bindings.Window.Data, DescriptorWindow.NullTableBase, graphics, TraceRecords.Offsets, sources);
+        TraceRecords.Append(text, _d3d12.Bindings.Window.Data, DescriptorWindow.NullTableBase, Sgprs(bindings, compute), TraceRecords.Offsets, sources);
+    }
+
+    /// <summary>The user SGPRs the list's next draw (graphics) or dispatch (compute) gets.</summary>
+    private static ReadOnlySpan<uint> Sgprs(CommandListBindings* bindings, bool compute)
+    {
+        if (compute)
+        {
+            return new ReadOnlySpan<uint>(bindings->Compute, UserDwordsShown);
+        }
+
+        return new ReadOnlySpan<uint>(bindings->Graphics, UserDwordsShown);
+    }
+
+    /// <summary>
+    /// A pipeline's name in the trace: its rectangle-list description (graphics), else the programs it was built from
+    /// (compute and mesh pipelines; <see cref="QueueProgress.PipelineName"/>).
+    /// </summary>
+    private string Label(nint pipeline)
+    {
+        string? described = _d3d12.Rectangles.Pipelines?.Describe(pipeline);
+
+        if (described is not null)
+        {
+            return described;
+        }
+
+        return QueueProgress.PipelineName(pipeline);
     }
 
     /// <summary>The view this trace saw written at desktop heap index <paramref name="index"/> (resource, size and format).</summary>
@@ -330,7 +357,7 @@ internal sealed unsafe class DrawTrace
     /// first argument records, the count's source, targets and the bindings, as a traced draw; its targets are read back
     /// right after it (<see cref="AfterIndirect"/>), so one mesh pass shows whether it wrote anything.
     /// </summary>
-    public void Indirect(XboxObject* list, uint maxCount, ulong argumentAddress, uint stride, bool counted)
+    public void Indirect(XboxObject* list, uint maxCount, ulong argumentAddress, uint stride, bool counted, bool compute = false)
     {
         var rectangles = RectangleListState.Of(list);
 
@@ -340,23 +367,85 @@ internal sealed unsafe class DrawTrace
         }
 
         var state = List(list);
-        string pipeline = _d3d12.Rectangles.Pipelines?.Describe(rectangles->Pipeline) ?? "unknown";
-        var text = new StringBuilder($"  [draws] indirect: list 0x{(nint)list:x}, max {maxCount} records of {stride} bytes, count buffer {counted}");
-        text.Append($"\n      pipeline 0x{rectangles->Pipeline:x} topology {rectangles->Topology}: {pipeline}");
+        state.Traced = true;
+        string kind = compute ? "compute indirect" : "indirect";
+        var text = new StringBuilder($"  [draws] {kind}: list 0x{(nint)list:x}, max {maxCount} records of {stride} bytes, count buffer {counted}");
+        text.Append($"\n      pipeline 0x{rectangles->Pipeline:x} topology {rectangles->Topology}: {Label(rectangles->Pipeline)}");
         AppendRecords(text, argumentAddress, Math.Min(maxCount, IndirectRecordsShown), stride);
 
-        AppendTargets(text, state);
-        text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x}");
-        AppendUserData(text, CommandListBindings.Of(list));
-        AppendPointers(text, CommandListBindings.Of(list));
-        AppendWindowRecords(text, CommandListBindings.Of(list));
+        if (!compute)
+        {
+            AppendTargets(text, state);
+            text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x}");
+        }
+
+        AppendUserData(text, CommandListBindings.Of(list), compute);
+        AppendPointers(text, CommandListBindings.Of(list), compute);
+        AppendWindowRecords(text, CommandListBindings.Of(list), compute);
 
         _log.Info(text.ToString());
         _indirectProbes[(nint)list] = 0;
 
         if (ProbeTraced)
         {
-            ProbeRecords(list, state);
+            ProbeRecords(list, state, compute);
+        }
+    }
+
+    /// <summary>
+    /// A Dispatch whose compute pipeline matches <see cref="PipelineFilter"/> in the frame after a captured present: its
+    /// group counts, the compute user SGPRs and their tables, and the <c>--d3d12-trace-records</c> records, as a traced
+    /// ExecuteIndirect. With <see cref="ProbeTraced"/> the texture SRVs those records name are read back right after it
+    /// (<see cref="AfterDispatch"/>), so a pass shows what its own UAVs or its inputs hold.
+    /// </summary>
+    public void Dispatch(XboxObject* list, uint x, uint y, uint z)
+    {
+        nint pipeline = RectangleListState.Of(list)->Pipeline;
+
+        if (!Matches(pipeline))
+        {
+            return;
+        }
+
+        var state = List(list);
+        state.Traced = true;
+        var text = new StringBuilder($"  [draws] dispatch: list 0x{(nint)list:x}, groups {x} x {y} x {z}");
+        text.Append($"\n      pipeline 0x{pipeline:x}: {Label(pipeline)}");
+
+        AppendUserData(text, CommandListBindings.Of(list), compute: true);
+        AppendPointers(text, CommandListBindings.Of(list), compute: true);
+        AppendWindowRecords(text, CommandListBindings.Of(list), compute: true);
+
+        _log.Info(text.ToString());
+        state.ProbeDispatch = ProbeTraced;
+    }
+
+    /// <summary>After a traced Dispatch: the texture SRVs its traced records name are read back in the list.</summary>
+    public void AfterDispatch(XboxObject* list)
+    {
+        if (!_lists.TryGetValue((nint)list, out var state) || !state.ProbeDispatch)
+        {
+            return;
+        }
+
+        state.ProbeDispatch = false;
+        ProbeRecords(list, state, compute: true);
+        Interlocked.CompareExchange(ref _reportAt, Volatile.Read(ref _lastPresent) + ReportDelay, 0);
+    }
+
+    /// <summary>
+    /// The game submitted <paramref name="count"/> lists on queue number <paramref name="queue"/>: each that recorded traced
+    /// work is named with the queue, so a traced pass shows where (and whether) it ran.
+    /// </summary>
+    public void Submitted(int queue, nint* lists, uint count)
+    {
+        for (uint i = 0; i < count; i++)
+        {
+            if (_lists.TryGetValue(lists[i], out var state) && state.Traced)
+            {
+                state.Traced = false;
+                _log.Info($"  [draws] list 0x{lists[i]:x} with traced work submitted on queue #{queue}");
+            }
         }
     }
 
@@ -364,10 +453,10 @@ internal sealed unsafe class DrawTrace
     /// With <see cref="ProbeTraced"/>, before a traced ExecuteIndirect runs: each texture SRV the
     /// <c>--d3d12-trace-records</c> offsets of its first table name by heap index is read back as the draw will see it.
     /// </summary>
-    private void ProbeRecords(XboxObject* list, DrawTraceList state)
+    private void ProbeRecords(XboxObject* list, DrawTraceList state, bool compute)
     {
         var window = _d3d12.Bindings.Window;
-        uint table = CommandListBindings.Of(list)->Graphics[0];
+        uint table = FirstTable(Sgprs(CommandListBindings.Of(list), compute), compute);
 
         if (window.Data == null || window.ViewHeap == 0)
         {
@@ -663,49 +752,81 @@ internal sealed unsafe class DrawTrace
         }
     }
 
-    private void AppendUserData(StringBuilder text, CommandListBindings* bindings)
+    private void AppendUserData(StringBuilder text, CommandListBindings* bindings, bool compute)
     {
-        text.Append("\n      user sgprs:");
+        var sgprs = Sgprs(bindings, compute);
+        string header = compute ? "\n      compute user sgprs:" : "\n      user sgprs:";
+        text.Append(header);
 
-        for (int i = 0; i < UserDwordsShown; i++)
+        foreach (uint value in sgprs)
         {
-            text.Append($" {bindings->Graphics[i]:x}");
+            text.Append($" {value:x}");
         }
 
-        var layout = bindings->GraphicsLayout;
+        var layout = compute ? bindings->ComputeLayout : bindings->GraphicsLayout;
+        uint first = compute ? UserData.ComputeBase : UserData.GraphicsBase;
 
         for (uint parameter = 0; layout != null && parameter < (uint)layout->Count; parameter++)
         {
-            uint sgpr = UserData.GraphicsBase + layout->Offsets[parameter];
+            int sgpr = (int)(first + layout->Offsets[parameter]);
             var kind = layout->Kind(parameter);
+
+            if (sgpr + 1 >= sgprs.Length)
+            {
+                continue;
+            }
 
             if (kind == RootParameterKind.Table)
             {
-                AppendTable(text, parameter, bindings->Graphics[sgpr], layout->Extents[parameter]);
+                AppendTable(text, parameter, sgprs[sgpr], layout->Extents[parameter]);
             }
             else if (kind != RootParameterKind.Constants)
             {
-                AppendRootAddress(text, parameter, bindings->Graphics[sgpr] | ((ulong)bindings->Graphics[sgpr + 1] << DwordBits));
+                AppendRootAddress(text, parameter, sgprs[sgpr] | ((ulong)sgprs[sgpr + 1] << DwordBits));
             }
         }
+    }
+
+    /// <summary>
+    /// The window table a traced pass's records are probed in: graphics user SGPR 0, as the game's draws set it; for a
+    /// dispatch the first compute SGPR from <see cref="UserData.ComputeBase"/> that is a record-aligned window offset.
+    /// </summary>
+    private static uint FirstTable(ReadOnlySpan<uint> sgprs, bool compute)
+    {
+        if (!compute)
+        {
+            return sgprs[0];
+        }
+
+        for (int i = (int)UserData.ComputeBase; i < sgprs.Length; i++)
+        {
+            if (sgprs[i] != 0 && sgprs[i] % DescriptorWindow.ViewRecordBytes == 0 && sgprs[i] < DescriptorWindow.NullTableBase)
+            {
+                return sgprs[i];
+            }
+        }
+
+        return sgprs[0];
     }
 
     /// <summary>
     /// User SGPR pairs that hold a console GPU address (high dword 1 to 0xFFFF): whether the address map has a desktop
     /// page there (a program reading through an unmapped page gets zeros) and the first dwords.
     /// </summary>
-    private void AppendPointers(StringBuilder text, CommandListBindings* bindings)
+    private void AppendPointers(StringBuilder text, CommandListBindings* bindings, bool compute)
     {
-        for (int i = 0; i + 1 < UserDwordsShown; i++)
+        var sgprs = Sgprs(bindings, compute);
+
+        for (int i = 0; i + 1 < sgprs.Length; i++)
         {
-            uint high = bindings->Graphics[i + 1];
+            uint high = sgprs[i + 1];
 
             if (high == 0 || high > MaxAddressHigh)
             {
                 continue;
             }
 
-            ulong address = bindings->Graphics[i] | ((ulong)high << DwordBits);
+            ulong address = sgprs[i] | ((ulong)high << DwordBits);
             text.Append($"\n      sgprs {i}-{i + 1} 0x{address:x}: {MapState(address)}");
         }
     }

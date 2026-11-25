@@ -118,6 +118,7 @@ internal static unsafe class XboxQueueMethods
 
             RetireWaits.BeforeExecute((XboxQueueObject*)self, lists + first, size);
             Submit(self, lists + first, desktop, size, execute);
+            d3d12.DrawTrace?.Submitted(((XboxQueueObject*)self)->Number, lists + first, size);
         }
     }
 
