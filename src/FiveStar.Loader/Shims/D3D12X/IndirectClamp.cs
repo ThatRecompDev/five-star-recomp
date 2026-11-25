@@ -4,6 +4,7 @@
 using System.Text;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.Binding;
+using FiveStar.Loader.Shims.D3D12X.DebugLayer;
 using FiveStar.Loader.Shims.D3D12X.Present;
 using FiveStar.Loader.Shims.D3D12X.States;
 
@@ -171,6 +172,11 @@ internal static unsafe class IndirectClamp
         {
             counted = 1;
             countAddress = DesktopCalls.GpuAddress(count) + countOffset;
+        }
+
+        if (NullAddressCheck.Enabled && (NullAddressCheck.Suspect(destination) || NullAddressCheck.Suspect(budget) || NullAddressCheck.Suspect(countAddress)))
+        {
+            return !NullAddressCheck.Drop(NullAddressKind.RootDescriptor, self, $"argument clamp views: clamped 0x{destination:x}, budget 0x{budget:x}, count 0x{countAddress:x}");
         }
 
         BarrierWriter.Transition(list, scratch, ResourceStates.Common, ResourceStates.UnorderedAccess);

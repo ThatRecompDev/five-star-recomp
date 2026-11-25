@@ -77,6 +77,29 @@ internal sealed class GpuMemoryBudget : IDisposable
         return $"local {Gib(localUsage)} of {Gib(localBudget)} GiB, system {Gib(systemUsage)} of {Gib(systemBudget)} GiB";
     }
 
+    /// <summary>
+    /// Each segment group's usage, budget, memory available for reservation and reservation, for the sample line: a
+    /// process over its local budget gets its allocations demoted or evicted by the video memory manager.
+    /// </summary>
+    public string Sample()
+    {
+        return $"GPU memory: local {Group(MemorySegmentGroup.Local)}; system {Group(MemorySegmentGroup.NonLocal)}";
+    }
+
+    private string Group(MemorySegmentGroup group)
+    {
+        try
+        {
+            var info = _adapter.QueryVideoMemoryInfo(0, group);
+
+            return $"{Gib(info.CurrentUsage)} of {Gib(info.Budget)} GiB budget, {Gib(info.AvailableForReservation)} available for reservation, {Gib(info.CurrentReservation)} reserved";
+        }
+        catch (SharpGenException)
+        {
+            return "unknown";
+        }
+    }
+
     public void Dispose()
     {
         _adapter.Dispose();
