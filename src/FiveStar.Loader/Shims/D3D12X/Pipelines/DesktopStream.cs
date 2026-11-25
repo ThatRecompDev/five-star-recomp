@@ -31,6 +31,7 @@ internal sealed unsafe class DesktopStream : IDisposable
     private readonly IncrementalHash _identity = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
     private nint* _desc;
     private string? _key;
+    private int _rootOffset = -1;
 
     /// <summary>The bytes of shader bytecode in the stream.</summary>
     public long ShaderBytes { get; private set; }
@@ -41,7 +42,88 @@ internal sealed unsafe class DesktopStream : IDisposable
     public void AddPointer(PipelineStateSubObjectType type, nint address)
     {
         Begin(type, PipelineLayout.PointerSize);
+
+        if (type == PipelineStateSubObjectType.RootSignature)
+        {
+            _rootOffset = _bytes.Count;
+        }
+
         _bytes.AddRange(BitConverter.GetBytes((long)address));
+    }
+
+    /// <summary>
+    /// Writes the stream for another process (<see cref="PipelineHost"/>): its bytes, its shaders and input layouts
+    /// by offset, and where the root signature goes; pointers are filled in again by <see cref="Read"/>.
+    /// </summary>
+    public void Write(BinaryWriter writer)
+    {
+        Align(PipelineLayout.PointerSize);
+        writer.Write(_bytes.Count);
+        writer.Write(_bytes.ToArray());
+        writer.Write(_rootOffset);
+        writer.Write(_shaders.Count);
+
+        foreach (var (offset, bytecode) in _shaders)
+        {
+            writer.Write(offset);
+            writer.Write(bytecode.Length);
+            writer.Write(bytecode);
+        }
+
+        writer.Write(_layouts.Count);
+
+        foreach (var (offset, elements) in _layouts)
+        {
+            writer.Write(offset);
+            writer.Write(elements.Count);
+
+            foreach (var element in elements)
+            {
+                writer.Write(element.Semantic);
+                Fields(element).ToList().ForEach(writer.Write);
+            }
+        }
+    }
+
+    /// <summary>A stream <see cref="Write"/> wrote, over <paramref name="rootSignature"/> (an ID3D12RootSignature of this process).</summary>
+    public static DesktopStream Read(BinaryReader reader, nint rootSignature)
+    {
+        var stream = new DesktopStream();
+        stream._bytes.AddRange(reader.ReadBytes(reader.ReadInt32()));
+        stream._rootOffset = reader.ReadInt32();
+
+        if (stream._rootOffset >= 0)
+        {
+            var pointer = BitConverter.GetBytes((long)rootSignature);
+
+            for (var index = 0; index < pointer.Length; index++)
+            {
+                stream._bytes[stream._rootOffset + index] = pointer[index];
+            }
+        }
+
+        for (var count = reader.ReadInt32(); count > 0; count--)
+        {
+            var offset = reader.ReadInt32();
+            var bytecode = reader.ReadBytes(reader.ReadInt32());
+            stream._shaders.Add((offset, bytecode));
+            stream.ShaderBytes += bytecode.Length;
+        }
+
+        for (var count = reader.ReadInt32(); count > 0; count--)
+        {
+            var offset = reader.ReadInt32();
+            var elements = new List<VertexElement>();
+
+            for (var element = reader.ReadInt32(); element > 0; element--)
+            {
+                elements.Add(new VertexElement(reader.ReadString(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32()));
+            }
+
+            stream._layouts.Add((offset, elements));
+        }
+
+        return stream;
     }
 
     /// <summary>A D3D12_SHADER_BYTECODE subobject over <paramref name="bytecode"/>, which must not change afterwards.</summary>

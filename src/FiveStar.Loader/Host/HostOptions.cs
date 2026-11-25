@@ -176,6 +176,9 @@ internal sealed record HostOptions
     /// <summary>Loop caps of programs made on demand (<c>--loop-caps victory|default|compute,geometry,pixel</c>); null for the translator's own.</summary>
     public FiveStar.Shaders.Translation.Core.LoopCaps? LoopCaps { get; set; }
 
+    /// <summary>Heavy pipelines are built first in a pipeline host held to memory and time limits (<c>--host-pipelines</c>).</summary>
+    public bool HostPipelines { get; set; }
+
     /// <summary>Superstep forms made on demand carry registers by liveness; <c>--plain-supersteps</c> turns it off.</summary>
     public bool SuperstepCarry { get; set; } = true;
 

@@ -102,7 +102,7 @@ internal sealed class GpuMemoryBudget : IDisposable
     }
 
     /// <summary>LUID: LowPart, the low dword, and HighPart (winnt.h).</summary>
-    private static Luid AdapterLuid(long value)
+    internal static Luid AdapterLuid(long value)
     {
         return new Luid(unchecked((uint)value), (int)(value >> LuidHighShift));
     }
