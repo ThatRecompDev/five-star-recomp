@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
+using FiveStar.Loader.Shims.D3D12X.DebugLayer;
 
 namespace FiveStar.Loader.Shims.D3D12X;
 
@@ -112,6 +113,11 @@ internal static unsafe class BottomOfPipeWrites
             {
                 WarnUnknown(at);
 
+                return;
+            }
+
+            if (NullAddressCheck.DropsWrite(self, at, desktop))
+            {
                 return;
             }
 

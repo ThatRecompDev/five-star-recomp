@@ -159,7 +159,7 @@ internal sealed class CommandLineParser
     {
         switch (option)
         {
-            case "--watch-transient" or "--watch-hang" or "--skip-compute-chains" or "--empty-indirect-after-skip" or "--retire-waits-all-queues" or "--no-split-at-waits" or "--user-data-constants" or "--buffer-records-heap-index" or "--typed-buffer-views" or "--no-window-guard" or "--trace-pool-stores" or "--watch-pool-pages":
+            case "--watch-transient" or "--watch-hang" or "--skip-compute-chains" or "--empty-indirect-after-skip" or "--retire-waits-all-queues" or "--no-split-at-waits" or "--user-data-constants" or "--buffer-records-heap-index" or "--typed-buffer-views" or "--check-null-addresses" or "--no-window-guard" or "--trace-pool-stores" or "--watch-pool-pages":
                 return SetWatch(option);
             case "--screens":
                 return SetScreensFile();
@@ -713,6 +713,10 @@ internal sealed class CommandLineParser
         else if (option == "--typed-buffer-views")
         {
             _options.TypedBufferViews = true;
+        }
+        else if (option == "--check-null-addresses")
+        {
+            _options.CheckNullAddresses = true;
         }
         else if (option == "--no-window-guard")
         {

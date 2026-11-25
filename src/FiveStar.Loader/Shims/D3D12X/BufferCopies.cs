@@ -31,6 +31,11 @@ internal static unsafe class BufferCopies
             nint desktopSource = Desktop(source, ref sourceOffset);
             GpuBreadcrumbs.Before(self, RecordedCommand.CopyBuffer);
 
+            if (NullAddressCheck.DropsCopy(self, desktopDestination, destinationOffset, desktopSource, sourceOffset, bytes))
+            {
+                return;
+            }
+
             nint inner = self->Inner;
             var copy = (delegate* unmanaged<nint, nint, ulong, nint, ulong, ulong, void>)ComObject.Slot(inner, DesktopCopyBufferRegion);
             copy(inner, desktopDestination, destinationOffset, desktopSource, sourceOffset, bytes);
