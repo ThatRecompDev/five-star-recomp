@@ -161,6 +161,7 @@ internal sealed class ProgramProducer
 
         hlsl = Probed(name, hlsl);
         NoteCost(name, hlsl);
+        StaticSampler.Keep(_folder, hlsl);
 
         if (hlsl.Length == 0)
         {
