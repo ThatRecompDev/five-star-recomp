@@ -38,6 +38,11 @@ internal static class SkippedPipelines
     /// <summary>True when one of <paramref name="texts"/> skips the pipeline of <paramref name="names"/>; the first time, logged.</summary>
     public static bool Skips(string names, IReadOnlyList<string> texts)
     {
+        if (RayTracingPrograms.Skips(names))
+        {
+            return true;
+        }
+
         var text = Match(names, texts);
 
         if (text is null)
