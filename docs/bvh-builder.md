@@ -56,6 +56,15 @@ VIctory's fork reached 49 of 52 after adding the same kinds of access (facts onl
 - The CPU path and the GPU path writing the same structure must not both run: one owner per structure.
 - Driver compile time for 52 more pipelines at the first build.
 
+## Inventory (`--raytracing-gpu`)
+
+The shipped constructor runs on the game's object with our device (`BvhBuilderInventory`): every compute pipeline it
+asks for through slot 62 while it runs is logged (its CS container's offset in the module and size, its root
+signature) and answered with a stand-in that is never built, so it completes and no builder program runs. The
+builder's entry points stay ours (the CPU paths with `--raytracing`, nothing without). A boot with it says which
+device slots the constructor uses besides 62 and whether it completes on our device; a native exception in it would
+end the process, which is why it is a separate flag.
+
 ## First step
 
 `fivestar shader embedded <module> <out>` carves a module's bare containers and writes their native programs, so the

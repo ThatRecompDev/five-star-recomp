@@ -55,6 +55,12 @@ internal sealed unsafe class PipelineSlots
     /// <summary>Slot 62: (const D3D12_COMPUTE_PIPELINE_STATE_DESC*, two arguments the game passes as 0, REFIID, void**).</summary>
     public int Compute(byte* desc, nint second, nint third, Guid* iid, nint* result)
     {
+        // --raytracing-gpu: the BVH builder's constructor asks for its pipelines; noted, never built.
+        if (Bvh.BvhBuilderInventory.Capture(desc, result))
+        {
+            return HResult.Ok;
+        }
+
         if (second != 0 || third != 0)
         {
             _warnings.Warn("compute-arguments", $"[d3d12_xs] compute pipeline with arguments 0x{second:x}, 0x{third:x} (always 0 in the game's calls)");
