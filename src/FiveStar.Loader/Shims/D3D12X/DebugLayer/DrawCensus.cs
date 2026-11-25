@@ -10,7 +10,10 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// <summary>
 /// Part of <c>--d3d12-trace-draws</c>: every draw, dispatch and ExecuteIndirect between two captured presents, counted
 /// by pipeline and first render target, recorded or skipped (a stand-in's work), so a capture shows which passes ran
-/// into which targets and which the frame lost.
+/// into which targets and which the frame lost. With <see cref="Passes"/> (<c>--census-passes</c>) every pair whose
+/// pipeline or target names one of the texts is listed too, however few its draws, with where a skipped stand-in's
+/// build is: the passes after the G-buffer (lighting, sky, exposure, tonemap, composite) are few draws each and never
+/// reach the largest lines.
 /// </summary>
 internal sealed class DrawCensus
 {
@@ -18,6 +21,7 @@ internal sealed class DrawCensus
     private const int TargetsShown = 12;
 
     private readonly ConcurrentDictionary<(nint Pipeline, nint Target, bool Skipped), long> _counts = new();
+
     private readonly LoaderLog _log;
     private long _since;
 
@@ -26,6 +30,9 @@ internal sealed class DrawCensus
         _log = log;
     }
 
+    /// <summary>Texts (pipeline names or target descriptions such as "format 10") whose pairs are all listed.</summary>
+    public static IReadOnlyList<string> Passes { get; set; } = [];
+
     /// <summary>Counts one piece of work.</summary>
     public void Add(nint pipeline, nint target, bool skipped)
     {
@@ -33,7 +40,7 @@ internal sealed class DrawCensus
     }
 
     /// <summary>Logs and clears the counts, the largest first; <paramref name="name"/> names a pipeline, <paramref name="describe"/> a target.</summary>
-    public void Report(long present, Func<nint, bool, string> name, Func<nint, string> describe)
+    public void Report(long present, Func<nint, bool, string> name, Func<nint, string> describe, Func<nint, string> standIn)
     {
         var counts = _counts.ToArray();
         _counts.Clear();
@@ -70,6 +77,39 @@ internal sealed class DrawCensus
             text.Append($"\n    {count} {kind} {name(key.Pipeline, key.Skipped)} -> {target}");
         }
 
+        AppendPasses(text, counts, name, describe, standIn);
         _log.Info(text.ToString());
+    }
+
+    /// <summary>Every pair a text of <see cref="Passes"/> names, by pipeline name; a skipped one with its stand-in's state.</summary>
+    private static void AppendPasses(StringBuilder text, KeyValuePair<(nint Pipeline, nint Target, bool Skipped), long>[] counts, Func<nint, bool, string> name, Func<nint, string> describe, Func<nint, string> standIn)
+    {
+        if (Passes.Count == 0)
+        {
+            return;
+        }
+
+        var lines = new List<string>();
+
+        foreach (var (key, count) in counts)
+        {
+            string pipeline = name(key.Pipeline, key.Skipped);
+            string target = key.Target == 0 ? "no target" : $"0x{key.Target:x} {describe(key.Target)}";
+
+            if (!Passes.Any(pass => pipeline.Contains(pass, StringComparison.OrdinalIgnoreCase) || target.Contains(pass, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            string kind = key.Skipped ? $"skipped (stand-in {standIn(key.Pipeline)})" : "recorded";
+            lines.Add($"\n      {pipeline} -> {target}: {count} {kind}");
+        }
+
+        text.Append($"\n    passes matching {string.Join(", ", Passes)}: {lines.Count} pairs");
+
+        foreach (var line in lines.Order(StringComparer.Ordinal))
+        {
+            text.Append(line);
+        }
     }
 }

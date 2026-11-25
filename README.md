@@ -20,7 +20,8 @@ No game files, keys or extracted data are part of this repository. Every tool ru
 GTA VI does not run yet. Its main executable is now available: under the loader it starts, runs through its memory
 set-up, archive opening and graphics device set-up, presents frames to its own window, shows its logo, intro art and
 first-run screens, loads story mode and plays the opening cutscene's art, credit cards, dialogue and sound at 30 frames
-a second; the cutscene's 3D world does not draw yet. Details and numbers are
+a second. The cutscene's 3D world now draws into the G-buffer (geometry is in place), but lighting and composition do
+not reach the screen yet. Details and numbers are
 in the
 [wiki](https://github.com/ThatRecompDev/five-star-recomp/wiki/Status).
 

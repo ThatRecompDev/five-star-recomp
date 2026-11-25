@@ -619,9 +619,16 @@ static const uint PROBE_RECORD_BYTES = 384u;
 static const uint PROBE_NULL_RECORD = 5u;
 static const uint PROBE_MARK = 0x50524f42u;   // a whole record's last dword: its id ^ this
 static uint g_probe_range, g_probe_unmapped, g_probe_record, g_probe_window, g_probe_gi;
+// A pixel or compute program (FIVESTAR_STAGE_PROBE) keeps its notes per invocation: each lane is its own thread 0.
+#ifdef FIVESTAR_STAGE_PROBE
+static uint g_probe_g[15];
+static uint g_probe_v[32];
+static uint g_probe_w[32];
+#else
 groupshared uint g_probe_g[15];   // range, unmapped, null record, culled, cull mask, flags, position x y z w, values mask, m0, window mask, window address, window sites noted
 groupshared uint g_probe_v[32];
 groupshared uint g_probe_w[32];   // per site: the first window address thread 0 read
+#endif
 uint probe_bit(uint site) { return 1u << min(site, 31u); }
 bool probe_sbuf_fits(uint site, bool fits) {
     if (!fits) g_probe_range |= probe_bit(site);
@@ -649,6 +656,29 @@ void probe_value(uint site, uint v) {   // the register a site's line loaded, th
     g_probe_v[site] = v;
     g_probe_g[10] |= 1u << site;
 }
+#ifdef FIVESTAR_STAGE_PROBE
+// The end of a pixel or compute invocation: the first lane of each wave appends a record of its own notes, with the
+// site masks of every lane of the wave, its group (compute) or pixel (x, y), and the colour it returns (pixel, flags
+// bit 0) in the position fields; flags bit 3 marks a stage record.
+void probe_end_stage(uint3 at_id, float4 colour, bool coloured) {
+    uint range = WaveActiveBitOr(g_probe_range), unmapped = WaveActiveBitOr(g_probe_unmapped);
+    uint record = WaveActiveBitOr(g_probe_record), window = WaveActiveBitOr(g_probe_window);
+    if (!WaveIsFirstLane()) return;
+    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    uint i;
+    m.InterlockedAdd(FIVESTAR_MESH_PROBE_BASE, 1u, i);
+    uint at = FIVESTAR_MESH_PROBE_BASE + 16u + (i % PROBE_RECORDS) * PROBE_RECORD_BYTES;
+    uint flags = (g_probe_g[5] & 4u) | 8u | (coloured ? 1u : 0u);
+    m.Store4(at, uint4(FIVESTAR_MESH_PROBE, at_id.x, at_id.y, at_id.z));
+    m.Store4(at + 16u, uint4(0u, 0u, 0u, 0u));
+    m.Store4(at + 32u, asuint(colour));
+    m.Store4(at + 48u, uint4(flags, range, unmapped, record));
+    [unroll] for (uint k = 0u; k < 32u; k += 4u) m.Store4(at + 64u + k * 4u, uint4(g_probe_v[k], g_probe_v[k + 1u], g_probe_v[k + 2u], g_probe_v[k + 3u]));
+    m.Store4(at + 192u, uint4(g_probe_g[10], 0u, FIVESTAR_MESH_PROBE_SITES, FIVESTAR_MESH_PROBE ^ PROBE_MARK));
+    m.Store3(at + 208u, uint3(window, g_probe_g[13], g_probe_g[14]));
+    [unroll] for (uint w = 0u; w < 32u; w += 4u) m.Store4(at + 256u + w * 4u, uint4(g_probe_w[w], g_probe_w[w + 1u], g_probe_w[w + 2u], g_probe_w[w + 3u]));
+}
+#else
 void probe_alloc(uint m0) {   // GS_ALLOC_REQ's m0, the first time
     if ((g_probe_g[5] & 2u) != 0u) return;
     g_probe_g[11] = m0;
@@ -688,4 +718,5 @@ void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the 
     m.Store3(at + 208u, uint3(g_probe_g[12], g_probe_g[13], g_probe_g[14]));
     [unroll] for (uint w = 0u; w < 32u; w += 4u) m.Store4(at + 256u + w * 4u, uint4(g_probe_w[w], g_probe_w[w + 1u], g_probe_w[w + 2u], g_probe_w[w + 3u]));
 }
+#endif
 #endif

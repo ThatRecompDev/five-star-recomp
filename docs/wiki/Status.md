@@ -17,7 +17,12 @@ blow-up of the story load are fixed, and so is the GPU work that corrupted game 
 load now finishes and the opening cutscene plays its art, credit cards, dialogue and sound at a steady 30 frames a
 second; its 3D world does not draw yet (see [Roadmap](Roadmap.md)). Programs are now compiled by our own DXIL backend in a
 separate compile process: a cold boot has about 385 programs ready 90 s in, against 129 with dxc, and a warm boot skips
-almost no draws. The overwrite of the game's memory pools that ended boots about 100 s in is fixed (a particle pass wrote through a
+almost no draws. On 25 November 2026 the opening shot's 3D world reached the G-buffer for the first time: the street, an apartment
+block with balconies, windows and a utility pole, and the towers behind it, drawn by the game's own mesh shaders. The
+game builds descriptor addresses itself, heap-relative as on the console, and reads buffer descriptors through their
+base addresses; the descriptor window now mirrors that layout (views and samplers each from 0, records keeping the
+game's buffer addresses). Lighting and composition do not reach the presented frame yet. The overwrite of the game's
+memory pools that ended boots about 100 s in is fixed (a particle pass wrote through a
 misplaced buffer view), and every entry point the game calls now catches its own exceptions. With warm caches the
 cutscene's G-buffer passes now mostly run (about 14,700 draws recorded against 4,700 skipped in a 15 s window), but
 the world's indirect mesh draws leave the depth and G-buffer empty, so the 3D world is still not visible, and long

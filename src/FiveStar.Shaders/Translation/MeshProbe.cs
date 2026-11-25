@@ -16,12 +16,17 @@ namespace FiveStar.Shaders.Translation;
 /// on thread 0, m0 at GS_ALLOC_REQ (from which the vertex and primitive counts come), vertex 0's position and the culled
 /// primitives as they are written, and at the end of the group thread 0 appends a <see cref="MeshProbeRecord"/> to a ring
 /// in the GPU-memory window. The same line in both phases of a program gets the same site numbers. Site 31 also stands
-/// for every site past it.
+/// for every site past it. A pixel or compute program gets the same site probes (FIVESTAR_STAGE_PROBE): each invocation
+/// keeps its own notes, and at its end the first lane of each wave appends a record with the wave's site masks, its own
+/// values and window addresses, its pixel (x, y) or group, and the colour a pixel program returns.
 /// </summary>
 public static partial class MeshProbe
 {
     /// <summary>The define of probed programs; its value is <see cref="Id"/> of the program.</summary>
     public const string Define = "FIVESTAR_MESH_PROBE";
+
+    /// <summary>The define of probed pixel and compute programs (per-invocation notes, a record per wave).</summary>
+    public const string StageDefine = "FIVESTAR_STAGE_PROBE";
 
     /// <summary>The ring: a count, then records from <see cref="RecordsOffset"/> (rdna_prelude PROBE_RECORDS).</summary>
     public const uint Records = 4096;
@@ -32,6 +37,9 @@ public static partial class MeshProbe
     public const uint RingBytes = RecordsOffset + (Records * RecordBytes);
 
     private const string MeshEntry = "out vertices Out verts[";
+    private const string PixelEntry = "\nOut main(";
+    private const string ComputeEntry = "void main(uint3 in_gid : SV_GroupID, uint3 in_gtid : SV_GroupThreadID";
+    private const string PixelReturn = "  return o;";
     private const string GroupStart = "g_ms_nv = 0; g_ms_np = 0; g_ms_alloc = 0; }";
     private const string Allocation = "g_ms_alloc = 1; }";
     private const string BufferCheck = "buf_fits";
@@ -57,13 +65,13 @@ public static partial class MeshProbe
     /// <summary>
     /// The program with probe code writing to the ring at byte <paramref name="ringOffset"/> of the GPU-memory window,
     /// and the text of each load site by number. Throws <see cref="UnsupportedProgramException"/> for a program that is
-    /// not a mesh program.
+    /// not a mesh, pixel or compute program.
     /// </summary>
     public static (string Hlsl, IReadOnlyList<string> Sites) Instrument(string hlsl, uint id, uint ringOffset)
     {
         if (!hlsl.Contains(MeshEntry, StringComparison.Ordinal))
         {
-            throw new UnsupportedProgramException("the probe is for mesh programs");
+            return InstrumentStage(hlsl, id, ringOffset);
         }
 
         int body = BodyStart(hlsl);
@@ -85,6 +93,58 @@ public static partial class MeshProbe
         var defines = string.Create(CultureInfo.InvariantCulture, $"#define {Define} {id}u\n#define {Define}_BASE {ringOffset}u\n#define {Define}_SITES {sites.Count}u\n");
 
         return (defines + text, sites);
+    }
+
+    /// <summary>A pixel or compute program with the site probes and a record per wave at the end of each invocation.</summary>
+    private static (string Hlsl, IReadOnlyList<string> Sites) InstrumentStage(string hlsl, uint id, uint ringOffset)
+    {
+        int body = BodyStart(hlsl);
+        var sites = new List<string>();
+        var text = hlsl[..body] + NumberSites(hlsl[body..], sites);
+
+        if (text.Contains(ComputeEntry, StringComparison.Ordinal))
+        {
+            int end = text.TrimEnd().LastIndexOf('}');
+            text = text[..end] + "  probe_end_stage(in_gid, float4(0.0f, 0.0f, 0.0f, 0.0f), false);\n" + text[end..];
+        }
+        else if (text.Contains(PixelEntry, StringComparison.Ordinal) && text.Contains(PixelReturn, StringComparison.Ordinal))
+        {
+            text = text.Replace(PixelReturn, $"  probe_end_stage({PixelAt(text)}, {PixelColour(text)});\n{PixelReturn}", StringComparison.Ordinal);
+        }
+        else
+        {
+            throw new UnsupportedProgramException("the probe is for mesh, pixel and compute programs");
+        }
+
+        var defines = string.Create(CultureInfo.InvariantCulture, $"#define {StageDefine} 1\n#define {Define} {id}u\n#define {Define}_BASE {ringOffset}u\n#define {Define}_SITES {sites.Count}u\n");
+
+        return (defines + text, sites);
+    }
+
+    /// <summary>The pixel a pixel program's invocation shades, from its SV_Position input; (0, 0) without one.</summary>
+    private static string PixelAt(string text)
+    {
+        var position = PixelPositionPattern().Match(text);
+
+        if (!position.Success)
+        {
+            return "uint3(0u, 0u, 0u)";
+        }
+
+        return $"uint3(uint2({position.Groups["name"].Value}.xy), 0u)";
+    }
+
+    /// <summary>The colour a pixel program returns in its first float4 target, and whether there is one.</summary>
+    private static string PixelColour(string text)
+    {
+        var target = ColourTargetPattern().Match(text);
+
+        if (!target.Success)
+        {
+            return "float4(0.0f, 0.0f, 0.0f, 0.0f), false";
+        }
+
+        return $"o.{target.Groups["name"].Value}, true";
     }
 
     /// <summary>Where the program's own code starts: past its last #include line.</summary>
@@ -255,4 +315,12 @@ public static partial class MeshProbe
 
     [GeneratedRegex(@"prims\[in_gi\]\.cull = \((_?p) >> 31\) != 0;")]
     private static partial Regex CullPattern();
+
+    /// <summary>A pixel program's SV_Position parameter of main.</summary>
+    [GeneratedRegex(@"Out main\([^)]*float4 (?<name>\w+) : SV_Position")]
+    private static partial Regex PixelPositionPattern();
+
+    /// <summary>The first float4 render target of a pixel program's Out struct.</summary>
+    [GeneratedRegex(@"float4 (?<name>\w+) : SV_Target\d")]
+    private static partial Regex ColourTargetPattern();
 }
