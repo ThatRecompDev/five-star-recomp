@@ -21,7 +21,10 @@ almost no draws. On 25 November 2026 the opening shot's 3D world reached the G-b
 block with balconies, windows and a utility pole, and the towers behind it, drawn by the game's own mesh shaders. The
 game builds descriptor addresses itself, heap-relative as on the console, and reads buffer descriptors through their
 base addresses; the descriptor window now mirrors that layout (views and samplers each from 0, records keeping the
-game's buffer addresses). Lighting and composition do not reach the presented frame yet. The overwrite of the game's
+game's buffer addresses). Since the evening of 25 November the final composite fills the screen: the game copies
+descriptor records into its heap itself, and a table bind now mirrors them past the root signature's range (the
+composite reads record 41 of a 7-record table). The lit image it shows is still red-only: the lighting programs read
+records up to 180 of their tables, and mirroring those is being tested. The overwrite of the game's
 memory pools that ended boots about 100 s in is fixed (a particle pass wrote through a
 misplaced buffer view), and every entry point the game calls now catches its own exceptions. With warm caches the
 cutscene's G-buffer passes now mostly run (about 14,700 draws recorded against 4,700 skipped in a 15 s window), but
