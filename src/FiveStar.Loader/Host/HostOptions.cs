@@ -101,8 +101,13 @@ internal sealed record HostOptions
     /// <summary><c>--shader-backend dxc</c>: programs made on demand compile with dxc instead of the DXIL backend.</summary>
     public bool DxcBackend { get; set; }
 
-    /// <summary><c>--placed-textures</c>: read-only console textures go to shared heaps instead of a committed resource each.</summary>
-    public bool PlacedTextures { get; set; }
+    /// <summary>
+    /// Read-only console textures go to shared heaps instead of a committed resource each (the default;
+    /// <c>--committed-textures</c> turns it off). A released texture's range stays mapped, as console memory does, so a
+    /// stale read the game still makes hits memory instead of a freed resource (issue #23; w28 lost the device at 185 s
+    /// without it, w29 ran 1,018 s into gameplay with it).
+    /// </summary>
+    public bool PlacedTextures { get; set; } = true;
 
     /// <summary>The most driver compiles of 256 KB of DXIL or more at once (<c>--max-driver-compiles</c>).</summary>
     public int MaxDriverCompiles { get; set; } = Shims.D3D12X.Pipelines.CompileBudget.DefaultMaxCompiles;

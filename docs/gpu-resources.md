@@ -45,7 +45,9 @@ flowchart LR
   released 120 presents later (the memory went to something else). Keeping them all was a leak: in the
   opening cutscene the game streams textures through the same memory, about 45,000 were made in 7 minutes, and once
   video memory was full the process grew by 2 to 3 GB every 30 s until the machine ran out.
-- **Placed textures** (`--placed-textures`, off by default, `PlacedTextureHeaps`): read-only single-sample textures
+- **Placed textures** (on by default, `--committed-textures` turns it off, `PlacedTextureHeaps`; a released texture's range stays mapped,
+  so a stale read the game still makes hits memory, as on the console, instead of a freed resource: issue #23, and w28
+  lost the device at 185 s without it while w29 ran 1,018 s into gameplay with it): read-only single-sample textures
   are placed in shared 256 MB default heaps (non-RT/DS textures only, every heap tier) instead of a committed resource
   each; the driver's write-combined system memory grew by about 0.55 MB per committed texture (22,000 textures, 17 GB
   by 275 s of a cold boot). A texture larger than 64 MB gets a heap of its own. A COM object set as the texture's

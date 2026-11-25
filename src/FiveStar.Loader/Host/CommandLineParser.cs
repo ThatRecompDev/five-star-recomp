@@ -546,6 +546,10 @@ internal sealed class CommandLineParser
                 _options.PlacedTextures = true;
 
                 return true;
+            case "--committed-textures":
+                _options.PlacedTextures = false;
+
+                return true;
             default:
                 throw new CommandLineException($"unknown argument {option}");
         }
