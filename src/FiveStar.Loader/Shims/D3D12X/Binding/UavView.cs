@@ -3,5 +3,8 @@
 
 namespace FiveStar.Loader.Shims.D3D12X.Binding;
 
-/// <summary>A texture UAV: its DXGI format, D3D12_UAV_DIMENSION and the size of the viewed mip (slices for an array or a 3D texture).</summary>
-internal readonly record struct UavView(int Format, int Dimension, uint Width, uint Height, uint Slices);
+/// <summary>
+/// A texture UAV: its DXGI format, D3D12_UAV_DIMENSION, the size of the viewed mip (slices for an array or a 3D
+/// texture) and the desktop resource it views (0 when not known).
+/// </summary>
+internal readonly record struct UavView(int Format, int Dimension, uint Width, uint Height, uint Slices, nint Resource = 0);

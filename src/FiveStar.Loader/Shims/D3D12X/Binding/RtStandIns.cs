@@ -23,6 +23,9 @@ internal static unsafe class RtStandIns
     private const int IncrementSlot = 15;
     private const int ViewHeapType = 0;
 
+    /// <summary>DXGI_FORMAT_R32_UINT.</summary>
+    private const int R32Uint = 42;
+
     /// <summary>
     /// DXGI R32G32B32A32_FLOAT, R16G16B16A16_FLOAT and R11G11B10_FLOAT: the formats a colour-only rule fills. The
     /// screen-probe resolve also writes probe metadata through its tables (octahedral normals as x * 0.5 + 0.5, packed
@@ -183,7 +186,7 @@ internal static unsafe class RtStandIns
 
             uint index = ((uint*)(window.Data + offset))[DescriptorWindow.MirroredDesktopDword];
 
-            if (!UavViews.TryFind(cpuStart + (nint)((ulong)index * increment), out var view) || !Takes(view.Format, Rules[rule].ColourOnly))
+            if (!UavViews.TryFind(cpuStart + (nint)((ulong)index * increment), out var view) || !Takes(view, Rules[rule].ColourOnly))
             {
                 continue;
             }
@@ -203,17 +206,18 @@ internal static unsafe class RtStandIns
     }
 
     /// <summary>
-    /// Whether a rule writes a UAV of <paramref name="format"/>: never an integer view (tile lists, counters, packed
-    /// fields), and for a colour-only rule a float colour format alone.
+    /// Whether a rule writes <paramref name="view"/>: never an integer view (tile lists, counters, packed fields) but,
+    /// for a colour-only rule, an R32_UINT view of a texture the game also reads as R9G9B9E5 (its shared-exponent
+    /// light, packed by <see cref="UavFill"/>); for a colour-only rule otherwise a float colour format alone.
     /// </summary>
-    public static bool Takes(int format, bool colourOnly)
+    public static bool Takes(UavView view, bool colourOnly)
     {
-        if (UavFill.Integer(format))
+        if (UavFill.Integer(view.Format))
         {
-            return false;
+            return colourOnly && view.Format == R32Uint && UavViews.SharedExponent(view.Resource);
         }
 
-        return !colourOnly || Array.IndexOf(ColourFormats, format) >= 0;
+        return !colourOnly || Array.IndexOf(ColourFormats, view.Format) >= 0;
     }
 
     /// <summary>A UAV barrier on every resource: the fill after the pass's writes, the readers after the fill.</summary>
