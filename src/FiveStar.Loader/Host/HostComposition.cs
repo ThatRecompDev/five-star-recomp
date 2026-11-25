@@ -91,6 +91,8 @@ internal static class HostComposition
         Shims.D3D12X.Resources.TypelessTargets.Enabled = options.TypelessTargets;
         Shims.D3D12X.Binding.ImageViewClasses.Enabled = options.TypedImageViews;
 
+        Shims.D3D12X.Present.FramePacer.Rate = options.FrameRate;
+
         Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
 
         ApplyBindingSwitches(options);
