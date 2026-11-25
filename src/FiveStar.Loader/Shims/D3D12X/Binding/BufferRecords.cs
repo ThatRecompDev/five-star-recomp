@@ -34,12 +34,15 @@ internal static unsafe class BufferRecords
     [
         "--buffer-records-heap-index",
         "no console address (a resource the desktop placed or committed)",
-        "the address table does not cover its base",
+        "neither the address map nor the address table has its pages",
         "a UAV whose base another desktop resource covers",
     ];
 
-    /// <summary>The (view kind, reason) pairs logged so far, one bit each.</summary>
-    private static int _logged;
+    /// <summary>Kept records logged per reason.</summary>
+    private const int KeptLogged = 8;
+
+    /// <summary>Records that kept the heap index, per reason.</summary>
+    private static readonly int[] KeptCounts = new int[ReasonCount];
 
     /// <summary>
     /// <c>--buffer-records-heap-index</c>: buffer records keep the desktop heap index in dword 0 instead of the console
@@ -51,14 +54,15 @@ internal static unsafe class BufferRecords
     /// A view's record with its console base (<see cref="BufferRecord.At"/>) where reads, and for a UAV writes, through
     /// the address map meet the bytes the desktop resource holds:
     /// <list type="bullet">
-    /// <item>a read-only view (SRV, CBV, slot 70) whose base the address table covers at all: the GPU only reads, and
-    /// the map gives it the bytes the game wrote there;</item>
+    /// <item>a read-only view (SRV, CBV, slot 70) whose pages the address map gives a view now, as programs read
+    /// through it (gpu_page: XMem pages mapped by the game have one without any placed buffer), or the address table
+    /// covers: the GPU only reads, and the map gives it the bytes the game wrote;</item>
     /// <item>a UAV whose base the address table covers with the view's own desktop resource, so its writes land in the
     /// memory the command processor reads (indirect arguments, copies, index buffers).</item>
     /// </list>
-    /// Any other keeps the heap index, logged once per reason and view kind. With every record based (3ac3312), boots hung
-    /// or crashed at 120-130 s: UAV writes went through the map to memory the desktop resources did not show (a placed
-    /// buffer is its first page run, as its pages were when it was placed).
+    /// Any other keeps the heap index; the first <see cref="KeptLogged"/> of each reason are logged. With every record
+    /// based (3ac3312), boots hung or crashed at 120-130 s: UAV writes went through the map to memory the desktop
+    /// resources did not show (a placed buffer is its first page run, as its pages were when it was placed).
     /// </summary>
     [HotPath]
     public static BufferRecord Based(BufferRecord record, ulong address, ulong firstElement, nint desktop, ViewKind kind)
@@ -79,13 +83,25 @@ internal static unsafe class BufferRecords
         }
 
         var based = record.At(address, firstElement);
+        var d3d12 = ShimContext.Runtime.D3D12X;
+        bool covered = d3d12.PlacedResources.Addresses.TryFind(based.Base, out var range);
 
-        if (!ShimContext.Runtime.D3D12X.PlacedResources.Addresses.TryFind(based.Base, out var range))
+        if (kind != ViewKind.UnorderedAccess)
+        {
+            if (covered || d3d12.MemoryViews.Maps(based.Base, Bytes(record)))
+            {
+                return based;
+            }
+
+            return Kept(record, kind, KeptReason.NotCovered, based.Base, desktop);
+        }
+
+        if (!covered)
         {
             return Kept(record, kind, KeptReason.NotCovered, based.Base, desktop);
         }
 
-        if (kind == ViewKind.UnorderedAccess && range.Resource != desktop)
+        if (range.Resource != desktop)
         {
             return Kept(record, kind, KeptReason.OtherResource, based.Base, desktop);
         }
@@ -93,27 +109,51 @@ internal static unsafe class BufferRecords
         return based;
     }
 
-    /// <summary>The record as it is, the reason logged once per reason and view kind.</summary>
+    /// <summary>Bytes a view spans: its records of the stride, or bytes for a raw view.</summary>
+    private static ulong Bytes(BufferRecord record)
+    {
+        if (record.Stride == 0)
+        {
+            return record.Records;
+        }
+
+        return (ulong)record.Records * record.Stride;
+    }
+
+    /// <summary>The record as it is; the first <see cref="KeptLogged"/> of each reason are logged.</summary>
     private static BufferRecord Kept(BufferRecord record, ViewKind kind, KeptReason reason, ulong address, nint desktop)
     {
-        int bit = 1 << (((int)kind * ReasonCount) + (int)reason);
+        int count = Interlocked.Increment(ref KeptCounts[(int)reason]);
 
-        if ((Interlocked.Or(ref _logged, bit) & bit) != 0)
+        if (count > KeptLogged)
         {
             return record;
         }
 
-        var resource = ShimContext.Runtime.D3D12X.Objects.AsResource(desktop);
-        string committed = string.Empty;
+        var d3d12 = ShimContext.Runtime.D3D12X;
+        var resource = d3d12.Objects.AsResource(desktop);
+        string where = string.Empty;
 
         if (resource != null && resource->TitleMemory != 0)
         {
-            committed = ", a slot-127 committed resource";
+            where = ", a slot-127 committed resource";
         }
 
-        ShimContext.Runtime.D3D12X.Warnings.Warn(
-            $"record-kept-{kind}-{reason}",
-            $"[d3d12_xs] {kind} buffer record keeps the heap index (first of its kind): {Reasons[(int)reason]} (console address 0x{address:x}, {record.Records} records of stride {record.Stride}, format 0x{record.Format:x}{committed})");
+        if (address != 0)
+        {
+            string memory = ", not XMem";
+
+            if (ShimContext.Runtime.XMemPhysical.IsReserved((nint)address))
+            {
+                memory = ", XMem";
+            }
+
+            where += memory;
+        }
+
+        d3d12.Warnings.Warn(
+            $"record-kept-{reason}-{count}",
+            $"[d3d12_xs] {kind} buffer record keeps the heap index: {Reasons[(int)reason]} (console address 0x{address:x}, {record.Records} records of stride {record.Stride}, format 0x{record.Format:x}{where})");
 
         return record;
     }
