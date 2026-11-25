@@ -601,12 +601,6 @@ What cannot be emulated:
   `// fast waves: approximate on narrower hardware waves: <why the exact analysis refused>`, and the loader logs it.
   Of the 2,540 mesh programs that need their whole console wave, 1,399 run this way (none of 049945c2, 04a7a7b5,
   LinearDepthSkin: their GS_ALLOC_REQ counts are the whole console wave's); the other 1,141 keep the superstep form.
-  Parked: `MSNC_VS_CascadeShadows_drawskinnedTexture_3c28b1bd` (0194d7ba) does not finish in 5 minutes on WARP in
-  this form while its superstep form does. Its branch at 0x9a8 on `vw_any(m_s_vcc)` is decided per hardware wave and
-  leads to paths with different numbers of mesh barriers (one or two yields); the analysis takes the condition as the
-  console's only because the facts it reads come from `readfirstlane` values fast waves approximate, so the branch is
-  never checked. Refusing every barrier under a branch leaves no program fast (0 of a 127-program sample), so a fix
-  needs the exact facts beside the fast ones.
 - Mesh lane numbers assume `SV_GroupIndex` fills hardware lanes in order. Drivers do this; D3D12 does not promise it.
 
 ## Runtime headers
