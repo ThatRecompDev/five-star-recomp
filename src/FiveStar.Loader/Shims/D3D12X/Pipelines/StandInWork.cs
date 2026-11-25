@@ -9,8 +9,11 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// </summary>
 internal sealed class StandInWork
 {
-    /// <summary>Requests the programs, urgently when told so; null when the stand-in has none to wait for.</summary>
-    public Func<bool, Task>? Programs { get; init; }
+    /// <summary>
+    /// Requests the programs, urgently when given the stand-in's use (which orders the urgent work), prefetched for
+    /// null; null when the stand-in has none to wait for.
+    /// </summary>
+    public Func<StandInUse?, Task>? Programs { get; init; }
 
     /// <summary>A small stand-in's programs made on the calling thread (true when all are ready); null for others.</summary>
     public Func<bool>? ProgramsNow { get; init; }
