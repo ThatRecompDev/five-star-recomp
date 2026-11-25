@@ -18,8 +18,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// </summary>
 internal sealed class JournalPrebuild
 {
-    /// <summary>Threads by default (<c>--prebuild-jobs</c>; 0 turns the prebuild off).</summary>
-    public const int DefaultJobs = 1;
+    /// <summary>Threads by default (<c>--prebuild-jobs</c>): none, until a boot A/B shows it helps without adding device removals.</summary>
+    public const int DefaultJobs = 0;
 
     /// <summary>The pause before a pass over the pipelines a pass could not start.</summary>
     private static readonly TimeSpan RetryPause = TimeSpan.FromSeconds(30);

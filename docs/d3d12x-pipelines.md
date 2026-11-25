@@ -252,7 +252,7 @@ record is flushed at once, so a boot that crashes keeps what it asked for; a rec
 boot opens the file. `--warm-step` and `--warm-match` apply to the journal's pipelines too.
 
 **Prebuild.** From device creation on, a boot builds every journal pipeline the disk cache lacks, in first-use
-order (`JournalPrebuild`, `--prebuild-jobs <n>` threads of below-normal priority, default 1, 0 for none): before, a
+order (`JournalPrebuild`, `--prebuild-jobs <n>` threads of below-normal priority; off by default until a boot A/B shows it helps without adding device removals: w64d ended at a commit charge of 82 of 79.4 GB with 12 compiles in flight, and testers have 16 GB machines): before, a
 journal pipeline was queued only when the game created it, just before its first use, so the world's G-buffer
 pipelines each cost a 20 to 60 s driver compile at the cutscene (w64e took over 10 minutes to reach the world). A
 prebuild never waits in the compile budget: one that may not start now is given back and tried again in a pass 30 s
