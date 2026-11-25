@@ -20,6 +20,10 @@ internal static class CompileHostServer
     private const int ValidatorArgument = 1;
     private const string DxilExtension = ".dxil";
     private const long IdleHeapBytes = 4L << 30;
+    private const long BusyHeapBytes = 6L << 30;
+    private const long CollectIntervalMilliseconds = 10_000;
+
+    private static long _lastCollect;
 
     private static int _active;
 
@@ -100,17 +104,26 @@ internal static class CompileHostServer
     }
 
     /// <summary>
-    /// After a request: when it was the last one running and the heap holds more than <see cref="IdleHeapBytes"/>, a
+    /// After a request: when it was the last one running and more than <see cref="IdleHeapBytes"/> is committed, or more than <see cref="BusyHeapBytes"/> at most every 10 s, a
     /// compacting collection gives the memory back. Server GC kept 12 GB after a burst of 16 makes of mesh programs,
     /// which held program work to one at a time (the loader caps the host at 8 GB) and counted against the boot's memory.
     /// </summary>
     private static void Settle()
     {
-        if (Interlocked.Decrement(ref _active) != 0 || GC.GetGCMemoryInfo().HeapSizeBytes < IdleHeapBytes)
+        bool idle = Interlocked.Decrement(ref _active) == 0;
+
+        // The committed bytes, not the heap size after the last collection: that stayed small in v2 while 10 GB stayed
+        // committed for two minutes.
+        long committed = GC.GetGCMemoryInfo().TotalCommittedBytes;
+        long now = Environment.TickCount64;
+        bool due = committed >= BusyHeapBytes && now - Interlocked.Read(ref _lastCollect) >= CollectIntervalMilliseconds;
+
+        if (!(idle && committed >= IdleHeapBytes) && !due)
         {
             return;
         }
 
+        Interlocked.Exchange(ref _lastCollect, now);
         System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     }
