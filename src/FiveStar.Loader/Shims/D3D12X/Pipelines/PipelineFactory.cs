@@ -624,26 +624,26 @@ internal sealed unsafe class PipelineFactory
 
         if (result.Reason is not null)
         {
-            ShimContext.Runtime.Log.Warn($"{line}: {result.Reason}; the loader builds it itself");
+            ShimContext.Log?.Warn($"{line}: {result.Reason}; the loader builds it itself");
 
             return null;
         }
 
         if (result.Outcome == PipelineHostOutcome.Crashed)
         {
-            ShimContext.Runtime.Log.Warn(line + ": the driver crashed in the host, so the loader does not build it; it stays a stand-in");
+            ShimContext.Log?.Warn(line + ": the driver crashed in the host, so the loader does not build it; it stays a stand-in");
 
             return new PipelineResult(HResult.Fail, 0);
         }
 
         if (!result.Killed)
         {
-            ShimContext.Runtime.Log.Detail("  " + line);
+            ShimContext.Log?.Detail("  " + line);
 
             return null;
         }
 
-        ShimContext.Runtime.Log.Warn(line + "; it stays a stand-in");
+        ShimContext.Log?.Warn(line + "; it stays a stand-in");
         _ = UnbuildablePipelines.Add(stream.Key);
 
         return new PipelineResult(HResult.OutOfMemory, 0);
@@ -671,7 +671,7 @@ internal sealed unsafe class PipelineFactory
         if (UnbuildablePipelines.Add(stream.Key))
         {
             long estimate = CompileBudget.Estimate(stream.ShaderBytes) >> GigabyteShift;
-            ShimContext.Runtime.Log.Warn($"[d3d12_xs] pipeline {what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL) not built: its compile is expected to take {estimate} GB, more than this machine can give; it stays a stand-in");
+            ShimContext.Log?.Warn($"[d3d12_xs] pipeline {what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL) not built: its compile is expected to take {estimate} GB, more than this machine can give; it stays a stand-in");
         }
 
         return new PipelineResult(HResult.OutOfMemory, 0);
