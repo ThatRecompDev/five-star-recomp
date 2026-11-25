@@ -78,6 +78,7 @@ internal sealed unsafe class DrawTrace
     private readonly ConcurrentDictionary<nint, (nint Resource, int Home)> _targetViews = new();
     private readonly ConcurrentDictionary<nint, int> _watched = new();
     private readonly ConcurrentDictionary<(nint Target, nint Pipeline), byte> _watchedWriters = new();
+    private readonly ConcurrentDictionary<nint, byte> _firstBinds = new();
     private int _watchReads;
     private long _presentWork;
     private bool _worldSeen;
@@ -366,6 +367,52 @@ internal sealed unsafe class DrawTrace
 
         state.Targets = targets;
         state.DepthStencil = depthStencil;
+        FirstBind(list, state, WatchedTargets(state, boundOnly: true), "bound");
+    }
+
+    /// <summary>
+    /// In a watched frame, each watched target is read back once where it is first bound (render target set, cleared, or
+    /// a traced dispatch or compute ExecuteIndirect that may write it as a UAV), before any of the frame's writers: what
+    /// the frame starts from, so a NaN carried over from earlier frames shows apart from one a pass writes. These
+    /// readbacks do not count against <see cref="WatchLimit"/>.
+    /// </summary>
+    private void FirstBind(XboxObject* list, DrawTraceList state, List<(nint Resource, int Home)> targets, string how)
+    {
+        if (WatchShape is null || !Volatile.Read(ref _filterOpen))
+        {
+            return;
+        }
+
+        foreach (var (resource, home) in targets)
+        {
+            if (!_firstBinds.TryAdd(resource, 0))
+            {
+                continue;
+            }
+
+            int current = _d3d12.ListStates.Find(list)?.Current(resource, home) ?? home;
+            string label = $"first bind ({how}) of watched target 0x{resource:x} on list 0x{(nint)list:x}, before the frame's writers";
+            _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, resource, current, label, (nint)list, state.Resets);
+            Interlocked.CompareExchange(ref _reportAt, Volatile.Read(ref _lastPresent) + ReportDelay, 0);
+        }
+    }
+
+    /// <summary>
+    /// List slot 52 (ClearRenderTargetView), before it runs: in a watched frame a clear of a watched target is logged with
+    /// its colour and rectangle count, after the target's first-bind readback (taken here when the clear comes first).
+    /// </summary>
+    public void ClearTarget(XboxObject* list, nint view, float* colour, uint rects)
+    {
+        if (WatchShape is null || !Volatile.Read(ref _filterOpen) || !_targetViews.TryGetValue(view, out var target) || !_watched.ContainsKey(target.Resource))
+        {
+            return;
+        }
+
+        var state = List(list);
+        FirstBind(list, state, [(target.Resource, target.Home)], "cleared");
+        string rgba = colour == null ? "none" : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"({colour[0]:G6}, {colour[1]:G6}, {colour[2]:G6}, {colour[3]:G6})");
+        string area = rects == 0 ? "whole target" : $"{rects} rects";
+        _log.Info($"  [draws] clear of watched target 0x{target.Resource:x} on list 0x{(nint)list:x} (draw {Interlocked.Read(ref _draws)}): colour {rgba}, {area}");
     }
 
     /// <summary>The desktop RTV descriptor size (D3D12_DESCRIPTOR_HEAP_TYPE_RTV).</summary>
@@ -553,6 +600,7 @@ internal sealed unsafe class DrawTrace
 
         var state = List(list);
         state.Traced = true;
+        FirstBind(list, state, WatchedTargets(state, boundOnly: false), "traced indirect");
         string kind = compute ? "compute indirect" : "indirect";
         var text = new StringBuilder($"  [draws] {kind}: list 0x{(nint)list:x}, max {maxCount} records of {stride} bytes, count buffer {counted}");
         text.Append($"\n      pipeline 0x{rectangles->Pipeline:x} topology {rectangles->Topology}: {Label(rectangles->Pipeline)}");
@@ -594,6 +642,7 @@ internal sealed unsafe class DrawTrace
 
         var state = List(list);
         state.Traced = true;
+        FirstBind(list, state, WatchedTargets(state, boundOnly: false), "traced dispatch");
         var text = new StringBuilder($"  [draws] dispatch: list 0x{(nint)list:x}, groups {x} x {y} x {z}");
         text.Append($"\n      pipeline 0x{pipeline:x}: {Label(pipeline)}");
 
@@ -815,6 +864,7 @@ internal sealed unsafe class DrawTrace
         {
             Volatile.Write(ref _watchReads, 0);
             _watchedWriters.Clear();
+            _firstBinds.Clear();
             Volatile.Write(ref _windowEnd, Interlocked.Read(ref _draws) + WindowDraws);
             _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"), standIn => _d3d12.Pipelines?.StandIns.State(standIn) ?? "unknown");
         }
