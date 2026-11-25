@@ -16,8 +16,11 @@ internal static class SamplerLoads
 {
     private const int SamplerOperand = 3;
 
-    /// <summary>Scalar instructions whose first operand is read, not written.</summary>
-    private static readonly string[] Readers = ["s_cmp", "s_bitcmp", "s_cbranch", "s_branch", "s_setpc", "s_store", "s_buffer_store", "s_atomic", "s_sendmsg", "s_waitcnt"];
+    /// <summary>
+    /// Scalar instructions whose first operand is read, not written: s_setreg's is a <c>hwreg(...)</c> operand, which
+    /// no register parse takes (the round-mode write before a sample in 176 deferred-pass programs).
+    /// </summary>
+    private static readonly string[] Readers = ["s_cmp", "s_bitcmp", "s_cbranch", "s_branch", "s_setpc", "s_store", "s_buffer_store", "s_atomic", "s_sendmsg", "s_waitcnt", "s_setreg"];
 
     /// <summary>(instruction address, dword of its destination) of each load of an S#'s dword 0.</summary>
     public static HashSet<(int Address, int Dword)> Find(IReadOnlyList<Instruction> instructions)
