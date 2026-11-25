@@ -317,7 +317,36 @@ internal sealed partial class ProgramEmitter
                 .Select(index => Hlsl.Hex(BinaryPrimitives.ReadUInt32LittleEndian(code.AsSpan(index * BytesPerDword)))).ToList();
             lines.Insert(1, $"static const uint g_code[{words.Count}] = {{{string.Join(",", words)}}};");
             lines.Insert(CodeLoadLine, $"uint CodeLoad(uint a) {{ return g_code[min(a >> 2, {words.Count - 1}u)]; }}");
+
+            if (_state.UsesCodeLanes)
+            {
+                lines.InsertRange(CodeLoadLine + 1, LaneLoad(words));
+            }
         }
+    }
+
+    /// <summary>
+    /// CodeLoadLane, a load at a per-lane address: from the data words after the reachable instructions (g_data,
+    /// <see cref="CodeData"/>), an address before them reading the first (as CodeLoad clamps one past the end). Indexed per lane, the whole code array cost a
+    /// driver 26 s and 1.9 GB to compile, its tables alone 14 s and 0.5 GB; a program without data words keeps g_code.
+    /// </summary>
+    private List<string> LaneLoad(List<string> words)
+    {
+        int start = CodeData.Start(_state.Translated);
+        int first = start / BytesPerDword;
+
+        if (first >= words.Count)
+        {
+            return [$"uint CodeLoadLane(uint a) {{ return CodeLoad(a); }}"];
+        }
+
+        var data = words.Skip(first).ToList();
+
+        return
+        [
+            $"static const uint g_data[{data.Count}] = {{{string.Join(",", data)}}};   // code words from {Hlsl.Hex(start)}",
+            $"uint CodeLoadLane(uint a) {{ return g_data[min(a >= {Hlsl.HexUint((uint)start)} ? (a - {Hlsl.HexUint((uint)start)}) >> 2 : 0u, {data.Count - 1}u)]; }}",
+        ];
     }
 
     /// <summary>Program-wide rewrites: exact f16 rounding, helper lanes and rasterizer-ordered views for pixel shaders.</summary>
