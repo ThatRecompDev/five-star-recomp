@@ -119,6 +119,7 @@ internal sealed unsafe class DrawTrace
 
         if (texture is not null)
         {
+            _shaderViews[handle] = (texture.Desktop, texture.State);
             string writer = texture.GpuWritten ? "GPU-written" : $"from memory, hash 0x{texture.UploadedHash:x}";
             desktop = $"texture 0x{texture.Desktop:x} at 0x{texture.Address:x} fmt {texture.DesktopFormat}, {writer}";
         }
