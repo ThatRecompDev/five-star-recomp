@@ -41,14 +41,39 @@ internal sealed unsafe class DescriptorWindow
     /// at the offsets of its own binding entries (0x144d9efc0) by copying their bytes, and its programs read them there
     /// (default_ps_tex reads its T# at record 1 of a table whose root signature spans one descriptor;
     /// VS_PassthroughComposite reads records 28 and 41 of a table that spans 7, so 16 left the composite's constants
-    /// stale and it drew a sliver).
+    /// stale and it drew a sliver; TL_PS_PBR_MATERIAL_STANDARD reads record 180 of its table 0).
+    /// <c>--mirror-table-records</c> sets it: <see cref="DefaultTableRecords"/> by default, the game's whole range
+    /// (<see cref="MaxTableRecords"/>) with <c>full</c>, which lets the lighting read its inputs but also lets mesh
+    /// programs reach the real data they hang on (w44, w47), until each program's reach is known.
     /// </summary>
-    public const uint MinTableRecords = 64;
+    public static uint MinTableRecords { get; set; } = DefaultTableRecords;
+
+    /// <summary>Records every table bind mirrors by default: VS_PassthroughComposite's record 41 included.</summary>
+    public const uint DefaultTableRecords = 64;
 
     /// <summary>The records a table bind mirrors: its root signature's extent, at least <see cref="MinTableRecords"/>.</summary>
     public static uint MirroredRecords(uint extent)
     {
         return Math.Max(extent, MinTableRecords);
+    }
+
+    /// <summary>
+    /// <c>--mirror-table-records</c>: <c>full</c> for <see cref="MaxTableRecords"/>, else a count from 1 to it; null for
+    /// anything else.
+    /// </summary>
+    public static uint? ParseTableRecords(string text)
+    {
+        if (text.Equals("full", StringComparison.OrdinalIgnoreCase))
+        {
+            return MaxTableRecords;
+        }
+
+        if (!uint.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out uint count) || count == 0 || count > MaxTableRecords)
+        {
+            return null;
+        }
+
+        return count;
     }
 
     /// <summary>Heap slots the programs reach by constant: the window (rdna_prelude GPU_MEM_HEAP), its writable view, the mesh fallback table.</summary>

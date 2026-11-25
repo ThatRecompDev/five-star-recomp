@@ -70,10 +70,14 @@ internal static unsafe class WarmMemoryGuard
         return Room(running, BuildBytes);
     }
 
-    /// <summary>Whether ordinary program work may start beside <paramref name="running"/> others: as <see cref="RoomForBuild"/> with <see cref="ProgramBytes"/> each.</summary>
+    /// <summary>
+    /// Whether ordinary program work may start beside <paramref name="running"/> others: as <see cref="RoomForBuild"/> with
+    /// <see cref="ProgramBytes"/> each, and always when none runs. On a 15.6 GB machine (issue #13) the game alone left
+    /// less than the reserve free, so no program was ever made: 2,231 queued, 0 running, and the stand-ins never left.
+    /// </summary>
     public static bool RoomForPrograms(int running)
     {
-        return Room(running, ProgramBytes);
+        return running == 0 || Room(running, ProgramBytes);
     }
 
     private static bool Room(int running, ulong each)
@@ -81,7 +85,9 @@ internal static unsafe class WarmMemoryGuard
         var status = Status();
         ulong builds = (ulong)(running + 1) * each;
 
-        return CommitHeadroom(status) >= ReserveBytes + builds && status.AvailablePhysical >= PhysicalReserveBytes + builds;
+        ulong physicalReserve = Math.Min(PhysicalReserveBytes, (ulong)CompileBudget.Floor(status.TotalPhysical));
+
+        return CommitHeadroom(status) >= ReserveBytes + builds && status.AvailablePhysical >= physicalReserve + builds;
     }
 
     /// <summary>Whether a heavy pipeline may start while the game runs.</summary>

@@ -51,7 +51,6 @@ internal sealed class CompileHost : IBackendRunner
 
     private readonly string _executable;
     private readonly string? _validator;
-    private readonly TimeSpan _answerLimit;
     private readonly InProcessBackend _here;
     private readonly Lock _gate = new();
     private Connection? _connection;
@@ -68,9 +67,12 @@ internal sealed class CompileHost : IBackendRunner
     {
         _executable = executable;
         _validator = validator;
-        _answerLimit = answerLimit;
+        RequestLimit = answerLimit;
         _here = new InProcessBackend(validator);
     }
+
+    /// <summary>How long a request waits for its answer from now on (the constructor's limit; tests shorten it for one request).</summary>
+    internal TimeSpan RequestLimit { get; set; }
 
     public bool Validates => _validator is not null;
 
@@ -178,7 +180,7 @@ internal sealed class CompileHost : IBackendRunner
                 return null;
             }
 
-            var (answer, delivery) = connection.Send(Interlocked.Increment(ref _nextId), write, _answerLimit);
+            var (answer, delivery) = connection.Send(Interlocked.Increment(ref _nextId), write, RequestLimit);
 
             if (delivery == Delivery.Answered)
             {

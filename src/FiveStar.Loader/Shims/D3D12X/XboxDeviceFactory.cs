@@ -204,6 +204,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         if (WindowFeedback.Enabled)
         {
             Residency = new WindowResidency(SectionHeaps, MemoryViews, FrameThrottle, _log);
+            MemoryViews.Ask = Residency.Ask;
             _log.Info("  [d3d12_xs] --evict-windows: section windows open as programs ask for them and the least recently asked are released");
         }
 
@@ -285,6 +286,8 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
 
         var cache = OpenCache(device2);
         var factory = new PipelineFactory(device2, root, library, new ProgramSignatures(programs!), warnings, rectangles, standIns, cache) { Journal = OpenJournal(), Lazy = !_pipelineFolders.EagerBuilds, OnDemand = onDemand };
+
+        Binding.TableReaches.ProgramFolder = programs;
         Pipelines = new PipelineSlots(factory, warnings);
         PipelineSlotHandlers.Register(Objects);
         Prefetch(onDemand);

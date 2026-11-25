@@ -29,6 +29,7 @@ internal sealed unsafe class WindowResidency
     public const long KeepPresents = 30;
 
     private readonly object _gate = new();
+    private readonly System.Collections.Concurrent.ConcurrentQueue<int> _asked = new();
     private readonly List<(SectionWindow Window, List<nint> Buffers, long Present, (nint Fence, ulong Value)[] Marks)> _retiring = [];
     private readonly SectionHeaps _heaps;
     private readonly GameMemoryViews _views;
@@ -49,6 +50,15 @@ internal sealed unsafe class WindowResidency
 
     /// <summary>Windows opened for programs that asked for them, released for others, and asks seen.</summary>
     public string Summary => $"section windows: {Interlocked.Read(ref _wanted)} asked for, {Interlocked.Read(ref _opened)} opened for them, {Interlocked.Read(ref _released)} released";
+
+    /// <summary>
+    /// The CPU asks for window <paramref name="id"/>: a view is made over a page that waits for it
+    /// (<see cref="GameMemoryViews.Maps"/>). Taken at the next <see cref="Poll"/> as a program's flag would be.
+    /// </summary>
+    public void Ask(int id)
+    {
+        _asked.Enqueue(id);
+    }
 
     /// <summary>
     /// Once per <paramref name="present"/>: releases the heaps retired long enough ago, then opens the windows whose
@@ -80,6 +90,14 @@ internal sealed unsafe class WindowResidency
     {
         var wanted = new List<SectionWindow>();
         int last = _heaps.MaxId;
+
+        while (_asked.TryDequeue(out int asked))
+        {
+            if (asked > 0 && asked <= last)
+            {
+                flags[asked] = 1;
+            }
+        }
 
         for (int id = 1; id <= last; id++)
         {

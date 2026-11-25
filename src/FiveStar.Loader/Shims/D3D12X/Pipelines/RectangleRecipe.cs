@@ -7,4 +7,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// <param name="Description">The desktop description the pipeline was created with.</param>
 /// <param name="Programs">The names of its translated programs, in stream order (their DXIL is read again when needed).</param>
 /// <param name="Vertex">The name of the vertex program among them, whose outputs the geometry shader takes.</param>
-internal sealed record RectangleRecipe(GraphicsPipelineDescription Description, IReadOnlyList<string> Programs, string Vertex);
+/// <param name="Kept">
+/// Programs the library cannot read again by name, kept whole: a producer linked to its pixel program
+/// (<c>.link-</c>) or a trimmed pixel program (<c>.trim</c>), made on demand.
+/// </param>
+internal sealed record RectangleRecipe(GraphicsPipelineDescription Description, IReadOnlyList<string> Programs, string Vertex, IReadOnlyDictionary<string, TranslatedProgram> Kept);
