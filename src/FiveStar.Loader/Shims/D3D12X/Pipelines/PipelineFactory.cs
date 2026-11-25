@@ -117,6 +117,19 @@ internal sealed unsafe class PipelineFactory
         var deferral = Deferral(Journal?.Contains(description) ?? false, () => Journal?.Record(description));
         var lacking = Lacking(description.Shaders);
 
+        // A held pair (--skip-pipelines; ray tracing without --raytracing) by the names of all its programs, made or not:
+        // its stand-in never builds, and neither its programs nor its linked producer are made. Named by the programs it
+        // lacked only, the skipped foliage pairs had their producers linked in the compile host, where a game thread's
+        // request then waited (boots w69c and w69d).
+        string all = ProgramNames(description.Shaders);
+
+        if (SkippedPipelines.Skips(all))
+        {
+            *result = StandIns.Unbuilt(all);
+
+            return Remember(description, HResult.Ok, result, all);
+        }
+
         if (lacking is not null || PendingLink(description) is not null)
         {
             // Programs first, then the producer linked to the pixel shader when the pair needs it (ProducerLinks).
@@ -420,6 +433,31 @@ internal sealed unsafe class PipelineFactory
         }
 
         return lacking;
+    }
+
+    /// <summary>The first extracted program name of each of <paramref name="shaders"/>, joined by " + ".</summary>
+    private string ProgramNames(IEnumerable<ShaderSource> shaders)
+    {
+        var names = new List<string>();
+
+        foreach (var source in shaders)
+        {
+            try
+            {
+                var found = _programs.Names(ProgramKeys.Prefix(source));
+
+                if (found.Count > 0)
+                {
+                    names.Add(found[0]);
+                }
+            }
+            catch (InvalidDataException)
+            {
+                // A shader without a hash prefix names no program.
+            }
+        }
+
+        return string.Join(" + ", names);
     }
 
     /// <summary>
