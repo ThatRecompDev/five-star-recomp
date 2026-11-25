@@ -100,16 +100,18 @@ public static partial class MeshProbe
     {
         int body = BodyStart(hlsl);
         var sites = new List<string>();
-        var text = hlsl[..body] + NumberSites(hlsl[body..], sites);
+        var numbered = NanProbe.Number(NumberSites(hlsl[body..], sites), sites);
+        var end = NanProbe.End();
+        var text = hlsl[..body] + end.Helpers + numbered;
 
         if (text.Contains(ComputeEntry, StringComparison.Ordinal))
         {
-            int end = text.TrimEnd().LastIndexOf('}');
-            text = text[..end] + "  probe_end_stage(in_gid, float4(0.0f, 0.0f, 0.0f, 0.0f), false);\n" + text[end..];
+            int last = text.TrimEnd().LastIndexOf('}');
+            text = text[..last] + $"  {end.Call}(in_gid, float4(0.0f, 0.0f, 0.0f, 0.0f), false);\n" + text[last..];
         }
         else if (text.Contains(PixelEntry, StringComparison.Ordinal) && text.Contains(PixelReturn, StringComparison.Ordinal))
         {
-            text = text.Replace(PixelReturn, $"  probe_end_stage({PixelAt(text)}, {PixelColour(text)});\n{PixelReturn}", StringComparison.Ordinal);
+            text = text.Replace(PixelReturn, $"  {end.Call}({PixelAt(text)}, {PixelColour(text)});\n{PixelReturn}", StringComparison.Ordinal);
         }
         else
         {

@@ -31,6 +31,10 @@ internal static unsafe class MeshProbes
     private const string SitesExtension = ".sites.txt";
     private const string Prefix = "  [mesh probe] ";
     private const int ValuesShown = 4;
+
+    /// <summary>A non-finite lane's pixel: x in bits 0-15, y from 16.</summary>
+    private const uint PixelMask = 0xFFFF;
+    private const int PixelYShift = 16;
     private const int PositionsShown = 4;
     private const int MaskBits = 32;
     private const int SiteFields = 2;
@@ -179,7 +183,33 @@ internal static unsafe class MeshProbes
 
         uint window = waves.Aggregate(0u, (mask, wave) => mask | wave.WindowLoads);
         log.Info($"{Prefix}{name}: sites loading through a 32-bit pointer (the descriptor window) 0x{window:x8}");
+        LogNonFinite(name, waves, log);
         LogSites(name, waves, log);
+    }
+
+    /// <summary>
+    /// The waves where a lane's value came out NaN or infinite (NanProbe): the earliest site with its value, the pixel of
+    /// a lane that hit it and the site's text, then the first sites by how many waves stopped there first.
+    /// </summary>
+    private static void LogNonFinite(string name, List<MeshProbeRecord> waves, LoaderLog log)
+    {
+        var hit = waves.Where(wave => wave.NonFiniteSite is not null).ToList();
+
+        if (hit.Count == 0)
+        {
+            log.Info($"{Prefix}{name}: no NaN or infinite value at any float site");
+
+            return;
+        }
+
+        var (_, texts) = SiteTexts(name);
+        var first = hit.MinBy(wave => wave.NonFiniteSite!.Value);
+        int site = (int)first.NonFiniteSite!.Value;
+        float value = BitConverter.UInt32BitsToSingle(first.NonFiniteValue);
+        var counts = hit.GroupBy(wave => wave.NonFiniteSite!.Value).OrderByDescending(group => group.Count()).Take(PositionsShown);
+
+        log.Info($"{Prefix}{name}: {hit.Count} of {waves.Count} waves had a NaN or infinite value ({hit.Sum(wave => (long)wave.NonFiniteLanes)} lanes); earliest at site {site}, 0x{first.NonFiniteValue:x8} ({value}), pixel ({first.NonFiniteAt & PixelMask}, {first.NonFiniteAt >> PixelYShift}): {texts.GetValueOrDefault(site, "?")}");
+        log.Info($"{Prefix}{name}: first non-finite site by waves: {string.Join(", ", counts.Select(group => $"{group.Key} x{group.Count()}"))}");
     }
 
     /// <summary>

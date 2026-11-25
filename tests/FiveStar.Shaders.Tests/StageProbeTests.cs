@@ -37,6 +37,24 @@ public sealed class StageProbeTests : IClassFixture<WarpFixture>
         }
         """;
 
+    /// <summary>A pixel program whose second float site divides by zero (+inf) and whose third makes NaN of it.</summary>
+    private const string NonFiniteProgram = """
+        #include "rdna_prelude.hlsli"
+        struct Out {
+          float4 mrt0 : SV_Target0;
+        };
+        Out main(float4 in_pos : SV_Position) {
+          Out o = (Out)0;
+          uint v0 = 0, v1 = 0, v2 = 0;
+          bool active = true;
+          v0 = select(active, (uint)(asuint(in_pos.x - in_pos.x)), v0);
+          v1 = select(active, (uint)(asuint(rcp(asfloat(v0)))), v1);
+          v2 = select(active, (uint)(asuint(asfloat(v1) - asfloat(v1))), v2);
+          o.mrt0 = float4(asfloat(v2), 0.0f, 0.0f, 1.0f);
+          return o;
+        }
+        """;
+
     private readonly WarpFixture _fixture;
 
     public StageProbeTests(WarpFixture fixture)
@@ -64,25 +82,28 @@ public sealed class StageProbeTests : IClassFixture<WarpFixture>
     }
 
     [WarpFact]
+    public void A_probed_pixel_program_records_the_first_site_whose_value_is_not_finite()
+    {
+        var (probed, sites) = MeshProbe.Instrument(NonFiniteProgram, Id, 0);
+        var records = DrawProbed("stage_probe_nan_ps", probed, []);
+        int division = sites.ToList().FindIndex(text => text.Contains("rcp(", StringComparison.Ordinal));
+
+        Assert.Equal(3, sites.Count);
+        Assert.NotEmpty(records);
+        Assert.All(records, record =>
+        {
+            Assert.True(record.Whole && record.Stage);
+            Assert.Equal((uint)division, record.NonFiniteSite);
+            Assert.Equal(0x7F800000u, record.NonFiniteValue);
+            Assert.True(record.NonFiniteLanes > 0 && (record.NonFiniteAt & 0xFFFF) < PixelCase.Size && (record.NonFiniteAt >> 16) < PixelCase.Size);
+        });
+    }
+
+    [WarpFact]
     public void A_probed_pixel_program_records_its_pixel_the_colour_it_returns_and_what_it_loaded()
     {
         var (probed, sites) = MeshProbe.Instrument(PixelProgram, Id, 0);
-        var pixel = _fixture.Workbench.Compile("stage_probe_ps", probed, "ps");
-        var vertex = _fixture.Helper("fullscreen_vs.hlsl", "vs");
-        var bindings = new Bindings
-        {
-            Buffers =
-            [
-                new BufferResource(RingSlot, new uint[(MeshProbe.RecordsOffset / sizeof(uint)) + (Records * MeshProbeRecord.Dwords)], Writable: true),
-                new BufferResource(DataSlot, [Data, 0, 0, 0], Writable: false),
-            ],
-        };
-
-        var result = _fixture.Runner.Graphics(new GraphicsJob(vertex, pixel, Framebuffer.Fullscreen(1, PixelCase.Size, PixelCase.Size, true), bindings));
-        var words = result.Buffers[RingSlot];
-        var records = Enumerable.Range(0, (int)Math.Min(words[0], Records))
-            .Select(index => MeshProbeRecord.Read(words.AsSpan((int)(MeshProbe.RecordsOffset / sizeof(uint)) + (index * MeshProbeRecord.Dwords), MeshProbeRecord.Dwords)))
-            .ToList();
+        var records = DrawProbed("stage_probe_ps", probed, [new BufferResource(DataSlot, [Data, 0, 0, 0], Writable: false)]);
 
         Assert.Single(sites);
         Assert.NotEmpty(records);
@@ -94,5 +115,19 @@ public sealed class StageProbeTests : IClassFixture<WarpFixture>
             Assert.Equal(Data, record.Values[0]);
             Assert.Equal(0u, record.RangeFailed);
         });
+    }
+
+    /// <summary>Draws a probed pixel program over 8x8 with the ring at heap slot 1 and <paramref name="buffers"/>; the records its waves wrote.</summary>
+    private List<MeshProbeRecord> DrawProbed(string name, string probed, BufferResource[] buffers)
+    {
+        var pixel = _fixture.Workbench.Compile(name, probed, "ps");
+        var vertex = _fixture.Helper("fullscreen_vs.hlsl", "vs");
+        var ring = new BufferResource(RingSlot, new uint[(MeshProbe.RecordsOffset / sizeof(uint)) + (Records * MeshProbeRecord.Dwords)], Writable: true);
+        var bindings = new Bindings { Buffers = [ring, .. buffers] };
+
+        var result = _fixture.Runner.Graphics(new GraphicsJob(vertex, pixel, Framebuffer.Fullscreen(1, PixelCase.Size, PixelCase.Size, true), bindings));
+        var words = result.Buffers[RingSlot];
+
+        return [.. Enumerable.Range(0, (int)Math.Min(words[0], Records)).Select(index => MeshProbeRecord.Read(words.AsSpan((int)(MeshProbe.RecordsOffset / sizeof(uint)) + (index * MeshProbeRecord.Dwords), MeshProbeRecord.Dwords)))];
     }
 }
