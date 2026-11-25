@@ -173,63 +173,6 @@ uint BufLoadRW(uint heap_index, uint off) {   // load through a UAV slot (buffer
     RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
     return b.Load(off & ~3u);
 }
-
-// ---- Mesh probe (loader --probe-pipeline; MeshProbe): FIVESTAR_MESH_PROBE is the program's id, FIVESTAR_MESH_PROBE_BASE
-// the byte offset of its ring in the GPU-memory window: a count, then 64-byte records from + 16. Each load site calls a
-// probe_* form with its number, which marks the site (bit site & 31) in a per-thread mask when its range check fails,
-// when it reads an unmapped page of the address map (the null pair GPU_MAP_HEAP + 1, + 2), or a record naming no
-// descriptor (PROBE_NULL_RECORD, DescriptorWindow.NullViewSlot). At the end of the group thread 0 appends {id, group
-// x y z; vertices, primitives as SetMeshOutputCounts got them, culled primitives, cull mask of primitives 0-31; vertex
-// 0's position; flags (bit 0: position written), range, unmapped and null-record masks}.
-#ifdef FIVESTAR_MESH_PROBE
-static const uint PROBE_RECORDS = 4096u;
-static const uint PROBE_NULL_RECORD = 5u;
-static uint g_probe_range, g_probe_unmapped, g_probe_record;
-groupshared uint g_probe_g[10];   // range, unmapped, null record, culled, cull mask, flags, position x y z w
-uint probe_bit(uint site) { return 1u << min(site, 31u); }
-bool probe_buf_fits(uint site, uint start, uint limit) {
-    bool fits = buf_fits(start, limit);
-    if (!fits) g_probe_range |= probe_bit(site);
-    return fits;
-}
-void probe_view(uint site, uint heap_index) {
-    if (heap_index == GPU_MAP_HEAP + 1u || heap_index == GPU_MAP_HEAP + 2u) g_probe_unmapped |= probe_bit(site);
-    if (heap_index == PROBE_NULL_RECORD) g_probe_record |= probe_bit(site);
-}
-uint probe_BufLoad(uint site, uint heap_index, uint off) { probe_view(site, heap_index); return BufLoad(heap_index, off); }
-uint probe_BufLoadRW(uint site, uint heap_index, uint off) { probe_view(site, heap_index); return BufLoadRW(heap_index, off); }
-uint probe_PtrLoad(uint site, uint lo, uint hi, uint off) {
-    if (hi != 0u) { uint2 a = ptr_add(lo, hi, 0u, asint(off)); probe_view(site, gpu_page(a.x, a.y).x); }
-    return PtrLoad(lo, hi, off);
-}
-void probe_begin(uint gi) {   // before the group's first barrier
-    if (gi == 0u) { [unroll] for (uint i = 0u; i < 10u; i++) g_probe_g[i] = 0u; }
-}
-void probe_position(float4 p) {   // thread 0, writing vertex 0
-    g_probe_g[5] = 1u;
-    g_probe_g[6] = asuint(p.x); g_probe_g[7] = asuint(p.y); g_probe_g[8] = asuint(p.z); g_probe_g[9] = asuint(p.w);
-}
-void probe_cull(uint prim, bool culled) {
-    if (!culled) return;
-    InterlockedAdd(g_probe_g[3], 1u);
-    if (prim < 32u) InterlockedOr(g_probe_g[4], 1u << prim);
-}
-void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the group, at its end
-    InterlockedOr(g_probe_g[0], g_probe_range);
-    InterlockedOr(g_probe_g[1], g_probe_unmapped);
-    InterlockedOr(g_probe_g[2], g_probe_record);
-    GroupMemoryBarrierWithGroupSync();
-    if (gi != 0u) return;
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
-    uint i;
-    m.InterlockedAdd(FIVESTAR_MESH_PROBE_BASE, 1u, i);
-    uint at = FIVESTAR_MESH_PROBE_BASE + 16u + (i % PROBE_RECORDS) * 64u;
-    m.Store4(at, uint4(FIVESTAR_MESH_PROBE, gid.x, gid.y, gid.z));
-    m.Store4(at + 16u, uint4(nv, np, g_probe_g[3], g_probe_g[4]));
-    m.Store4(at + 32u, uint4(g_probe_g[6], g_probe_g[7], g_probe_g[8], g_probe_g[9]));
-    m.Store4(at + 48u, uint4(g_probe_g[5], g_probe_g[0], g_probe_g[1], g_probe_g[2]));
-}
-#endif
 void BufStore(uint heap_index, uint off, uint v) {
     TRACE_VIEW(heap_index, off, v);
     RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
@@ -602,3 +545,79 @@ uint perm_b32(uint a, uint b, uint sel) {
     }
     return r;
 }
+
+// ---- Mesh probe (loader --probe-pipeline; MeshProbe): FIVESTAR_MESH_PROBE is the program's id,
+// FIVESTAR_MESH_PROBE_BASE the byte offset of its ring in the GPU-memory window (a count, then 256-byte records from
+// + 16), FIVESTAR_MESH_PROBE_SITES its number of load sites. Each load site calls a probe_* form with its number, which
+// marks the site (bit site & 31) in a per-thread mask when its range check fails (probe_buf_fits, probe_sbuf_fits),
+// when it reads an unmapped page of the address map (the null pair GPU_MAP_HEAP + 1, + 2), or a record naming no
+// descriptor (PROBE_NULL_RECORD, DescriptorWindow.NullViewSlot); the register a site's line loads is noted by thread 0
+// the first time (probe_value), and m0 at GS_ALLOC_REQ (probe_alloc). At the end of the group thread 0 appends: {id,
+// group x y z; vertices, primitives as SetMeshOutputCounts got them, culled primitives, cull mask of primitives 0-31;
+// vertex 0's position; flags (bit 0: position written, bit 1: m0 noted), range, unmapped and null-record masks;
+// the values of sites 0-31; the mask of values noted; m0; the number of sites}.
+#ifdef FIVESTAR_MESH_PROBE
+static const uint PROBE_RECORDS = 4096u;
+static const uint PROBE_RECORD_BYTES = 256u;
+static const uint PROBE_NULL_RECORD = 5u;
+static uint g_probe_range, g_probe_unmapped, g_probe_record, g_probe_gi;
+groupshared uint g_probe_g[12];   // range, unmapped, null record, culled, cull mask, flags, position x y z w, values mask, m0
+groupshared uint g_probe_v[32];
+uint probe_bit(uint site) { return 1u << min(site, 31u); }
+bool probe_sbuf_fits(uint site, bool fits) {
+    if (!fits) g_probe_range |= probe_bit(site);
+    return fits;
+}
+bool probe_buf_fits(uint site, uint start, uint limit) { return probe_sbuf_fits(site, buf_fits(start, limit)); }
+void probe_view(uint site, uint heap_index) {
+    if (heap_index == GPU_MAP_HEAP + 1u || heap_index == GPU_MAP_HEAP + 2u) g_probe_unmapped |= probe_bit(site);
+    if (heap_index == PROBE_NULL_RECORD) g_probe_record |= probe_bit(site);
+}
+uint probe_BufLoad(uint site, uint heap_index, uint off) { probe_view(site, heap_index); return BufLoad(heap_index, off); }
+uint probe_BufLoadRW(uint site, uint heap_index, uint off) { probe_view(site, heap_index); return BufLoadRW(heap_index, off); }
+uint4 probe_FmtLoad(uint site, uint heap_index, uint addr, uint code) { probe_view(site, heap_index); return FmtLoad(heap_index, addr, code); }
+uint probe_PtrLoad(uint site, uint lo, uint hi, uint off) {
+    if (hi != 0u) { uint2 a = ptr_add(lo, hi, 0u, asint(off)); probe_view(site, gpu_page(a.x, a.y).x); }
+    return PtrLoad(lo, hi, off);
+}
+void probe_value(uint site, uint v) {   // the register a site's line loaded, the first time on thread 0
+    if (g_probe_gi != 0u || site >= 32u || (g_probe_g[10] & (1u << site)) != 0u) return;
+    g_probe_v[site] = v;
+    g_probe_g[10] |= 1u << site;
+}
+void probe_alloc(uint m0) {   // GS_ALLOC_REQ's m0, the first time
+    if ((g_probe_g[5] & 2u) != 0u) return;
+    g_probe_g[11] = m0;
+    g_probe_g[5] |= 2u;
+}
+void probe_begin(uint gi) {   // before the group's first barrier
+    g_probe_gi = gi;
+    if (gi == 0u) { [unroll] for (uint i = 0u; i < 12u; i++) g_probe_g[i] = 0u; }
+}
+void probe_position(float4 p) {   // thread 0, writing vertex 0
+    g_probe_g[5] |= 1u;
+    g_probe_g[6] = asuint(p.x); g_probe_g[7] = asuint(p.y); g_probe_g[8] = asuint(p.z); g_probe_g[9] = asuint(p.w);
+}
+void probe_cull(uint prim, bool culled) {
+    if (!culled) return;
+    InterlockedAdd(g_probe_g[3], 1u);
+    if (prim < 32u) InterlockedOr(g_probe_g[4], 1u << prim);
+}
+void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the group, at its end
+    InterlockedOr(g_probe_g[0], g_probe_range);
+    InterlockedOr(g_probe_g[1], g_probe_unmapped);
+    InterlockedOr(g_probe_g[2], g_probe_record);
+    GroupMemoryBarrierWithGroupSync();
+    if (gi != 0u) return;
+    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    uint i;
+    m.InterlockedAdd(FIVESTAR_MESH_PROBE_BASE, 1u, i);
+    uint at = FIVESTAR_MESH_PROBE_BASE + 16u + (i % PROBE_RECORDS) * PROBE_RECORD_BYTES;
+    m.Store4(at, uint4(FIVESTAR_MESH_PROBE, gid.x, gid.y, gid.z));
+    m.Store4(at + 16u, uint4(nv, np, g_probe_g[3], g_probe_g[4]));
+    m.Store4(at + 32u, uint4(g_probe_g[6], g_probe_g[7], g_probe_g[8], g_probe_g[9]));
+    m.Store4(at + 48u, uint4(g_probe_g[5], g_probe_g[0], g_probe_g[1], g_probe_g[2]));
+    [unroll] for (uint k = 0u; k < 32u; k += 4u) m.Store4(at + 64u + k * 4u, uint4(g_probe_v[k], g_probe_v[k + 1u], g_probe_v[k + 2u], g_probe_v[k + 3u]));
+    m.Store4(at + 192u, uint4(g_probe_g[10], g_probe_g[11], FIVESTAR_MESH_PROBE_SITES, 0u));
+}
+#endif

@@ -29,7 +29,7 @@ internal static unsafe class MeshProbes
 
     private const string SitesExtension = ".sites.txt";
     private const string Prefix = "  [mesh probe] ";
-    private const int SitesShown = 12;
+    private const int ValuesShown = 4;
     private const int PositionsShown = 4;
     private const int MaskBits = 32;
     private const int SiteFields = 2;
@@ -141,14 +141,19 @@ internal static unsafe class MeshProbes
 
         log.Info($"{Prefix}{name}: {groups.Count} groups, {empty} with no vertices or primitives; vertices {groups.Min(g => g.Vertices)} to {groups.Max(g => g.Vertices)}, primitives {groups.Min(g => g.Primitives)} to {groups.Max(g => g.Primitives)}, {culled} of {primitives} primitives culled");
         log.Info($"{Prefix}{name}: vertex 0 written by {positions.Count} groups, {degenerate} at w 0, NaN or the origin; first {shown}");
+        log.Info($"{Prefix}{name}: m0 at GS_ALLOC_REQ (primitives << 12 | vertices): {Values(groups.Select(group => group.Allocation))}");
         LogSites(name, groups, log);
     }
 
-    /// <summary>Per site with a failure: the groups whose range check failed, that read an unmapped page or a null record.</summary>
+    /// <summary>
+    /// The program's sites as its records count them, then per site of 0 to 31 with a failure or a noted value: the
+    /// groups whose range check failed, that read an unmapped page or a null record, and the values thread 0 loaded.
+    /// </summary>
     private static void LogSites(string name, List<MeshProbeRecord> groups, LoaderLog log)
     {
-        var texts = SiteTexts(name);
-        var flagged = new List<string>();
+        var (path, texts) = SiteTexts(name);
+        string listing = texts.Count > 0 ? $"texts in {path}" : $"no site texts at {path}";
+        log.Info($"{Prefix}{name}: {groups.Max(group => group.Sites)} load sites ({listing}; past site 31 they count as 31 and keep no value)");
 
         for (int site = 0; site < MaskBits; site++)
         {
@@ -156,37 +161,46 @@ internal static unsafe class MeshProbes
             int range = groups.Count(group => (group.RangeFailed & bit) != 0);
             int unmapped = groups.Count(group => (group.Unmapped & bit) != 0);
             int empty = groups.Count(group => (group.NullRecord & bit) != 0);
+            var values = groups.Select(group => group.Values.ElementAtOrDefault(site)).ToList();
 
-            if (range + unmapped + empty == 0)
+            if (range + unmapped + empty == 0 && values.All(value => value is null))
             {
                 continue;
             }
 
-            string text = texts.GetValueOrDefault(site, "?");
-            flagged.Add($"site {site}: range {range}, unmapped {unmapped}, null record {empty} of {groups.Count} groups: {text}");
-        }
-
-        if (flagged.Count == 0)
-        {
-            log.Info($"{Prefix}{name}: every load site in range and mapped ({texts.Count} sites)");
-
-            return;
-        }
-
-        foreach (var line in flagged.Take(SitesShown))
-        {
-            log.Info($"{Prefix}{name}: {line}");
+            log.Info($"{Prefix}{name}: site {site}: range {range}, unmapped {unmapped}, null record {empty} of {groups.Count} groups; loaded {Values(values)}: {texts.GetValueOrDefault(site, "?")}");
         }
     }
 
-    private static Dictionary<int, string> SiteTexts(string name)
+    /// <summary>The distinct values with how many groups had each, most first; "none" when no group noted one.</summary>
+    private static string Values(IEnumerable<uint?> values)
+    {
+        var counted = values.Where(value => value is not null).GroupBy(value => value!.Value).OrderByDescending(group => group.Count()).ToList();
+
+        if (counted.Count == 0)
+        {
+            return "none";
+        }
+
+        string shown = string.Join(", ", counted.Take(ValuesShown).Select(group => $"0x{group.Key:x} x{group.Count()}"));
+
+        if (counted.Count > ValuesShown)
+        {
+            shown += $" (+{counted.Count - ValuesShown} more)";
+        }
+
+        return shown;
+    }
+
+    /// <summary>The site list's path and its texts by site; none when it is missing.</summary>
+    private static (string Path, Dictionary<int, string> Texts) SiteTexts(string name)
     {
         var texts = new Dictionary<int, string>();
-        var path = Folder is null ? null : Path.Combine(Folder, name + Suffix + SitesExtension);
+        var path = Path.Combine(Folder ?? string.Empty, name + Suffix + SitesExtension);
 
-        if (path is null || !File.Exists(path))
+        if (!File.Exists(path))
         {
-            return texts;
+            return (path, texts);
         }
 
         foreach (var line in File.ReadLines(path))
@@ -199,6 +213,6 @@ internal static unsafe class MeshProbes
             }
         }
 
-        return texts;
+        return (path, texts);
     }
 }
