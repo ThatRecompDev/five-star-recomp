@@ -54,6 +54,7 @@ internal static class HostComposition
         CompileBudget.LoadWindow = () => Diagnostics.GameHangWatch.Loading(boot.Elapsed, LoadWindowSpan);
 
         Shims.D3D12X.Resources.PlacedTextureHeaps.Enabled = options.PlacedTextures;
+        Shims.D3D12X.Resources.GpuTextureRegistry.KeptAliases = options.KeptAliases;
         Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
 
         Shims.D3D12X.DebugLayer.DrawCensus.Passes = options.CensusPasses;
