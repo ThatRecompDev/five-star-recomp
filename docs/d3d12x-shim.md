@@ -815,9 +815,11 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   as `present-N-target-0x<resource>-leave-K.png` beside the captures (depth and one-channel floats as grey, float colour formats
   clamped to 0..1). With `--d3d12-trace-pipeline <text>` an ExecuteIndirect of a matching pipeline in that frame is logged too (its first argument records from game memory, targets, bindings, and for each user SGPR pair holding a GPU address and each root view whether the address map has a page there or the GPU reads zeros), and its first render target and depth target are read back right after it. The game executes some closed lists again, so a probe's buffer is released only once its list was reset
   (releasing it at the report removed the device, debug-layer error #921).
-- `--d3d12-trace-pipeline <text>` (implies the draw trace) also logs, in the frame after each captured present, up to
-  64 draws whose pipeline name holds the text, without probes: a frame's UI draws (`sgd2_` Scaleform programs such as
-  `FVertexCxform`) come long after its first 32.
+- `--d3d12-trace-pipeline <text,...>` (implies the draw trace) also logs, in the frame after each captured present, up
+  to 64 draws whose pipeline name holds one of the texts, without probes: a frame's UI draws (`sgd2_` Scaleform programs
+  such as `FVertexCxform`) come long after its first 32. With `--d3d12-probe-traced` each of those draws also reads
+  back its first render target; a float target (R32G32B32A32, R16G16B16A16, R32) also reports each channel's mean and
+  largest value as stored, which the RGBA8 summary clamps (the exposure texel, the lit HDR).
 - `--d3d12-trace-records <offset,...>` adds to each of those draws the window records at these byte offsets from every
   user SGPR holding a record-aligned window offset (a descriptor pointer the game passes as a root constant, which the
   tables do not show): the record dwords, a T#'s base and its address-map state, a V#'s base (or the heap index it

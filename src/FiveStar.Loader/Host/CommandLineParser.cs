@@ -628,6 +628,10 @@ internal sealed class CommandLineParser
                 _options.TypedImageViews = true;
 
                 return true;
+            case "--d3d12-probe-traced":
+                _options.D3D12ProbeTraced = true;
+
+                return true;
             case "--depth-twins":
                 _options.DepthTwins = true;
 

@@ -27,6 +27,11 @@ internal sealed unsafe class DrawProbes
     public const long LiveBytesCap = 512L << 20;
 
     private const int Channels = 4;
+
+    /// <summary>DXGI_FORMAT_R32G32B32A32_FLOAT, R16G16B16A16_FLOAT and R32_FLOAT.</summary>
+    private const int FloatRgba32 = 2;
+    private const int FloatRgba16 = 10;
+    private const int Float32 = 41;
     private const long SkipsLogged = 100;
     private const long BytesPerMegabyte = 1L << 20;
 
@@ -165,10 +170,14 @@ internal sealed unsafe class DrawProbes
             var target = image is null ? Span<byte>.Empty : image.AsSpan(0, imageBytes);
             var summary = ReadbackPixels.Summarize(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format, target);
 
+            string floats = FloatSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format);
+
             if (summary is null)
             {
-                return $"format {probe.Format} not converted";
+                return $"format {probe.Format} not converted{floats}";
             }
+
+            summary += floats;
 
             if (probe.Png is not null)
             {
@@ -186,6 +195,49 @@ internal sealed unsafe class DrawProbes
                 System.Buffers.ArrayPool<byte>.Shared.Return(image);
             }
         }
+    }
+
+    /// <summary>
+    /// For a float target (R32G32B32A32_FLOAT, R16G16B16A16_FLOAT, R32_FLOAT): the mean and largest value of each channel
+    /// as stored, which the RGBA8 summary clamps (an HDR scene, an exposure texel); empty for other formats.
+    /// </summary>
+    public static string FloatSummary(ReadOnlySpan<byte> source, int rowPitch, int width, int rows, int format)
+    {
+        int channels = format switch
+        {
+            FloatRgba32 => Channels,
+            FloatRgba16 => Channels,
+            Float32 => 1,
+            _ => 0,
+        };
+
+        if (channels == 0 || width == 0 || rows == 0)
+        {
+            return string.Empty;
+        }
+
+        int bytes = format == FloatRgba16 ? sizeof(ushort) : sizeof(float);
+        var sum = new double[channels];
+        var max = new double[channels];
+        Array.Fill(max, double.MinValue);
+
+        for (int y = 0; y < rows; y++)
+        {
+            var row = source.Slice(y * rowPitch, width * channels * bytes);
+
+            for (int i = 0; i < width * channels; i++)
+            {
+                double value = bytes == sizeof(float) ? BitConverter.ToSingle(row.Slice(i * bytes, bytes)) : (double)BitConverter.ToHalf(row.Slice(i * bytes, bytes));
+                sum[i % channels] += value;
+                max[i % channels] = Math.Max(max[i % channels], value);
+            }
+        }
+
+        double count = (double)width * rows;
+        string mean = string.Join(", ", sum.Select(value => (value / count).ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
+        string largest = string.Join(", ", max.Select(value => value.ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
+
+        return $"; float mean ({mean}), max ({largest})";
     }
 
     /// <summary>One recorded copy: its buffer and size, the copied footprint, and the game's list and generation it was copied on.</summary>
