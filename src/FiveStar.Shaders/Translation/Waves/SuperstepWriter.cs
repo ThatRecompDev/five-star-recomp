@@ -32,7 +32,7 @@ internal static class SuperstepWriter
     {
         var lines = new List<string> { "  vw_ss_begin(in_gi);" };
         lines.AddRange(hoisted);
-        lines.Add("  uint pc = 0, pc_resume = 0;");
+        lines.Add("  uint pc = 0, pc_resume = 0, ss_steps = 0;");
 
         if (!state.MeshYield)
         {
@@ -48,6 +48,11 @@ internal static class SuperstepWriter
         return lines;
     }
 
+    /// <summary>
+    /// One dispatch loop and its step. A thread that has run more blocks than the stage's dispatch steps allow ends
+    /// there (<see cref="LoopGuard"/>): it still meets every step's barrier, as an ended thread, so a console loop fed
+    /// garbage cannot hold the group. This form had no bound before.
+    /// </summary>
     private static List<string> Round(TranslationState state, bool dropOutputs, IEnumerable<string> end)
     {
         // Every thread enters the dispatch loop (a stopped one through the idle case, which gives its pc back), so all
@@ -55,7 +60,8 @@ internal static class SuperstepWriter
         // loop and are at another copy of it.
         var lines = new List<string>
         {
-            "  [loop] for (;;) {", "  uint pc_stopped = pc;", "  if (pc >= PC_WAVE) { pc = PC_IDLE; }", "  [loop] while (pc < PC_WAVE) {", "    switch (pc) {",
+            "  [loop] for (;;) {", "  uint pc_stopped = pc;", "  if (pc >= PC_WAVE) { pc = PC_IDLE; }", "  [loop] while (pc < PC_WAVE) {",
+            $"    if (++ss_steps > {LoopGuard.DispatchHex(state.Stage, state.Loops)}) {{ pc = PC_END; break; }}", "    switch (pc) {",
             "    case PC_IDLE: { pc = pc_stopped; } break;",
         };
 

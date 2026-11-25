@@ -262,7 +262,7 @@ internal sealed class BodyWriter
     /// </summary>
     private List<string> Dispatch(bool dropOutputs)
     {
-        var lines = new List<string> { $"  [loop] for (uint pc_steps = 0; pc < PC_YIELD && pc_steps < {LoopGuard.DispatchHex}; pc_steps++) {{", "    switch (pc) {" };
+        var lines = new List<string> { $"  [loop] for (uint pc_steps = 0; pc < PC_YIELD && pc_steps < {LoopGuard.DispatchHex(_state.Stage, _state.Loops)}; pc_steps++) {{", "    switch (pc) {" };
 
         foreach (var block in _state.Blocks)
         {
