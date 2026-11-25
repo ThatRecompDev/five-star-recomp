@@ -292,6 +292,9 @@ internal sealed class OnDemandPrograms : IProgramLibrary
         if (failure is null)
         {
             _compiled.Arrived(job.Name);
+
+            // The compile host may have made it: its ray-tracing marker is read again.
+            RayTracingPrograms.Refresh(job.Name);
             var took = Stopwatch.GetElapsedTime(job.Requested).Ticks;
             Interlocked.Add(ref _readyTicks, took);
             Interlocked.Increment(ref _ready);

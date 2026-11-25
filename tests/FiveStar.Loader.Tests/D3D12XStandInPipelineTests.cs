@@ -100,7 +100,7 @@ public sealed unsafe class D3D12XStandInPipelineTests
         using var never = new ManualResetEventSlim();
         nint pipeline = FakePipeline(memory);
 
-        var standIns = StandIns(TimeSpan.Zero, new PipelineWaits(["deferredtextured", "skin"], TimeSpan.FromMilliseconds(300)));
+        var standIns = StandIns(TimeSpan.Zero, new PipelineWaits(["deferredtextured", "skin"], TimeSpan.FromMilliseconds(300), []));
         nint named = 0;
         nint other = 0;
         nint late = 0;

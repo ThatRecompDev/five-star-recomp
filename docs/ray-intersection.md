@@ -61,6 +61,19 @@ J' are picked from `{t_denom − I − J, I, J}` by the triangle_id byte of the 
 
 ## Without a built structure
 
+Without `--raytracing` a pipeline whose programs trace rays stays a stand-in (`RayTracingPrograms`): never built nor
+loaded from the pipeline cache, its draws and dispatches skipped and logged once, as `--skip-pipelines` does. A
+program is known to trace rays when it is translated (its HLSL includes `rdna_bvh.hlsli`), and in later boots or from
+the compile host by a marker beside its DXIL in the program cache, `<name>.rt` (`<name>.rt0` for one that does not).
+A program without a marker (its DXIL made by a boot before the markers: w66b sent a held
+`standard_emissive_layer~CS_RaytracingResolve` to one of its four driver compile slots) is read from its console code
+(an `image_bvh` instruction) before a build and before a pipeline-cache load, so a held pipeline takes no compile
+slot and is not loaded from the cache; a game thread creating a pipeline reads only what is known and the markers.
+The warm-up, the journal's pre-builds and the cache go through the same build and load. Boot w65b, with the node misses below
+but the passes running, still lost the device about 100 s after the world loaded; with these pipelines skipped boots
+ran 300 to 600 s. VIctory holds such pipelines until its builder has run (its PR #2311; facts only). Programs of `--translated-dir` have no marker and are not held back.
+
+
 The loader builds no acceleration structure without `--raytracing` (XboxBvhBuilder builds nothing), so programs it
 makes on demand define `FIVESTAR_BVH_MISS` (`BvhMiss`, part of the program cache identity): every node misses and
 nothing is read. A box node returns four invalid children, a triangle node t_num inf over t_denom 1 (return mode 0:

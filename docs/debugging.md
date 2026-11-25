@@ -134,7 +134,12 @@ since the start: those are a whole boot's, so seconds of them say nothing about 
 `fivestar-loader --watch-hang` reads these globals every 100 ms and logs the main state, the loading-screen flags,
 the session byte, the pause flag and the handler when they change, a heartbeat that moves again after 2 s or more, and
 the loader counters and every thread's stack (64 frames, with thread names) when the heartbeat has stood still for 5,
-15 and 25 s. For each thread in the game's fence wait (0x144fb0ad0) it also names what the wait depends on
+15 and 25 s. With it the loader keeps shims on the game's CreateEventW/A, CreateSemaphoreExW, SetEvent,
+ReleaseSemaphore, CloseHandle and WaitForSingleObject(Ex) (`WaitObjectShims`, removed otherwise), and the dump lists
+every thread blocked a second or more in one of those waits: the handle, the timeout, how the object was made (event
+kind or semaphore counts, creating thread and time, the game frames of the creating call) and whether it was signaled
+since, how often and by which thread last (`WaitObjects`). A stall whose waiter sits on an object nobody signals any
+more (a lost wake-up) then names that object and its creator. For each thread in the game's fence wait (0x144fb0ad0) it also names what the wait depends on
 (`StallCulprit`): the queue that was asked to signal that fence to the awaited value and the last six executions it
 was given before that Signal, newest first, each with its last pipeline and whether it finished, and any Wait on another
 fence among them; or, when no queue was asked yet, the fence's last Signal. The queues keep their last 1,024 calls in
@@ -150,6 +155,7 @@ any case (`QueueProgress`), so this costs nothing until a stall. The game's code
 | `private by protection` | 0x4 read-write, 0x404 read-write write-combined (upload and custom heaps), ... |
 | `anonymous by size` | counts and bytes per size class, and the committed sizes that hold the most |
 | `heaps` | HeapSummary of every process heap |
+| `heap segments by heap` | the private bytes labeled heap, by the heap each segment belongs to (HEAP_SEGMENT.Heap), top 5, each named: the process heap (every CRT's malloc, the game's shipped one and the loader's native memory), made at a game frame (`HeapCreate` from mapped code passes through `HeapShims`), or made by a system or driver DLL. A 15.6 GB machine held 9.02 GB in 601 heap allocations after 18 minutes with nothing to say whose (issue #13) |
 | `since the last map` | new and gone allocations, by owner and size |
 | `largest` | the 20 largest: base, owner, committed of reserved, protection; an anonymous one with the modules its first page points into (`[nvgpucomp64.dll x3]`) |
 | `gpu memory` | QueryVideoMemoryInfo per adapter: local and non-local usage and budget |

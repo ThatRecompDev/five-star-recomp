@@ -147,6 +147,15 @@ internal static unsafe class Kernel32
     [DllImport(Library)]
     public static extern uint GetProcessHeaps(uint count, nint* heaps);
 
+    [DllImport(Library, SetLastError = true)]
+    public static extern nint HeapCreate(uint options, nuint initialSize, nuint maximumSize);
+
+    [DllImport(Library, SetLastError = true)]
+    public static extern int HeapDestroy(nint heap);
+
+    [DllImport(Library)]
+    public static extern nint GetProcessHeap();
+
     /// <summary>HeapSummary: <paramref name="summary"/> is a HEAP_SUMMARY with cb set.</summary>
     [DllImport(Library)]
     public static extern int HeapSummary(nint heap, uint flags, HeapSummaryInfo* summary);
@@ -178,6 +187,25 @@ internal static unsafe class Kernel32
 
     [DllImport(Library, SetLastError = true)]
     public static extern nint CreateEventW(nint security, int manualReset, int initialState, char* name);
+
+    [DllImport(Library, SetLastError = true)]
+    public static extern nint CreateEventA(nint security, int manualReset, int initialState, byte* name);
+
+    [DllImport(Library, SetLastError = true)]
+    public static extern nint CreateSemaphoreExW(nint security, int initial, int maximum, char* name, uint flags, uint access);
+
+    [DllImport(Library, SetLastError = true)]
+    public static extern int SetEvent(nint handle);
+
+    [DllImport(Library, SetLastError = true)]
+    public static extern int ReleaseSemaphore(nint handle, int count, int* previous);
+
+    [DllImport(Library, SetLastError = true)]
+    public static extern uint WaitForSingleObjectEx(nint handle, uint milliseconds, int alertable);
+
+    /// <summary>RtlCaptureStackBackTrace: the return addresses of the calling thread, innermost first.</summary>
+    [DllImport(Library)]
+    public static extern ushort RtlCaptureStackBackTrace(uint skip, uint count, nint* frames, uint* hash);
 
     /// <summary>GetFileInformationByHandle: <paramref name="information"/> is a BY_HANDLE_FILE_INFORMATION.</summary>
     [DllImport(Library, SetLastError = true)]
