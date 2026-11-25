@@ -145,6 +145,36 @@ public sealed unsafe class D3D12XStandInPipelineTests
         Assert.True(SpinWait.SpinUntil(() => standIns.Desktop(unnamed, out _) != 0, BuildLimit));
     }
 
+    /// <summary>
+    /// The first use of a small compute stand-in whose program takes long to make (seconds on a 15.6 GB machine, #13):
+    /// the game's thread waits no longer than the first-use budget, and the program and the build finish without it.
+    /// </summary>
+    [Fact]
+    public void A_small_compute_first_use_waits_no_longer_than_its_budget_for_a_slow_program()
+    {
+        using var memory = new NativeBlocks();
+        using var made = new ManualResetEventSlim();
+        nint pipeline = FakePipeline(memory);
+        var standIns = StandIns(TimeSpan.Zero);
+        nint result = 0;
+
+        Func<StandInUse?, Task> programs = _ => Task.Run(made.Wait);
+        Func<PendingBuild?> prepare = () => new PendingBuild(() => new PipelineResult(HResult.Ok, pipeline), Heavy: false, "small", _ => { });
+        Func<bool> programsNow = () => made.Wait(BuildLimit);
+        standIns.Waiting(programs, prepare, &result, () => { }, "small", programsNow);
+        nint standIn = result;
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        nint first = standIns.Desktop(standIn, out bool pending);
+        var waited = clock.Elapsed;
+        made.Set();
+
+        Assert.Equal((0, true), (first, pending));
+        Assert.True(waited < StandInPipelines.SmallBudget * 4, $"the first use waited {waited.TotalMilliseconds:F0} ms");
+        Assert.True(SpinWait.SpinUntil(() => standIns.Desktop(standIn, out _) != 0, BuildLimit));
+        Assert.Contains("(1 with programs made inline", standIns.Summary, StringComparison.Ordinal);
+    }
+
     private static StandInPipelines StandIns(TimeSpan budget, PipelineWaits? waits = null)
     {
         var builds = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
