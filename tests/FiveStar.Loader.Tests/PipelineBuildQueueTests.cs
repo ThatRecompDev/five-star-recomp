@@ -42,6 +42,47 @@ public sealed class PipelineBuildQueueTests
     }
 
     [Fact]
+    public async Task A_creation_no_command_list_waits_for_gives_its_thread_back_instead_of_waiting_for_room()
+    {
+        var queue = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
+        int attempts = 0;
+        var order = new List<string>();
+        var speculative = queue.Queue(() =>
+        {
+            // The budget has no room for it the first time: it goes back to the queue, the thread takes the urgent one.
+            if (CompileBudget.GiveBack && Interlocked.Increment(ref attempts) == 1)
+            {
+                Thread.Sleep(100);
+
+                return new PipelineResult(HResult.Pending, 0);
+            }
+
+            lock (order)
+            {
+                order.Add("speculative");
+            }
+
+            return new PipelineResult(HResult.Ok, 1);
+        }, urgent: false);
+
+        queue.Start();
+        SpinWait.SpinUntil(() => Volatile.Read(ref attempts) == 1, BuildLimit);
+
+        var urgent = queue.Queue(() =>
+        {
+            lock (order)
+            {
+                order.Add("urgent");
+            }
+
+            return new PipelineResult(HResult.Ok, 2);
+        }, urgent: true);
+
+        await Task.WhenAll(speculative.Done.Task, urgent.Done.Task).WaitAsync(BuildLimit);
+        Assert.Equal(["urgent", "speculative"], order);
+    }
+
+    [Fact]
     public void Urgent_creations_go_by_the_frames_then_the_draws_their_stand_ins_missed()
     {
         var queue = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);

@@ -495,12 +495,13 @@ internal sealed unsafe class PipelineFactory
     {
         entered = false;
 
-        if (!CompileBudget.NoWait)
+        if (!CompileBudget.NoWait && !CompileBudget.GiveBack)
         {
             return true;
         }
 
-        if (shaderBytes >= HeavyShaderBytes || !CompileBudget.TryEnterNow(shaderBytes))
+        // A game thread never builds a heavy one; a build thread with a speculative one gives it back rather than wait.
+        if ((CompileBudget.NoWait && shaderBytes >= HeavyShaderBytes) || !CompileBudget.TryEnterNow(shaderBytes))
         {
             return false;
         }
