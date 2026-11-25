@@ -31,8 +31,9 @@ internal sealed unsafe class UserDataRing
     /// <summary>The ring on <paramref name="device"/>; null when the upload buffer cannot be made.</summary>
     public static UserDataRing? Create(nint device)
     {
-        var properties = new HeapProperties { Type = HeapProperties.Upload };
-        nint buffer = DesktopCalls.CreateBuffer(device, properties, (ulong)Blocks * BlockBytes, 0, GenericRead);
+        int state = GenericRead;
+        var properties = GpuUploadHeaps.For(device, new HeapProperties { Type = HeapProperties.Upload }, ref state);
+        nint buffer = DesktopCalls.CreateBuffer(device, properties, (ulong)Blocks * BlockBytes, 0, state);
         byte* data = buffer == 0 ? null : DesktopCalls.Map(buffer);
 
         if (data == null)

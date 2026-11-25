@@ -100,6 +100,18 @@ load reads depends on the instruction's use (a sampler slot or a resource slot),
 indices clamped to the heaps (a view past the end to a null one, a sampler to the last), without which NVIDIA hung
 and AMD faulted; and that a raw view's first byte must be a multiple of 16. No code was copied.
 
+## Kelvaroq
+
+https://github.com/fablinoo/kelvaroq, revision `132217b5734b06cd8d40ac2e6889f46b2768ee4b`, GPL-3.0, a fork in the VIctory
+family. Its patch 0041 (`native/patches/0041-mesh-launch-wide-hash.patch`: `launch.hlsl`, `launch.rs`) gave the design of
+`--mesh-launch` (`MeshLaunch`): an amplification shader of ours in front of every translated mesh shader reads one
+indirect mesh record where the title wrote it, bounds it, charges the list's work budget with a compare-exchange and
+calls DispatchMesh; each such record becomes a DispatchMesh(1, 1, 1) with a root constant, a root SRV and a root UAV,
+and mesh shaders declare a 4-byte payload; calls with a count buffer or several records keep the clamp. Our stage is
+written anew with our own clamp's bounds and budget (a record past 65,535 groups runs empty, as our clamp has it),
+our register space 10 (space 9 holds the mesh fallback's table) and a mode for records our clamp already bounded. Its
+patches 0022 and 0039 gave `--gpu-upload-heaps` (`GpuUploadHeaps`): the buffers the CPU writes and every shader reads
+in a GPU upload heap. Its measurements are cited in the source and docs.
 ## ztrx
 
 https://github.com/Zettrox/ztrx (`docs/fork-ray-tracing.md`), GPL-3.0, a fork in the VIctory family. Facts from its

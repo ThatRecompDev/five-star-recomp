@@ -219,7 +219,7 @@ public static class ShaderContainer
             properties.Add(module.Int32Metadata(MeshTag));
             properties.Add(module.Node(
                 threads, module.Int32Metadata((uint)mesh.MaxVertices), module.Int32Metadata((uint)mesh.MaxPrimitives),
-                module.Int32Metadata((uint)mesh.Topology), module.Int32Metadata(0)));
+                module.Int32Metadata((uint)mesh.Topology), module.Int32Metadata((uint)mesh.PayloadBytes)));
         }
 
         if (geometry is not null)
