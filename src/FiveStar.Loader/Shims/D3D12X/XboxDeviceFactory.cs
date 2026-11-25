@@ -307,8 +307,6 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         WaitForProgramIndex();
         var onDemand = _pipelineFolders.OnDemand?.Open(_programIndex!, programs!, translated, device2, warnings, _log);
         IProgramLibrary library = onDemand ?? (IProgramLibrary)TranslatedProgramLibrary.Open(_programIndex!, translated!, device2, warnings, _log);
-        var rectangles = new RectanglePipelines(device2, root, RectangleFolder(translated), library, warnings) { Compiler = _pipelineFolders.OnDemand?.RectangleCompiler };
-        Rectangles.Attach(rectangles);
 
         // Builds start only while the machine has the memory; heavy ones on their own thread (docs/d3d12x-pipelines.md#stand-ins).
         // The queues keep only the machine's reserves: each compile's own need is the compile budget's to count. Counting
@@ -318,6 +316,8 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         var heavyBuilds = new PipelineBuildQueue(1, _ => WarmMemoryGuard.RoomForHeavyBuild(0));
         builds.Start();
         heavyBuilds.Start();
+        var rectangles = new RectanglePipelines(device2, root, RectangleFolder(translated), library, warnings, builds) { Compiler = _pipelineFolders.OnDemand?.RectangleCompiler };
+        Rectangles.Attach(rectangles);
         var standIns = new StandInPipelines(PipelineSlots.CreationBudget, builds, heavyBuilds, warnings);
 
         var cache = OpenCache(device2);
