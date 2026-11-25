@@ -476,7 +476,16 @@ uint fmt_convert(uint v, uint bits, uint num) {
 uint fmt_component(uint4 w, uint field, uint num, uint missing) {
     return select((field >> 8) != 0u, fmt_convert(fmt_field(w, field), field >> 8, num), missing);
 }
-uint4 FmtLoad(uint heap_index, uint addr, uint code) {
+// DST_SEL_X..W (V# dword3 bits 0-11, d3): 0 and 1 the constants, 4-7 the loaded x..w (BGRA views read z, y, x, w);
+// all four 0 keeps the loaded order. Each result component converts only the field its selector names, so a load
+// whose program reads x converts one field rather than four (the unread components then fold away): converting every
+// field and choosing after made the 3,281 loads of a 122k-dword compute program 41% of its DXIL instructions.
+uint fmt_selected(uint4 w, uint4 fields, uint num, uint one, uint s, uint k) {
+    uint sel = select(s == 0u, 4u + k, (s >> (3u * k)) & 7u), c = sel & 3u;
+    uint field = select(c == 0u, fields.x, select(c == 1u, fields.y, select(c == 2u, fields.z, fields.w)));
+    return select(sel >= 4u, fmt_component(w, field, num, select(c == 3u, one, 0u)), select(sel == 1u, one, 0u));
+}
+uint4 FmtLoad(uint heap_index, uint addr, uint code, uint d3) {
     ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(view_slot(heap_index))];
     uint base = addr & ~3u, sh = (addr & 3u) * 8u;
     uint4 w = b.Load4(base); uint w4 = b.Load(base + 16);
@@ -484,9 +493,9 @@ uint4 FmtLoad(uint heap_index, uint addr, uint code) {
     w = select(sh != 0u, shifted, w);
     uint layout = code >> 3, num = code & 7u;
     uint4 fields = select(layout < 16u, FMT_FIELDS[layout & 15u], uint4(0, 0, 0, 0));
-    uint one = select(num - 4u <= 1u, 1u, asuint(1.0));
-    return uint4(fmt_component(w, fields.x, num, 0u), fmt_component(w, fields.y, num, 0u),
-                 fmt_component(w, fields.z, num, 0u), fmt_component(w, fields.w, num, one));
+    uint one = select(num - 4u <= 1u, 1u, asuint(1.0)), s = d3 & 0xfffu;
+    return uint4(fmt_selected(w, fields, num, one, s, 0u), fmt_selected(w, fields, num, one, s, 1u),
+                 fmt_selected(w, fields, num, one, s, 2u), fmt_selected(w, fields, num, one, s, 3u));
 }
 // gfx10 unified buffer formats (RDNA 2 ISA, buffer data formats: 1 8_UNORM .. 77 32_32_32_32_FLOAT) as codes; 0 invalid.
 static const uint FMT_UNIFIED[80] = {
@@ -509,18 +518,6 @@ uint fmt_half(uint v, uint code) { return select((code & 7u) - 4u <= 1u, v & 0xf
 uint fmt_unhalf(uint h, uint code) {
     uint num = code & 7u;
     return select(num == 4u, h, select(num == 5u, (h ^ 0x8000u) - 0x8000u, asuint(f16tof32(h))));
-}
-uint fmt_select(uint4 v, uint sel, uint one) {
-    uint c = select((sel & 3u) == 0u, v.x, select((sel & 3u) == 1u, v.y, select((sel & 3u) == 2u, v.z, v.w)));
-    return select(sel >= 4u, c, select(sel == 1u, one, 0u));
-}
-// DST_SEL_X..W (V# dword3 bits 0-11): 0 and 1 the constants, 4-7 the loaded x..w (BGRA views read z, y, x, w). Loads
-// only; all four 0 keeps the loaded order.
-uint4 fmt_swizzle(uint4 v, uint d3, uint code) {
-    uint s = d3 & 0xfffu, one = select((code & 7u) - 4u <= 1u, 1u, asuint(1.0));
-    uint4 r = uint4(fmt_select(v, s & 7u, one), fmt_select(v, (s >> 3) & 7u, one),
-                    fmt_select(v, (s >> 6) & 7u, one), fmt_select(v, (s >> 9) & 7u, one));
-    return s == 0u ? v : r;
 }
 
 // ---- cube maps (AMD conventions). face: 0 +X, 1 -X, 2 +Y, 3 -Y, 4 +Z, 5 -Z
@@ -689,7 +686,7 @@ void probe_view(uint site, uint heap_index) {
 }
 uint probe_BufLoad(uint site, uint heap_index, uint off) { probe_view(site, heap_index); return BufLoad(heap_index, off); }
 uint probe_BufLoadRW(uint site, uint heap_index, uint off) { probe_view(site, heap_index); return BufLoadRW(heap_index, off); }
-uint4 probe_FmtLoad(uint site, uint heap_index, uint addr, uint code) { probe_view(site, heap_index); return FmtLoad(heap_index, addr, code); }
+uint4 probe_FmtLoad(uint site, uint heap_index, uint addr, uint code, uint d3) { probe_view(site, heap_index); return FmtLoad(heap_index, addr, code, d3); }
 uint probe_PtrLoad(uint site, uint lo, uint hi, uint off) {
     if (hi != 0u) { uint2 a = ptr_add(lo, hi, 0u, asint(off)); probe_view(site, gpu_page(a.x, a.y).x); }
     else {   // a 32-bit pointer: the window (descriptor records); the first such address thread 0 reads is kept
