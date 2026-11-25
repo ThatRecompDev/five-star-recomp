@@ -457,6 +457,7 @@ the first program is made (`[d3d12_xs] programs made on demand with ...`).
 | `--no-window-guard` | programs' stores and atomics through 32-bit pointers reach the descriptor window (by default they are dropped and counted per program, logged at each captured present; [d3d12x-shim.md](d3d12x-shim.md)) |
 | `--trace-module <dll>` | with `--run`: the call trace also wraps imports bound to this mapped image (for example `bink2scarlett.dll`) |
 | `--input-script <file>` | timed key presses added to the desktop keys and timed captures, in blocks that wait for learned screens; followed while running (below) |
+| `--allow-real-input` | with `--input-script`, the real keyboard, mouse buttons and cursor reach the game beside the script. Off by default (`--script-input-only`): the game sees the scripted keys alone and a cursor fixed where the real one was when the script took over (moved only by `cursor` lines), so a hand on the mouse cannot move a menu's focus; F9 hands the real keyboard and mouse back and takes them away again, and F8 (the teach key) works either way. The wheel is not read in any case |
 | `--screens <file>` | the screens the input script learned (below); default `%LOCALAPPDATA%\FiveStar\screens.txt` |
 
 The output lists the images, an import table per image and module, the totals and the exports. Tests:

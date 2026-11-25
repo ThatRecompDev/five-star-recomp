@@ -49,15 +49,16 @@ internal sealed class GameInputService : IDisposable
     /// <summary>
     /// Adds the presses of the input script at <paramref name="path"/> (<c>--input-script</c>) to the desktop keys and
     /// follows the file while the game runs; its capture lines call <paramref name="capture"/>, and it calls
-    /// <paramref name="sample"/> for the signature of the next present (<see cref="Seen"/>). Before GameInputCreate.
+    /// <paramref name="sample"/> for the signature of the next present (<see cref="Seen"/>). With <paramref name="scriptOnly"/> the game
+    /// sees the script's input alone until F9 (<see cref="ScriptedDesktopInput"/>). Before GameInputCreate.
     /// </summary>
-    public InputScript UseScript(string path, System.Diagnostics.Stopwatch clock, Action capture, Action sample, ScreenStore screens)
+    public InputScript UseScript(string path, System.Diagnostics.Stopwatch clock, Action capture, Action sample, ScreenStore screens, bool scriptOnly)
     {
         var script = InputScript.Load(path);
 
         lock (_gate)
         {
-            var scripted = new ScriptedDesktopInput(_desktop, script, clock, _log);
+            var scripted = new ScriptedDesktopInput(_desktop, script, clock, _log, scriptOnly);
             _desktop = scripted;
             _watcher?.Dispose();
             _watcher = new InputScriptWatcher(path, script, scripted, clock, capture, sample, screens, _log);
