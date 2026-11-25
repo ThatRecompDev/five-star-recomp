@@ -35,6 +35,13 @@ internal sealed unsafe class DrawProbes
     private const int Float16 = 54;
     private const long SkipsLogged = 100;
 
+    /// <summary>DXGI_FORMAT_R32G8X24_TYPELESS, D32_FLOAT_S8X24_UINT, R32_FLOAT_X8X24_TYPELESS, R32_TYPELESS and D32_FLOAT.</summary>
+    private const int DepthStencil32Typeless = 19;
+    private const int DepthStencil32 = 20;
+    private const int DepthStencil32Float = 21;
+    private const int Depth32Typeless = 39;
+    private const int Depth32 = 40;
+
     /// <summary>DXGI_FORMAT_R8_TYPELESS and R8_UINT: a stencil plane's copy.</summary>
     private const int R8Typeless = 60;
     private const int R8Uint = 62;
@@ -108,14 +115,29 @@ internal sealed unsafe class DrawProbes
         commands.ResourceBarrierTransition(texture, ResourceStates.CopySource, resting);
         texture.Dispose();
 
-        // A plane's copy has the plane's format (a stencil plane R8), not the resource's typeless one.
-        int format = plane == 0 ? (int)description.Format : (int)footprints[0].Footprint.Format;
+        // A plane's copy has the plane's format (a stencil plane R8), not the resource's typeless one; a 32-bit depth
+        // plane is read as R32_FLOAT.
+        int format = plane == 0 ? CopyFormat((int)description.Format) : (int)footprints[0].Footprint.Format;
 
         lock (_gate)
         {
             uint depth = description.Dimension == ResourceDimension.Texture3D ? footprints[0].Footprint.Depth : 1;
             _pending.Add(new Probe(label, buffer, (long)total, footprints[0], rows[0] * depth, (int)footprints[0].Footprint.Width, format, key, generation, png));
         }
+    }
+
+    /// <summary>
+    /// The format a plane-0 copy of a resource in <paramref name="format"/> is summarized as: the 32-bit depth of
+    /// R32G8X24_TYPELESS, D32_FLOAT_S8X24_UINT, R32_FLOAT_X8X24_TYPELESS, R32_TYPELESS and D32_FLOAT as R32_FLOAT (its
+    /// plane 0 copies four bytes a texel: min, max, the exactly-0.0 count of a reverse-Z sky); any other as itself.
+    /// </summary>
+    public static int CopyFormat(int format)
+    {
+        return format switch
+        {
+            DepthStencil32Typeless or DepthStencil32 or DepthStencil32Float or Depth32Typeless or Depth32 => Float32,
+            _ => format,
+        };
     }
 
     /// <summary>The first subresource of <paramref name="plane"/>: planes follow each other after every mip of every slice (D3D12CalcSubresource).</summary>
@@ -132,15 +154,7 @@ internal sealed unsafe class DrawProbes
     {
         lock (_gate)
         {
-            for (int i = _reported.Count - 1; i >= 0; i--)
-            {
-                if (generation(_reported[i].List) != _reported[i].Generation)
-                {
-                    _reported[i].Buffer.Dispose();
-                    _liveBytes -= _reported[i].Bytes;
-                    _reported.RemoveAt(i);
-                }
-            }
+            ReleaseReset(generation);
 
             foreach (var probe in _pending)
             {
@@ -149,6 +163,33 @@ internal sealed unsafe class DrawProbes
             }
 
             _pending.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Releases the reported buffers whose lists were reset since their probe, before a new captured frame records its
+    /// own: their copies completed before they were reported and a reset list cannot run them again, so the GPU no
+    /// longer names them. Without this a frame's buffers stayed alive until the next frame's report, and the second and
+    /// third world captures met the cap before their later passes (w94b skipped 101).
+    /// </summary>
+    public void Release(Func<nint, long> generation)
+    {
+        lock (_gate)
+        {
+            ReleaseReset(generation);
+        }
+    }
+
+    private void ReleaseReset(Func<nint, long> generation)
+    {
+        for (int i = _reported.Count - 1; i >= 0; i--)
+        {
+            if (generation(_reported[i].List) != _reported[i].Generation)
+            {
+                _reported[i].Buffer.Dispose();
+                _liveBytes -= _reported[i].Bytes;
+                _reported.RemoveAt(i);
+            }
         }
     }
 
@@ -253,6 +294,9 @@ internal sealed unsafe class DrawProbes
         var sum = new double[channels];
         var max = new double[channels];
         var min = new double[channels];
+        var zeros = new long[channels];
+        var nans = new long[channels];
+
         Array.Fill(max, double.MinValue);
         Array.Fill(min, double.MaxValue);
 
@@ -263,6 +307,18 @@ internal sealed unsafe class DrawProbes
             for (int i = 0; i < width * channels; i++)
             {
                 double value = bytes == sizeof(float) ? BitConverter.ToSingle(row.Slice(i * bytes, bytes)) : (double)BitConverter.ToHalf(row.Slice(i * bytes, bytes));
+
+                // Exactly 0.0 counts both signs: a reverse-Z depth's sky is +0.0.
+                if (value == 0)
+                {
+                    zeros[i % channels]++;
+                }
+
+                if (double.IsNaN(value))
+                {
+                    nans[i % channels]++;
+                }
+
                 sum[i % channels] += value;
                 max[i % channels] = Math.Max(max[i % channels], value);
                 min[i % channels] = Math.Min(min[i % channels], value);
@@ -272,10 +328,9 @@ internal sealed unsafe class DrawProbes
         double count = (double)width * rows;
         string mean = string.Join(", ", sum.Select(value => (value / count).ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
         string largest = string.Join(", ", max.Select(value => value.ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
-
         string smallest = string.Join(", ", min.Select(value => value.ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
 
-        return $"; float mean ({mean}), max ({largest}), min ({smallest})";
+        return $"; float mean ({mean}), max ({largest}), min ({smallest}); exactly 0.0 ({string.Join(", ", zeros)}) and NaN ({string.Join(", ", nans)}) of {width * (long)rows} pixels";
     }
 
     /// <summary>

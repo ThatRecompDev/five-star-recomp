@@ -79,6 +79,7 @@ internal sealed unsafe class DrawTrace
     private readonly ConcurrentDictionary<nint, int> _watched = new();
     private readonly ConcurrentDictionary<(nint Target, nint Pipeline), byte> _watchedWriters = new();
     private readonly ConcurrentDictionary<nint, byte> _firstBinds = new();
+    private readonly ConcurrentDictionary<nint, byte> _rendered = new();
     private int _watchReads;
     private long _presentWork;
     private bool _worldSeen;
@@ -298,12 +299,19 @@ internal sealed unsafe class DrawTrace
         }
     }
 
+    /// <summary>
+    /// <c>--d3d12-watch-rendered</c>: only watched targets the game has bound as render targets are read back (the lit
+    /// HDR TL_PS renders into, not the LightMixOutputCS outputs of its shape written only as UAVs), so the readback
+    /// budget reaches the later passes.
+    /// </summary>
+    public static bool WatchRendered { get; set; }
+
     /// <summary>The watched targets the list renders into, or with <paramref name="boundOnly"/> false all of them.</summary>
     private List<(nint Resource, int Home)> WatchedTargets(DrawTraceList state, bool boundOnly)
     {
         if (!boundOnly)
         {
-            return [.. _watched.Select(pair => (pair.Key, pair.Value))];
+            return [.. _watched.Where(pair => !WatchRendered || _rendered.ContainsKey(pair.Key)).Select(pair => (pair.Key, pair.Value))];
         }
 
         var bound = new List<(nint Resource, int Home)>();
@@ -367,7 +375,14 @@ internal sealed unsafe class DrawTrace
 
         state.Targets = targets;
         state.DepthStencil = depthStencil;
-        FirstBind(list, state, WatchedTargets(state, boundOnly: true), "bound");
+        var bound = WatchedTargets(state, boundOnly: true);
+
+        foreach (var (resource, _) in bound)
+        {
+            _rendered.TryAdd(resource, 0);
+        }
+
+        FirstBind(list, state, bound, "bound");
     }
 
     /// <summary>
@@ -869,6 +884,7 @@ internal sealed unsafe class DrawTrace
             Volatile.Write(ref _watchReads, 0);
             _watchedWriters.Clear();
             _firstBinds.Clear();
+            _probes.Release(Resets);
             Volatile.Write(ref _windowEnd, Interlocked.Read(ref _draws) + WindowDraws);
             _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"), standIn => _d3d12.Pipelines?.StandIns.State(standIn) ?? "unknown");
         }

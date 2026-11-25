@@ -455,8 +455,10 @@ internal sealed class LoaderHost
         Shims.D3D12X.DebugLayer.DrawTrace.DumpTargets = _options.D3D12DumpTargets;
         Shims.D3D12X.DebugLayer.DrawTrace.ProbeTraced = _options.D3D12ProbeTraced;
         Shims.D3D12X.DebugLayer.TraceRecords.Offsets = _options.D3D12TraceRecords;
+
         Shims.D3D12X.DebugLayer.DrawTrace.WatchShape = _options.D3D12WatchTarget;
         Shims.D3D12X.DebugLayer.DrawTrace.WatchLimit = _options.D3D12WatchLimit;
+        Shims.D3D12X.DebugLayer.DrawTrace.WatchRendered = _options.D3D12WatchRendered;
         Shims.D3D12X.DebugLayer.DrawTrace.CaptureWhenWorld = _options.CaptureWhenWorld;
     }
 
