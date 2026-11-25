@@ -148,14 +148,7 @@ internal static unsafe class ResourceBarrierSlots
 
         if (wrapper == null || wrapper->Dimension == ResourceStates.UnknownDimension)
         {
-            if (!IsLegal(states, before, after))
-            {
-                return;
-            }
-
-            var copy = TransitionBarrier.Of(resource, before, after);
-            copy.Subresource = subresource;
-            BarrierWriter.Write(list, &copy);
+            MoveUntracked(list, states, resource, before, after, subresource);
 
             return;
         }
@@ -200,6 +193,19 @@ internal static unsafe class ResourceBarrierSlots
 
         BarrierWriter.Transition(list, resource, current, after);
         states.Set(resource, home, after);
+    }
+
+    /// <summary>A resource the shim did not create: moved with the game's own states, when the list's type allows them.</summary>
+    private static void MoveUntracked(nint list, ListResourceStates states, nint resource, int before, int after, uint subresource)
+    {
+        if (!IsLegal(states, before, after))
+        {
+            return;
+        }
+
+        var copy = TransitionBarrier.Of(resource, before, after);
+        copy.Subresource = subresource;
+        BarrierWriter.Write(list, &copy);
     }
 
     /// <summary>
