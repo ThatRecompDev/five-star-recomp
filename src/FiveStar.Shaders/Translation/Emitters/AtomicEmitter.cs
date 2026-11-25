@@ -9,7 +9,9 @@ namespace FiveStar.Shaders.Translation.Emitters;
 /// <summary>
 /// buffer_atomic_*, global_atomic_* and image_atomic_*: an HLSL Interlocked* on the RW view (buffer: the V#'s view,
 /// <see cref="BufferAddress.View"/>; global: the pointer's, prelude gpu_rw; image: a typed RW texture). With glc the
-/// pre-op value is returned in the data register.
+/// pre-op value is returned in the data register. sub adds the negated value; fmin and fmax order 32-bit floats as
+/// integers (a non-negative float by its signed bits, a negative one by its unsigned bits, reversed), so one integer
+/// atomic does them on a buffer or by address (XboxBvhBuilder's bounds).
 /// </summary>
 internal sealed partial class AtomicEmitter
 {
@@ -25,6 +27,9 @@ internal sealed partial class AtomicEmitter
     private const int WideCompareMask = 0xf;
     private const int CompareLow = 2;
     private const int CompareHigh = 3;
+
+    /// <summary>The function name of the float min and max, written by <see cref="Operation"/>.</summary>
+    private const string FloatOrder = "float";
 
     private readonly TranslationState _state;
     private readonly OperandAccess _operands;
@@ -85,7 +90,11 @@ internal sealed partial class AtomicEmitter
         switch (kind)
         {
             case "add":
+            case "sub":
                 return "InterlockedAdd";
+            case "fmin":
+            case "fmax":
+                return FloatOrder;
             case "umin":
             case "smin":
                 return "InterlockedMin";
@@ -140,7 +149,7 @@ internal sealed partial class AtomicEmitter
         var result = atomic.Result;
         _state.Emit($"  if (active && {full}.y != 0u) TRACE_ADDR({full}.x, {full}.y, {_operands.Read(data, 0)});");
         _state.Emit($"  uint {result} = 0; if (active) {{ RWByteAddressBuffer _b{result} = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot({target}.x))];");
-        _state.Emit($"    _b{result}.{Operation(atomic, data, $"{target}.y")}; }}");
+        _state.Emit($"    {Operation(atomic, data, $"{target}.y", $"_b{result}")} }}");
 
         if (returns)
         {
@@ -148,18 +157,42 @@ internal sealed partial class AtomicEmitter
         }
     }
 
-    private string Operation(AtomicOperation atomic, Operand data, string byteAddress)
+    /// <summary>The statement of a buffer or global atomic on the RW byte-address view <paramref name="view"/>.</summary>
+    private string Operation(AtomicOperation atomic, Operand data, string byteAddress, string view)
     {
         if (atomic.Kind == "cmpswap")
         {
             var swap = _operands.Read(data, CompareValue);
 
-            return $"InterlockedCompareExchange({byteAddress} & ~3u, {swap}, {_operands.Read(data, 0)}, {atomic.Result})";
+            return $"{view}.InterlockedCompareExchange({byteAddress} & ~3u, {swap}, {_operands.Read(data, 0)}, {atomic.Result});";
+        }
+
+        if (atomic.Function == FloatOrder)
+        {
+            return FloatAtomic(atomic, _operands.Read(data), byteAddress, view);
         }
 
         var value = atomic.Signed ? $"asint({_operands.Read(data)})" : _operands.Read(data);
 
-        return $"{atomic.Function}({byteAddress} & ~3u, {value}, {atomic.Result})";
+        if (atomic.Kind == "sub")
+        {
+            value = $"(0u - {value})";
+        }
+
+        return $"{view}.{atomic.Function}({byteAddress} & ~3u, {value}, {atomic.Result});";
+    }
+
+    /// <summary>
+    /// fmax: a non-negative value takes the signed maximum of the bits, a negative one the unsigned minimum (a larger
+    /// negative float has larger unsigned bits; every non-negative one has smaller); fmin the other way round.
+    /// </summary>
+    private static string FloatAtomic(AtomicOperation atomic, string value, string byteAddress, string view)
+    {
+        var (positive, negative) = atomic.Kind == "fmax" ? ("InterlockedMax", "InterlockedMin") : ("InterlockedMin", "InterlockedMax");
+        var at = $"{byteAddress} & ~3u";
+
+        return $"{{ int _s{atomic.Result}; if (asfloat({value}) >= 0.0f) {{ {view}.{positive}({at}, asint({value}), _s{atomic.Result}); {atomic.Result} = asuint(_s{atomic.Result}); }} "
+            + $"else {view}.{negative}({at}, {value}, {atomic.Result}); }}";
     }
 
     private void Buffer(AtomicOperation atomic, List<string> arguments, InstructionModifiers modifiers)
@@ -176,7 +209,7 @@ internal sealed partial class AtomicEmitter
         // Out of range: no write, and the returned value is 0.
         _state.Emit($"  if (active && {inRange}) {{ TRACE_VIEW({view}.x, {view}.y, {_operands.Read(atomic.Data, 0)}); TRACE_VSTORE({_operands.Read(resource, 0)}, {_operands.Read(resource, 1)}, {byteAddress}, {_operands.Read(atomic.Data, 0)}); }}");
         _state.Emit($"  uint {result} = 0; if (active && {inRange}) {{ RWByteAddressBuffer _b{result} = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot({view}.x))];");
-        _state.Emit($"    _b{result}.{Operation(atomic, atomic.Data, $"{view}.y")}; }}");
+        _state.Emit($"    {Operation(atomic, atomic.Data, $"{view}.y", $"_b{result}")} }}");
     }
 
     /// <summary>image_atomic_*: false when the result is already written (cmpswap).</summary>
@@ -196,6 +229,11 @@ internal sealed partial class AtomicEmitter
 
         if (Wide(atomic.Kind, modifiers))
         {
+            if (atomic.Kind == "sub")
+            {
+                throw new UnsupportedProgramException($"{op} 64-bit");
+            }
+
             WideImage(atomic, type, index, texture, modifiers.Has("glc"));
 
             return false;
@@ -219,7 +257,18 @@ internal sealed partial class AtomicEmitter
             return false;
         }
 
+        if (atomic.Function == FloatOrder)
+        {
+            throw new UnsupportedProgramException($"{op} on an image");
+        }
+
         var value = atomic.Signed ? $"asint({_operands.Read(atomic.Data)})" : _operands.Read(atomic.Data);
+
+        if (atomic.Kind == "sub")
+        {
+            value = $"(0u - {value})";
+        }
+
         _state.Emit($"    {atomic.Function}(_u{result}[{index}], {value}, {result}); }}");
 
         return true;

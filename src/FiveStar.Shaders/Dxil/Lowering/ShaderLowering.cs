@@ -54,7 +54,18 @@ public static class ShaderLowering
 
         context.Ssa.Finish();
         main.Blocks.AddRange(context.Ssa.Blocks);
+
+        if (DxilBackend.Optimize)
+        {
+            ValueNumbering.Run(main);
+        }
+
         DeadCode.Remove(main);
+
+        if (DxilBackend.Optimize)
+        {
+            Simplifier.Run(main, module);
+        }
 
         context.Graphics?.RecordUsage(main);
         context.Mesh?.RecordUsage(main);

@@ -24,7 +24,16 @@ internal static unsafe partial class BvhBuilderShim
     {
         try
         {
-            ShimContext.Runtime.BvhBuilder.Note("XboxBvhBuilder(ID3D12Device11*, bool)");
+            var service = ShimContext.Runtime.BvhBuilder;
+
+            if (service.GpuInventory)
+            {
+                service.Inventory(self, device, morton);
+
+                return self;
+            }
+
+            service.Note("XboxBvhBuilder(ID3D12Device11*, bool)");
 
             return self;
         }

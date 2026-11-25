@@ -94,7 +94,8 @@ internal static class SuperstepWriter
     }
 
     /// <summary>Names the code after the dispatch loop reads: the staging epilogue of a one-phase mesh program.</summary>
-    private static HashSet<string> Pinned(TranslationState state, MeshDeclarations mesh)
+    /// <summary>Registers the staging epilogue reads after the dispatch loop (a staged mesh program); none otherwise.</summary>
+    public static HashSet<string> Pinned(TranslationState state, MeshDeclarations mesh)
     {
         if (state.Stage != ShaderStage.Mesh || state.MeshYield)
         {
@@ -124,9 +125,10 @@ internal static class SuperstepWriter
     }
 
     /// <summary>
-    /// One dispatch loop and its step. A thread that has run more blocks than the stage's dispatch steps allow ends
-    /// there (<see cref="LoopGuard"/>): it still meets every step's barrier, as an ended thread, so a console loop fed
-    /// garbage cannot hold the group. This form had no bound before.
+    /// One dispatch loop and its step. A thread that has run more blocks than the stage's superstep steps allow ends
+    /// there (<see cref="LoopCaps.SuperstepSteps"/>): it still meets every step's barrier, as an ended thread, so a console
+    /// loop fed garbage cannot hold the group. A loop without a wave operation never reaches a step, so the round bound
+    /// does not count it and only this bound ends it.
     /// </summary>
     private static List<string> Round(TranslationState state, bool dropOutputs, IEnumerable<string> end)
     {
@@ -136,7 +138,7 @@ internal static class SuperstepWriter
         var lines = new List<string>
         {
             "  [loop] for (;;) {", "  uint pc_stopped = pc;", "  if (pc >= PC_WAVE) { pc = PC_IDLE; }", "  [loop] while (pc < PC_WAVE) {",
-            $"    if (++ss_steps > {LoopGuard.DispatchHex(state.Stage, state.Loops)}) {{ pc = PC_END; break; }}",
+            $"    if (++ss_steps > {LoopGuard.SuperstepHex(state.Stage, state.Loops)}) {{ pc = PC_END; break; }}",
         };
 
         if (state.SuperstepCarry)

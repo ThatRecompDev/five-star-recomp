@@ -131,7 +131,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs":
                 return SetBreadcrumbs();
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
                 return SetTraceDraws(option);
             case "--capture-dir":
                 return SetCaptureDirectory();
@@ -139,8 +139,8 @@ internal sealed class CommandLineParser
                 return SetCapturePresents();
             case "--present-test":
                 return SetPresentTest();
-            case "--raytracing":
-                return SetRayTracing();
+            case "--raytracing" or "--raytracing-gpu":
+                return SetRayTracing(option);
             case "--xdsp-convolution":
                 return SetXDspConvolution();
             case "--network":
@@ -723,6 +723,11 @@ internal sealed class CommandLineParser
             return true;
         }
 
+        if (option is "--hold-passes" or "--stub-passes")
+        {
+            return SetPassRules(option);
+        }
+
         _options.D3D12TraceDraws = true;
 
         if (option == "--census-passes")
@@ -735,9 +740,29 @@ internal sealed class CommandLineParser
             _options.D3D12TracePipeline = Next();
         }
 
+        if (option == "--d3d12-trace-records")
+        {
+            _options.D3D12TraceRecords = Shims.D3D12X.DebugLayer.TraceRecords.Parse(Next());
+        }
+
         if (option == "--d3d12-dump-targets")
         {
             _options.D3D12DumpTargets = true;
+        }
+
+        return true;
+    }
+
+    /// <summary><c>--hold-passes consumer=producer|...;...</c> or <c>--stub-passes pass=r,g,b,a;...</c> (no trace).</summary>
+    private bool SetPassRules(string option)
+    {
+        if (option == "--hold-passes")
+        {
+            _options.HoldPasses = Next();
+        }
+        else
+        {
+            _options.StubPasses = Next();
         }
 
         return true;
@@ -769,9 +794,17 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    private bool SetRayTracing()
+    /// <summary>--raytracing (the DLL's CPU paths) or --raytracing-gpu (the inventory of its GPU builder).</summary>
+    private bool SetRayTracing(string option)
     {
-        _options.RayTracing = true;
+        if (option == "--raytracing-gpu")
+        {
+            _options.RayTracingGpuInventory = true;
+        }
+        else
+        {
+            _options.RayTracing = true;
+        }
 
         return true;
     }

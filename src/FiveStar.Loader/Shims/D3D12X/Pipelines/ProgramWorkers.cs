@@ -8,9 +8,12 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// <summary>
 /// The background threads that translate and compile programs on demand (<see cref="OnDemandPrograms"/>), off the
 /// game's threads. Work a command list waits for goes before prefetched work, and only half the threads take prefetched
-/// work at all; compiles of huge sources run on a thread
-/// of their own, so one compile that takes minutes holds up nothing else. Like pipeline builds, work starts only while
-/// the machine has the memory for it (<see cref="WarmMemoryGuard"/>).
+/// work at all; among that urgent work the one with the highest score goes first (<see cref="ProgramJob.Score"/>: the
+/// stand-ins that wait for it skipped in the most frames), so the lighting and composite passes the frame skips every
+/// present are not queued behind hundreds of programs used once (boot w36: the tiled-lighting programs waited about
+/// 300 s for 3 s of work). Compiles of huge sources run on a thread of their own, so one compile that takes minutes
+/// holds up nothing else. Like pipeline builds, work starts only while the machine has the memory for it
+/// (<see cref="WarmMemoryGuard.RoomForPrograms"/>).
 /// </summary>
 internal sealed class ProgramWorkers
 {
@@ -19,8 +22,9 @@ internal sealed class ProgramWorkers
     // One thread in this many also takes prefetched work.
     private const int PrefetchShare = 2;
 
-    private readonly BlockingCollection<Action> _urgent = [];
-    private readonly BlockingCollection<Action> _prefetch = [];
+    private readonly object _gate = new();
+    private readonly List<(Action Work, Func<long>? Score)> _urgent = [];
+    private readonly Queue<Action> _prefetch = [];
     private readonly BlockingCollection<Action> _heavy = [];
     private readonly Func<int, bool> _room;
     private readonly Func<int, bool> _heavyRoom;
@@ -47,7 +51,16 @@ internal sealed class ProgramWorkers
     public int PrefetchWorkers => Math.Max(1, Workers / PrefetchShare);
 
     /// <summary>Work queued and not started.</summary>
-    public int Backlog => _urgent.Count + _prefetch.Count + _heavy.Count;
+    public int Backlog
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _urgent.Count + _prefetch.Count + _heavy.Count;
+            }
+        }
+    }
 
     /// <summary>Work running now.</summary>
     public int Running => Volatile.Read(ref _running);
@@ -58,34 +71,33 @@ internal sealed class ProgramWorkers
     /// <summary>Starts the threads; call once.</summary>
     public void Start()
     {
-        BlockingCollection<Action>[] both = [_urgent, _prefetch];
-        BlockingCollection<Action>[] urgentOnly = [_urgent];
-
         for (int i = 0; i < Workers; i++)
         {
-            var queues = urgentOnly;
-
-            if (i < PrefetchWorkers)
-            {
-                queues = both;
-            }
-
-            new Thread(() => RunOrdinary(queues)) { IsBackground = true, Name = "fivestar program compile" }.Start();
+            bool prefetch = i < PrefetchWorkers;
+            new Thread(() => RunOrdinary(prefetch)) { IsBackground = true, Name = "fivestar program compile" }.Start();
         }
 
         new Thread(RunHeavy) { IsBackground = true, Name = "fivestar heavy program compile" }.Start();
     }
 
-    /// <summary>Queues ordinary work; <paramref name="urgent"/> for work a command list waits for.</summary>
-    public void Queue(Action work, bool urgent)
+    /// <summary>
+    /// Queues ordinary work; <paramref name="urgent"/> for work a command list waits for, ordered among the urgent by
+    /// <paramref name="score"/> (higher first, read when a worker picks; none counts as 0, ties in queue order).
+    /// </summary>
+    public void Queue(Action work, bool urgent, Func<long>? score = null)
     {
-        if (urgent)
+        lock (_gate)
         {
-            _urgent.Add(work);
-        }
-        else
-        {
-            _prefetch.Add(work);
+            if (urgent)
+            {
+                _urgent.Add((work, score));
+            }
+            else
+            {
+                _prefetch.Enqueue(work);
+            }
+
+            Monitor.PulseAll(_gate);
         }
     }
 
@@ -95,15 +107,56 @@ internal sealed class ProgramWorkers
         _heavy.Add(work);
     }
 
-    private void RunOrdinary(BlockingCollection<Action>[] queues)
+    /// <summary>The index of the highest score; the earliest of equal ones.</summary>
+    public static int Best(IReadOnlyList<long> scores)
+    {
+        int best = 0;
+
+        for (int index = 1; index < scores.Count; index++)
+        {
+            if (scores[index] > scores[best])
+            {
+                best = index;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>The next work for a thread: the urgent work scored highest, else (<paramref name="prefetch"/>) the oldest prefetched.</summary>
+    private Action Take(bool prefetch)
+    {
+        lock (_gate)
+        {
+            while (true)
+            {
+                if (_urgent.Count > 0)
+                {
+                    var best = Best(_urgent.ConvertAll(entry => entry.Score?.Invoke() ?? 0));
+                    var work = _urgent[best].Work;
+                    _urgent.RemoveAt(best);
+
+                    return work;
+                }
+
+                if (prefetch && _prefetch.Count > 0)
+                {
+                    return _prefetch.Dequeue();
+                }
+
+                Monitor.Wait(_gate);
+            }
+        }
+    }
+
+    private void RunOrdinary(bool prefetch)
     {
         while (true)
         {
             // Memory first, then the work: a thread waiting for memory holds no work, so urgent work queued meanwhile
-            // is the next taken. TakeFromAny takes from the first queue that has work.
+            // is the next taken.
             WaitForRoom(_room);
-            BlockingCollection<Action>.TakeFromAny(queues, out var work);
-            Run(work!);
+            Run(Take(prefetch));
         }
     }
 

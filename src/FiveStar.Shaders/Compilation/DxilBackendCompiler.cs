@@ -106,6 +106,27 @@ public sealed class DxilBackendCompiler : IShaderCompiler
         return _fallback.Compile(request, timeout);
     }
 
+    /// <summary>
+    /// What the output depends on besides the request: the backend's sources (<see cref="Cache.ProgramContentStore.CompilerSources"/>,
+    /// not this assembly's build, which a translator change alters) and whether it validates. The fallback is left out,
+    /// so the compile host (which has none) and the loader share stored programs; a source the backend refuses it
+    /// refuses again, so dxc's output stands for it under the same key.
+    /// </summary>
+    public string OutputIdentity => ContentHash.OfText(["dxil-backend", Cache.ProgramContentStore.CompilerSources, ValidationMark]);
+
+    private string ValidationMark
+    {
+        get
+        {
+            if (_backend.Validates)
+            {
+                return "validated";
+            }
+
+            return string.Empty;
+        }
+    }
+
     /// <summary>This build of the backend (its module version id, a hash of the deterministic build), whether it validates, and the fallback's identity.</summary>
     private string ComputeIdentity()
     {

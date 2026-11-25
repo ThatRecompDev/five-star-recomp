@@ -33,6 +33,12 @@ public static class DxilBackend
     /// </summary>
     public static int MemoryLocalsCases { get; set; }
 
+    /// <summary>
+    /// Whether constants are folded while lowering and repeated computations removed (<c>ConstantFolding</c>,
+    /// <c>ValueNumbering</c>); on by default, off to compare.
+    /// </summary>
+    public static bool Optimize { get; set; } = true;
+
     /// <summary>Whether the backend compiles programs of this profile (ps, vs, cs, ms, gs).</summary>
     public static bool Supports(string profile)
     {

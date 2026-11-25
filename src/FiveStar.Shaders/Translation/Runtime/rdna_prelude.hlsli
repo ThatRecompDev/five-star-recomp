@@ -198,6 +198,7 @@ uint buf_limit(uint d1, uint d2, uint d3, uint index) {
 uint buf_offset(uint d3, uint offset, uint soffset) {
     return select(((d3 >> 28) & 3u) == 3u, offset + soffset, offset);
 }
+bool buf_fits_bytes(uint start, uint bytes, uint limit) { return limit >= bytes && start <= limit - bytes; }   // a sub-dword access
 bool buf_fits(uint start, uint limit) { return limit >= 4u && start <= limit - 4u; }
 // s_buffer_load: the whole offset against num_records, counted in bytes (stride 0) or in strides.
 uint sbuf_limit(uint d1, uint d2) {

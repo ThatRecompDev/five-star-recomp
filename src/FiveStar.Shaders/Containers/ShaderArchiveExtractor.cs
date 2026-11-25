@@ -67,6 +67,40 @@ public static class ShaderArchiveExtractor
         return new ExtractionSummary(records.Count, written, written - programFailures, programFailures);
     }
 
+    /// <summary>
+    /// The bare containers a module embeds (<see cref="EmbeddedContainers"/>), as <c>&lt;stem&gt;_&lt;index&gt;_&lt;offset&gt;</c>
+    /// .dxbc and, for those with a native program, .fssm; the number of programs written.
+    /// </summary>
+    public static int ExtractModule(string modulePath, string outputDirectory)
+    {
+        var containers = Path.Combine(outputDirectory, ContainerFolder);
+        var programs = Path.Combine(outputDirectory, ProgramFolder);
+        Directory.CreateDirectory(containers);
+        Directory.CreateDirectory(programs);
+
+        string stem = Path.GetFileNameWithoutExtension(modulePath);
+        var found = EmbeddedContainers.Find(File.ReadAllBytes(modulePath));
+        int written = 0;
+
+        for (int index = 0; index < found.Count; index++)
+        {
+            string name = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{stem}_{index:D2}_{found[index].Offset:x}");
+            File.WriteAllBytes(Path.Combine(containers, name + ".dxbc"), found[index].Container.ToArray());
+
+            try
+            {
+                File.WriteAllBytes(Path.Combine(programs, name + ".fssm"), ReadProgram(found[index].Container));
+                written++;
+            }
+            catch (InvalidDataException)
+            {
+                // A container without a native program (DXIL bitcode only) is kept as .dxbc alone.
+            }
+        }
+
+        return written;
+    }
+
     /// <summary>The native FSSM program of a game DXBC container.</summary>
     public static byte[] ReadProgram(ReadOnlyMemory<byte> container)
     {

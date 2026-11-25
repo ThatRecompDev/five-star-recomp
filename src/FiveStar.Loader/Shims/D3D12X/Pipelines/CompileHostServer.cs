@@ -157,7 +157,9 @@ internal static class CompileHostServer
             var picker = new ProgramVariantPicker(new ShaderManifest([]), make.Adapter, warnings);
             var compiler = new DxilBackendCompiler(DxcOptions.Defaults(string.Empty, retry: false), null, backend);
 
-            return new ProgramProducer(make.Programs, make.Folder, picker, compiler, SlowCompiles.Read([], compiler.Options.CompileTimeout)) { Header = make.Header };
+            var store = new FiveStar.Shaders.Cache.ProgramContentStore(FiveStar.Shaders.Cache.ProgramContentStore.FolderBeside(make.Folder), FiveStar.Shaders.Cache.ProgramContentStore.CompilerIdentity(compiler));
+
+            return new ProgramProducer(make.Programs, make.Folder, picker, compiler, SlowCompiles.Read([], compiler.Options.CompileTimeout)) { Header = make.Header, ContentStore = store };
         });
         var form = producer.Prepare(make.Name);
 
@@ -167,7 +169,23 @@ internal static class CompileHostServer
         }
 
         var request = form.Request!;
-        var result = Compile(backend, request);
+        var store = producer.ContentStore;
+        BackendResult result;
+
+        // A program the translator still writes the same way is copied from the content store, not compiled again.
+        if (store is not null && store.TryRestore(request))
+        {
+            result = new BackendResult(BackendVerdict.Compiled, string.Empty);
+        }
+        else
+        {
+            result = Compile(backend, request);
+
+            if (result.Verdict == BackendVerdict.Compiled)
+            {
+                store?.Keep(request);
+            }
+        }
 
         if (result.Verdict == BackendVerdict.Compiled)
         {

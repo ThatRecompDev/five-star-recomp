@@ -33,9 +33,11 @@ guards are already in the code.
 flowchart LR
   hlsl["HLSL + runtime headers"] --> pre["Preprocessor<br/>#include, #define, #if"]
   pre --> parse["Parser<br/>syntax tree"]
-  parse --> lower["Lowering<br/>types, inlining, SSA, entry signatures"]
-  lower --> dce["DeadCode"]
-  dce --> write["ModuleWriter<br/>LLVM 3.7 bitcode"]
+  parse --> lower["Lowering<br/>types, inlining, SSA, entry signatures, constant folding"]
+  lower --> gvn["ValueNumbering"]
+  gvn --> dce["DeadCode"]
+  dce --> simplify["Simplifier"]
+  simplify --> write["ModuleWriter<br/>LLVM 3.7 bitcode"]
   write --> container["ShaderContainer<br/>SFI0 ISG1 OSG1 PSG1 PSV0 DXIL + digest"]
 ```
 
@@ -49,6 +51,41 @@ flowchart LR
 | Entry points | `ComputeEntry`, `GraphicsEntry`, `MeshEntry`, `GeometryEntry`, `SignatureBinder` | thread ids; signature elements from the parameters and the returned struct |
 | Module | `Ir` | types, interned constants, instructions, metadata; `ModuleWriter` writes the frequent function records in abbreviations |
 | Container | `Container` | shader model 6.7, validator 1.7, PSV0 runtime info version 2; signatures packed as dxc packs them |
+
+**Size.** The driver's compile of a pipeline grows with the DXIL it gets (about 54 s for a 1.27 MB mesh program on
+the RTX 4090, 190 s for a 2.75 MB one), so the backend removes what the translator repeats. `IrBuilder` folds while
+lowering (`ConstantFolding`): integer operations, comparisons and casts of constants, comparisons of a value with
+itself, selects on a constant, and the integer identities; floating-point operations stay as written.
+`ValueNumbering` then walks the dominator tree: a pure instruction (arithmetic, casts, compares, selects, extracts,
+addresses, readnone `dx.op` calls, constant-buffer loads) equal to one in a dominating block is replaced by it, and one
+that reads only constants and entry values moves to the entry, so the descriptor-heap handles each buffer access made
+again in its own branch are made once; buffer and texture reads match only later in the same block with no write,
+atomic or effectful call between; wave operations never match. `fivestar shader dxil --no-optimize` writes the
+unoptimized form for comparison. VIctory reports about 43% fewer host instructions from the same kind of passes.
+
+| Program (translated today) | DXIL before | after | instructions before / after |
+|---|---|---|---|
+| `CS_ShadowRenderTiledCascadesCBPPPC`, w32 form | 6.59 MB | 5.26 MB (-20%) | 545,280 / 312,315 |
+| the same, native | 2.77 MB | 2.20 MB (-21%) | |
+| `CS_ScreenProbes_ActivateProbes` | 13.39 MB | 9.98 MB (-25%) | |
+| `MS_VS_TransformD`, w32 form | 2.65 MB | 2.04 MB (-23%) | |
+| the same, native | 2.02 MB | 1.63 MB (-19%) | |
+
+`Simplifier` follows (skipped by `--no-optimize` too), twice, each round cleaned by `DeadCode`. A block that only its
+predecessor's unconditional branch reaches joins it (every inlined call and structured region ends in one); a branch on
+a constant or to one block twice becomes unconditional, a phi of one value that value, and `ConstantFolding` folds
+what that decides. Wave and quad reads (ballot, any, read-lane, active ops) are declared nounwind as dxc declares them,
+so no pass removed them: one nothing reads goes, and one with the operands of an earlier one in its block, with no
+effect between them (a discard or barrier may change the lanes), is that one. The translator's EXEC emulation makes
+a ballot pair for every mask write and an any for every SCC, most never read.
+
+| Program (translated today) | after `ValueNumbering` | after `Simplifier` | AMD RX 7800 XT pipeline |
+|---|---|---|---|
+| `CS_RaytracingResolve` (wave32) | 1.57 MB | 1.06 MB (-32%) | 36.5 s, 8.4 GB -> 26.2 s, 3.6 GB |
+| `CS_ScreenProbes_ActivateProbes` (wave64) | 9.98 MB | 8.50 MB (-15%) | over 50 GB either way |
+
+All five pass dxil.dll validation. What is left is mostly the wave emulation's control flow: in the cascade program
+73,515 phis (about 6 operands each) and 124,610 blocks, which neither pass touches.
 
 **Short-circuit evaluation.** `&&`, `||` and `?:` on scalars skip their later operands (HLSL 2021) unless those are
 pure: no assignments, memory reads or wave operations, and calls only of arithmetic intrinsics and pure user

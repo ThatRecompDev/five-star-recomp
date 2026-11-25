@@ -78,7 +78,7 @@ internal sealed class ProducerLinks
     /// The work that makes the linked forms of <paramref name="programs"/> on the program workers, told whether a
     /// command list waits for it; null when the pair needs none or they are made.
     /// </summary>
-    public Func<bool, Task>? Pending(List<TranslatedProgram> programs)
+    public Func<StandInUse?, Task>? Pending(List<TranslatedProgram> programs)
     {
         var (producer, pixel, plan) = Find(programs);
 
@@ -89,7 +89,7 @@ internal sealed class ProducerLinks
 
         var (producerName, pixelName) = (programs[producer].Name, programs[pixel].Name);
 
-        return urgent => Queue(producerName, pixelName, plan, urgent);
+        return use => Queue(producerName, pixelName, plan, use);
     }
 
     private static TranslatedProgram Read(TranslatedProgram program, string path)
@@ -104,11 +104,14 @@ internal sealed class ProducerLinks
 
     /// <summary>
     /// Queues the link once, and again as urgent when a command list first waits for it: a link first asked for by
-    /// a journal pipeline at creation would otherwise wait behind every prefetched program.
+    /// a journal pipeline at creation would otherwise wait behind every prefetched program. <paramref name="use"/> is the
+    /// stand-in that waits, null for a prefetch.
     /// </summary>
-    private Task<bool> Queue(string producer, string pixel, Plan plan, bool urgent)
+    private Task<bool> Queue(string producer, string pixel, Plan plan, StandInUse? use)
     {
         var job = _jobs.GetOrAdd(plan.Producer!, static key => new ProgramJob(key, Stopwatch.GetTimestamp()));
+        bool urgent = use is not null;
+        job.WantedBy(use);
 
         if (job.Queue(urgent))
         {
@@ -118,7 +121,7 @@ internal sealed class ProducerLinks
                 {
                     job.Finish(Make(producer, pixel, plan));
                 }
-            }, urgent);
+            }, urgent, () => job.Score);
         }
 
         return job.Done;
