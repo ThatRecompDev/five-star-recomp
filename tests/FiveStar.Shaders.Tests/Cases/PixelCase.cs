@@ -27,6 +27,12 @@ public sealed record PixelCase(string Name, string Program, int Outputs, Func<Pi
     /// <summary>Translated with typed image views (TranslationOptions.TypedImageViews).</summary>
     public bool TypedViews { get; init; }
 
+    /// <summary>
+    /// The 32-bit form of render target 0's export (ExportPatches): the program's export sequence starts at its first
+    /// <c>s_nop</c>, and these words go over it as the console's driver patches it; null for none.
+    /// </summary>
+    public uint[]? ExportPatch { get; init; }
+
     /// <summary>A case whose expected values are the same for every pixel.</summary>
     public static PixelCase Uniform(string name, string program, Expected[] expected, params uint[] user)
     {
