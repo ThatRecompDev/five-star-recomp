@@ -141,7 +141,7 @@ internal static unsafe class TraceRecords
 
         if (high == 0)
         {
-            text.Append(CultureInfo.InvariantCulture, $"\n        V# holds heap index {record[0]}, no console base");
+            text.Append(CultureInfo.InvariantCulture, $"\n        heap index {record[0]}, no console base: {sources.View(record[0])}");
 
             return;
         }
