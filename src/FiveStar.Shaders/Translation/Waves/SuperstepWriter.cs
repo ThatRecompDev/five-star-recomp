@@ -18,6 +18,16 @@ internal static class SuperstepWriter
 
     private static readonly string[] Step = ["    if (!vw_ss_step(pc, pc_resume)) break;"];
 
+    // Phase one ends on GS_ALLOC_REQ's flag as read in this step: every thread reads it, then meets a barrier before
+    // any can run on and set it, so all leave together. Read without that barrier, a thread that resumed first could set
+    // the flag while a slower one had not read it yet: the two left the loop at different rounds and the group's next
+    // barrier never filled (DEVICE_HUNG on the RTX 4090).
+    private static readonly string[] PhaseOneStep =
+    [
+        "    if (!vw_ss_step(pc, pc_resume)) break;", "    bool ms_alloc = vw_ss_released() && g_ms_alloc != 0;",
+        "    GroupMemoryBarrierWithGroupSync();", "    if (ms_alloc) break;",
+    ];
+
     public static List<string> Body(TranslationState state, IReadOnlyList<string> hoisted, MeshDeclarations mesh)
     {
         var lines = new List<string> { "  vw_ss_begin(in_gi);" };
@@ -31,7 +41,7 @@ internal static class SuperstepWriter
             return lines;
         }
 
-        lines.AddRange(Round(state, true, [.. Step, "    if (vw_ss_released() && g_ms_alloc != 0) break;"]));
+        lines.AddRange(Round(state, true, PhaseOneStep));
         lines.Add($"  SetMeshOutputCounts(min(g_ms_nv, {mesh.MaxVertices}u), min(g_ms_np, {mesh.MaxPrimitives}u));");
         lines.AddRange(Round(state, false, Step));
 

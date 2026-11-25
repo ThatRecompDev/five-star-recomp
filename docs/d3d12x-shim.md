@@ -741,7 +741,7 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   the target is the list's last one. `--d3d12-dump-targets` adds, in the frame after each captured present, a readback
   of every render and depth target at least 1024 wide the 1st, 2nd, 4th, 8th... time a list leaves it, at most 96, written
   as `present-N-target-0x<resource>-leave-K.png` beside the captures (depth and one-channel floats as grey, float colour formats
-  clamped to 0..1). The game executes some closed lists again, so a probe's buffer is released only once its list was reset
+  clamped to 0..1). With `--d3d12-trace-pipeline <text>` an ExecuteIndirect of a matching pipeline in that frame is logged too (its first argument records from game memory, targets, bindings), and its first render target and depth target are read back right after it. The game executes some closed lists again, so a probe's buffer is released only once its list was reset
   (releasing it at the report removed the device, debug-layer error #921).
 - `--d3d12-trace-pipeline <text>` (implies the draw trace) also logs, in the frame after each captured present, up to
   64 draws whose pipeline name holds the text, without probes: a frame's UI draws (`sgd2_` Scaleform programs such as

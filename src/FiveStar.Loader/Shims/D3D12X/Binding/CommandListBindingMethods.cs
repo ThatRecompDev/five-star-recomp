@@ -400,6 +400,8 @@ internal static unsafe class CommandListBindingMethods
             Flush(self, true);
             ListActivity.Of(self)->Indirect++;
             GpuBreadcrumbs.BeforeIndirect(self, signature, maxCount, ArgumentAddress(arguments, argumentOffset));
+            var trace = ShimContext.Runtime.D3D12X.DrawTrace;
+            trace?.Indirect(self, maxCount, ArgumentAddress(arguments, argumentOffset), CommandSignatures.Clampable(signature).Stride, count != 0);
 
             var objects = ShimContext.Runtime.D3D12X.Objects;
             nint inner = self->Inner;
@@ -415,11 +417,13 @@ internal static unsafe class CommandListBindingMethods
                 execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
                 execute(inner, objects.Unwrap(signature), maxCount, scratch, scratchOffset, countBuffer, countOffset);
                 IndirectClamp.Done(self, scratch);
+                trace?.AfterIndirect(self);
 
                 return;
             }
 
             execute(inner, objects.Unwrap(signature), maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+            trace?.AfterIndirect(self);
         }
         catch (Exception exception)
         {
