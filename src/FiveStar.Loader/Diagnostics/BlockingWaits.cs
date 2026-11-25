@@ -38,12 +38,30 @@ internal static class BlockingWaits
         return $"waiting in {wait.What} for {Stopwatch.GetElapsedTime(wait.Since).TotalMilliseconds:F0} ms";
     }
 
-    /// <summary>The time spent in each wait so far, longest first.</summary>
+    /// <summary>The time spent in each wait so far, summed over every thread, longest first.</summary>
     public static string Summary()
     {
-        var parts = Totals.OrderByDescending(pair => pair.Value).Select(pair => $"{pair.Key} {Stopwatch.GetElapsedTime(0, pair.Value).TotalSeconds:F1} s");
+        return Summary("loader waits since the start, all threads", Snapshot(), new Dictionary<string, long>());
+    }
 
-        return $"loader waits: {string.Join(", ", parts)}";
+    /// <summary>The totals now, in Stopwatch ticks, to measure a span from (<see cref="Summary(string, IReadOnlyDictionary{string, long}, IReadOnlyDictionary{string, long})"/>).</summary>
+    public static Dictionary<string, long> Snapshot()
+    {
+        return new Dictionary<string, long>(Totals, StringComparer.Ordinal);
+    }
+
+    /// <summary>"<paramref name="title"/>: X 1.2 s, ..." for the waits that grew from <paramref name="before"/> to <paramref name="after"/>, longest first; "none" when none did.</summary>
+    public static string Summary(string title, IReadOnlyDictionary<string, long> after, IReadOnlyDictionary<string, long> before)
+    {
+        var grown = after.Select(pair => (pair.Key, Ticks: pair.Value - before.GetValueOrDefault(pair.Key))).Where(pair => pair.Ticks > 0);
+        var parts = grown.OrderByDescending(pair => pair.Ticks).Select(pair => $"{pair.Key} {Stopwatch.GetElapsedTime(0, pair.Ticks).TotalSeconds:F1} s").ToList();
+
+        if (parts.Count == 0)
+        {
+            return $"{title}: none";
+        }
+
+        return $"{title}: {string.Join(", ", parts)}";
     }
 
     /// <summary>Ends a wait noted by <see cref="Enter"/>.</summary>
