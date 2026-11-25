@@ -16,7 +16,11 @@ internal static class SuperstepWriter
 {
     private const string Indent = "    ";
 
-    private static readonly string[] Step = ["    if (!vw_ss_step(pc, pc_resume)) break;"];
+    // The rounds are bounded (LoopCaps.Rounds): every thread counts each round, so all leave on the same one. A round
+    // runs at least one block or idle step per thread, so before this only ss_steps (2^24) bounded them.
+    private const string RoundBound = "    if (++ss_rounds > SS_ROUNDS) break;";
+
+    private static readonly string[] Step = ["    if (!vw_ss_step(pc, pc_resume)) break;", RoundBound];
 
     // Phase one ends on GS_ALLOC_REQ's flag as read in this step: every thread reads it, then meets a barrier before
     // any can run on and set it, so all leave together. Read without that barrier, a thread that resumed first could set
@@ -24,7 +28,7 @@ internal static class SuperstepWriter
     // barrier never filled (DEVICE_HUNG on the RTX 4090).
     private static readonly string[] PhaseOneStep =
     [
-        "    if (!vw_ss_step(pc, pc_resume)) break;", "    bool ms_alloc = vw_ss_released() && g_ms_alloc != 0;",
+        "    if (!vw_ss_step(pc, pc_resume)) break;", RoundBound, "    bool ms_alloc = vw_ss_released() && g_ms_alloc != 0;",
         "    GroupMemoryBarrierWithGroupSync();", "    if (ms_alloc) break;",
     ];
 
@@ -32,7 +36,8 @@ internal static class SuperstepWriter
     {
         var lines = new List<string> { "  vw_ss_begin(in_gi);" };
         lines.AddRange(hoisted);
-        lines.Add("  uint pc = 0, pc_resume = 0, ss_steps = 0;");
+        lines.Add("  uint pc = 0, pc_resume = 0, ss_steps = 0, ss_rounds = 0;");
+        lines.Add($"  const uint SS_ROUNDS = {LoopGuard.RoundsHex(state.Stage, state.Loops)};");
 
         if (!state.MeshYield)
         {
@@ -44,6 +49,7 @@ internal static class SuperstepWriter
         lines.AddRange(Round(state, true, PhaseOneStep));
         lines.Add($"  SetMeshOutputCounts(min(g_ms_nv, {mesh.MaxVertices}u), min(g_ms_np, {mesh.MaxPrimitives}u));");
         lines.AddRange(Round(state, false, Step));
+        lines.AddRange(mesh.CutEpilogue("ss_rounds > SS_ROUNDS"));
 
         return lines;
     }

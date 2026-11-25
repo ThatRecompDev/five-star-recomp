@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Five Star Recomp contributors.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+using FiveStar.Shaders.Tests.Cases;
+using FiveStar.Shaders.Tests.Toolchain;
+using FiveStar.Shaders.Translation.Core;
+using Xunit;
+
+namespace FiveStar.Shaders.Tests;
+
+/// <summary>
+/// A console loop around an s_barrier in a mesh program runs one group round per iteration, in the two-phase and in the
+/// superstep form. A few iterations draw the program's image; a garbage count (2^31) ends at the round bound
+/// (LoopCaps.Rounds, here 4 x 16) instead of holding the group, which before only ss_steps (2^24 blocks) or nothing
+/// bounded: w31's DispatchMesh(4, 1, 1) of MSNC_VS_LinearDepthSkin never finished.
+/// </summary>
+public sealed class MeshRoundBoundTests : IClassFixture<WarpFixture>
+{
+    private static readonly LoopCaps Small = new(64, 4, 64, 256);
+
+    private readonly WarpFixture _fixture;
+
+    public MeshRoundBoundTests(WarpFixture fixture)
+    {
+        _fixture = fixture;
+    }
+
+    [WarpTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_barrier_loop_draws_with_few_iterations_and_ends_at_the_round_bound_with_many(bool supersteps)
+    {
+        var runner = new MeshStageRunner(_fixture);
+        var few = runner.RunBarrierLoop(supersteps, 3, Small);
+
+        Assert.True(few.Count == 0, string.Join("\n", few.Take(8)));
+
+        // Returns at all: the dispatch finished within the bound. Its exports come after the loop, so it draws nothing.
+        Assert.NotEmpty(runner.RunBarrierLoop(supersteps, 0x80000000u, Small));
+    }
+}

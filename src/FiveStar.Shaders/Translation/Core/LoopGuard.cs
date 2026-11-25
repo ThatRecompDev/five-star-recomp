@@ -20,6 +20,12 @@ public static class LoopGuard
         return Hlsl.HexUint(caps.DispatchSteps(stage));
     }
 
+    /// <summary>The group rounds of a mesh program of <paramref name="stage"/> under <paramref name="caps"/>, as an HLSL literal.</summary>
+    public static string RoundsHex(ShaderStage stage, LoopCaps caps)
+    {
+        return Hlsl.HexUint(caps.Rounds(stage));
+    }
+
     /// <summary>Loop iterations one invocation of a <paramref name="stage"/> program may run under <paramref name="caps"/>, as an HLSL literal.</summary>
     public static string Hex(ShaderStage stage, LoopCaps caps)
     {
