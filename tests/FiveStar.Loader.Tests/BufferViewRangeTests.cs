@@ -38,7 +38,10 @@ public sealed unsafe class BufferViewRangeTests
         Assert.Equal(0ul, *(ulong*)(copy + UavCounter));
         Assert.Equal(Raw, *(int*)(copy + Flags) & Raw);
 
-        // Off a dword: no view at all rather than one in the wrong place.
+        // Off the 16 bytes a raw view's start must be on (D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT), a dword included: no view at
+        // all rather than an invalid one a driver may move.
         Assert.False(BufferViewRanges.AsRaw(description, copy, Offset + 2, 28, true));
+        Assert.False(BufferViewRanges.AsRaw(description, copy, Offset + 4, 28, true));
+        Assert.True(BufferViewRanges.AsRaw(description, copy, Offset + 16, 28, true));
     }
 }
