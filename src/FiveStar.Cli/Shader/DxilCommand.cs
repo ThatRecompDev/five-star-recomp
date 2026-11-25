@@ -28,18 +28,21 @@ internal static class DxilCommand
     private const string ValidateFlag = "validate";
     private const string PhasesFlag = "phases";
     private const string CompareFlag = "compare";
+    private const string NoOptimizeFlag = "no-optimize";
     private const string LogName = "dxil-backend.tsv";
 
     public static int Run(IReadOnlyList<string> args)
     {
-        var arguments = new CommandArguments(args, new HashSet<string> { ValidateFlag, PhasesFlag, CompareFlag });
+        var arguments = new CommandArguments(args, new HashSet<string> { ValidateFlag, PhasesFlag, CompareFlag, NoOptimizeFlag });
 
         if (arguments.Positional.Count != OnePath)
         {
-            throw new ArgumentException("dxil <hlsl file or folder> [--out <dir>] [--validate] [--compare] [--stages cs,ps,vs] [--limit N] [--step K] [--jobs N] [--repeat N] [--dxc <path>]");
+            throw new ArgumentException("dxil <hlsl file or folder> [--out <dir>] [--validate] [--compare] [--stages cs,ps,vs] [--limit N] [--step K] [--jobs N] [--repeat N] [--dxc <path>] [--no-optimize]");
         }
 
         DxilBackend.MemoryLocalsCases = arguments.IntegerOption("memory-locals") ?? 0;
+        DxilBackend.Optimize = !arguments.Flag(NoOptimizeFlag);
+
         var files = Sources(arguments);
         var output = arguments.Option("out");
         using var validator = Validator(arguments);
