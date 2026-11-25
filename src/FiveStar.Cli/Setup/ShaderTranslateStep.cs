@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FiveStar.Cli.Graphics;
 using System.Globalization;
 using FiveStar.Cli.Shader;
 using FiveStar.Graphics;
@@ -163,7 +164,7 @@ internal sealed class ShaderTranslateStep : ISetupStep
     /// <summary>The hardware adapters with a D3D12 device.</summary>
     private List<AdapterInfo> Gpus()
     {
-        _gpus ??= AdapterCatalog.List().Where(adapter => !adapter.Software && adapter.ShaderModel is not null).ToList();
+        _gpus ??= MeasuredAdapters.List().Where(adapter => !adapter.Software && adapter.ShaderModel is not null).ToList();
 
         return _gpus;
     }

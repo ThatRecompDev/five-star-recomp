@@ -17,6 +17,12 @@ public static class AdapterCatalog
     /// <summary>Every adapter in DXGI order (the index <see cref="GpuDevice"/> takes), including software ones.</summary>
     public static IReadOnlyList<AdapterInfo> List()
     {
+        return List(null);
+    }
+
+    /// <summary>The same, with the mesh-shader wave measured by <paramref name="meshProbe"/> (<see cref="MeshWaveProbe"/>'s DXIL) when given.</summary>
+    public static IReadOnlyList<AdapterInfo> List(byte[]? meshProbe)
+    {
         var adapters = new List<AdapterInfo>();
         using var factory = DXGI.CreateDXGIFactory2<IDXGIFactory4>(false);
 
@@ -26,14 +32,14 @@ public static class AdapterCatalog
             {
                 var description = adapter.Description1;
                 var software = (description.Flags & AdapterFlags.Software) != 0;
-                adapters.Add(Describe((int)index, description.Description, software));
+                adapters.Add(Describe((int)index, description.Description, software, meshProbe));
             }
         }
 
         return adapters;
     }
 
-    private static AdapterInfo Describe(int index, string name, bool software)
+    private static AdapterInfo Describe(int index, string name, bool software, byte[]? meshProbe)
     {
         try
         {
@@ -44,9 +50,9 @@ public static class AdapterCatalog
             Check(device.Device, Feature.Options7, ref options7);
             int? meshWave = null;
 
-            if (options7.MeshShaderTier != MeshShaderTier.NotSupported)
+            if (meshProbe is not null && options7.MeshShaderTier != MeshShaderTier.NotSupported)
             {
-                meshWave = MeshWaveProbe.Measure(device.Device);
+                meshWave = MeshWaveProbe.Measure(device.Device, meshProbe);
             }
 
             return new AdapterInfo(

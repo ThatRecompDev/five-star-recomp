@@ -5,6 +5,7 @@ using FiveStar.Graphics;
 using FiveStar.Graphics.Probes;
 using FiveStar.Loader.Shims.D3D12X.Pipelines;
 using FiveStar.Loader.Tests.Support;
+using FiveStar.Shaders.Dxil;
 using Xunit;
 
 namespace FiveStar.Loader.Tests;
@@ -26,7 +27,7 @@ public sealed class MeshWaveProbeTests
             return;
         }
 
-        var lanes = MeshWaveProbe.Measure(device.Device);
+        var lanes = MeshWaveProbe.Measure(device.Device, DxilBackend.Compile(MeshWaveProbe.Source(), MeshWaveProbe.Profile));
 
         Assert.NotNull(lanes);
         Assert.InRange(lanes.Value, adapter.WaveLaneCountMin, adapter.WaveLaneCountMax);
