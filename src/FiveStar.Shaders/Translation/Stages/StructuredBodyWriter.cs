@@ -39,7 +39,16 @@ internal sealed class StructuredBodyWriter
             return [];
         }
 
-        return new RegionEmitter(graph, entry.Value, _ => true, LoopGuard.Hex(_state.Stage, _state.Loops)).Emit(0);
+        var (guarded, start, selectors) = EntryGuards.Apply(graph, entry.Value);
+        var lines = new RegionEmitter(guarded, start, _ => true, LoopGuard.Hex(_state.Stage, _state.Loops)).Emit(0);
+
+        if (selectors > 0)
+        {
+            lines.Insert(0, "  // control flow: " + Hlsl.Number(selectors) + " cycle(s) entered at several blocks, each given one entry guard");
+            lines.Insert(1, "  " + EntryGuards.Declaration(selectors));
+        }
+
+        return lines;
     }
 
     /// <summary>One mesh phase: a switch over the regions; phase 1 (<paramref name="dropOutputs"/>) writes no outputs.</summary>
