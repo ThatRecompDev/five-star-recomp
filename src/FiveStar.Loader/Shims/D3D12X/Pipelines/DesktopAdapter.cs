@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using FiveStar.Graphics;
 using FiveStar.Graphics.Probes;
 using FiveStar.Loader.Native;
+using FiveStar.Shaders.Dxil;
 using Vortice.Direct3D12;
 
 namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
@@ -83,7 +84,7 @@ internal static unsafe class DesktopAdapter
             {
                 Marshal.AddRef(device);
                 using var desktop = new ID3D12Device(device);
-                lanes = MeshWaveProbe.Measure(desktop);
+                lanes = MeshWaveProbe.Measure(desktop, DxilBackend.Compile(MeshWaveProbe.Source(), MeshWaveProbe.Profile));
                 MeshWaves[device] = lanes;
                 ShimContext.Log?.Info($"  [d3d12_xs] mesh shaders run in {Lanes(lanes)} waves (probe)");
             }

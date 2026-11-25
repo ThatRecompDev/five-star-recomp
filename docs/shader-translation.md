@@ -545,7 +545,7 @@ flowchart TD
 The driver picks a graphics wave anywhere between `WaveLaneCountMin` and `Max`, so a floor counts only as met when
 `WaveLaneCountMin` reaches it, except for mesh shaders, whose wave is measured: at device creation
 (`DesktopAdapter`, and `AdapterCatalog` for the CLI) `MeshWaveProbe` dispatches a 128-thread probe mesh shader
-(`FiveStar.Graphics/Probes/mesh_wave_probe.hlsl`, embedded compiled) that keeps the least `WaveGetLaneCount`, and a
+(`FiveStar.Graphics/Probes/mesh_wave_probe.hlsl`, embedded as source and compiled by the DXIL backend) that keeps the least `WaveGetLaneCount`, and a
 mesh program whose floor that wave reaches runs its native form. An RX 7800 XT reports 32-64 but runs every mesh
 shader in 64-lane waves (at 32, 64 and 128 threads and with long loops alike), so the wave64 mesh programs that took
 their superstep form there (85 group-barrier stops in a skinned depth pass, 1.5 s or more per draw) run natively;
