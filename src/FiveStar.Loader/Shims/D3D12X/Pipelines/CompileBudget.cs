@@ -41,6 +41,10 @@ internal static unsafe class CompileBudget
     /// </summary>
     public const int DefaultMaxCompiles = 12;
 
+    /// <summary>RAM per driver compile the default allows (<see cref="MaxCompilesFor"/>), and the fewest it allows.</summary>
+    private const ulong RamPerCompile = 5UL << 30;
+    private const ulong MinDefaultCompiles = 2;
+
     /// <summary>The default of <see cref="CeilingBytes"/> (<c>--compile-ceiling</c>, in GB): none, free RAM decides.</summary>
     public const long DefaultCeilingBytes = 0;
 
@@ -190,8 +194,24 @@ internal static unsafe class CompileBudget
     /// <summary>Sets the ceilings (<c>--max-driver-compiles</c>, <c>--compile-ceiling</c>); call before the first compile.</summary>
     public static void Configure(int maxCompiles, long ceilingBytes)
     {
+        if (maxCompiles <= 0)
+        {
+            maxCompiles = MaxCompilesFor(WarmMemoryGuard.TotalPhysical());
+        }
+
         MaxCompiles = Math.Max(1, maxCompiles);
         CeilingBytes = ceilingBytes;
+    }
+
+    /// <summary>
+    /// The default of <see cref="MaxCompiles"/> on a machine of <paramref name="totalPhysical"/> bytes of RAM: one per
+    /// <see cref="RamPerCompile"/>, from 2 up to <see cref="DefaultMaxCompiles"/>. The driver's arenas are commit the
+    /// free-memory check sees only once they grew, and the commit check counts the page file, which a 16 or 32 GB machine
+    /// cannot be expected to grow: 12 compiles had 24.7 GB reserved in boot w46. 63 GB keeps 12; 32 GB gets 6, 16 GB 3.
+    /// </summary>
+    public static int MaxCompilesFor(ulong totalPhysical)
+    {
+        return (int)Math.Clamp(totalPhysical / RamPerCompile, MinDefaultCompiles, DefaultMaxCompiles);
     }
 
     /// <summary>Whether the game is in its load window (the loading screen is up, or the boot is young); none by default.</summary>
