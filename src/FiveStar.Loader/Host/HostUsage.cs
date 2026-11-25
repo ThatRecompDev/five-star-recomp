@@ -80,6 +80,9 @@ internal static class HostUsage
                                  game's hang watchdog paused) when a command list first sets it, instead of skipping its work
           --typed-image-views    image loads, gathers and stores of integer views (UINT/SINT, the stencil plane) go through
                                  uint4/int4 declarations chosen by a class the descriptor carries; part of the cache identity
+          --no-shared-exponent-copies
+                                 R9G9B9E5 views of R32_UINT light read the texture through the class-3 decode in the
+                                 programs, not an R9G9B9E5 shadow the texels are copied into before each read (the default)
           --shared-exponent-programs <text,...>
                                  with --typed-image-views, programs whose names hold a text filter sampled R9G9B9E5 light
                                  in R32_UINT themselves (default indirect_diffuse_lighting~; each sample grows a lot)

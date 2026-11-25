@@ -100,6 +100,13 @@ load reads depends on the instruction's use (a sampler slot or a resource slot),
 indices clamped to the heaps (a view past the end to a null one, a sampler to the last), without which NVIDIA hung
 and AMD faulted; and that a raw view's first byte must be a multiple of 16. No code was copied.
 
+Revision `578d459` (GPL-3.0-or-later, built on VIctory; copyright the VIctory and victory-fork contributors), ported
+with its notice in each file: the R9G9B9E5 shadow of an R32_UINT light texture and the copy of its texels through a
+buffer before a read (`crates/victory-gpu/src/resource.rs` `alias_of`, `texture.rs` `alias`, `draw.rs`) in
+`src/FiveStar.Loader/Shims/D3D12X/Resources/SharedExponentAliases.cs` and `SharedExponentCopy.cs`. Commits `36eb0b4`,
+`2e5001c` and `51f1627` gave the NaN rules of `v_med3`, `v_fract_f16` and `v_cmp_lg` in the shader prelude and
+`VectorCompareEmitter`.
+
 ## ztrx
 
 https://github.com/Zettrox/ztrx (`docs/fork-ray-tracing.md`), GPL-3.0, a fork in the VIctory family. Facts from its
