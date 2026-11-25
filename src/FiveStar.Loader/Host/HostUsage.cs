@@ -119,6 +119,7 @@ internal static class HostUsage
           --d3d12-trace-queues   log the first queue submissions, signals and waits (cross-queue protocol)
           --d3d12-breadcrumbs    a GPU marker after every draw and dispatch: a stalled queue names the one it hangs in
           --gpu-timings          GPU time per pass and queue (timestamp queries), logged with the sample line
+          --check-view-liveness  before each draw and dispatch, check the bound tables' views: released resources, wrong kinds
           --frame-rate <r>       30 (the console's, default), 60 or uncapped: the frame events' interval and vsync
           --watch-transient      check the game's transient-memory pool and log the first corrupted node
           --watch-pool-pages     check the game's small-block pool pages for headers its allocator did not write

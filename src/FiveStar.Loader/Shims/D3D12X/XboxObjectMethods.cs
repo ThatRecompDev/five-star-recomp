@@ -51,6 +51,7 @@ internal static unsafe class XboxObjectMethods
 
             if (left == 0)
             {
+                Released(inner);
                 NativeMemory.Free(self);
             }
 
@@ -61,6 +62,16 @@ internal static unsafe class XboxObjectMethods
             UnmanagedGuard.Caught(exception, "XboxObjectMethods.Release");
 
             return default;
+        }
+    }
+
+    /// <summary>With <c>--check-view-liveness</c>: the desktop object is gone, and so are views of it.</summary>
+    [HotPath]
+    public static void Released(nint inner)
+    {
+        if (DebugLayer.ViewLiveness.Enabled)
+        {
+            DebugLayer.ViewLiveness.Released(inner);
         }
     }
 
