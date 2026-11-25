@@ -12,7 +12,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// doubling arena per pipeline (1, 2, 4, 8 GB) for minutes, so six mesh-shader pipelines of 1 to 3 MB of DXIL that
 /// started together took 50 GB. Each compile is expected to take <see cref="Estimate"/>; a new one starts only while
 /// free physical memory and commit cover the reserves, the new estimate and what the running ones are still expected
-/// to take (their estimates less the process's private growth since compiles began). Compiles of less than
+/// to take (their whole estimates). Compiles of less than
 /// <see cref="TinyShaderBytes"/> of DXIL are counted but never wait, so a small compute pipeline made on the game's
 /// thread is not held up; while an urgent compile waits (<see cref="Urgent"/>), no other starts. Two ceilings bound
 /// the loader itself (<see cref="Configure"/>): at most <see cref="MaxCompiles"/> larger compiles at once, and none
@@ -58,7 +58,6 @@ internal static unsafe class CompileBudget
     private static int _running;
     private static int _runningLarge;
     private static long _expected;
-    private static long _baseline;
     private static int _waiting;
     private static int _urgentWaiting;
 
@@ -223,11 +222,11 @@ internal static unsafe class CompileBudget
         lock (Gate)
         {
             _running--;
-            _expected -= Estimate(shaderBytes);
 
             if (shaderBytes >= TinyShaderBytes)
             {
                 _runningLarge--;
+                _expected -= Estimate(shaderBytes);
             }
         }
     }
@@ -266,12 +265,10 @@ internal static unsafe class CompileBudget
 
             long privateBytes = PrivateBytes();
 
-            if (_running == 0)
-            {
-                _baseline = privateBytes;
-            }
-
-            long remaining = Math.Max(0, _expected - Math.Max(0, privateBytes - _baseline));
+            // The running compiles' whole estimates: their growth so far is not subtracted. It was (the private growth
+            // since compiles began), but that growth was mostly textures and their video-memory mapping, so the running
+            // ones counted as done and seven ran at once; boot w11b's working set rose by 20 GB in 30 s.
+            long remaining = _expected;
 
             if (!tiny && !Room(estimate, WarmMemoryGuard.AvailablePhysical(), WarmMemoryGuard.CommitAvailable(), remaining))
             {
@@ -284,11 +281,11 @@ internal static unsafe class CompileBudget
             }
 
             _running++;
-            _expected += estimate;
 
             if (!tiny)
             {
                 _runningLarge++;
+                _expected += estimate;
             }
 
             return true;

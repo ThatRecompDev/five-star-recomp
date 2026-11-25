@@ -109,8 +109,7 @@ file, within the free space of its drive less 16 GB. On a machine whose system-m
 pipeline (1, 2, 4, 8 GB, [debugging.md](debugging.md#memory-map)), and six mesh-shader pipelines of 1 to 3 MB of DXIL
 admitted together at 100 s took the loader from 26 to 60 GB private by 165 s and the machine to its commit limit. A
 compile now also waits, on its build thread, until free physical memory and commit cover the reserves (4 and 8 GB),
-its estimate (2,816 bytes per byte of DXIL, 0.5 to 8 GB, fitted on the private peaks of 101 compiles measured in a boot: alone at most 0.40 GB, with others running at most 4.70 GB and 2.69 GB per MB) and what the running compiles are still expected to take: their
-estimates less the process's private growth since compiles began (`CompileBudget`). Compiles of less than 256 KB of
+its estimate (2,816 bytes per byte of DXIL, 0.5 to 8 GB, fitted on the private peaks of 101 compiles measured in a boot: alone at most 0.40 GB, with others running at most 4.70 GB and 2.69 GB per MB) and the whole estimates of the running compiles (`CompileBudget`; their growth so far used to be subtracted, but that was mostly textures and their video-memory mapping, so in boot w11b seven compiles ran at once and the working set rose by 20 GB in 30 s). Compiles of less than 256 KB of
 DXIL never wait, so a small compute pipeline made on the game's thread is not held up. While an urgent compile (a
 pipeline a command list has set, or one made on a game thread) waits, no other starts, and only half the build threads
 take creations no command list waits for. Two ceilings bound the loader itself: at most `--max-driver-compiles`
