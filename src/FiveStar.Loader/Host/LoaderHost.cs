@@ -419,6 +419,7 @@ internal sealed class LoaderHost
         Shims.D3D12X.DebugLayer.GpuTimings.Enable(_options.GpuTimings);
         DeviceLoss.Log = _log;
         DeviceLoss.Armed = true;
+        ThreadSnapshot.Stuck = id => _log.Warn($"[sample] stack capture stuck on thread {id}: no answer in {ThreadSnapshot.TimeoutMilliseconds} ms; skipped, its worker abandoned");
     }
 
     /// <summary><c>--watch-pool-pages</c> and <c>--watch-4g-lines</c>.</summary>

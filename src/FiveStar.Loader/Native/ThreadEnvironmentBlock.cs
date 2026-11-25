@@ -9,6 +9,9 @@ internal static class ThreadEnvironmentBlock
     /// <summary>NT_TIB.StackBase: the end (highest address) of the thread's stack.</summary>
     public const int StackBase = 0x08;
 
+    /// <summary>NT_TIB.StackLimit: the lowest committed byte of the stack.</summary>
+    public const int StackLimit = 0x10;
+
     /// <summary>TEB.ThreadLocalStoragePointer: the implicit-TLS block array compiled code reads as gs:[58h].</summary>
     public const int ThreadLocalStoragePointer = 0x58;
 

@@ -486,7 +486,7 @@ and disposing the swap chain under the presenting thread crashed in dxgi). `--tr
 **Thread sampler.** `--sample-threads` takes a snapshot of each other thread in turn (`ThreadSnapshot`: a generated native routine
 suspends it, reads its context, copies its stack and resumes it without returning to managed code, so a garbage
 collection never waits on a suspended thread; holding it across our own P/Invokes froze a whole run once), then
-unwinds the copy through `.pdata`; the hang watch reads its fence-wait registers the same way.
+unwinds the copy through `.pdata`; the hang watch reads its fence-wait registers the same way. The routine runs on a worker and a snapshot that does not come back in 250 ms is skipped (`[sample] stack capture stuck on thread N`), its, handle and buffers abandoned, so the sampler and the hang watch go on (w83's stopped for good in one capture); the copy is skipped when rsp lies below the stack's committed limit (a stack the game switched to), which could fault the thread suspended.
 The walk stops at the first address outside a module (JIT code). Threads with the same stack are grouped;
 mapped frames print as `image+0xrva (fn 0xstart)`. The call counts come from the call-trace thunks, which also count
 calls (`lock inc`) and, under `--run`, wrap the GDK thunk-ABI slots. `OutputDebugString{A,W}` from mapped code is
