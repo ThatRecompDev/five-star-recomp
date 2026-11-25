@@ -10,6 +10,8 @@ namespace FiveStar.Shaders.Translation.Emitters;
 /// Scalar memory loads. s_buffer_load reads the V#'s view (<see cref="BufferAddress.View"/>); s_load reads through a
 /// 64-bit pointer (prelude PtrLoad: the window for high dword 0, else game memory), or the program's own code when the
 /// pointer came from s_getpc_b64 (high dword CODE_TAG). In geometry programs the driver's ring table pointer reads as 0.
+/// The dword that loads an S#'s dword 0 reads the sampler heap's records for a 32-bit pointer (prelude SamplerPtrLoad,
+/// <see cref="SamplerLoads"/>).
 /// </summary>
 internal sealed class ScalarMemoryEmitter
 {
@@ -73,7 +75,14 @@ internal sealed class ScalarMemoryEmitter
 
     private string PointerLoad(string address, string offset, string high, int dword)
     {
-        var load = $"PtrLoad({address}, {high}, {offset} + {dword}u * 4u)";
+        var function = "PtrLoad";
+
+        if (_state.SamplerLoadDwords.Contains((_state.Address, dword)))
+        {
+            function = "SamplerPtrLoad";
+        }
+
+        var load = $"{function}({address}, {high}, {offset} + {dword}u * 4u)";
 
         if (_state.UsesCode)
         {

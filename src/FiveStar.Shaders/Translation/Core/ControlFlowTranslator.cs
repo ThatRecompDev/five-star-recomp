@@ -330,6 +330,7 @@ internal sealed class ControlFlowTranslator
             return false;
         }
 
+        _state.Address = instruction.Address;
         _instructions.Translate(mnemonic, operands);
 
         return false;

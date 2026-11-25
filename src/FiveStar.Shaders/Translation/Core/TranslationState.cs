@@ -22,6 +22,7 @@ internal sealed class TranslationState
     private const int DefaultComputeThreads = 64;
 
     private int _temporaries;
+    private HashSet<(int Address, int Dword)>? _samplerLoads;
 
     public TranslationState(ShaderProgram program, IReadOnlyList<Instruction> instructions, ShaderStage stage, bool copyShader)
     {
@@ -158,6 +159,12 @@ internal sealed class TranslationState
 
     /// <summary>The program starts with a call into the driver's vertex fetch subroutine.</summary>
     public bool UsesFetchShader { get; set; }
+
+    /// <summary>The address of the instruction being translated.</summary>
+    public int Address { get; set; }
+
+    /// <summary>The s_load dwords that load an S#'s dword 0 (<see cref="SamplerLoads"/>).</summary>
+    public HashSet<(int Address, int Dword)> SamplerLoadDwords => _samplerLoads ??= SamplerLoads.Find(Instructions);
 
     /// <summary>The program reads its own code bytes (s_getpc_b64 pointers).</summary>
     public bool UsesCode { get; set; }
