@@ -93,6 +93,20 @@ internal sealed unsafe class DescriptorWindow
     /// <summary>The window's CPU mapping; null until the view heap exists.</summary>
     public byte* Data { get; private set; }
 
+    /// <summary>The window flags of <see cref="WindowFeedback"/>, indexed by window id; null without it or a window.</summary>
+    public uint* WindowFlags
+    {
+        get
+        {
+            if (!WindowFeedback.Enabled || Data == null)
+            {
+                return null;
+            }
+
+            return (uint*)(Data + WindowFeedback.Base);
+        }
+    }
+
     /// <summary>
     /// Sets up the window for the game's shader-visible view heap of <paramref name="views"/> descriptors: the window
     /// buffer (CPU-writable, GPU-readable and writable), its two views, the null descriptors and the records.
@@ -106,6 +120,12 @@ internal sealed unsafe class DescriptorWindow
         if (DebugLayer.PoolStoreTrace.Enabled && bytes < DebugLayer.PoolStoreTrace.Bytes)
         {
             bytes = DebugLayer.PoolStoreTrace.Bytes;
+        }
+
+        // --evict-windows: the flags of the windows programs ask for, past the store-trace ring.
+        if (WindowFeedback.Enabled && bytes < WindowFeedback.Bytes)
+        {
+            bytes = WindowFeedback.Bytes;
         }
 
         var properties = new HeapProperties { Type = HeapProperties.Custom, CpuPageProperty = HeapProperties.WriteCombine, MemoryPool = HeapProperties.SystemPool };

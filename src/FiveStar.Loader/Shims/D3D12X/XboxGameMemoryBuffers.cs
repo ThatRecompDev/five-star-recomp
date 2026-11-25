@@ -19,6 +19,14 @@ internal sealed unsafe class XboxGameMemoryBuffers
     /// <summary>ID3D12Device::CreatePlacedResource, ID3D12Device3::OpenExistingHeapFromAddress, ID3D12Resource::GetGPUVirtualAddress (d3d12.h).</summary>
     private const int CreatePlacedResourceSlot = 29;
     private const int OpenHeapFromAddressSlot = 48;
+
+    /// <summary>ID3D12Device13::OpenExistingHeapFromAddress1 (address, size): the first slot after ID3D12Device12's (d3d12.h).</summary>
+    private const int OpenHeapFromAddress1Slot = 81;
+
+    /// <summary>Whether ID3D12Device13 is there: not asked yet, yes, no.</summary>
+    private const int Unknown = 0;
+    private const int Yes = 1;
+    private const int No = 2;
     private const int GetGpuAddressSlot = 11;
 
     /// <summary>MEM_PRIVATE: memory from VirtualAlloc, the only kind OpenExistingHeapFromAddress takes (winnt.h).</summary>
@@ -33,15 +41,18 @@ internal sealed unsafe class XboxGameMemoryBuffers
     private const int CommonState = 0;
 
     private static readonly Guid Device3Iid = new("81dadc15-2bad-4392-93c5-101345c4aa98");
+    private static readonly Guid Device13Iid = typeof(Vortice.Direct3D12.ID3D12Device13).GUID;
     private static readonly Guid HeapIid = new("6b3b2502-6e51-45b3-90ee-9884265e8df3");
     private static readonly Guid ResourceIid = new("696442be-a72e-4059-bc79-5b5c98040fad");
 
     private readonly object _gate = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<nint, byte> _tried = new();
+    private readonly Dictionary<nint, (ulong Size, bool Writable)> _sizes = [];
     private readonly XboxObjects _objects;
     private readonly AddressTable _addresses;
     private readonly GraphicsAllocations _graphics;
     private readonly LoaderLog _log;
+    private int _windows;
 
     public XboxGameMemoryBuffers(XboxObjects objects, AddressTable addresses, GraphicsAllocations graphics, LoaderLog log)
     {
@@ -93,8 +104,9 @@ internal sealed unsafe class XboxGameMemoryBuffers
         }
 
         nint allocation = region.AllocationBase;
+        nint key = Key(device, allocation, address);
 
-        if (_tried.ContainsKey(allocation))
+        if (_tried.ContainsKey(key))
         {
             return false;
         }
@@ -106,32 +118,93 @@ internal sealed unsafe class XboxGameMemoryBuffers
 
         lock (_gate)
         {
-            if (!_tried.TryAdd(allocation, 0))
-            {
-                return false;
-            }
-
-            ulong size = AllocationSize(allocation);
-            bool writable = GpuWritable(allocation, size);
-            nint buffer = CreateBuffer(device, allocation, size, writable);
-
-            if (buffer == 0)
-            {
-                return false;
-            }
-
-            if (!writable)
-            {
-                _readOnly.Add(buffer);
-            }
-
-            ulong gpu = ((delegate* unmanaged<nint, ulong>)ComObject.Slot(buffer, GetGpuAddressSlot))(buffer);
-            _addresses.Add(new AddressRange((ulong)allocation, size, gpu, buffer));
-            string access = writable ? string.Empty : ", read-only";
-            _log.Detail($"  [d3d12_xs] game memory 0x{allocation:x} (0x{size:x} bytes) on the GPU at 0x{gpu:x}{access}");
-
-            return true;
+            return _tried.TryAdd(key, 0) && Cover(device, allocation, key);
         }
+    }
+
+    /// <summary>Opens the buffer over the allocation, or over its window at <paramref name="key"/>, and adds its range; under the lock.</summary>
+    private bool Cover(nint device, nint allocation, nint key)
+    {
+        if (!_sizes.TryGetValue(allocation, out var known))
+        {
+            ulong whole = AllocationSize(allocation);
+            known = (whole, GpuWritable(allocation, whole));
+            _sizes[allocation] = known;
+        }
+
+        var (size, writable) = known;
+        ulong bytes = size;
+
+        if (key != allocation)
+        {
+            bytes = Math.Min(SectionHeaps.LazyWindowBytes, size - (ulong)(key - allocation));
+        }
+
+        nint buffer = CreateBuffer(device, key, bytes, writable, key != allocation || bytes != size);
+
+        if (buffer == 0)
+        {
+            return false;
+        }
+
+        if (!writable)
+        {
+            _readOnly.Add(buffer);
+        }
+
+        ulong gpu = ((delegate* unmanaged<nint, ulong>)ComObject.Slot(buffer, GetGpuAddressSlot))(buffer);
+        _addresses.Add(new AddressRange((ulong)key, bytes, gpu, buffer));
+        string access = writable ? string.Empty : ", read-only";
+        _log.Detail($"  [d3d12_xs] game memory 0x{key:x} (0x{bytes:x} bytes of the allocation at 0x{allocation:x}) on the GPU at 0x{gpu:x}{access}");
+
+        return true;
+    }
+
+    /// <summary>
+    /// What one buffer covers, by its start: the whole allocation; with <c>--evict-windows</c> and
+    /// OpenExistingHeapFromAddress1 (ID3D12Device13), the window of <see cref="SectionHeaps.LazyWindowBytes"/> around
+    /// <paramref name="address"/>, so the game's 2.2 GiB heap takes the GPU's system-memory budget only where it is used.
+    /// </summary>
+    private nint Key(nint device, nint allocation, ulong address)
+    {
+        if (!Binding.WindowFeedback.Enabled || !CanWindow(device))
+        {
+            return allocation;
+        }
+
+        ulong window = ((address - (ulong)allocation) / SectionHeaps.LazyWindowBytes) * SectionHeaps.LazyWindowBytes;
+
+        return allocation + (nint)window;
+    }
+
+    /// <summary>Whether the device opens part of an allocation as a heap (ID3D12Device13); asked once.</summary>
+    private bool CanWindow(nint device)
+    {
+        int known = Volatile.Read(ref _windows);
+
+        if (known != Unknown)
+        {
+            return known == Yes;
+        }
+
+        Guid iid = Device13Iid;
+        nint device13 = 0;
+        int hr = ((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(device, ComObject.QueryInterfaceSlot))(device, &iid, &device13);
+        int answer = No;
+
+        if (!HResult.Failed(hr))
+        {
+            ComObject.Release(device13);
+            answer = Yes;
+        }
+        else
+        {
+            _log.Warn($"[d3d12_xs] --evict-windows: no ID3D12Device13 ({HResult.Format(hr)}): the game's own allocations stay whole heaps");
+        }
+
+        Volatile.Write(ref _windows, answer);
+
+        return answer == Yes;
     }
 
     /// <summary>Whether the page at <paramref name="address"/> in an allocation committed in part is committed.</summary>
@@ -177,11 +250,12 @@ internal sealed unsafe class XboxGameMemoryBuffers
         return (ulong)(next - allocation);
     }
 
-    private nint CreateBuffer(nint device, nint allocation, ulong size, bool writable)
+    /// <summary>A buffer over a heap on <paramref name="size"/> bytes at <paramref name="allocation"/>: the whole allocation, or part of it (<paramref name="part"/>, ID3D12Device13).</summary>
+    private nint CreateBuffer(nint device, nint allocation, ulong size, bool writable, bool part)
     {
-        Guid device3Iid = Device3Iid;
-        nint device3 = 0;
-        int hr = ((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(device, ComObject.QueryInterfaceSlot))(device, &device3Iid, &device3);
+        Guid deviceIid = part ? Device13Iid : Device3Iid;
+        nint opener = 0;
+        int hr = ((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(device, ComObject.QueryInterfaceSlot))(device, &deviceIid, &opener);
 
         if (HResult.Failed(hr))
         {
@@ -190,8 +264,17 @@ internal sealed unsafe class XboxGameMemoryBuffers
 
         Guid heapIid = HeapIid;
         nint heap = 0;
-        hr = ((delegate* unmanaged<nint, nint, Guid*, nint*, int>)ComObject.Slot(device3, OpenHeapFromAddressSlot))(device3, allocation, &heapIid, &heap);
-        ComObject.Release(device3);
+
+        if (part)
+        {
+            hr = ((delegate* unmanaged<nint, nint, nuint, Guid*, nint*, int>)ComObject.Slot(opener, OpenHeapFromAddress1Slot))(opener, allocation, (nuint)size, &heapIid, &heap);
+        }
+        else
+        {
+            hr = ((delegate* unmanaged<nint, nint, Guid*, nint*, int>)ComObject.Slot(opener, OpenHeapFromAddressSlot))(opener, allocation, &heapIid, &heap);
+        }
+
+        ComObject.Release(opener);
 
         if (HResult.Failed(hr))
         {

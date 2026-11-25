@@ -140,6 +140,12 @@ internal sealed record HostOptions
     /// <summary>The most bytes of heaps over the game's page sections (<c>--section-heap-budget</c>); 0 for the GPU's budget alone.</summary>
     public ulong SectionHeapBudget { get; set; }
 
+    /// <summary>Section windows open as programs ask for them and are released when unused (<c>--evict-windows</c>).</summary>
+    public bool EvictWindows { get; set; }
+
+    /// <summary>Bytes of GPU system memory held from device creation, to tighten its budget (<c>--reserve-gpu-system-memory</c>).</summary>
+    public ulong ReservedSystemMemory { get; set; }
+
     /// <summary>With --sample-threads, also a profile burst of the running threads per sample (<c>--profile-threads</c>).</summary>
     public bool ProfileThreads { get; set; }
 

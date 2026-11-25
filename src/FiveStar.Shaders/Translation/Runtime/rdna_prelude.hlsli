@@ -35,10 +35,16 @@ void MemStore(uint ptr_lo, uint off, uint v) {
 // the page's byte offset in that view. Unmapped spans and pages name a null SRV/UAV pair. The view an access gets can
 // differ between the lanes of a wave (lanes in different pages), so every heap access through one is
 // NonUniformResourceIndex.
+// With the loader's --evict-windows (FIVESTAR_WINDOW_FEEDBACK is the byte offset of its flags in the window), a page
+// that waits for its section window's heap names the null views with 0x80000000 | window id in its offset field: the
+// access reads zeros and sets the window's flag, so the loader opens that window (WindowFeedback).
 uint2 gpu_page(uint lo, uint hi) {
     ByteAddressBuffer map = ResourceDescriptorHeap[GPU_MAP_HEAP];
     uint table = map.Load((hi & (GPU_MAP_SPANS - 1u)) * 4u);
     uint2 page = map.Load2(table + (lo >> 16) * 8u);
+#ifdef FIVESTAR_WINDOW_FEEDBACK
+    if (page.x == GPU_MAP_HEAP + 1u && (page.y & 0x80000000u) != 0u) MemStore(FIVESTAR_WINDOW_FEEDBACK, (page.y & 0xffffu) * 4u, 1u);
+#endif
     return uint2(page.x, page.y + (lo & 0xffffu));
 }
 // 64-bit address arithmetic as the hardware's: a game-memory pointer plus an unsigned and a signed 32-bit addend

@@ -51,6 +51,7 @@ internal static class CompileHostProtocol
         writer.Write(request.Adapter.WaveLaneCountMin);
         writer.Write(request.Adapter.WaveLaneCountMax);
         writer.Write(request.Adapter.MeshShaderTier ?? string.Empty);
+        writer.Write(request.Header);
         writer.Flush();
     }
 
@@ -78,9 +79,10 @@ internal static class CompileHostProtocol
         var laneMin = reader.ReadInt32();
         var laneMax = reader.ReadInt32();
         var tier = reader.ReadString();
+        var header = reader.ReadString();
         var adapter = new AdapterInfo(0, string.Empty, false, Optional(model), laneMin, laneMax, Optional(tier));
 
-        return (id, kind, priority, null, new MakeRequest(name, programs, folder, adapter));
+        return (id, kind, priority, null, new MakeRequest(name, programs, folder, adapter, header));
     }
 
     public static void WriteAnswer(BinaryWriter writer, int id, HostAnswer answer)

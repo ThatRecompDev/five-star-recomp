@@ -61,6 +61,7 @@ internal static class HostComposition
             var root = options.ProgramCache ?? Path.Combine(WorkDirectory(options), OnDemandStart.FolderName);
             Shims.D3D12X.DebugLayer.PoolStoreTrace.Enabled = options.TracePoolStores;
             Shims.D3D12X.Binding.UserDataConstants.Enabled = options.UserDataConstants;
+            Shims.D3D12X.Binding.WindowFeedback.Enabled = options.EvictWindows;
             OnDemandStart.Translation = FiveStar.Shaders.Compilation.CorpusOptions.DefaultTranslation with { Loops = options.LoopCaps };
             folders = folders with { OnDemand = OnDemandStart.Begin(root, options.Dxc, options.DxcBackend, options.ShaderJobs, out var message), OnDemandNote = message };
         }
@@ -70,6 +71,12 @@ internal static class HostComposition
         {
             Shims.D3D12X.Binding.UserDataConstants.Enabled = false;
             folders = folders with { OnDemandNote = $"{folders.OnDemandNote}; --user-data-constants needs programs made on demand: user data stays a root CBV".TrimStart(';', ' ') };
+        }
+
+        // Windows open as programs report them: programs made ahead of time report nothing.
+        if (options.EvictWindows && folders.OnDemand is null)
+        {
+            folders = folders with { OnDemandNote = $"{folders.OnDemandNote}; --evict-windows needs programs made on demand: section windows open as before".TrimStart(';', ' ') };
         }
 
         if (!folders.Enabled)

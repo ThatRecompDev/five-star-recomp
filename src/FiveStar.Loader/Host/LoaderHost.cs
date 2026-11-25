@@ -370,6 +370,8 @@ internal sealed class LoaderHost
             _runtime.D3D12X.SectionHeaps.Cap = _options.SectionHeapBudget;
         }
 
+        Shims.D3D12X.SystemMemoryReserve.Bytes = _options.ReservedSystemMemory;
+
         if (_options.WatchTransient)
         {
             TransientPoolWatch.Start(_log);
@@ -447,7 +449,7 @@ internal sealed class LoaderHost
 
         string audio = $"audio: {_runtime.Audio.Summary}; XDsp {_runtime.XDsp.Submitted} commands";
 
-        return $"DirectStorage {_runtime.Storage.Summary()}; {pipelines}; {_runtime.D3D12X.Presenter.Presents} presents, {_runtime.D3D12X.FrameThrottle.Summary}; {_runtime.Input.Summary}; {audio}; {memory}; {MemorySnapshot.Summary()}; {WriteCombinedMemory.Summary()}; {CommandObjectCounts.Summary}";
+        return $"DirectStorage {_runtime.Storage.Summary()}; {pipelines}; {_runtime.D3D12X.Presenter.Presents} presents, {_runtime.D3D12X.FrameThrottle.Summary}; {_runtime.D3D12X.Residency?.Summary ?? "section windows resident"}; {_runtime.Input.Summary}; {audio}; {memory}; {MemorySnapshot.Summary()}; {WriteCombinedMemory.Summary()}; {CommandObjectCounts.Summary}";
     }
 
     /// <summary>

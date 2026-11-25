@@ -30,7 +30,7 @@ internal static class CompileHostServer
     /// <summary>Three compiles of a source of <see cref="ProgramForm.HeavySourceLength"/> or more at a time: 16 at once took the host to 8 to 12 GB (offline, 33 such programs on 16 workers: 8.4 GB; with three at a time 3.0 GB at 1.7 instead of 2.8 programs/s).</summary>
     private static readonly SemaphoreSlim Heavy = new(3);
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Programs, string Folder, FiveStar.Graphics.AdapterInfo Adapter), ProgramProducer> Producers = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Programs, string Folder, FiveStar.Graphics.AdapterInfo Adapter, string Header), ProgramProducer> Producers = new();
 
     public static int Run(string[] args)
     {
@@ -152,12 +152,12 @@ internal static class CompileHostServer
     private static HostAnswer Make(InProcessBackend backend, OnceLog warnings, MakeRequest make)
     {
         // One producer per folder and adapter: its program loader (the decoder's tables) is made once.
-        var producer = Producers.GetOrAdd((make.Programs, make.Folder, make.Adapter), _ =>
+        var producer = Producers.GetOrAdd((make.Programs, make.Folder, make.Adapter, make.Header), _ =>
         {
             var picker = new ProgramVariantPicker(new ShaderManifest([]), make.Adapter, warnings);
             var compiler = new DxilBackendCompiler(DxcOptions.Defaults(string.Empty, retry: false), null, backend);
 
-            return new ProgramProducer(make.Programs, make.Folder, picker, compiler, SlowCompiles.Read([], compiler.Options.CompileTimeout));
+            return new ProgramProducer(make.Programs, make.Folder, picker, compiler, SlowCompiles.Read([], compiler.Options.CompileTimeout)) { Header = make.Header };
         });
         var form = producer.Prepare(make.Name);
 
