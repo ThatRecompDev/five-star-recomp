@@ -16,12 +16,16 @@ namespace FiveStar.Shaders.Tests;
 /// long the dispatch took, to tell a group that never finishes from one that is only slow. Skipped without the files.
 /// A captured draw replays with FIVESTAR_REPRO_USER (its user SGPRs, comma-separated hex) and FIVESTAR_REPRO_BUFFERS
 /// (`slot=file;slot=file`: raw dumps bound as buffers at those heap slots, the window and the address map included;
-/// slot 1, the writable window, is bound writable).
+/// slot 1, the writable window, is bound writable). The window's last 8 words are printed after the run: an instrumented
+/// program can leave counters there (rounds, steps, threads ended).
 /// </summary>
 public sealed class MeshPipelineRepro : IClassFixture<WarpFixture>
 {
     private const int WindowWords = 1 << 16;
     private const int Size = 64;
+
+    /// <summary>Words of the writable window printed after the run.</summary>
+    private const int Shown = 8;
 
     private readonly WarpFixture _fixture;
     private readonly ITestOutputHelper _output;
@@ -47,8 +51,14 @@ public sealed class MeshPipelineRepro : IClassFixture<WarpFixture>
         var bindings = new Bindings { UserSgprs = UserData(), Buffers = Buffers() };
 
         var clock = Stopwatch.StartNew();
-        _fixture.Runner.Mesh(new MeshJob(File.ReadAllBytes(mesh), File.ReadAllBytes(pixel), Framebuffer.Exact(1, Size, Size), bindings, groups));
+        var result = _fixture.Runner.Mesh(new MeshJob(File.ReadAllBytes(mesh), File.ReadAllBytes(pixel), Framebuffer.Exact(1, Size, Size), bindings, groups));
         _output.WriteLine($"DispatchMesh({groups}, 1, 1) of {Path.GetFileName(mesh)}: {clock.Elapsed.TotalMilliseconds:F1} ms");
+
+        // An instrumented program can leave counters in the last words of the writable window (slot 1).
+        if (result.Buffers.TryGetValue(1, out var window))
+        {
+            _output.WriteLine($"writable window end: {string.Join(' ', window.TakeLast(Shown).Select(word => word.ToString("x8", System.Globalization.CultureInfo.InvariantCulture)))}");
+        }
     }
 
     /// <summary>The user SGPRs of FIVESTAR_REPRO_USER (hex, comma-separated), zero past them; 32 zeros without it.</summary>
