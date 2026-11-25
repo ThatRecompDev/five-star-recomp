@@ -472,6 +472,11 @@ internal sealed class LoaderHost
         long helpers = Shims.D3D12X.Pipelines.CompileBudget.HelperPrivateBytes() + (Shims.D3D12X.Pipelines.PipelineHost.Current?.PrivateBytes ?? 0);
         memory += "; " + ProcessMemory.Machine(pages, helpers, gpuSystem);
 
+        if (budget is not null)
+        {
+            memory += "; " + budget.Sample();
+        }
+
         string audio = $"audio: {_runtime.Audio.Summary}; XDsp {_runtime.XDsp.Submitted} commands";
 
         return $"DirectStorage {_runtime.Storage.Summary()}; {pipelines}; {_runtime.D3D12X.Presenter.Presents} presents, {_runtime.D3D12X.FrameThrottle.Summary}; {_runtime.D3D12X.Residency?.Summary ?? "section windows resident"}; {_runtime.Input.Summary}; {audio}; {memory}; {MemorySnapshot.Summary()}; {WriteCombinedMemory.Summary()}; {CommandObjectCounts.Summary}; {Shims.D3D12X.Binding.RawBufferViews.Summary}";
