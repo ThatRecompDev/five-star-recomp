@@ -96,7 +96,19 @@ public static class IfConversion
         var truePath = trueArm ? whenTrue : head;
         var falsePath = falseArm ? whenFalse : head;
 
-        foreach (var arm in new[] { whenTrue, whenFalse }.Where(arm => !ReferenceEquals(arm, head) && (ReferenceEquals(arm, truePath) || ReferenceEquals(arm, falsePath))))
+        var arms = new List<BasicBlock>();
+
+        if (trueArm)
+        {
+            arms.Add(whenTrue);
+        }
+
+        if (falseArm)
+        {
+            arms.Add(whenFalse);
+        }
+
+        foreach (var arm in arms)
         {
             foreach (var instruction in arm.Body)
             {

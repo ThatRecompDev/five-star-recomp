@@ -13,11 +13,11 @@ namespace FiveStar.Shaders.Dxil.Ir;
 /// of one value that value, and what their operands then decide is folded again (<see cref="ConstantFolding"/>).
 /// Wave and quad operations that only read are declared nounwind, as dxc declares them, so nothing removed them: one
 /// nothing reads goes, and one with the operands of an earlier one in its block, with no effect between them, is that
-/// one (a discard or a barrier between them may change the lanes). Two rounds, as a folded branch frees blocks to merge.
+/// one (a discard or a barrier between them may change the lanes). Four rounds, as a folded branch frees blocks to merge and a converted branch makes its enclosing one small.
 /// </summary>
 public static class Simplifier
 {
-    private const int Rounds = 2;
+    private const int Rounds = 4;
 
     /// <summary>Wave and quad operations whose value depends only on their operands and the lanes that run them.</summary>
     private static readonly FrozenSet<int> WaveReadOperations = new[]
