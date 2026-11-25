@@ -84,6 +84,20 @@ public sealed unsafe class DepthTwinSidesTests : IDisposable
         Assert.Equal(0, twin.ViewHandle);
     }
 
+    [Fact]
+    public void The_writers_scan_reads_tables_a_bind_mirrors_whole()
+    {
+        const int Sgpr = 5;
+        const uint Records = 8;
+
+        // CS_GenerateMaterialMasks binds its material-depth twins' UAVs at records 2 and 6 of an 8-record table at
+        // SGPR 5: within what a bind mirrors, so the reach the mirroring uses leaves the table out.
+        var reach = new Dictionary<int, uint> { [Sgpr] = Records * DescriptorWindow.ViewRecordBytes };
+
+        Assert.Empty(TableReaches.Entries(reach, DescriptorWindow.MinTableRecords));
+        Assert.Equal([new TableReachEntry(Sgpr, Records)], TableReaches.Entries(reach, 0));
+    }
+
     [WarpFact]
     public void Lists_recorded_out_of_order_see_the_twin_in_submission_order()
     {
