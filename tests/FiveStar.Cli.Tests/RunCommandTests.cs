@@ -96,6 +96,53 @@ public sealed class RunCommandTests : IDisposable
             LoaderCommandLine.Build(plan, "run.log"));
     }
 
+    [Fact]
+    public void After_a_translator_update_the_journal_warm_up_is_due_and_warms_with_the_boots_folders()
+    {
+        var plan = Plan(RunOptions.Parse([_dump, "--work", _work, "--warm", "--", "--evict-windows"]), StepCondition.Done, long.MaxValue);
+        var cache = plan.Context.PipelineLibraryFolder;
+        Directory.CreateDirectory(cache);
+        WriteJournal(Path.Combine(cache, FiveStar.Shaders.Cache.PipelineJournalFile.FileName), records: 2);
+
+        int due = JournalWarmUp.Due(cache, "translator-1");
+        JournalWarmUp.Stamp(cache, "translator-1");
+
+        Assert.True(plan.Options.Warm);
+        Assert.Equal(2, due);
+        Assert.Equal(0, JournalWarmUp.Due(cache, "translator-1"));
+        Assert.Equal(2, JournalWarmUp.Due(cache, "translator-2"));
+        Assert.Equal(0, JournalWarmUp.Due(Folder("empty-cache"), "translator-2"));
+
+        // 5,049 entries took 21 minutes in 3 processes on a 64 GB machine (63 GiB to Windows); a 16 GB machine runs one.
+        Assert.Equal(3, JournalWarmUp.ProcessesFor(63UL << 30));
+        Assert.InRange(JournalWarmUp.Estimate(5049, 3).TotalMinutes, 20, 25);
+        Assert.Equal(1, JournalWarmUp.ProcessesFor((16UL << 30) - 1));
+        Assert.Equal(
+            [
+                "--warm-pipelines", Path.Combine(_dump, "shaders.rpf"),
+                "--warm-used-only",
+                "--shader-dir", Path.Combine(_work, "shaders", "fssm"),
+                "--program-cache", Path.Combine(_work, "program-cache"),
+                "--pipeline-cache", cache,
+                "--log", "warm.log",
+                "--evict-windows",
+            ],
+            JournalWarmUp.Arguments(plan, "warm.log"));
+    }
+
+    private static void WriteJournal(string path, int records)
+    {
+        using var writer = new BinaryWriter(File.Create(path));
+        writer.Write(FiveStar.Shaders.Cache.PipelineJournalFile.Magic);
+        writer.Write(FiveStar.Shaders.Cache.PipelineJournalFile.Version);
+
+        for (int i = 0; i < records; i++)
+        {
+            writer.Write(1);
+            writer.Write(FiveStar.Shaders.Cache.PipelineJournalFile.ComputeKind);
+        }
+    }
+
     private RunPlan Plan(RunOptions options, StepCondition condition, long freeBytes)
     {
         var steps = RunCommand.Steps(options);
