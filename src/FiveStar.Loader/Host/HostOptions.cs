@@ -250,8 +250,8 @@ internal sealed record HostOptions
     /// <summary>Pipelines whose draws the trace also logs after each captured present (<c>--d3d12-trace-pipeline</c>).</summary>
     public string? D3D12TracePipeline { get; set; }
 
-    /// <summary>Window-record byte offsets the trace reads from user SGPR pointers (<c>--d3d12-trace-records</c>).</summary>
-    public IReadOnlyList<uint> D3D12TraceRecords { get; set; } = [];
+    /// <summary>Window-record byte offsets the trace reads from user SGPR pointers, each with an optional buffer dword (<c>--d3d12-trace-records</c>).</summary>
+    public IReadOnlyList<Shims.D3D12X.DebugLayer.TraceRecord> D3D12TraceRecords { get; set; } = [];
 
     /// <summary>Passes held while a producer is missing this frame (<c>--hold-passes consumer=producer|...;...</c>).</summary>
     public string? HoldPasses { get; set; }
