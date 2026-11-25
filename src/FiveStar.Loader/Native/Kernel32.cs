@@ -218,6 +218,12 @@ internal static unsafe class Kernel32
     [DllImport(Library, SetLastError = true)]
     public static extern uint WaitForSingleObjectEx(nint handle, uint milliseconds, int alertable);
 
+    [DllImport(Library, SetLastError = true)]
+    public static extern int ResetEvent(nint handle);
+
+    [DllImport(Library, SetLastError = true)]
+    public static extern uint WaitForMultipleObjects(uint count, nint* handles, int waitAll, uint milliseconds);
+
     /// <summary>GetCurrentThreadStackLimits: the calling thread's stack, lowest and highest address.</summary>
     [DllImport(Library)]
     public static extern void GetCurrentThreadStackLimits(nuint* low, nuint* high);
