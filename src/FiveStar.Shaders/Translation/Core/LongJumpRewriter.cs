@@ -36,6 +36,8 @@ internal static partial class LongJumpRewriter
             indexOf[instructions[index].Address] = index;
         }
 
+        var jumps = new List<(int Index, long Target, int Low)>();
+
         for (var index = SequenceLength; index < instructions.Count; index++)
         {
             var jump = LongJump(instructions, index);
@@ -48,6 +50,38 @@ internal static partial class LongJumpRewriter
             var target = Repaired(instructions, indexOf, jump.Value.Target, jump.Value.FromAddEnd);
             var setpc = instructions[index];
             instructions[index] = setpc with { Text = $"s_branch 0 {BranchTargets.Marker(target)}" };
+            jumps.Add((index, target, int.Parse(SetPcPattern().Match(setpc.Text).Groups["lo"].Value, CultureInfo.InvariantCulture)));
+        }
+
+        DropDeadAddresses(instructions, indexOf, jumps);
+    }
+
+    /// <summary>
+    /// A long jump whose SGPR pair and SCC are dead at its target (<see cref="DeadJumpRegisters"/>) keeps only its
+    /// s_branch: its s_getpc, s_add and s_addc become s_nop. Otherwise each s_getpc would make the program read its own
+    /// code (TranslationState.UsesCode), so that every s_load checks for a code pointer and the code is a table in the
+    /// program: CS_ScreenProbes_ActivateRays holds 1,377 long jumps and 10,041 such checks.
+    /// </summary>
+    private static void DropDeadAddresses(List<Instruction> instructions, Dictionary<long, int> indexOf, List<(int Index, long Target, int Low)> jumps)
+    {
+        var targets = instructions.Where(instruction => BranchTargets.IsBranch(instruction.Mnemonic))
+            .Select(instruction => BranchTargets.Target(instruction.Text)).ToHashSet();
+
+        foreach (var (index, target, low) in jumps)
+        {
+            var sequence = Enumerable.Range(index - SequenceLength, SequenceLength).ToList();
+
+            // A branch may enter at the s_getpc (the whole sequence runs) but not past it.
+            if (sequence.Skip(1).Any(position => targets.Contains(instructions[position].Address)) || !indexOf.TryGetValue(target, out var start)
+                || !DeadJumpRegisters.Dead(instructions, indexOf, start, low))
+            {
+                continue;
+            }
+
+            foreach (var position in sequence)
+            {
+                instructions[position] = instructions[position] with { Text = "s_nop 0" };
+            }
         }
     }
 
