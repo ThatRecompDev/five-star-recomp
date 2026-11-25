@@ -77,6 +77,12 @@ internal sealed record HostOptions
     /// <summary>Pipelines the warm-up builds at once; null for the default (4).</summary>
     public int? WarmJobs { get; set; }
 
+    /// <summary>Processes the warm-up runs in (<c>--warm-processes</c>); null for one per 16 GB of RAM, 1 to 4.</summary>
+    public int? WarmProcesses { get; set; }
+
+    /// <summary>The shard this warm-up process builds (<c>--warm-shard i/n</c>, set by the parent run); null for all.</summary>
+    public (int Shard, int Count)? WarmShard { get; set; }
+
     /// <summary>The warm-up builds every n-th pipeline only (a sample).</summary>
     public int WarmStep { get; set; } = 1;
 
