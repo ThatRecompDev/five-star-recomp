@@ -135,7 +135,9 @@ internal sealed unsafe class XboxGameMemoryBuffers
         var (size, writable) = known;
         ulong bytes = size;
 
-        if (key != allocation)
+        // The first window starts at the allocation too: it is a window whenever windows are on (the 2.2 GiB heap's first
+        // address the GPU got lay in its first 64 MiB, and the heap was opened whole).
+        if (Windowed(device))
         {
             bytes = Math.Min(SectionHeaps.LazyWindowBytes, size - (ulong)(key - allocation));
         }
@@ -167,7 +169,7 @@ internal sealed unsafe class XboxGameMemoryBuffers
     /// </summary>
     private nint Key(nint device, nint allocation, ulong address)
     {
-        if (!Binding.WindowFeedback.Enabled || !CanWindow(device))
+        if (!Windowed(device))
         {
             return allocation;
         }
@@ -175,6 +177,12 @@ internal sealed unsafe class XboxGameMemoryBuffers
         ulong window = ((address - (ulong)allocation) / SectionHeaps.LazyWindowBytes) * SectionHeaps.LazyWindowBytes;
 
         return allocation + (nint)window;
+    }
+
+    /// <summary>Whether allocations open by window: <c>--evict-windows</c> on a device with ID3D12Device13.</summary>
+    private bool Windowed(nint device)
+    {
+        return Binding.WindowFeedback.Enabled && CanWindow(device);
     }
 
     /// <summary>Whether the device opens part of an allocation as a heap (ID3D12Device13); asked once.</summary>
