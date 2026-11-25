@@ -436,7 +436,7 @@ public sealed class Recording : IDisposable
             filter = sampler.Linear ? Filter.ComparisonMinMagMipLinear : Filter.ComparisonMinMagMipPoint;
         }
 
-        var description = new SamplerDescription(filter, TextureAddressMode.Clamp, TextureAddressMode.Clamp, TextureAddressMode.Clamp)
+        var description = sampler.Description ?? new SamplerDescription(filter, TextureAddressMode.Clamp, TextureAddressMode.Clamp, TextureAddressMode.Clamp)
         {
             ComparisonFunction = ComparisonFunction.LessEqual,
         };

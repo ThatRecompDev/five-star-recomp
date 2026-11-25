@@ -18,12 +18,18 @@ internal sealed class WindowState
         _facts = new Dictionary<string, ValueFact>(StringComparer.Ordinal);
     }
 
-    private WindowState(Dictionary<string, ValueFact> facts, bool allocated, bool phaseTwo)
+    private WindowState(Dictionary<string, ValueFact> facts, bool allocated, bool phaseTwo, bool fastWaves)
     {
         _facts = new Dictionary<string, ValueFact>(facts, StringComparer.Ordinal);
         Allocated = allocated;
         PhaseTwo = phaseTwo;
+        FastWaves = fastWaves;
     }
+
+    /// <summary>
+    /// Fast waves (TranslationOptions.FastWaves): each hardware wave's <c>readfirstlane</c> is taken for its console wave's.
+    /// </summary>
+    public bool FastWaves { get; init; }
 
     /// <summary>GS_ALLOC_REQ ran on every path here.</summary>
     public bool Allocated { get; set; }
@@ -49,9 +55,15 @@ internal sealed class WindowState
         _facts[name] = fact;
     }
 
+    /// <summary>The same facts read without fast waves.</summary>
+    public WindowState Strict()
+    {
+        return new WindowState(_facts, Allocated, PhaseTwo, false);
+    }
+
     public WindowState Clone()
     {
-        return new WindowState(_facts, Allocated, PhaseTwo);
+        return new WindowState(_facts, Allocated, PhaseTwo, FastWaves);
     }
 
     /// <summary>Weakens this state to what also holds in <paramref name="other"/>; true when anything changed.</summary>

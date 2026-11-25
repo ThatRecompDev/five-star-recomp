@@ -214,7 +214,7 @@ The D3D12.X layer creates the views and samplers, so it decides what descriptor 
 | Descriptor | Meaning in translated code |
 |---|---|
 | T# dword0 | `ResourceDescriptorHeap` index |
-| S# dword0 | `SamplerDescriptorHeap` index (`sampler_slot`: at most the heap's last); an S# built from literal constants gets `STATIC_SAMPLER_BASE + k` and its words are listed at the top of the program. An S# loaded through a 32-bit pointer (the s_load dword an image instruction samples with, `SamplerLoads`) reads the sampler heap's records (`SamplerPtrLoad`): pointers are relative to their own heap, each based at 0, and Scaleform's FTexTG programs read their S# at a root constant + index × 16 |
+| S# dword0 | `SamplerDescriptorHeap` index (`sampler_slot`: at most the heap's last); an S# built from literal constants gets the slot its words and use give (`StaticSampler`, from `STATIC_SAMPLER_BASE`) and is listed at the top of the program; one with FORCE_UNNORMALIZED or FORCE_DEGAMMA set (applied in the shader; none in the corpus) refuses the program. An S# loaded through a 32-bit pointer (the s_load dword an image instruction samples with, `SamplerLoads`) reads the sampler heap's records (`SamplerPtrLoad`): pointers are relative to their own heap, each based at 0, and Scaleform's FTexTG programs read their S# at a root constant + index × 16 |
 | T# / V# dword0 heap index | `view_slot` / `uav_slot`: an index past the desktop view heap names the null SRV or UAV of unmapped pages. A texture goes through `tex_slot` (`NullTextureSlots`): an index below `FIVESTAR_FIRST_GAME_VIEW` (the loader's 21: the reserved buffers 0 to 9, then a null SRV per dimension and a null UAV per writable one at 10 to 20) or past the heap reads the null texture of its own dimension, never a buffer as a texture (a zero T# named the raw window at slot 0; XCL reports a zero T# indexing slot 0 hung NVIDIA). Without the define (offline) only the heap's end applies |
 | V# base (dword0, dword1 bits 0-15) | a console GPU address, found in the address map (`buf_view`): the D3D12.X shim's records of read-only buffer views of game memory hold the view's address as the console's do, so a program can build pointers from it; base_hi 0: dword0 is a heap index (records of buffers the desktop placed, or `--buffer-records-heap-index`) |
 | V# dword1 bits 16-29 / dword3 | stride (idxen) / hardware format word: gfx10 unified format (bits 12-18, decoded by `buf_code`) and destination swizzle (bits 0-11, `fmt_swizzle`, loads only) |
@@ -579,7 +579,16 @@ What cannot be emulated:
   memory and no barrier, so the value exists in no wave that could share it. Example: a wave64 reduction that ends with
   `v_readlane 32` or `63` on a 32-lane GPU.
 - Mesh programs the window analysis rejects run correctly on narrower waves only in the superstep form or, without
-  mesh shaders, the pinned or superstep fallback.
+  mesh shaders, the pinned or superstep fallback. `--fast-waves` (`TranslationOptions.FastWaves`, off by default, in
+  the program cache identity) trades that for speed, approximately: such a program keeps the native form when it passes
+  with each hardware wave's `readfirstlane` taken for its console wave's and its branches on "any lane" of a mask or a
+  ballot decided per hardware wave, and reads no lane by number (`vw_read`, `vw_count`, native wave operations, shared
+  LDS). A path a hardware wave skips must still change nothing read after it, as for the exact analysis; a skip whose
+  path writes scalars read after it is taken by every hardware wave instead (a jump replaces the branch), as the
+  console takes it whenever another of its lanes is active. Its header says
+  `// fast waves: approximate on narrower hardware waves: <why the exact analysis refused>`, and the loader logs it.
+  Of the 2,540 mesh programs that need their whole console wave, 1,399 run this way (none of 049945c2, 04a7a7b5,
+  LinearDepthSkin: their GS_ALLOC_REQ counts are the whole console wave's); the other 1,141 keep the superstep form.
 - Mesh lane numbers assume `SV_GroupIndex` fills hardware lanes in order. Drivers do this; D3D12 does not promise it.
 
 ## Runtime headers
@@ -598,7 +607,7 @@ cost tens of minutes.
 ```
 fivestar shader translate <program.fssm | folder> <out> [--cache <dir>] [--retry results.json]
                           [--stages ps,vs,cs,ms,gs] [--jobs N] [--limit N] [--step K] [--no-compile] [--dispatch]
-                          [--native-waves] [--mesh-fallbacks] [--plain-supersteps] [--waves min-max,...] [--first-used <pipelines-used.bin>]
+                          [--native-waves] [--mesh-fallbacks] [--plain-supersteps] [--fast-waves] [--waves min-max,...] [--first-used <pipelines-used.bin>]
                           [--llvm-disassembler] [--llvm <folder>] [--dxc <path>] [--backend hlsl|dxil|dxil-only]
 ```
 

@@ -82,11 +82,7 @@ internal sealed partial class ProgramEmitter
             lines.Add("#include \"rdna_bvh.hlsli\"");
         }
 
-        for (var slot = 0; slot < _state.StaticSamplers.Count; slot++)
-        {
-            var words = string.Join(" ", _state.StaticSamplers[slot].Select(word => word.ToString("x8", System.Globalization.CultureInfo.InvariantCulture)));
-            lines.Add($"// static sampler {slot}: S# = {words}");
-        }
+        lines.AddRange(_state.StaticSamplers.Select(sampler => sampler.Line));
 
         lines.Add(string.Empty);
 
@@ -131,20 +127,67 @@ internal sealed partial class ProgramEmitter
         if (_state.Stage == ShaderStage.Mesh)
         {
             lines.Add("#define VW_GROUP_LANES 1");
-
-            // The other lanes of a mesh wave are live threads of other hardware waves (see WindowAnalysis).
-            var reason = new WindowAnalysis(_state.Blocks, _state.Prologue, _state.MeshThreads).Check();
-
-            if (reason is not null)
-            {
-                floor = wave;
-                lines.Insert(0, WaveOps.NarrowerLine(reason));
-            }
+            floor = MeshFloor(lines, wave, floor);
         }
 
         lines.Insert(0, WaveOps.FloorLine(wave, floor));
 
         return lines;
+    }
+
+    /// <summary>
+    /// A mesh program's floor: the other lanes of its wave are live threads of other hardware waves (see WindowAnalysis),
+    /// so it needs its whole wave unless the analysis shows otherwise, or fast waves take it approximately.
+    /// </summary>
+    private int MeshFloor(List<string> lines, int wave, int floor)
+    {
+        var reason = new WindowAnalysis(_state.Blocks, _state.Prologue, _state.MeshThreads).Check();
+
+        if (reason is null)
+        {
+            return floor;
+        }
+
+        if (_state.FastWaves)
+        {
+            var fast = new WindowAnalysis(_state.Blocks, _state.Prologue, _state.MeshThreads) { FastWaves = true };
+
+            if (fast.Check() is null)
+            {
+                lines.Insert(0, WaveOps.FastLine(reason));
+                EnterAlways(fast.EnteredAlways);
+
+                return floor;
+            }
+        }
+
+        lines.Insert(0, WaveOps.NarrowerLine(reason));
+
+        return wave;
+    }
+
+    /// <summary>Fast waves: the skips every window takes become jumps into the path they skip (WindowAnalysis.EntersAlways).</summary>
+    private void EnterAlways(IReadOnlyDictionary<int, int> paths)
+    {
+        for (var index = 0; index < _state.Blocks.Count; index++)
+        {
+            var block = _state.Blocks[index];
+
+            if (!paths.TryGetValue(block.Address, out var path))
+            {
+                continue;
+            }
+
+            var lines = new List<string>(block.Lines);
+            var branch = lines.FindLastIndex(line => BranchPattern().IsMatch(line));
+
+            if (branch >= 0)
+            {
+                lines[branch] = $"  pc = {Hlsl.Hex(path)};";
+            }
+
+            _state.Blocks[index] = new CodeBlock(block.Address, lines, new BlockExit(BlockExitKind.Jump, path, null, null));
+        }
     }
 
     /// <summary>Vertex attributes the driver's fetch shader would load (table @0x138); the pipeline binds ATTR&lt;n&gt;.</summary>
@@ -290,6 +333,9 @@ internal sealed partial class ProgramEmitter
 
         return text.Replace("\nOut main(", "\n[WaveOpsIncludeHelperLanes]\nOut main(", StringComparison.Ordinal);
     }
+
+    [GeneratedRegex(@"^\s*pc = \(.*\) \? 0x[0-9a-f]+ : 0x[0-9a-f]+;\s*$")]
+    private static partial Regex BranchPattern();
 
     [GeneratedRegex(@"\bf32tof16\(")]
     private static partial Regex F32ToF16Pattern();

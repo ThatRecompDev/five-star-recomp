@@ -32,6 +32,7 @@ public static class PixelMemoryCases
             GlobalPointers(),
             .. Formats(),
             ImageLoadSample(),
+            LiteralSamplers(),
             ImageLoadInteger(),
             ImageSampleLinear(),
             ImageGatherAtLevel(),
@@ -223,6 +224,75 @@ public static class PixelMemoryCases
         {
             Bindings = bindings,
         };
+    }
+
+    // Two S#s built from literals (a root signature's static samplers): clamp with point filtering, read past the right
+    // edge, and a less-or-equal comparison sampler. Each gets the sampler its words describe at the slot they give
+    // (StaticSampler); before, every literal S# read one trilinear wrap sampler without comparison.
+    private static PixelCase LiteralSamplers()
+    {
+        const string Program = """
+            v_cvt_u32_f32_e32 v10, v2
+            v_cvt_u32_f32_e32 v11, v3
+            v_and_b32_e32 v10, 3, v10
+            v_and_b32_e32 v11, 3, v11
+            v_cvt_f32_u32_e32 v12, v10
+            v_cvt_f32_u32_e32 v13, v11
+            v_add_f32_e32 v12, 0.5, v12
+            v_add_f32_e32 v13, 0.5, v13
+            v_mul_f32_e32 v12, 0x3e800000, v12
+            v_mul_f32_e32 v13, 0x3e800000, v13
+            v_add_f32_e32 v14, 1.0, v12
+            v_mov_b32_e32 v15, v13
+            s_mov_b32 s8, 0x92
+            s_mov_b32 s9, 0xc00000
+            s_mov_b32 s10, 0x14000000
+            s_mov_b32 s11, 0
+            image_sample_lz v[20:23], v[14:15], s[0:7], s[8:11] dmask:0xf dim:SQ_RSRC_IMG_2D
+            s_mov_b32 s12, 0x3092
+            s_mov_b32 s13, 0xc00000
+            s_mov_b32 s14, 0x14000000
+            s_mov_b32 s15, 0
+            v_mov_b32_e32 v16, 0.5
+            v_mov_b32_e32 v17, v12
+            v_mov_b32_e32 v18, v13
+            image_sample_c_lz v24, v[16:18], s[16:23], s[12:15] dmask:0x1 dim:SQ_RSRC_IMG_2D
+            s_waitcnt vmcnt(0)
+            """;
+        var bindings = new Bindings
+        {
+            UserSgprs = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3],
+            Textures =
+            [
+                new TextureResource(2, Format.R32G32B32A32_Float, 4, 4, FloatTexture()),
+                new TextureResource(3, Format.R32_Float, 4, 4, [.. Enumerable.Range(0, 16).Select(index => F((index + 0.5) / 16))]),
+            ],
+            Samplers = [LiteralSampler([0x92, 0xc00000, 0x14000000, 0], comparison: false), LiteralSampler([0x3092, 0xc00000, 0x14000000, 0], comparison: true)],
+        };
+
+        // The clamped sample reads column 3; the compare of 0.5 passes from texel 8 on (less or equal).
+        return new PixelCase("literal_samplers", Program, 5, pixel => [.. Texel(3, pixel.Y & 3), Lit((pixel.X & 3) + (4 * (pixel.Y & 3)))])
+        {
+            Bindings = bindings,
+        };
+    }
+
+    private static uint Lit(int texel)
+    {
+        if (texel >= 8)
+        {
+            return F(1);
+        }
+
+        return F(0);
+    }
+
+    /// <summary>The desktop sampler a literal S# gets, at its slot (StaticSampler, DesktopSampler).</summary>
+    private static SamplerResource LiteralSampler(uint[] words, bool comparison)
+    {
+        var description = System.Runtime.InteropServices.MemoryMarshal.Cast<uint, Vortice.Direct3D12.SamplerDescription>(Translation.DesktopSampler.Describe(words, comparison))[0];
+
+        return new SamplerResource(Translation.StaticSampler.SlotOf(words, comparison), Linear: false) { Description = description };
     }
 
     // image_load from an integer-format texture returns the raw integer bits (the known typed-view question).

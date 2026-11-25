@@ -50,7 +50,7 @@ public static class UnlitRenderer
 
         using var context = new CommandContext(device);
         using var arena = new ResourceArena(device);
-        using var heaps = new BindlessHeaps(device, UnlitBindings.ResourceSlots(batches.Count), HardwareSampler.SamplerHeapSlots);
+        using var heaps = new BindlessHeaps(device, UnlitBindings.ResourceSlots(batches.Count), FiveStar.Shaders.Translation.StaticSampler.FirstSlot + FiveStar.Shaders.Translation.StaticSampler.Slots);
         using var target = new RenderTarget(device, targets[0], width, height);
         using var depth = new DepthTarget(device, width, height, Depth(pipeline));
 
@@ -122,14 +122,13 @@ public static class UnlitRenderer
         }
     }
 
-    /// <summary>Creates the samplers the pixel program builds from literal S# words at STATIC_SAMPLER_BASE + k.</summary>
+    /// <summary>Creates the samplers the pixel program builds from literal S# words, each at its slot (StaticSampler).</summary>
     private static void StaticSamplers(BindlessHeaps heaps, TranslatedShader pixel)
     {
-        var samplers = HardwareSampler.StaticSamplers(pixel.Hlsl);
-
-        for (var slot = 0; slot < samplers.Count; slot++)
+        foreach (var sampler in FiveStar.Shaders.Translation.StaticSampler.Read(pixel.Hlsl))
         {
-            heaps.Sampler(HardwareSampler.Describe(samplers[slot]), HardwareSampler.StaticSamplerBase + slot);
+            var desc = FiveStar.Shaders.Translation.DesktopSampler.Describe(sampler.Words, sampler.Comparison);
+            heaps.Sampler(System.Runtime.InteropServices.MemoryMarshal.Cast<uint, Vortice.Direct3D12.SamplerDescription>(desc)[0], sampler.Slot);
         }
     }
 }

@@ -499,8 +499,16 @@ flowchart LR
 - **Remap** (`DescriptorRemap`). The game's 1,245,184 view descriptors fall into 304 pages; a page gets the next
   of the 244 desktop pages the first time a view is written in it (a lock only then; lookups read an array), and
   stays contiguous inside. Boot touches one page. Only views written past all 244 pages land in the sink (warned
-  once). The sampler heap gets 2048 samplers (the game asks for 128), game index = desktop index; 2032 to 2047
-  (`STATIC_SAMPLER_BASE`) hold a trilinear wrapping sampler for the programs' literal S#s.
+  once). The sampler heap gets 2048 samplers (the game asks for 128), game index = desktop index; 1024 to 2047
+  (`STATIC_SAMPLER_BASE`) hold the samplers of the programs' literal S#s (the root signatures' static samplers the
+  console compiler bakes in): each S# and use (sample or depth compare) has the slot an FNV-1a hash of its words gives
+  (`StaticSampler`), so programs, processes and runs agree on it. Producers append each program's header lines to
+  `static-samplers.txt` beside its DXIL (on demand, the compile host, `shader translate`/setup); `StaticSamplerHeap`
+  makes the samplers (`DesktopSampler`: comparison filter for a compare, min/max reduction, LOD and anisotropy as the
+  S# says) when the heap is attached, a folder is added and a program is loaded, and warns if two S#s share a slot.
+  Before, every slot held one trilinear wrap sampler, so clamp, border and point sampling were lost and depth compares
+  ran without a comparison sampler. The corpus has 18 such S#s in 6,011 programs (2,309 uses of a clamp
+  less-or-equal compare); a trilinear stand-in fills slots no program named.
 - **Copies (23, 24)** walk the ranges in runs both sides share. Inside one title-memory heap, and between the
   CPU-only view heaps and the shader-visible one, they copy records; into a title-memory heap from a desktop heap, a
   desktop copy per desktop run with the records written; out of one, a desktop copy of what each record names.

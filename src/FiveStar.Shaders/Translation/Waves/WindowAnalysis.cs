@@ -25,6 +25,7 @@ internal sealed partial class WindowAnalysis
     private readonly IReadOnlyList<string> _prologue;
     private readonly int _threads;
     private readonly Dictionary<int, WindowState> _entries = [];
+    private readonly Dictionary<int, int> _entersAlways = [];
 
     public WindowAnalysis(IReadOnlyList<CodeBlock> blocks, IReadOnlyList<string> prologue, int threads)
     {
@@ -32,6 +33,16 @@ internal sealed partial class WindowAnalysis
         _prologue = prologue;
         _threads = threads;
     }
+
+    /// <summary>
+    /// Fast waves (TranslationOptions.FastWaves): each window's <c>readfirstlane</c> is taken for the console's, a branch
+    /// on "any lane" of a mask or a ballot is the window's own (its skipped path checked as for a window without active
+    /// lanes), or a skip every window takes (<see cref="EnteredAlways"/>).
+    /// </summary>
+    public bool FastWaves { get; init; }
+
+    /// <summary>Fast waves: the blocks whose skip every window takes (<see cref="EntersAlways"/>), with the path it enters.</summary>
+    public IReadOnlyDictionary<int, int> EnteredAlways => _entersAlways;
 
     /// <summary>Null when every window gives console results, else the first reason found why not.</summary>
     public string? Check()
@@ -43,7 +54,14 @@ internal sealed partial class WindowAnalysis
             return $"lanes share memory: {shared.Text}";
         }
 
-        var start = new WindowState();
+        var read = _graph.Blocks.SelectMany(block => block.Statements).FirstOrDefault(statement => FastWaves && statement.Calls.Any(IsLaneRead));
+
+        if (read is not null)
+        {
+            return $"reads a lane by number: {read.Text}";
+        }
+
+        var start = new WindowState { FastWaves = FastWaves };
         var transfer = new StatementTransfer(start, _threads);
 
         foreach (var line in _prologue)
@@ -125,7 +143,12 @@ internal sealed partial class WindowAnalysis
 
         var fact = ValueRules.Condition(condition, state);
 
-        if (fact.IsExact)
+        // Fast waves: a window may decide "any lane" for itself, but the path it skips must change nothing it reads after.
+        var fast = FastAnyPattern().Match(condition);
+        var skipChecked = state.FastWaves && fast.Success && !ValueRules.Condition(condition, state.Strict()).IsExact;
+        _entersAlways.Remove(block.Address);
+
+        if (fact.IsExact && !skipChecked)
         {
             Propagate(target, state, pending);
             Propagate(next, state, pending);
@@ -135,26 +158,44 @@ internal sealed partial class WindowAnalysis
 
         var any = AnyPattern().Match(condition);
 
-        if (!any.Success || !IsActiveTest(any.Groups["mask"].Value, state))
+        if (!skipChecked && (!any.Success || !IsActiveTest(any.Groups["mask"].Value, state)))
         {
             return HeldBranch(block, state, pending, fact.IsHeld);
         }
 
-        var (some, none) = (target, next);
+        return Skip(block, state, pending, fast, skipChecked);
+    }
+
+    /// <summary>
+    /// A branch on "any active lane": a window without one may skip the path its console wave runs, so both paths, run
+    /// with its lanes inactive, must change nothing it reads after they meet; with fast waves every window may take the
+    /// path instead (<see cref="EntersAlways"/>).
+    /// </summary>
+    private string? Skip(WindowBlock block, WindowState state, Queue<int> pending, Match any, bool fast)
+    {
+        var exit = block.Exit;
+        var (some, none) = ((int)exit.Target!.Value, (int)exit.Next!.Value);
 
         if (any.Groups["not"].Value.Length > 0)
         {
-            (some, none) = (next, target);
+            (some, none) = (none, some);
         }
 
         var join = _graph.Join(block.Address);
 
         if (join is null)
         {
-            return $"branch on {condition}: its paths meet only at the end";
+            return $"branch on {exit.Condition}: its paths meet only at the end";
         }
 
         var reason = new SkipRegion(_graph, some, join.Value, state, true).Check() ?? new SkipRegion(_graph, none, join.Value, state, false).Check();
+
+        if (reason is not null && fast && EntersAlways(block, any.Groups["mask"].Value, some, join.Value, state))
+        {
+            Propagate(some, state, pending);
+
+            return null;
+        }
 
         if (reason is not null)
         {
@@ -167,6 +208,58 @@ internal sealed partial class WindowAnalysis
         Propagate(some, holding, pending);
 
         return null;
+    }
+
+    /// <summary>
+    /// Fast waves: a skip whose path a window without active lanes cannot leave out (it writes scalars read after the
+    /// join) is taken by every window, as the console takes it whenever another of its lanes is active. That needs the
+    /// mask to be active (and a uniform value), so lanes outside it run the path inactive, and the path to pass for
+    /// such a lane but for its scalars. Exact but when no lane of the console wave is active: the console then skips.
+    /// </summary>
+    private bool EntersAlways(WindowBlock block, string mask, int some, int join, WindowState state)
+    {
+        if (mask.Length == 0 || (mask != WindowNames.Active && state.Get(mask).Kind != MaskKind.ActiveAnd) || Returns(some, block.Address, join))
+        {
+            return false;
+        }
+
+        if (new SkipRegion(_graph, some, join, state, true) { ScalarsRun = true }.Check() is not null)
+        {
+            return false;
+        }
+
+        _entersAlways[block.Address] = some;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether the path from <paramref name="start"/> comes back to <paramref name="branch"/> before <paramref name="join"/>:
+    /// the branch then tests a loop's exit, and a jump in its place would never leave the loop.
+    /// </summary>
+    private bool Returns(int start, int branch, int join)
+    {
+        var seen = new HashSet<int>();
+        var pending = new Stack<int>([start]);
+
+        while (pending.Count > 0)
+        {
+            var address = pending.Pop();
+
+            if (address == branch)
+            {
+                return true;
+            }
+
+            if (address == join || !seen.Add(address))
+            {
+                continue;
+            }
+
+            _graph.Find(address)?.Successors.ToList().ForEach(pending.Push);
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -223,6 +316,16 @@ internal sealed partial class WindowAnalysis
         }
     }
 
+    /// <summary>A call fast waves cannot take per window: another lane by number, a count, or a native wave operation.</summary>
+    private static bool IsLaneRead(string call)
+    {
+        return call is "vw_read" or "vw_read_fill" or "vw_count" or "vw_origin" || (call.StartsWith("Wave", StringComparison.Ordinal) && call != "WaveIsFirstLane");
+    }
+
     [GeneratedRegex(@"^(?<not>!?)vw_any\((?<mask>[A-Za-z_]\w*)\)$")]
     private static partial Regex AnyPattern();
+
+    // "Any lane" of a mask, or of a ballot's two halves, as fast waves see it.
+    [GeneratedRegex(@"^(?<not>!?)(?:vw_any\(\(?(?<mask>[A-Za-z_]\w*)\)?\)|\(?\([A-Za-z_]\w* \| [A-Za-z_]\w*\) != 0\)?)$")]
+    private static partial Regex FastAnyPattern();
 }
