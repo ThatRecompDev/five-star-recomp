@@ -50,6 +50,7 @@ internal static class SuperstepWriter
 
         lines.AddRange(Round(state, true, PhaseOneStep));
         lines.Add($"  SetMeshOutputCounts(min(g_ms_nv, {mesh.MaxVertices}u), min(g_ms_np, {mesh.MaxPrimitives}u));");
+        lines.AddRange(mesh.InitialPrimitives());
         lines.AddRange(Round(state, false, Step));
         lines.AddRange(mesh.CutEpilogue("ss_rounds > SS_ROUNDS"));
 

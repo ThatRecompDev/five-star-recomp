@@ -201,6 +201,7 @@ internal sealed class BodyWriter
         lines.AddRange(PhaseOneEnd);
 
         lines.Add($"  SetMeshOutputCounts(min(g_ms_nv, {_mesh.MaxVertices}u), min(g_ms_np, {_mesh.MaxPrimitives}u));");
+        lines.AddRange(_mesh.InitialPrimitives());
         lines.Add("  [loop] for (;;) {");
         lines.AddRange(phase(false));
 

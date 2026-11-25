@@ -50,6 +50,14 @@ public sealed class MeshRoundBoundTests : IClassFixture<WarpFixture>
         Assert.Contains("const uint SS_ROUNDS = 0x100u;", bounded, StringComparison.Ordinal);
         Assert.Contains("round bound 65536", runner.TranslateBarrierLoop(true, LoopCaps.Default), StringComparison.Ordinal);
 
+        // Every primitive starts culled after SetMeshOutputCounts, and an export's indices stay inside the vertex count.
+        foreach (string form in new[] { bounded, runner.TranslateBarrierLoop(false, LoopCaps.Default) })
+        {
+            int counts = form.IndexOf("SetMeshOutputCounts(", StringComparison.Ordinal);
+            Assert.Contains("prims[in_gi].cull = true;", form[counts..(counts + 300)], StringComparison.Ordinal);
+            Assert.Contains("tris[in_gi] = min(_i, _n - 1u); prims[in_gi].cull = (_p >> 31) != 0 || any(_i >= _n);", form, StringComparison.Ordinal);
+        }
+
         // With the default caps and the budget, a garbage count still ends (in 256 rounds).
         Assert.NotEmpty(runner.RunBarrierLoop(true, 0x80000000u, LoopCaps.Default, roundsPerStop: 4));
     }
