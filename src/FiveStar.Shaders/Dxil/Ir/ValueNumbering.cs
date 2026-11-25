@@ -288,7 +288,7 @@ public static class ValueNumbering
     }
 
     /// <summary>What an instruction computes: its operator, codes, types and operands (by reference; constants are interned).</summary>
-    private sealed class Key : IEquatable<Key>
+    internal sealed class Key : IEquatable<Key>
     {
         private readonly Instruction _instruction;
         private readonly int _hash;

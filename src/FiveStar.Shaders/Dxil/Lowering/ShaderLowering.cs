@@ -62,6 +62,11 @@ public static class ShaderLowering
 
         DeadCode.Remove(main);
 
+        if (DxilBackend.Optimize)
+        {
+            Simplifier.Run(main, module);
+        }
+
         context.Graphics?.RecordUsage(main);
         context.Mesh?.RecordUsage(main);
         context.Geometry?.RecordUsage(main);
