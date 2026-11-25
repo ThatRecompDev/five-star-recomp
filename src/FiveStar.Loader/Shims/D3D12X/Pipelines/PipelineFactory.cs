@@ -619,6 +619,9 @@ internal sealed unsafe class PipelineFactory
         }
 
         long limit = PipelineHost.MemoryLimit(WarmMemoryGuard.AvailablePhysical(), CompileBudget.VendorId);
+
+        // Start and end in the log, not only as details: a host's driver compile overlaps whatever else the GPU does.
+        ShimContext.Log?.Info($"  [d3d12_xs] pipeline host: {what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL) started, limit {limit >> GigabyteShift} GB");
         var result = host.Build(request, stream, limit, PipelineHost.DefaultTimeLimit);
         string line = $"[d3d12_xs] pipeline host: {what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL) {result.Outcome} (0x{result.HResult:x8}) after {result.Seconds:F0} s, peak {result.PeakBytes >> GigabyteShift} GB of {limit >> GigabyteShift} GB";
 
@@ -638,7 +641,7 @@ internal sealed unsafe class PipelineFactory
 
         if (!result.Killed)
         {
-            ShimContext.Log?.Detail("  " + line);
+            ShimContext.Log?.Info("  " + line);
 
             return null;
         }
