@@ -52,8 +52,8 @@ internal static unsafe class DepthTwins
 
     public static bool Enabled { get; set; }
 
-    /// <summary>Whether any depth texture has a twin.</summary>
-    public static bool Any => !Twins.IsEmpty;
+    /// <summary>Whether twins are on and any depth texture has one (twins a test made with the option off do not count).</summary>
+    public static bool Any => Enabled && !Twins.IsEmpty;
 
     /// <summary>Whether a UAV of <paramref name="viewFormat"/> on a depth texture takes a twin.</summary>
     public static bool Twinned(int viewFormat)
@@ -201,7 +201,7 @@ internal static unsafe class DepthTwins
 
             uint table = userData[entry.Sgpr];
 
-            for (uint i = 0; i < entry.Records && table + ((i + 1) * DescriptorWindow.ViewRecordBytes) <= DescriptorWindow.RecordsEnd; i++)
+            for (uint i = 0; i < entry.Records && (ulong)table + ((i + 1UL) * DescriptorWindow.ViewRecordBytes) <= DescriptorWindow.RecordsEnd; i++)
             {
                 uint? index = DebugLayer.DepthUavs.HeapIndex((uint*)(window + table + (i * DescriptorWindow.ViewRecordBytes)));
 
