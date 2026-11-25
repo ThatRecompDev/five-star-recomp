@@ -87,13 +87,37 @@ internal sealed unsafe class AddressShaderViews
         return texture;
     }
 
+    /// <summary>
+    /// The format the desktop view of a registered texture at the view's address reads in (<see cref="ViewFormats.ForView"/>);
+    /// <see cref="ViewFormats.Unknown"/> when no registered texture answers it (one made for the view reads in its own).
+    /// </summary>
+    public int ReadFormat(ResourceDescription* resource, AddressViewDescription* view)
+    {
+        if (resource == null || view == null || view->Address == 0 || IsBuffer(resource))
+        {
+            return ViewFormats.Unknown;
+        }
+
+        var texture = _textures.Registry.Find(view->Address);
+
+        if (texture is null || !(texture.Matches(view->Address, *resource) || (texture.GpuWritten && texture.SameExtent(view->Address, *resource))))
+        {
+            return ViewFormats.Unknown;
+        }
+
+        return ViewFormats.ForView(texture.DesktopFormat, DepthFormats.ShaderView(view->Format));
+    }
+
     /// <summary>Counts a view that reads in another format than the game asked for, and names each pair of formats once.</summary>
     private void NoteLoss(GpuTexture texture, int viewFormat, int created)
     {
         var loss = ViewFormats.Loss(texture.DesktopFormat, viewFormat, created);
 
-        // A format with a render-target substitute is read in the substitute on purpose (TargetFormats).
-        if (loss == ViewFormatLoss.None || TargetFormats.HasSubstitute(viewFormat))
+        // A format with a render-target substitute is read in the substitute on purpose (TargetFormats); a shared-exponent
+        // view of an R32_UINT texture is decoded by the program (--typed-image-views).
+        bool decoded = Binding.ImageViewClasses.Read(Binding.BufferRecord.None, viewFormat, created).ImageClass == Binding.ImageViewClasses.SharedExponent;
+
+        if (loss == ViewFormatLoss.None || TargetFormats.HasSubstitute(viewFormat) || decoded)
         {
             return;
         }
