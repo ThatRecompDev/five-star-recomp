@@ -60,6 +60,9 @@ internal sealed unsafe class DrawTrace
     /// <summary>D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV and ID3D12Device::GetDescriptorHandleIncrementSize (d3d12.h).</summary>
     private const int ViewHeapType = 0;
 
+    /// <summary>Watched-target readbacks per frame (a 2560x1440 RGBA16F one is 28 MB, under the probes' 512 MB cap).</summary>
+    private const int WatchReads = 16;
+
     /// <summary>D3D12_RESOURCE_DIMENSION_TEXTURE3D.</summary>
     private const int Texture3D = 4;
     private const int IncrementSlot = 15;
@@ -67,6 +70,8 @@ internal sealed unsafe class DrawTrace
     private readonly TracedViews _views = new();
     private readonly ConcurrentDictionary<nint, ulong> _constantBuffers = new();
     private readonly ConcurrentDictionary<nint, (nint Resource, int Home)> _targetViews = new();
+    private readonly ConcurrentDictionary<nint, int> _watched = new();
+    private int _watchReads;
     private readonly ConcurrentDictionary<nint, (int Game, int View)> _viewFormats = new();
     private readonly ConcurrentDictionary<nint, string> _targetDescriptions = new();
     private readonly ConcurrentDictionary<nint, int> _dumped = new();
@@ -233,6 +238,74 @@ internal sealed unsafe class DrawTrace
         // Described while alive: the census reports targets the game may have released since.
         _targetDescriptions[desktop] = Describe(desktop);
         _targetWidths[desktop] = Width(desktop);
+
+        var shape = WatchShape;
+
+        if (shape.HasValue && Shape(desktop, shape.Value))
+        {
+            _watched[desktop] = home;
+        }
+    }
+
+    /// <summary>
+    /// <c>--d3d12-watch-target WxH:format</c>: in the frame after a captured present, each draw or ExecuteIndirect that
+    /// renders into a target of this shape, and each traced dispatch or compute ExecuteIndirect (a UAV writer), reads the
+    /// target back after it (at most <see cref="WatchReads"/> per frame), labelled with the pipeline: the first writer
+    /// after which a channel jumps or turns NaN names the pass.
+    /// </summary>
+    public static TargetShape? WatchShape { get; set; }
+
+    /// <summary>Reads back the watched targets after the work just recorded on <paramref name="list"/>.</summary>
+    private void Watch(XboxObject* list, DrawTraceList state, string what, bool boundOnly)
+    {
+        if (WatchShape is null || _watched.IsEmpty || !Volatile.Read(ref _filterOpen))
+        {
+            return;
+        }
+
+        foreach (var (resource, home) in WatchedTargets(state, boundOnly))
+        {
+            if (Interlocked.Increment(ref _watchReads) > WatchReads)
+            {
+                return;
+            }
+
+            int current = _d3d12.ListStates.Find(list)?.Current(resource, home) ?? home;
+            string label = $"watch {what} {Label(RectangleListState.Of(list)->Pipeline)} (target 0x{resource:x})";
+            _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, resource, current, label, (nint)list, state.Resets);
+            Interlocked.CompareExchange(ref _reportAt, Volatile.Read(ref _lastPresent) + ReportDelay, 0);
+        }
+    }
+
+    /// <summary>The watched targets the list renders into, or with <paramref name="boundOnly"/> false all of them.</summary>
+    private List<(nint Resource, int Home)> WatchedTargets(DrawTraceList state, bool boundOnly)
+    {
+        if (!boundOnly)
+        {
+            return [.. _watched.Select(pair => (pair.Key, pair.Value))];
+        }
+
+        var bound = new List<(nint Resource, int Home)>();
+
+        foreach (nint handle in state.Targets)
+        {
+            if (_targetViews.TryGetValue(handle, out var target) && _watched.TryGetValue(target.Resource, out int home))
+            {
+                bound.Add((target.Resource, home));
+            }
+        }
+
+        return bound;
+    }
+
+    /// <summary>Whether desktop <paramref name="resource"/> has the width, height and format of <paramref name="shape"/>.</summary>
+    private static bool Shape(nint resource, TargetShape shape)
+    {
+        Marshal.AddRef(resource);
+        using var desktop = new ID3D12Resource(resource);
+        var description = desktop.Description;
+
+        return shape.Matches(description.Width, description.Height, (int)description.Format);
     }
 
     /// <summary>
@@ -502,6 +575,7 @@ internal sealed unsafe class DrawTrace
         }
 
         state.ProbeDispatch = false;
+        Watch(list, state, "dispatch", boundOnly: false);
         ProbeRecords(list, state, compute: true);
         Interlocked.CompareExchange(ref _reportAt, Volatile.Read(ref _lastPresent) + ReportDelay, 0);
     }
@@ -561,12 +635,15 @@ internal sealed unsafe class DrawTrace
     /// <summary>After a traced ExecuteIndirect: its first two render targets and its depth target are read back in the list.</summary>
     public void AfterIndirect(XboxObject* list)
     {
-        if (!_indirectProbes.TryRemove((nint)list, out _))
+        // A traced one may write the watched target through a UAV, so it reads them all back; others only those it renders into.
+        bool traced = _indirectProbes.TryRemove((nint)list, out _);
+        var state = List(list);
+        Watch(list, state, "indirect", boundOnly: !traced);
+
+        if (!traced)
         {
             return;
         }
-
-        var state = List(list);
 
         foreach (nint handle in state.Targets.Take(TargetsReadBack).Append(state.DepthStencil))
         {
@@ -610,6 +687,7 @@ internal sealed unsafe class DrawTrace
     {
         long draw = Interlocked.Read(ref _draws);
         var state = List(list);
+        Watch(list, state, $"draw {draw}", boundOnly: true);
 
         bool traced = state.ProbeNext;
         state.ProbeNext = false;
@@ -656,6 +734,7 @@ internal sealed unsafe class DrawTrace
 
         if (wanted)
         {
+            Volatile.Write(ref _watchReads, 0);
             Volatile.Write(ref _windowEnd, Interlocked.Read(ref _draws) + WindowDraws);
             _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"), standIn => _d3d12.Pipelines?.StandIns.State(standIn) ?? "unknown");
         }

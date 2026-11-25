@@ -81,6 +81,19 @@ public sealed unsafe class DrawProbeReadbackTests
         Assert.Equal(18u, DrawProbes.PlaneSubresource(1, 3, 6));
     }
 
+    /// <summary>The watched target's shape: the lit HDR (2560x1440 RGBA16F) and nothing else of its size.</summary>
+    [Fact]
+    public void A_watched_target_shape_parses_and_matches_only_its_size_and_format()
+    {
+        var shape = TargetShape.Parse("2560x1440:10");
+
+        Assert.NotNull(shape);
+        Assert.True(shape.Value.Matches(2560, 1440, 10));
+        Assert.False(shape.Value.Matches(2560, 1440, 28));
+        Assert.Null(TargetShape.Parse("2560x1440"));
+        Assert.Null(TargetShape.Parse("hdr"));
+    }
+
     /// <summary>A 3D volume and a 2D view of its first slice read apart in the trace (the scattering distance volume).</summary>
     [Fact]
     public void A_traced_resource_shows_its_depth_slices_and_mips()

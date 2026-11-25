@@ -380,6 +380,8 @@ internal sealed class LoaderHost
         Shims.D3D12X.DebugLayer.DrawTrace.ProbeTraced = _options.D3D12ProbeTraced;
         Shims.D3D12X.DebugLayer.TraceRecords.Offsets = _options.D3D12TraceRecords;
 
+        Shims.D3D12X.DebugLayer.DrawTrace.WatchShape = _options.D3D12WatchTarget;
+
         ApplyBindingOptions();
 
         Shims.D3D12X.RetireWaits.Enable(_options.RetireWaitsAllQueues, _log);

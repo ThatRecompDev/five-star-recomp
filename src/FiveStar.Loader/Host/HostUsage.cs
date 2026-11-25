@@ -160,6 +160,8 @@ internal static class HostUsage
           --d3d12-trace-records <offset,...>  for those draws, the window records at these byte offsets from each
                                  user SGPR holding a window offset: dwords, the V#/T# base's map state, a V#'s first values
                                  (offset@byte: also the dword at that byte of the V#'s buffer, e.g. 0x380@0x11c)
+          --d3d12-watch-target WxH:format  with the draw trace, every pass that renders into a target of this shape
+                                 (and each traced dispatch) reads it back after captured presents, e.g. 2560x1440:10
           --probe-pipeline <text>  mesh programs named with <text> are made with probe code: per group its output
                                  counts, culling, vertex 0's position and the load sites that read out of range,
                                  unmapped pages or null records, summed up at each captured present (--capture-presents);
