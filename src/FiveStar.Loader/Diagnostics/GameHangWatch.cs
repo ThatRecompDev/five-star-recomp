@@ -141,6 +141,20 @@ internal sealed unsafe class GameHangWatch
         }
     }
 
+    /// <summary>
+    /// Whether the game is loading: its loading-screen flag is set, or it started less than
+    /// <paramref name="young"/> ago (<paramref name="age"/>); false without the game's image.
+    /// </summary>
+    public static bool Loading(TimeSpan age, TimeSpan young)
+    {
+        if (!IsReadable(LoadingScreenAddress))
+        {
+            return false;
+        }
+
+        return age < young || *(byte*)LoadingScreenAddress != 0;
+    }
+
     private static string Describe()
     {
         ushort state = *(ushort*)(MainStatesAddress + StateOffset);

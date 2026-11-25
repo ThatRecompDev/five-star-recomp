@@ -62,7 +62,8 @@ internal static class HostUsage
                                  resource each (the driver's write-combined memory grew about 0.55 MB per texture)
           --max-driver-compiles <n>  driver pipeline compiles of 256 KB of DXIL or more at once (default 4)
           --compile-ceiling <GB> no such compile starts while private bytes and the running ones' expected arenas
-                                 would pass this (default 28); one always may when none runs
+                                 would pass this (default none: free RAM less the game's growth decides); one
+                                 always may when none runs
           --shader-backend <b>   dxil (default): programs made on first use compile with the DXIL backend, dxc
                                  for those it cannot lower or dxil.dll rejects; dxc: dxc for all
           --pipeline-cache <dir> disk cache of built pipelines (default: <work-dir>\pipeline-cache)

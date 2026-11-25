@@ -18,7 +18,11 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// the loader itself (<see cref="Configure"/>): at most <see cref="MaxCompiles"/> larger compiles at once, and none
 /// starts while the private bytes of the process (less its write-combined memory) and the compile host, the running
 /// ones' remaining need and its own
-/// estimate would pass <see cref="CeilingBytes"/>; one always may when none runs, so builds go on. Program work waits
+/// estimate would pass <see cref="CeilingBytes"/> (off by default); one always may when none runs, so builds go on.
+/// The physical reserve is the larger of 6 GB and the game's own RAM-backed growth over the last minute
+/// (<see cref="GrowthAllowance"/>), so compiles leave the game what it is about to take. Compiles of more than
+/// <see cref="LoadWindowShaderBytes"/> wait while the game loads (<see cref="LoadWindow"/>) unless a game thread or
+/// a command list waits for them. Program work waits
 /// while the compile host is large (<see cref="RoomForPrograms"/>), in a boot and in the warm-up alike. A cold boot to 450 s reached 40 GB
 /// private, 8 GB of it in the arenas of the 7 compiles that started at the story load.
 /// </summary>
@@ -30,8 +34,18 @@ internal static unsafe class CompileBudget
     /// <summary>The default of <see cref="MaxCompiles"/> (<c>--max-driver-compiles</c>).</summary>
     public const int DefaultMaxCompiles = 4;
 
-    /// <summary>The default of <see cref="CeilingBytes"/> (<c>--compile-ceiling</c>, in GB).</summary>
-    public const long DefaultCeilingBytes = 28L << 30;
+    /// <summary>The default of <see cref="CeilingBytes"/> (<c>--compile-ceiling</c>, in GB): none, free RAM decides.</summary>
+    public const long DefaultCeilingBytes = 0;
+
+    /// <summary>DXIL above which a compile waits during the load window, unless it is urgent.</summary>
+    public const long LoadWindowShaderBytes = 4L << 20;
+
+    /// <summary>The least physical memory compiles leave free.</summary>
+    public const long MinimumPhysicalReserve = 6L << 30;
+
+    /// <summary>Bounds of the game's expected growth (<see cref="GrowthAllowance"/>).</summary>
+    public const long MinimumGrowth = 2L << 30;
+    public const long MaximumGrowth = 10L << 30;
 
     /// <summary>
     /// Driver memory expected per byte of DXIL. Boot v3 measured 101 compiles of 256 KB to 1.94 MB (the private peak
@@ -45,15 +59,21 @@ internal static unsafe class CompileBudget
     private const long MinimumEstimate = 512L << 20;
 
     /// <summary>
-    /// The most one compile is expected to take. One foliage mesh pipeline (13 MB of DXIL) took about 20 GB of
-    /// nvgpucomp64 arenas by itself; an 8 GB cap let it start with 26 GB free and the working set rose by 20 GB in 6 s.
+    /// The most one compile is expected to take. The plain superstep form of the foliage mesh pipeline (13 MB of DXIL)
+    /// took about 20 GB of nvgpucomp64 arenas by itself; with the superstep carry (on by default) it is 2.75 MB and took
+    /// 6.4 GB, and the largest forms sampled are under 3 MB.
     /// </summary>
-    private const long MaximumEstimate = 32L << 30;
+    private const long MaximumEstimate = 16L << 30;
     private const int PauseMilliseconds = 500;
     private const double BytesPerGigabyte = 1L << 30;
     private const double BytesPerMegabyte = 1L << 20;
 
     private static readonly TimeSpan SampleInterval = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan GrowthInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan GrowthSpan = TimeSpan.FromSeconds(60);
+    private static readonly Queue<long> GrowthSamples = new();
+    private static readonly Lazy<Timer> GrowthSampler = new(() => new Timer(_ => SampleGrowth(), null, TimeSpan.Zero, GrowthInterval));
+    private static long _growthAllowance = MinimumGrowth;
     private static readonly ConcurrentDictionary<BuildMeasure, byte> Measures = new();
     private static readonly Lazy<Timer> Sampler = new(() => new Timer(_ => Sample(), null, SampleInterval, SampleInterval));
 
@@ -83,7 +103,7 @@ internal static unsafe class CompileBudget
     /// <summary>Counts the compile when it may start now; false, without waiting, when it may not. Pair a true with <see cref="Exit"/>.</summary>
     public static bool TryEnterNow(long shaderBytes)
     {
-        return TryEnter(Estimate(shaderBytes), shaderBytes < TinyShaderBytes, _urgentThread);
+        return TryEnter(shaderBytes, _urgentThread || _noWaitThread);
     }
 
     /// <summary>
@@ -107,6 +127,27 @@ internal static unsafe class CompileBudget
     {
         MaxCompiles = Math.Max(1, maxCompiles);
         CeilingBytes = ceilingBytes;
+    }
+
+    /// <summary>Whether the game is in its load window (the loading screen is up, or the boot is young); none by default.</summary>
+    public static Func<bool> LoadWindow { get; set; } = static () => false;
+
+    /// <summary>The game's expected RAM-backed growth: its growth over the last minute, within 2 and 10 GB.</summary>
+    public static long GrowthAllowance(long grownOverMinute)
+    {
+        return Math.Clamp(grownOverMinute, MinimumGrowth, MaximumGrowth);
+    }
+
+    /// <summary>The physical memory compiles leave free: at least 6 GB, else the game's expected growth.</summary>
+    public static long PhysicalReserve(long growthAllowance)
+    {
+        return Math.Max(MinimumPhysicalReserve, growthAllowance);
+    }
+
+    /// <summary>Whether a compile of <paramref name="shaderBytes"/> waits for the load window to end.</summary>
+    public static bool HeldForLoad(long shaderBytes, bool urgent, bool loadWindow)
+    {
+        return loadWindow && !urgent && shaderBytes > LoadWindowShaderBytes;
     }
 
     /// <summary>Private bytes of helper processes that count toward the ceiling: the compile host (<see cref="CompileHost"/>).</summary>
@@ -207,12 +248,11 @@ internal static unsafe class CompileBudget
     /// <summary>Waits until the compile may start, then counts it; pair with <see cref="Exit"/>.</summary>
     public static void Enter(long shaderBytes)
     {
-        long estimate = Estimate(shaderBytes);
-        bool urgent = _urgentThread;
+        bool urgent = _urgentThread || _noWaitThread;
         bool counted = false;
         using var wait = BlockingWaits.Enter("driver compile memory budget");
 
-        while (!TryEnter(estimate, shaderBytes < TinyShaderBytes, urgent))
+        while (!TryEnter(shaderBytes, urgent))
         {
             if (!counted)
             {
@@ -253,12 +293,15 @@ internal static unsafe class CompileBudget
         }
     }
 
-    /// <summary>Whether memory covers the reserves, <paramref name="estimate"/> and the running compiles' remaining need.</summary>
-    public static bool Room(long estimate, ulong availablePhysical, ulong commitHeadroom, long remaining)
+    /// <summary>
+    /// Whether memory covers the reserves (<paramref name="physicalReserve"/>, <see cref="PhysicalReserve"/>),
+    /// <paramref name="estimate"/> and the running compiles' remaining need.
+    /// </summary>
+    public static bool Room(long estimate, ulong availablePhysical, ulong commitHeadroom, long remaining, long physicalReserve)
     {
         ulong need = (ulong)(estimate + remaining);
 
-        return availablePhysical >= WarmMemoryGuard.PhysicalReserveBytes + need && commitHeadroom >= WarmMemoryGuard.ReserveBytes + need;
+        return availablePhysical >= (ulong)physicalReserve + need && commitHeadroom >= WarmMemoryGuard.ReserveBytes + need;
     }
 
     /// <summary>
@@ -273,11 +316,21 @@ internal static unsafe class CompileBudget
             return true;
         }
 
-        return runningLarge < maxCompiles && privateBytes + remaining + estimate <= ceilingBytes;
+        return runningLarge < maxCompiles && (ceilingBytes <= 0 || privateBytes + remaining + estimate <= ceilingBytes);
     }
 
-    private static bool TryEnter(long estimate, bool tiny, bool urgent)
+    private static bool TryEnter(long shaderBytes, bool urgent)
     {
+        long estimate = Estimate(shaderBytes);
+        bool tiny = shaderBytes < TinyShaderBytes;
+
+        if (!tiny && HeldForLoad(shaderBytes, urgent, LoadWindow()))
+        {
+            return false;
+        }
+
+        _ = GrowthSampler.Value;
+
         lock (Gate)
         {
             if (!tiny && !urgent && Volatile.Read(ref _urgentWaiting) > 0)
@@ -292,7 +345,9 @@ internal static unsafe class CompileBudget
             // ones counted as done and seven ran at once; boot w11b's working set rose by 20 GB in 30 s.
             long remaining = _expected;
 
-            if (!tiny && !Room(estimate, WarmMemoryGuard.AvailablePhysical(), WarmMemoryGuard.CommitAvailable(), remaining))
+            long reserve = PhysicalReserve(Interlocked.Read(ref _growthAllowance));
+
+            if (!tiny && !Room(estimate, WarmMemoryGuard.AvailablePhysical(), WarmMemoryGuard.CommitAvailable(), remaining, reserve))
             {
                 return false;
             }
@@ -311,6 +366,28 @@ internal static unsafe class CompileBudget
             }
 
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Samples the loader's RAM-backed private bytes (less its write-combined memory, the driver's mapping of video
+    /// memory) every 5 s; the growth over the last minute sets <see cref="GrowthAllowance"/>. Compiles running grow it
+    /// too, which only makes the reserve larger.
+    /// </summary>
+    private static void SampleGrowth()
+    {
+        long bytes = Math.Max(0, PrivateBytes() - Diagnostics.WriteCombinedMemory.CachedBytes);
+
+        lock (GrowthSamples)
+        {
+            GrowthSamples.Enqueue(bytes);
+
+            while (GrowthSamples.Count > (GrowthSpan / GrowthInterval) + 1)
+            {
+                GrowthSamples.Dequeue();
+            }
+
+            Interlocked.Exchange(ref _growthAllowance, GrowthAllowance(bytes - GrowthSamples.Min()));
         }
     }
 
