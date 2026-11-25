@@ -20,6 +20,7 @@ internal sealed partial class ProgramEmitter
     private const string OutStruct = "struct Out {";
     private const string SuperstepHeader = "rdna_superstep.hlsli";
     private const string SharedExponentHeader = "rdna_shared_exponent.hlsli";
+    private const string LiveLanesHeader = "rdna_live_lanes.hlsli";
     private const int DefaultComputeThreads = 64;
     private const int BytesPerDword = 4;
     private const int CodeLoadLine = 2;
@@ -56,6 +57,7 @@ internal sealed partial class ProgramEmitter
 
         lines.Add(entry + " {");
         _body.Write(lines);
+        ReadLiveLanes(lines);
 
         return Finish(string.Join("\n", lines) + "\n");
     }
@@ -319,6 +321,41 @@ internal sealed partial class ProgramEmitter
     }
 
     /// <summary>Program-wide rewrites: exact f16 rounding, helper lanes and rasterizer-ordered views for pixel shaders.</summary>
+    /// <summary>
+    /// A pixel program's cross-lane reads as reads of running lanes only (rdna_live_lanes.hlsli, written into the
+    /// program): a pixel wave the desktop fills partly leaves lanes unlaunched, which the console runs with what the
+    /// program gives a lane without a pixel. A compute group whose size is no multiple of 32 (avgLuminanceCompute's
+    /// one-thread LuminanceFromHDRBinkCS) takes them too; other groups fill their waves and keep <c>vw_read</c> as it is.
+    /// </summary>
+    private void ReadLiveLanes(List<string> lines)
+    {
+        // A compute group whose size is no multiple of 32 leaves a part-full last hardware wave as well.
+        const int FullWave = 32;
+
+        if (_state.Supersteps || (_state.Stage != ShaderStage.Pixel && !(_state.Stage == ShaderStage.Compute && _state.GroupThreads % FullWave != 0)))
+        {
+            return;
+        }
+
+        bool reads = false;
+
+        for (int i = 1; i < lines.Count; i++)
+        {
+            if (!lines[i].Contains("vw_read", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            lines[i] = lines[i].Replace("vw_read_fill(", "vw_read_fill_live(", StringComparison.Ordinal).Replace("vw_read(", "vw_read_live(", StringComparison.Ordinal);
+            reads = true;
+        }
+
+        if (reads)
+        {
+            lines[0] += "\n" + RuntimeIncludes.Read(LiveLanesHeader).TrimEnd('\n');
+        }
+    }
+
     private string Finish(string text)
     {
         // AMD rounds f32 to f16 to nearest even; HLSL f32tof16 rounding is implementation-defined.
