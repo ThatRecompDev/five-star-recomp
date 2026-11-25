@@ -74,6 +74,10 @@ flowchart LR
   is written by the CPU whenever it likes; Bink decodes every video frame into its Y, Cr and Cb planes (1920x1080
   and 3840x2160 R8, mapped once). Such textures are checked once a frame, at the first ExecuteCommandLists after a
   present, and uploaded when the hash changed. Before this the planes kept the zeros of their creation.
+- **GPU copies into a texture** (list slots 85, 86, `TextureCopies`) write only the desktop texture; on the console
+  they write its memory. Such a texture is no longer refreshed from memory (`GpuTexture.CopiedInto`, counted as
+  `UploadKeptCopy`), as victory-gta6 does: the 2048x2048 A8 glyph cache the controls hint samples is mapped, so the
+  frame check re-uploaded its memory, which lacks the copied glyphs, and letters went missing ("M d" for "Move").
 - **Buffer views** (`AddressBufferViews`): a slot-70 view with a buffer desc (or a texture desc without a format) is
   the game's desktop buffer SRV desc on the desktop buffer over the address (`XboxGameMemoryBuffers.TryFind`), its
   first element moved by the address's offset in that buffer; an address outside known memory, off the element size
