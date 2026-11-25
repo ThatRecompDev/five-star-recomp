@@ -35,7 +35,7 @@ internal sealed class ProgramSignatures
                 return known;
             }
 
-            var path = ProgramLoader.ContainerPath(Path.Combine(_programFolder, name + ProgramExtension));
+            var path = ProgramLoader.ContainerPath(Path.Combine(_programFolder, DebugLayer.MeshProbes.Source(name) + ProgramExtension));
             IReadOnlyList<SignatureElement>? inputs = null;
 
             if (File.Exists(path))

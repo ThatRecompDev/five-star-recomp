@@ -243,6 +243,11 @@ internal sealed unsafe class Presenter : IDisposable
         {
             Trace!.Report();
         }
+
+        if (plane)
+        {
+            DebugLayer.MeshProbes.Report(_presents, _log);
+        }
     }
 
     [HotPath]

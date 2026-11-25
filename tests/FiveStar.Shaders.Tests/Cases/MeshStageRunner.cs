@@ -40,6 +40,32 @@ public sealed partial class MeshStageRunner
     /// <summary>The superstep form through the mesh-to-compute fallback (GPUs without mesh shaders and narrow waves).</summary>
     public const string SuperstepFallback = "msfb_ngg_supersteps";
 
+    /// <summary>
+    /// The program with four loads first (results unused): a buffer of no records through the null page view (s[12:15]),
+    /// a good buffer (s[16:19]), a pointer whose page the address map has unmapped (s[20:21]) and a buffer through the
+    /// record naming no descriptor (s[24:27]), drawn with the probe (<see cref="RunProbed"/>).
+    /// </summary>
+    public const string Probe = "ms_ngg_probe";
+
+    private const string ProbeLoads = """
+        s_mov_b32 m0, s8
+        buffer_load_dword v20, off, s[12:15], 0
+        buffer_load_dword v21, off, s[16:19], 0
+        s_load_dword s30, s[20:21], 0x0
+        buffer_load_dword v22, off, s[24:27], 0
+        s_waitcnt vmcnt(0) lgkmcnt(0)
+        """;
+
+    private const int ProbeUserSgprs = 20;
+    private const int ProbeBufferWords = 64;
+    private const uint RawBuffer = 0x30000000;
+    private const uint UnmappedSlot = 8;
+    private const uint DataSlot = 3;
+    private const uint NullRecordSlot = 5;
+    private const uint AddressMapSlot = 7;
+    private const uint RingSlot = 1;
+    private const uint Records = 256;
+
     private const string RoundTrip = """
         v_xor_b32_e32 v30, 1, v1
         v_lshlrev_b32_e32 v30, 2, v30
@@ -189,6 +215,51 @@ public sealed partial class MeshStageRunner
         return mismatches;
     }
 
+    /// <summary>
+    /// Draws <see cref="Probe"/> with the probe code (<see cref="MeshProbe"/>, ring at the start of the writable window):
+    /// the image, the records the group wrote and the text of each load site. The address map names the null page view
+    /// for every address; the window's views at the slots the V#s name hold real buffers, so every load reads something.
+    /// </summary>
+    public (IReadOnlyList<string> Mismatches, IReadOnlyList<MeshProbeRecord> Records, IReadOnlyList<string> Sites) RunProbed(uint id)
+    {
+        var (mesh, sites) = MeshProbe.Instrument(Translate(Probe), id, 0);
+        var (pixelSource, _) = PassThroughPixelShader.Build(mesh, ["param0"], flat: true);
+        var pixel = _fixture.Workbench.Compile(Probe + "_ps", pixelSource, "ps");
+        var map = Enumerable.Repeat(UnmappedSlot, ProbeBufferWords).ToArray();
+        var bindings = new Bindings
+        {
+            UserSgprs =
+            [
+                (Primitives << 12) | Vertices, Culled, FloatBits.Of(AttributeBase), 0,
+                UnmappedSlot, 0, 0, RawBuffer,
+                DataSlot, 0, Records, RawBuffer,
+                0x100, 1, 0, 0,
+                NullRecordSlot, 0, Records, RawBuffer,
+            ],
+            Buffers =
+            [
+                new BufferResource((int)RingSlot, new uint[ProbeBufferWords], Writable: true),
+                new BufferResource((int)DataSlot, new uint[ProbeBufferWords], Writable: false),
+                new BufferResource((int)NullRecordSlot, new uint[ProbeBufferWords], Writable: false),
+                new BufferResource((int)AddressMapSlot, map, Writable: false),
+                new BufferResource((int)UnmappedSlot, new uint[ProbeBufferWords], Writable: false),
+            ],
+        };
+
+        // As the loader links a mesh program to its pixel shader, after the probe code went in.
+        var inputs = PsvSignatureParser.Parse(DxbcContainer.Parse(pixel).Find(PsvSignatureParser.ChunkCode)!.Data.Span).Inputs;
+        var linked = StageLinker.Link(mesh, inputs, dropUnread: true);
+        var result = _fixture.Runner.Mesh(new MeshJob(_fixture.Workbench.Compile(Probe, linked, "ms"), pixel, Framebuffer.Exact(1, Size, Size), bindings, 1));
+
+        var ring = result.Buffers[(int)RingSlot];
+        var image = Reference();
+        var records = Enumerable.Range(0, (int)ring[0])
+            .Select(index => MeshProbeRecord.Read(ring.AsSpan((int)(MeshProbe.RecordsOffset / sizeof(uint)) + (index * MeshProbeRecord.Dwords), MeshProbeRecord.Dwords)))
+            .ToList();
+
+        return (ImageCheck.Compare(result, Size, Size, (x, y, _) => image[y, x]), records, sites);
+    }
+
     /// <summary>The translated program (HLSL) of a variant.</summary>
     public string Translate(string variant)
     {
@@ -201,8 +272,16 @@ public sealed partial class MeshStageRunner
                 .Replace(PrimitiveRegion, PrimitiveRegion + "\nv_mov_b32 v32, s9\nv_readfirstlane_b32 s9, v32", StringComparison.Ordinal);
         }
 
+        var userSgprs = 4;
+
+        if (variant == Probe)
+        {
+            source = ProbeLoads + Program["s_mov_b32 m0, s8".Length..];
+            userSgprs = ProbeUserSgprs;
+        }
+
         var assembled = _fixture.Workbench.Assemble(variant, source, 64);
-        var config = new ShaderConfig { Stage = HardwareStage.Ngg, WaveSize = 64, UserSgprs = 4, Ngg = new NggConfig(8, 0, 0), LdsBytes = 4 };
+        var config = new ShaderConfig { Stage = HardwareStage.Ngg, WaveSize = 64, UserSgprs = userSgprs, Ngg = new NggConfig(8, 0, 0), LdsBytes = 4 };
         var pipeline = new PipelineStateInfo { Stage = "ms", NumThreads = new ThreadGroupSize(64, 1, 1), MaxVertices = MaxOutputs, MaxPrimitives = MaxOutputs };
         var program = new ShaderProgram(ShaderStage.Mesh, assembled.Instructions, assembled.Code, ShaderSignatures.None, config, pipeline);
 

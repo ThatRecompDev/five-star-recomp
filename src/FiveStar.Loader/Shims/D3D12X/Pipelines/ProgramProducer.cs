@@ -28,6 +28,7 @@ internal sealed class ProgramProducer
     private const string VariantDxilSuffix = ".w32.dxil";
     private const string NoForm = "no form: none loads on this adapter";
     private const string NoProgram = "missing: no extracted program file";
+    private const string NoProbe = "probe: not a mesh program the probe can take";
 
     // A compile failure with a source or validation diagnostic repeats; a crash or exhausted memory may not.
     private const string SourceError = ": error: ";
@@ -103,7 +104,7 @@ internal sealed class ProgramProducer
     /// <summary>Translates the program and picks its form; a refusal is kept.</summary>
     public ProgramForm Prepare(string name)
     {
-        var path = Path.Combine(_programs, name + ProgramExtension);
+        var path = Path.Combine(_programs, DebugLayer.MeshProbes.Source(name) + ProgramExtension);
 
         if (!File.Exists(path))
         {
@@ -146,6 +147,13 @@ internal sealed class ProgramProducer
             hlsl = DebugLayer.PoolStoreTrace.Header(name) + hlsl;
         }
 
+        hlsl = Probed(name, hlsl);
+
+        if (hlsl.Length == 0)
+        {
+            return Refused(name, NoProbe);
+        }
+
         hlsl = Header + hlsl;
         var slow = hlsl.Length > _compiler.Options.LargeSourceLength || _slow.Contains(source);
 
@@ -164,7 +172,7 @@ internal sealed class ProgramProducer
     /// </summary>
     public HostedMake MakeInHost(string name)
     {
-        if (Hosting is null || DebugLayer.PoolStoreTrace.Enabled)
+        if (Hosting is null || DebugLayer.PoolStoreTrace.Enabled || DebugLayer.MeshProbes.IsProbed(name))
         {
             return HostedMake.Here;
         }
@@ -261,7 +269,7 @@ internal sealed class ProgramProducer
             return File.ReadAllText(failurePath);
         }
 
-        var path = Path.Combine(_programs, name + ProgramExtension);
+        var path = Path.Combine(_programs, DebugLayer.MeshProbes.Source(name) + ProgramExtension);
 
         if (!File.Exists(path))
         {
@@ -314,6 +322,24 @@ internal sealed class ProgramProducer
         File.WriteAllText(Path.ChangeExtension(dxilPath, ".log"), outcome.Error, Encoding.UTF8);
 
         return $"link {ProgramStatus.CompileFailure}: {DxcCompiler.FirstError(outcome.Error)}";
+    }
+
+    /// <summary>A --probe-pipeline program's source with the probe code (empty when it cannot take it); any other as it is.</summary>
+    private string Probed(string name, string hlsl)
+    {
+        if (!DebugLayer.MeshProbes.IsProbed(name))
+        {
+            return hlsl;
+        }
+
+        try
+        {
+            return DebugLayer.MeshProbes.Instrument(name, hlsl, _folder);
+        }
+        catch (UnsupportedProgramException)
+        {
+            return string.Empty;
+        }
     }
 
     private string DxilPath(string name)

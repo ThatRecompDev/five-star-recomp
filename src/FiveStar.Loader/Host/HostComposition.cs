@@ -47,6 +47,7 @@ internal static class HostComposition
     public static PipelineFolders CreatePipelineFolders(HostOptions options)
     {
         CompileBudget.Configure(options.MaxDriverCompiles, options.CompileCeilingBytes);
+        Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
         string? cache = null;
 
         if (!options.NoPipelineCache)
