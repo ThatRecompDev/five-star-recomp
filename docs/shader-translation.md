@@ -239,7 +239,13 @@ emitter took the first operand of a v_cmpx for a destination, so it compared the
 
 `s_getpc; s_add_u32/s_sub_u32; s_addc_u32/s_subb_u32; s_setpc` on one register pair is a long branch and becomes a
 static branch to the `s_getpc` address + 4 + C. Other `s_setpc`/`s_swappc` (indirect jumps) are not supported, except
-the fetch-shader call at a vertex shader's entry.
+the fetch-shader call at a vertex shader's entry. When the pair and SCC are dead at the target (every path writes them
+before reading them; `DeadJumpRegisters`), the s_getpc, s_add and s_addc become s_nop: a remaining s_getpc makes the
+program read its own code, so every s_load checks for a code pointer and the code becomes a table in the program.
+`indirect_diffuse_lighting~CS_ScreenProbes_ActivateRays` (76,697 instructions, 1,377 long jumps, 4.5 MB of DXIL) lost
+its 333 KB code table and 10,041 such checks: 9.33 to 7.23 MB of HLSL. Its size is otherwise its own: no superstep,
+dispatch form or emulated waves (a 32-lane pinned compute program); its top level is the guarded form (13,834 blocks
+under `if (flowN == k)`), which copies no block.
 
 Three programs of the dump (`CS_RTShadowTrace32HQ_Tiled`, `CS_RTShadowTrace32TemporalHQ_Tiled`,
 `CS_RTShadowTrace32TemporalHQ_OneOver8RPP_Tiled`) end with a backward long jump whose C is 8 too large, as if measured
