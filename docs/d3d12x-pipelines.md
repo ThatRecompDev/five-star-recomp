@@ -166,7 +166,7 @@ flowchart LR
 | Rectangle lists | a geometry shader missing from `rect-gs/` is compiled into `<program cache>/rect-gs/` on the first rectangle-list draw |
 
 `--no-on-demand` turns this off (only `--translated-dir` provides programs). The sample summary adds
-`programs on demand: N asked for, M translated and compiled, K found compiled, ready after A s on average and B s at
+`programs on demand: N asked for, M translated, of which R restored from the content store, C compiled, K found compiled, ready after A s on average and B s at
 most, F failed (count cause; ...), Q queued, R running, W waiting for memory`, and the stand-ins count those `with
 programs made on demand`.
 

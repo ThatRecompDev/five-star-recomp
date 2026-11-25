@@ -11,7 +11,16 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// </summary>
 internal sealed record HostAnswer(HostAnswerKind Kind, string Text, string Profile, string Source, string Hlsl)
 {
+    /// <summary>The text of a compiled answer whose DXIL came from the content store.</summary>
+    public const string RestoredText = "restored";
+
     public static HostAnswer Compiled { get; } = Of(BackendVerdict.Compiled, string.Empty);
+
+    /// <summary>Compiled, its DXIL copied from the content store rather than compiled.</summary>
+    public static HostAnswer Restored { get; } = Of(BackendVerdict.Compiled, RestoredText);
+
+    /// <summary>Whether a compiled answer's DXIL came from the content store.</summary>
+    public bool WasRestored => Kind == HostAnswerKind.Compiled && Text == RestoredText;
 
     /// <summary>An answer of a compile request.</summary>
     public static HostAnswer Of(BackendVerdict verdict, string reason)
