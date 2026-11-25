@@ -23,6 +23,9 @@ internal sealed unsafe class DescriptorWindow
     public const uint ViewRecordBytes = 32;
     public const uint SamplerRecordBytes = 16;
 
+    /// <summary>Where a view record's mirror holds the desktop index it names, past the V# (<see cref="ShaderVisibleHeap"/>).</summary>
+    public const int MirroredDesktopDword = 4;
+
     /// <summary>
     /// Records mirrored for a table of unbounded or unknown size: the game's per-draw tables place descriptors at
     /// byte offsets below 0x8000 (the 0x7fe0 mask at 0x144d9f04f), 1024 records.

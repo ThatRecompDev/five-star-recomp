@@ -157,7 +157,7 @@ The D3D12.X layer creates the views and samplers, so it decides what descriptor 
 |---|---|
 | T# dword0 | `ResourceDescriptorHeap` index |
 | S# dword0 | `SamplerDescriptorHeap` index; an S# built from literal constants gets `STATIC_SAMPLER_BASE + k` and its words are listed at the top of the program |
-| V# base (dword0, dword1 bits 0-15) | base_hi 0: dword0 is a heap index (the D3D12.X shim's records); otherwise a console GPU address, found in the address map (`buf_view`) |
+| V# base (dword0, dword1 bits 0-15) | a console GPU address, found in the address map (`buf_view`): the D3D12.X shim's records of read-only buffer views of game memory hold the view's address as the console's do, so a program can build pointers from it; base_hi 0: dword0 is a heap index (records of buffers the desktop placed, or `--buffer-records-heap-index`) |
 | V# dword1 bits 16-29 / dword3 | stride (idxen) / hardware format word: gfx10 unified format (bits 12-18, decoded by `buf_code`) and destination swizzle (bits 0-11, `fmt_swizzle`, loads only) |
 | 64-bit pointers (`s_load`, `global_*`) | high dword 0: byte address in the window `ResourceDescriptorHeap[GPU_MEM_HEAP]` (writable view at `+ 1`); otherwise a console GPU address in the address map (`PtrLoad`, `PtrStore`, `gpu_rw`). Offsets are added in 64 bits as the hardware does (`ptr_add`: the unsigned VGPR offset and the signed instruction offset carry into or borrow from the high dword); before, a carry out of the low dword was dropped and the access landed 4 GiB lower |
 | `s_getpc_b64` pointers | high dword `CODE_TAG`; loads read the program's own code, emitted as `g_code[]` |

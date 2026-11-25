@@ -215,6 +215,9 @@ internal sealed record HostOptions
     /// <summary>User data as root constants instead of the ring's root CBV (<c>--user-data-constants</c>), with programs made on demand.</summary>
     public bool UserDataConstants { get; set; }
 
+    /// <summary>Buffer descriptor records keep the desktop heap index in dword 0, not the console base (<c>--buffer-records-heap-index</c>).</summary>
+    public bool BufferRecordsHeapIndex { get; set; }
+
     /// <summary>Programs made on demand trace stores into the transient pool and the game heap (<c>--trace-pool-stores</c>).</summary>
     public bool TracePoolStores { get; set; }
 

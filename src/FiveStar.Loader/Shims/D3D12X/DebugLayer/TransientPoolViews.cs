@@ -139,7 +139,7 @@ internal static unsafe class TransientPoolViews
             for (uint k = 0; k < DescriptorWindow.MinTableRecords && pointer + (k * RecordBytes) < ViewEnd; k++)
             {
                 uint* record = (uint*)(window + pointer + (k * RecordBytes));
-                uint desktop = record[0];
+                uint desktop = record[DescriptorWindow.MirroredDesktopDword];
 
                 if (desktop >= MaxViews)
                 {

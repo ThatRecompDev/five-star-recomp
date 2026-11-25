@@ -203,6 +203,86 @@ public sealed unsafe class D3D12XBindingTests
         Assert.Equal([4u << StrideShift, 2u, Byte4Bgra | IndexBounds], Fields(test, 4));
     }
 
+    [Fact]
+    public void A_buffer_view_record_holds_its_console_base_and_the_window_mirrors_it()
+    {
+        const uint Increment = 32;
+        const uint Records = 16;
+        const uint Index = 12;
+        const nint DesktopStart = 0x1000;
+        const ulong Address = 0x27E_0005_0010;
+
+        byte* title = (byte*)System.Runtime.InteropServices.NativeMemory.AllocZeroed(Records * Increment);
+        byte* data = (byte*)System.Runtime.InteropServices.NativeMemory.AllocZeroed(DescriptorWindow.ViewBase + (Records * DescriptorWindow.ViewRecordBytes));
+
+        try
+        {
+            var window = new DescriptorWindow(new FiveStar.Loader.Diagnostics.LoaderLog(TextWriter.Null, null, false));
+            typeof(DescriptorWindow).GetProperty(nameof(DescriptorWindow.Data))!.SetValue(window, System.Reflection.Pointer.Box(data, typeof(byte*)));
+            var heap = new ShaderVisibleHeap((nint)title, Records, Increment, DesktopStart, DescriptorWindow.ViewRecords(Records), null, window, null);
+
+            // A raw view from element 1 of a buffer at Address: its base is Address + 4, as the console's V#.
+            heap.Destination(Index, 1, new BufferRecord(0, 256, Dword | RawBounds).At(Address, 1));
+            heap.Destination(Index + 1, 1, new BufferRecord(0, 256, Dword | RawBounds));
+
+            uint[] based = [0x0005_0014, 0x27E, 256, Dword | RawBounds, Index];
+            Assert.Equal(based, new ReadOnlySpan<uint>(title + (Index * Increment), based.Length).ToArray());
+            Assert.Equal(based, new ReadOnlySpan<uint>(data + DescriptorWindow.ViewBase + (Index * DescriptorWindow.ViewRecordBytes), based.Length).ToArray());
+            Assert.Equal(DesktopStart + (nint)(Index * Increment), heap.Source(Index));
+
+            // Without a console address dword 0 stays the desktop index, base_hi 0.
+            uint* plain = (uint*)(data + DescriptorWindow.ViewBase + ((Index + 1) * DescriptorWindow.ViewRecordBytes));
+            Assert.Equal([Index + 1, 0u], new[] { plain[0], plain[1] });
+        }
+        finally
+        {
+            System.Runtime.InteropServices.NativeMemory.Free(title);
+            System.Runtime.InteropServices.NativeMemory.Free(data);
+        }
+    }
+
+    [Fact]
+    public void A_read_view_the_address_map_covers_and_a_UAV_over_its_own_resource_get_their_console_base()
+    {
+        const ulong Address = 0x27E_0006_0000;
+        using var test = TestRuntime.Create();
+        _ = new XboxDevice(test);
+        nint resource = Buffer(test.Runtime.D3D12X.Objects.DesktopDevice, new HeapProperties { Type = HeapProperties.Upload }, 0, GenericRead);
+        test.Runtime.D3D12X.PlacedResources.Addresses.Add(new FiveStar.Loader.Shims.D3D12X.AddressRange(Address, 0x10000, DesktopCalls.GpuAddress(resource), resource));
+        var raw = new BufferRecord(0, 256, Dword | RawBounds);
+
+        Assert.Equal(Address + 4, BufferRecords.Based(raw, Address, 1, resource, ViewKind.UnorderedAccess).Base);
+        Assert.Equal(0ul, BufferRecords.Based(raw, Address, 1, resource + 1, ViewKind.UnorderedAccess).Base);
+        Assert.Equal(0ul, BufferRecords.Based(raw, Address + 0x10000, 0, resource, ViewKind.ShaderResource).Base);
+        Assert.Equal(Address, BufferRecords.Based(raw, Address, 0, 0, ViewKind.ConstantBuffer).Base);
+        Assert.Equal(Address + 4, BufferRecords.Based(raw, Address, 1, resource + 1, ViewKind.ShaderResource).Base);
+        Assert.Equal(0ul, BufferRecords.Based(raw, 0, 1, resource, ViewKind.ShaderResource).Base);
+    }
+
+    [Fact]
+    public void A_read_view_of_XMem_pages_the_address_map_covers_gets_its_console_base()
+    {
+        using var test = TestRuntime.Create();
+        var virtualAlloc = (delegate* unmanaged<nint, nuint, uint, ulong, uint, nint>)test.Shim("xmem.dll", "XMemVirtualAlloc");
+        var allocate = (delegate* unmanaged<ulong, ulong*, ulong*, int>)test.Shim("xmem.dll", "XMemAllocatePhysicalPages");
+        var map = (delegate* unmanaged<nint, ulong, ulong*, nint>)test.Shim("xmem.dll", "XMemMapPhysicalPages");
+
+        nint cpu = virtualAlloc(0, (nuint)Page, Reserve64K, CpuFlags, CpuReadWrite);
+        ulong frame = 0;
+        ulong count = 1;
+        Assert.Equal(1, allocate(0, &count, &frame));
+        Assert.Equal(cpu, map(cpu, 1, &frame));
+
+        // XMem pages the game mapped have views in the address map without any placed buffer over them.
+        var device = new XboxDevice(test);
+        _ = ViewHeap(device, GameViews);
+        var raw = new BufferRecord(0, 256, Dword | RawBounds);
+
+        Assert.True(test.Runtime.D3D12X.MemoryViews.Maps((ulong)cpu, 256));
+        Assert.Equal((ulong)cpu + 4, BufferRecords.Based(raw, (ulong)cpu, 1, 0, ViewKind.AddressView).Base);
+        Assert.Equal(0ul, BufferRecords.Based(raw, (ulong)cpu, 1, 0, ViewKind.UnorderedAccess).Base);
+    }
+
     [DxcFact]
     public void A_descriptor_table_set_through_the_game_slots_reaches_the_program()
     {
