@@ -175,6 +175,12 @@ ceiling leaves it out.
 rest, the driver's and native memory, beside the running compiles' expected arenas. Outside private bytes it gives the
 XMem pages (pagefile-backed sections, of them the spans section heaps are open over) and the helper processes.
 
+Two of the loader's own shares are kept down. A spare command allocator (lent while the game's allocator backs another
+recording list, `SpareAllocators`) holds the memory of its largest recording; one not lent over 120 resets of its game
+allocator is released, counted in the sample line's `command objects`. The managed heap runs with
+`System.GC.ConserveMemory` 5 (the loader's project file): the GC compacts the large object heap once it is half free
+space rather than keep the fragmented commit.
+
 ## Unknown
 
 - Whether ntdll keeps honouring `PEB.NtGlobalFlag` set at the create-process event in later Windows releases (checked
