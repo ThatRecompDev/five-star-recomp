@@ -40,6 +40,24 @@ public sealed class DrawProbeReadbackTests
     }
 
     [Fact]
+    public void Float_targets_convert_every_colour_channel()
+    {
+        // R16G16B16A16_FLOAT (0.25, 0.5, 1.0, 1.0) and R11G11B10_FLOAT (0.5, 1.0, 0.25): each channel lands in its own byte.
+        var half = new byte[8];
+        ushort[] channels = [0x3400, 0x3800, 0x3C00, 0x3C00];
+
+        for (int i = 0; i < channels.Length; i++)
+        {
+            BitConverter.TryWriteBytes(half.AsSpan(i * 2), channels[i]);
+        }
+
+        uint small = 0x380u | (0x3C0u << 11) | (0x1A0u << 22);
+
+        Assert.Equal(new byte[] { 63, 127, 255, 255 }, ReadbackPixels.ToRgba(new ReadbackImage(1, 1, 10, 8, half)));
+        Assert.Equal(new byte[] { 127, 255, 63, 255 }, ReadbackPixels.ToRgba(new ReadbackImage(1, 1, 26, 4, BitConverter.GetBytes(small))));
+    }
+
+    [Fact]
     public void Probes_past_512_MB_of_live_readback_buffers_are_skipped()
     {
         long target = 3840L * 2160 * 4;
