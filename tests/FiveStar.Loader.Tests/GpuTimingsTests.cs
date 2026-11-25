@@ -15,6 +15,7 @@ namespace FiveStar.Loader.Tests;
 /// pipeline) get a timestamp each, the list's Close resolves them, and once the submission's fence passed they are summed per queue and pass,
 /// named by their first pipeline.
 /// </summary>
+[Collection(TimingState.Name)]
 public sealed class GpuTimingsTests
 {
     private const nint List = 0x1000;
@@ -53,8 +54,10 @@ public sealed class GpuTimingsTests
 
         try
         {
+            GpuTimings.Detach();
             GpuTimings.Enable(true);
             GpuTimings.Attach(gpu.Device.NativePointer, null);
+
             using var context = new CommandContext(gpu.Device);
             nint list = context.List.NativePointer;
             GpuTimings.Reset(List);
@@ -87,6 +90,8 @@ public sealed class GpuTimingsTests
 
     private static void Run(ID3D12Device device)
     {
+        // Whatever an earlier test left: no heap, no lists, no sums.
+        GpuTimings.Detach();
         GpuTimings.Enable(true);
         GpuTimings.Attach(device.NativePointer, null);
         GpuTimings.Name = Name;
@@ -116,7 +121,8 @@ public sealed class GpuTimingsTests
         string report = GpuTimings.Report(2);
 
         Assert.Contains("queue #1 busy ", report, StringComparison.Ordinal);
-        Assert.Contains("(meshlet_culling~CS_Cull ", report, StringComparison.Ordinal);
+        // Passes are listed by time; on WARP they may all take 0.00 ms, so their order is not asserted.
+        Assert.Contains(" meshlet_culling~CS_Cull ", report.Replace("(", " ", StringComparison.Ordinal), StringComparison.Ordinal);
         Assert.Contains("sr_tracing~CS_Trace ", report, StringComparison.Ordinal);
 
         Assert.Contains("(memory wait) ", report, StringComparison.Ordinal);
@@ -126,8 +132,13 @@ public sealed class GpuTimingsTests
 
         Assert.Contains("0 read after their block was reused", report, StringComparison.Ordinal);
         Assert.Contains("0 with more than 255 passes", report, StringComparison.Ordinal);
+        Overflow(context, queue, fence);
+    }
 
-        // 300 compute passes: the block holds 255, and its last pass, which takes the rest, says so.
+    /// <summary>300 compute passes: the block holds 255, and its last pass, which takes the rest, says so.</summary>
+    private static void Overflow(CommandContext context, ID3D12CommandQueue queue, ID3D12Fence fence)
+    {
+        nint list = context.List.NativePointer;
         GpuTimings.Reset(List);
         nint[] alternating = [Culling, Tracing];
 
@@ -140,7 +151,7 @@ public sealed class GpuTimingsTests
         context.ExecuteAndWait();
         GpuTimings.Executed(1, queue.NativePointer, fence.NativePointer, 1, [List]);
         GpuTimings.CollectNow();
-        report = GpuTimings.Report(3);
+        string report = GpuTimings.Report(3);
 
         Assert.Contains("meshlet_culling~CS_Cull +rest ", report, StringComparison.Ordinal);
         Assert.Contains("1 with more than 255 passes", report, StringComparison.Ordinal);
