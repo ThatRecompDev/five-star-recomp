@@ -141,8 +141,9 @@ internal static class HostUsage
                                  stack while the heartbeat its hang watchdog checks stands still
           --d3d12-trace-draws    log what the first draws bind (pipeline, targets, vertex buffers, tables) and read
                                  their render targets back
-          --d3d12-trace-pipeline <text>  with the draw trace, also log the draws of pipelines named with <text> in
-                                 the frame after each captured present
+          --d3d12-trace-pipeline <text,...>  with the draw trace, also log the draws of pipelines named with any of the
+                                 texts in the frame after each captured present
+          --d3d12-probe-traced   those draws also read back their first render target (a float target's mean and max)
           --d3d12-trace-records <offset,...>  for those draws, the window records at these byte offsets from each
                                  user SGPR holding a window offset: dwords, the V#/T# base's map state, a V#'s first values
                                  (offset@byte: also the dword at that byte of the V#'s buffer, e.g. 0x380@0x11c)

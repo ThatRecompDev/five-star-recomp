@@ -154,6 +154,12 @@ internal sealed unsafe class DrawTrace
     /// </summary>
     public static bool DumpTargets { get; set; }
 
+    /// <summary>
+    /// <c>--d3d12-probe-traced</c>: each draw <see cref="PipelineFilter"/> traces also reads back its first render target
+    /// (a float target's mean and largest channels too): the exposure texel, the lit HDR, the composite.
+    /// </summary>
+    public static bool ProbeTraced { get; set; }
+
     /// <summary>List slot 50 (<paramref name="single"/> ranges are not followed).</summary>
     public void RenderTargets(XboxObject* list, uint count, nint* handles, bool single, nint depthStencil)
     {
@@ -230,6 +236,7 @@ internal sealed unsafe class DrawTrace
         if (filtered)
         {
             AppendWindowRecords(text, CommandListBindings.Of(list));
+            state.ProbeNext = ProbeTraced;
         }
 
         _log.Info(text.ToString());
@@ -387,7 +394,10 @@ internal sealed unsafe class DrawTrace
         long draw = Interlocked.Read(ref _draws);
         var state = List(list);
 
-        if (draw > Volatile.Read(ref _windowEnd) || state.Targets.Length == 0 || !_targetViews.TryGetValue(state.Targets[0], out var target))
+        bool traced = state.ProbeNext;
+        state.ProbeNext = false;
+
+        if ((draw > Volatile.Read(ref _windowEnd) && !traced) || state.Targets.Length == 0 || !_targetViews.TryGetValue(state.Targets[0], out var target))
         {
             return;
         }
@@ -470,7 +480,21 @@ internal sealed unsafe class DrawTrace
         // The programs the pipeline was built from (mesh pipelines have no rectangle-list description), then that description.
         string name = QueueProgress.PipelineName(pipeline) + " " + (_d3d12.Rectangles.Pipelines?.Describe(pipeline) ?? string.Empty);
 
-        return name.Contains(PipelineFilter, StringComparison.Ordinal) && Interlocked.Increment(ref _filtered) <= FilterDraws;
+        return MatchesFilter(name, PipelineFilter) && Interlocked.Increment(ref _filtered) <= FilterDraws;
+    }
+
+    /// <summary>Whether <paramref name="name"/> holds one of the comma-separated parts of <paramref name="filter"/>.</summary>
+    public static bool MatchesFilter(string name, string filter)
+    {
+        foreach (var part in filter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (name.Contains(part, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private long Resets(nint list)

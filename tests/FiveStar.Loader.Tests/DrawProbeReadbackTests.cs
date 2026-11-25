@@ -16,6 +16,25 @@ public sealed class DrawProbeReadbackTests
     private const int RowPitch = 16;
 
     [Fact]
+    public void A_float_target_reports_its_values_as_stored_and_a_trace_filter_takes_several_names()
+    {
+        // A 1x1 R32G32B32A32_FLOAT exposure texel well above 1, which the RGBA8 summary would clamp.
+        var texel = new byte[16];
+        float[] values = [12.5f, 12.5f, 12.5f, 1f];
+
+        for (int i = 0; i < values.Length; i++)
+        {
+            BitConverter.TryWriteBytes(texel.AsSpan(i * sizeof(float)), values[i]);
+        }
+
+        Assert.Equal("; float mean (12.5, 12.5, 12.5, 1), max (12.5, 12.5, 12.5, 1)", DrawProbes.FloatSummary(texel, 16, 1, 1, 2));
+        Assert.Equal(string.Empty, DrawProbes.FloatSummary(texel, 16, 1, 1, Bgra8Unorm));
+
+        Assert.True(DrawTrace.MatchesFilter("sgd1_06e1f075_t32_PS_CalculateExposure_396dfccc_Wrapped", "PassthroughComposite, CalculateExposure"));
+        Assert.False(DrawTrace.MatchesFilter("sgd1_0b12c1ad_t32_TL_PS_PBR_MATERIAL_STANDARD_42ad1e50_Wrapped", "PassthroughComposite,CalculateExposure"));
+    }
+
+    [Fact]
     public void A_mapped_readback_summarizes_and_converts_as_a_managed_copy_did()
     {
         // BGRA rows 16 bytes apart (12 bytes of texels, 4 of padding): one blue pixel at (2, 0), one red at (0, 1).
