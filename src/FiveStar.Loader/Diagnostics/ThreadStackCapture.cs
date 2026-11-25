@@ -1,29 +1,33 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Runtime.InteropServices;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Diagnostics;
 
 /// <summary>
-/// Captures another thread's return addresses: suspend, GetThreadContext, unwind through .pdata, resume. Nothing is
-/// allocated and nothing is logged while the thread is suspended (it may hold the heap, log or loader lock). The walk
-/// stops at the first address outside the given modules, so JIT code, whose unwind data the runtime answers through
-/// a callback that may take a lock the suspended thread holds, is never unwound.
+/// Captures another thread's return addresses: a <see cref="ThreadSnapshot"/> (context and a copy of its stack, the
+/// thread resumed at once), then an unwind through .pdata over the copy. The thread is never held while managed code
+/// runs: holding it across our own P/Invokes deadlocked the process when it was suspended in managed code and a
+/// garbage collection started. The unwind reads the copy: rsp, and rbp wherever it points into the copied range, are
+/// moved into it before each step. The walk stops at the first address outside the given modules, so JIT code, whose
+/// unwind data the runtime answers through a callback, is never unwound.
 /// </summary>
 internal static unsafe class ThreadStackCapture
 {
     // winnt.h: THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION.
     private const uint ThreadAccess = 0x0002 | 0x0008 | 0x0040;
 
-    // CONTEXT (winnt.h, AMD64): size, alignment, ContextFlags, Rsp and Rip; CONTEXT_CONTROL | CONTEXT_INTEGER.
+    // CONTEXT (winnt.h, AMD64): size, alignment, ContextFlags, Rsp, Rbp, Rsi, Rdi and Rip; CONTEXT_CONTROL | CONTEXT_INTEGER.
     private const int ContextSize = 1232;
     private const int ContextAlignment = 16;
     private const int ContextFlagsOffset = 0x30;
     private const int RspOffset = 0x98;
-    private const int RipOffset = 0xF8;
+    private const int RbpOffset = 0xA0;
     private const int RsiOffset = 0xA8;
     private const int RdiOffset = 0xB0;
+    private const int RipOffset = 0xF8;
 
     /// <summary>Frames a register probe walks at most.</summary>
     private const int MaxProbeFrames = 64;
@@ -32,37 +36,29 @@ internal static unsafe class ThreadStackCapture
     /// <summary>UNW_FLAG_NHANDLER: unwind without calling handlers.</summary>
     private const uint NoHandler = 0;
 
-    /// <summary>SuspendThread's failure value, (DWORD)-1.</summary>
-    private const uint SuspendFailed = uint.MaxValue;
+    /// <summary>Stack bytes copied at most, from rsp up.</summary>
+    private const long CopyCapacity = 1 << 20;
+
+    private static readonly object Gate = new();
+    private static byte* _copy;
 
     /// <summary>Fills <paramref name="pcs"/> with the thread's frames, innermost first; returns the count (0: not read).</summary>
     public static int Capture(uint threadId, ReadOnlySpan<CodeRange> modules, Span<ulong> pcs)
     {
-        nint thread = Kernel32.OpenThread(ThreadAccess, 0, threadId);
-
-        if (thread == 0)
-        {
-            return 0;
-        }
-
         byte* raw = stackalloc byte[ContextSize + ContextAlignment];
-        byte* context = (byte*)(((ulong)raw + ContextAlignment - 1) & ~(ulong)(ContextAlignment - 1));
-        *(uint*)(context + ContextFlagsOffset) = ContextControlInteger;
-        int count = 0;
+        byte* context = Aligned(raw);
 
-        if (Kernel32.SuspendThread(thread) != SuspendFailed)
+        lock (Gate)
         {
-            if (Kernel32.GetThreadContext(thread, context) != 0)
+            var stack = Snapshot(threadId, context);
+
+            if (stack.Bytes < 0)
             {
-                count = Walk(context, modules, pcs);
+                return 0;
             }
 
-            _ = Kernel32.ResumeThread(thread);
+            return Walk(context, stack, modules, pcs);
         }
-
-        _ = Kernel32.CloseHandle(thread);
-
-        return count;
     }
 
     /// <summary>
@@ -73,38 +69,65 @@ internal static unsafe class ThreadStackCapture
     {
         rsi = 0;
         rdi = 0;
+        byte* raw = stackalloc byte[ContextSize + ContextAlignment];
+        byte* context = Aligned(raw);
+        Span<ulong> pcs = stackalloc ulong[MaxProbeFrames];
+
+        lock (Gate)
+        {
+            var stack = Snapshot(threadId, context);
+
+            if (stack.Bytes < 0)
+            {
+                return false;
+            }
+
+            _ = Walk(context, stack, modules, pcs, function);
+        }
+
+        rsi = *(ulong*)(context + RsiOffset);
+        rdi = *(ulong*)(context + RdiOffset);
+
+        return function.Contains(*(ulong*)(context + RipOffset));
+    }
+
+    private static byte* Aligned(byte* raw)
+    {
+        byte* context = (byte*)(((ulong)raw + ContextAlignment - 1) & ~(ulong)(ContextAlignment - 1));
+        *(uint*)(context + ContextFlagsOffset) = ContextControlInteger;
+
+        return context;
+    }
+
+    /// <summary>The thread's context and stack copy (<see cref="StackCopy.Bytes"/> -1 when it could not be read); called under <see cref="Gate"/>.</summary>
+    private static StackCopy Snapshot(uint threadId, byte* context)
+    {
         nint thread = Kernel32.OpenThread(ThreadAccess, 0, threadId);
 
         if (thread == 0)
         {
-            return false;
+            return new StackCopy(0, 0, -1);
         }
 
-        byte* raw = stackalloc byte[ContextSize + ContextAlignment];
-        byte* context = (byte*)(((ulong)raw + ContextAlignment - 1) & ~(ulong)(ContextAlignment - 1));
-        *(uint*)(context + ContextFlagsOffset) = ContextControlInteger;
-        Span<ulong> pcs = stackalloc ulong[MaxProbeFrames];
-        bool found = false;
-
-        if (Kernel32.SuspendThread(thread) != SuspendFailed)
+        if (_copy == null)
         {
-            if (Kernel32.GetThreadContext(thread, context) != 0)
-            {
-                _ = Walk(context, modules, pcs, function);
-                found = function.Contains(*(ulong*)(context + RipOffset));
-                rsi = *(ulong*)(context + RsiOffset);
-                rdi = *(ulong*)(context + RdiOffset);
-            }
-
-            _ = Kernel32.ResumeThread(thread);
+            _copy = (byte*)NativeMemory.Alloc((nuint)CopyCapacity);
         }
 
+        long bytes = ThreadSnapshot.Take(thread, context, _copy, CopyCapacity);
         _ = Kernel32.CloseHandle(thread);
+        var stack = new StackCopy(*(ulong*)(context + RspOffset), (nint)_copy, bytes);
 
-        return found;
+        if (bytes >= 0)
+        {
+            *(ulong*)(context + RspOffset) = (ulong)_copy;
+            stack.MoveFramePointer(context + RbpOffset);
+        }
+
+        return stack;
     }
 
-    private static int Walk(byte* context, ReadOnlySpan<CodeRange> modules, Span<ulong> pcs, CodeRange stopAt = default)
+    private static int Walk(byte* context, StackCopy stack, ReadOnlySpan<CodeRange> modules, Span<ulong> pcs, CodeRange stopAt = default)
     {
         int count = 0;
 
@@ -120,7 +143,7 @@ internal static unsafe class ThreadStackCapture
 
             pcs[count++] = pc;
 
-            if (!InModules(pc, modules))
+            if (!InModules(pc, modules) || !stack.Holds(rsp))
             {
                 break;
             }
@@ -134,6 +157,7 @@ internal static unsafe class ThreadStackCapture
             }
 
             Unwind(context, pc, imageBase, function);
+            stack.MoveFramePointer(context + RbpOffset);
 
             if (*(ulong*)(context + RspOffset) <= rsp)
             {
