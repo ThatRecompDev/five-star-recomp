@@ -113,6 +113,8 @@ internal sealed class CommandLineParser
                 return SetRunTimeout();
             case "--input-script":
                 return SetInputScript();
+            case "--allow-real-input" or "--script-input-only":
+                return SetRealInput(option);
             case "--sample-threads":
                 return SetSampleThreads();
             case "--profile-threads" or "--profile-managed":
@@ -535,6 +537,13 @@ internal sealed class CommandLineParser
     private bool SetInputConfig()
     {
         _options.InputConfig = Path.GetFullPath(Next());
+
+        return true;
+    }
+
+    private bool SetRealInput(string option)
+    {
+        _options.AllowRealInput = option == "--allow-real-input";
 
         return true;
     }

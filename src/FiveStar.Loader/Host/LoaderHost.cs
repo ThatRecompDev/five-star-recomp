@@ -147,8 +147,15 @@ internal sealed class LoaderHost
         var screens = new ScreenStore(screensFile);
         var sampler = new ScreenSampler(signature => _runtime.Input.Seen(signature), _log);
         _runtime.D3D12X.Presenter.Screens = sampler;
-        var script = _runtime.Input.UseScript(path, System.Diagnostics.Stopwatch.StartNew(), () => capture?.RequestNext(), sampler.Request, screens);
+
+        bool scriptOnly = !_options.AllowRealInput;
+        var script = _runtime.Input.UseScript(path, System.Diagnostics.Stopwatch.StartNew(), () => capture?.RequestNext(), sampler.Request, screens, scriptOnly);
         _log.Info($"  [input] {script.Presses.Count} scripted presses, {script.Marks.Count} captures and learns, {script.Screens.Count - 1} screens from {path} (followed while running); {screens.Count} learned screens in {screensFile}");
+
+        if (scriptOnly)
+        {
+            _log.Info("  [input] script input only: the real keyboard, mouse buttons and cursor are left out (F9 hands them back, --allow-real-input keeps them)");
+        }
     }
 
     private void LoadAbiTable()

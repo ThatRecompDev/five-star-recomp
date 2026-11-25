@@ -56,6 +56,9 @@ internal sealed record HostOptions
     /// <summary>Timed key presses added to the desktop input (<c>--input-script</c>).</summary>
     public string? InputScript { get; set; }
 
+    /// <summary>The real keyboard and mouse reach the game beside an input script (<c>--allow-real-input</c>); off: script input only, F9 hands them back.</summary>
+    public bool AllowRealInput { get; set; }
+
     /// <summary>The learned screens of the input script (<c>--screens</c>); null: %LOCALAPPDATA%\FiveStar\screens.txt.</summary>
     public string? ScreensFile { get; set; }
 
