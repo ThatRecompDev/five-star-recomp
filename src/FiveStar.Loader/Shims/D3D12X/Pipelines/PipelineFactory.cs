@@ -29,6 +29,7 @@ internal sealed unsafe class PipelineFactory
     public const int SmallComputeShaderBytes = 16 << 10;
 
     private const int MegabyteShift = 20;
+    private const int GigabyteShift = 30;
 
     /// <summary>D3D12_RASTERIZER_DESC.CullMode and D3D12_CULL_MODE_NONE (d3d12.h).</summary>
     private const int CullModeOffset = 4;
@@ -537,6 +538,11 @@ internal sealed unsafe class PipelineFactory
                 return new PipelineResult(HResult.Ok, cached);
             }
 
+            if (!entered && !CompileBudget.Buildable(stream.ShaderBytes))
+            {
+                return Unbuildable(stream, what);
+            }
+
             if (!entered)
             {
                 CompileBudget.Enter(stream.ShaderBytes);
@@ -565,6 +571,18 @@ internal sealed unsafe class PipelineFactory
                 CompileBudget.Exit(stream.ShaderBytes);
             }
         }
+    }
+
+    /// <summary>A pipeline whose compile could never be admitted here: logged once, recorded, left a stand-in.</summary>
+    private static PipelineResult Unbuildable(DesktopStream stream, string what)
+    {
+        if (UnbuildablePipelines.Add(stream.Key))
+        {
+            long estimate = CompileBudget.Estimate(stream.ShaderBytes) >> GigabyteShift;
+            ShimContext.Runtime.Log.Warn($"[d3d12_xs] pipeline {what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL) not built: its compile is expected to take {estimate} GB, more than this machine can give; it stays a stand-in");
+        }
+
+        return new PipelineResult(HResult.OutOfMemory, 0);
     }
 
     private PipelineResult BuildNow(DesktopStream stream, Guid iid)

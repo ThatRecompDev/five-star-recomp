@@ -93,6 +93,7 @@ internal static unsafe class CompileBudget
     private static readonly Lazy<Timer> GrowthSampler = new(() => new Timer(_ => SampleGrowth(), null, TimeSpan.Zero, GrowthInterval));
     private static long _growthAllowance;
     private static uint _vendorId;
+    private static long _driverVersion;
     private static readonly ConcurrentDictionary<BuildMeasure, byte> Measures = new();
     private static readonly Lazy<Timer> Sampler = new(() => new Timer(_ => Sample(), null, SampleInterval, SampleInterval));
 
@@ -300,10 +301,33 @@ internal static unsafe class CompileBudget
         return Math.Clamp((long)(gigabytes * BytesPerGigabyte), MinimumEstimate, AmdMaximumEstimate);
     }
 
-    /// <summary>Sets the adapter whose driver compiles (its PCI vendor id); call when the device is created.</summary>
-    public static void UseAdapter(uint vendorId)
+    /// <summary>Sets the adapter whose driver compiles (its PCI vendor id, its user-mode driver version); call when the device is created.</summary>
+    public static void UseAdapter(uint vendorId, long driverVersion)
     {
         Volatile.Write(ref _vendorId, vendorId);
+        Interlocked.Exchange(ref _driverVersion, driverVersion);
+    }
+
+    /// <summary>The adapter's PCI vendor id (<see cref="UseAdapter"/>), 0 before it is known.</summary>
+    public static uint VendorId => Volatile.Read(ref _vendorId);
+
+    /// <summary>The adapter's user-mode driver version (<see cref="UseAdapter"/>), 0 when unknown.</summary>
+    public static long DriverVersion => Interlocked.Read(ref _driverVersion);
+
+    /// <summary>
+    /// Whether a compile of <paramref name="shaderBytes"/> could ever be admitted on this machine: its estimate and the
+    /// floor fit in the physical memory. One that cannot stays a stand-in (<see cref="UnbuildablePipelines"/>) instead of
+    /// holding a build thread forever.
+    /// </summary>
+    public static bool Buildable(long shaderBytes)
+    {
+        return Buildable(Estimate(shaderBytes), WarmMemoryGuard.TotalPhysical());
+    }
+
+    /// <summary>The decision of <see cref="Buildable(long)"/> for an estimate and the machine's physical memory.</summary>
+    public static bool Buildable(long estimate, ulong totalPhysical)
+    {
+        return (ulong)(estimate + MinimumPhysicalReserve) <= totalPhysical;
     }
 
     /// <summary>Waits until the compile may start, then counts it; pair with <see cref="Exit"/>.</summary>
