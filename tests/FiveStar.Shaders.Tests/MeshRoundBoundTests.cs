@@ -42,12 +42,12 @@ public sealed class MeshRoundBoundTests : IClassFixture<WarpFixture>
     [WarpFact]
     public void A_superstep_loop_without_a_wave_operation_ends_at_the_block_bound_not_the_dispatch_forms()
     {
-        // A loop that never reaches a group step is bounded only by the blocks a thread may run: 16 per allowed
-        // iteration (here 64 x 16), not the dispatch form's 256 (w39/w40: MSNC_VS_LinearDepthSkin's constant-buffer count).
+        // A loop that never reaches a group step is bounded only by the blocks a thread may run: 2 per allowed
+        // iteration (here 64 x 2), not the dispatch form's 256 (w39/w40: MSNC_VS_LinearDepthSkin's constant-buffer count).
         var runner = new MeshStageRunner(_fixture);
 
-        Assert.Contains("if (++ss_steps > 0x400u)", runner.TranslateBarrierLoop(true, Small, spin: true), StringComparison.Ordinal);
-        Assert.Contains("if (++ss_steps > 0x10000u)", runner.TranslateBarrierLoop(true, LoopCaps.Default, spin: true), StringComparison.Ordinal);
+        Assert.Contains("if (++ss_steps > 0x80u)", runner.TranslateBarrierLoop(true, Small, spin: true), StringComparison.Ordinal);
+        Assert.Contains("if (++ss_steps > 0x2000u)", runner.TranslateBarrierLoop(true, LoopCaps.Default, spin: true), StringComparison.Ordinal);
 
         var few = runner.RunBarrierLoop(true, 3, Small, spin: true);
         Assert.True(few.Count == 0, string.Join("\n", few.Take(8)));
