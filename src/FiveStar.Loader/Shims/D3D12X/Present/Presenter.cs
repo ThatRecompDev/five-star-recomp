@@ -35,9 +35,6 @@ internal sealed unsafe class Presenter : IDisposable
     /// <summary>The parameter block is 0x20 bytes (cleared at 0x142482364; only the dword at +0x18 is set).</summary>
     private const int ParameterDwords = 8;
 
-    /// <summary>Vertical sync on: DXGI presents at most once per refresh.</summary>
-    private const uint SyncInterval = 1;
-
     /// <summary>Back-buffer resizes logged; dragging a window edge makes one per present.</summary>
     private const long LoggedResizes = 16;
 
@@ -186,7 +183,7 @@ internal sealed unsafe class Presenter : IDisposable
 
         recorder.Submit(_queue, index);
         _timeline.Mark(PresentTimeline.Submit);
-        int hr = swapChain.Present(SyncInterval);
+        int hr = swapChain.Present(FramePacer.SyncInterval);
         _timeline.Mark(PresentTimeline.Present);
         Count(hr);
         _timeline.Exit(_presents);

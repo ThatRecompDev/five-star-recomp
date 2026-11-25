@@ -26,6 +26,10 @@ internal sealed unsafe class FramePacer
 
     private const uint DefaultPeriod = 3;
 
+    /// <summary>The interval of --frame-rate 60 (one 60 Hz refresh) and of uncapped (a 1 ms grid).</summary>
+    private const uint SixtyMicroseconds = 16667;
+    private const uint UncappedMicroseconds = 1000;
+
     /// <summary>Event types 0 to 3; the game schedules 0 and 2.</summary>
     private const int EventTypes = 4;
 
@@ -45,7 +49,40 @@ internal sealed unsafe class FramePacer
 
     public FramePacer()
     {
-        _grid = Create(DefaultMicroseconds, DefaultPeriod);
+        _grid = Create(Effective(DefaultMicroseconds), DefaultPeriod);
+    }
+
+    /// <summary><c>--frame-rate</c>: the interval kept instead of the game's; <see cref="FrameRate.Console"/> by default.</summary>
+    public static FrameRate Rate { get; set; }
+
+    /// <summary>The present sync interval: one refresh, none when uncapped.</summary>
+    public static uint SyncInterval
+    {
+        get
+        {
+            if (Rate == FrameRate.Uncapped)
+            {
+                return 0;
+            }
+
+            return 1;
+        }
+    }
+
+    /// <summary>The interval kept for the game's <paramref name="microseconds"/> under <see cref="Rate"/>.</summary>
+    public static uint Effective(uint microseconds)
+    {
+        if (Rate == FrameRate.Uncapped)
+        {
+            return UncappedMicroseconds;
+        }
+
+        if (Rate == FrameRate.Sixty)
+        {
+            return Math.Min(microseconds, SixtyMicroseconds);
+        }
+
+        return microseconds;
     }
 
     /// <summary>The current origins.</summary>
@@ -59,7 +96,14 @@ internal sealed unsafe class FramePacer
     {
         var current = Grid;
 
-        if (microseconds == 0 || (current.Microseconds == microseconds && current.Period == period))
+        if (microseconds == 0)
+        {
+            return;
+        }
+
+        microseconds = Effective(microseconds);
+
+        if (current.Microseconds == microseconds && current.Period == period)
         {
             return;
         }
