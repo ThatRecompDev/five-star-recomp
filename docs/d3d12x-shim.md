@@ -823,8 +823,8 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
 - `--d3d12-trace-pipeline <text,...>` (implies the draw trace) also logs, in the frame after each captured present, up
   to 64 draws whose pipeline name holds one of the texts, without probes: a frame's UI draws (`sgd2_` Scaleform programs
   such as `FVertexCxform`) come long after its first 32. With `--d3d12-probe-traced` each of those draws also reads
-  back its first render target; a float target (R32G32B32A32, R16G16B16A16, R32) also reports each channel's mean and
-  largest value as stored, which the RGBA8 summary clamps (the exposure texel, the lit HDR). A traced ExecuteIndirect also reads back, before it runs, each texture its `--d3d12-trace-records` offsets of the first table name by heap index, a desktop SRV or a console-address (slot 70) texture alike (its inputs as it will see them; block-compressed formats are copied but not summarized).
+  back its first render target; a float target (R32G32B32A32, R16G16B16A16, R32, R16) also reports each channel's mean,
+  largest and smallest value as stored, and a 3D texture is read whole, its slices one below the other, which the RGBA8 summary clamps (the exposure texel, the lit HDR). A traced ExecuteIndirect also reads back, before it runs, each texture its `--d3d12-trace-records` offsets of the first table name by heap index, a desktop SRV or a console-address (slot 70) texture alike (its inputs as it will see them; block-compressed formats are copied but not summarized).
   Compute work is traced the same way: a Dispatch or compute ExecuteIndirect matches by its compute pipeline's
   program names (a compute pipeline has no rectangle-list description; it used to show as "unknown", and Dispatch was
   not traced at all) and logs its group counts or argument records, the compute user SGPRs (not the graphics ones)

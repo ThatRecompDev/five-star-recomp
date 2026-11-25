@@ -32,6 +32,7 @@ internal sealed unsafe class DrawProbes
     private const int FloatRgba32 = 2;
     private const int FloatRgba16 = 10;
     private const int Float32 = 41;
+    private const int Float16 = 54;
     private const long SkipsLogged = 100;
     private const long BytesPerMegabyte = 1L << 20;
 
@@ -58,8 +59,9 @@ internal sealed unsafe class DrawProbes
         var texture = new ID3D12Resource(target);
         var description = texture.Description;
 
-        // A multisampled or non-2D target cannot be copied to a buffer this way.
-        if (description.Dimension != ResourceDimension.Texture2D || description.SampleDescription.Count > 1)
+        // A multisampled, 1D or buffer target cannot be copied to a buffer this way. A 3D one (the scattering pass's
+        // distance volume) is copied whole and read as its slices one below the other.
+        if ((description.Dimension != ResourceDimension.Texture2D && description.Dimension != ResourceDimension.Texture3D) || description.SampleDescription.Count > 1)
         {
             texture.Dispose();
 
@@ -91,7 +93,8 @@ internal sealed unsafe class DrawProbes
 
         lock (_gate)
         {
-            _pending.Add(new Probe(label, buffer, (long)total, footprints[0], rows[0], (int)description.Width, (int)description.Format, key, generation, png));
+            uint slices = description.Dimension == ResourceDimension.Texture3D ? footprints[0].Footprint.Depth : 1;
+            _pending.Add(new Probe(label, buffer, (long)total, footprints[0], rows[0] * slices, (int)description.Width, (int)description.Format, key, generation, png));
         }
     }
 
@@ -198,8 +201,9 @@ internal sealed unsafe class DrawProbes
     }
 
     /// <summary>
-    /// For a float target (R32G32B32A32_FLOAT, R16G16B16A16_FLOAT, R32_FLOAT): the mean and largest value of each channel
-    /// as stored, which the RGBA8 summary clamps (an HDR scene, an exposure texel); empty for other formats.
+    /// For a float target (R32G32B32A32_FLOAT, R16G16B16A16_FLOAT, R32_FLOAT, R16_FLOAT): the mean, largest and smallest
+    /// value of each channel as stored, which the RGBA8 summary clamps (an HDR scene, an exposure texel, the scattering
+    /// distance volume: all zero, or all at the empty-space distance); empty for other formats.
     /// </summary>
     public static string FloatSummary(ReadOnlySpan<byte> source, int rowPitch, int width, int rows, int format)
     {
@@ -208,6 +212,7 @@ internal sealed unsafe class DrawProbes
             FloatRgba32 => Channels,
             FloatRgba16 => Channels,
             Float32 => 1,
+            Float16 => 1,
             _ => 0,
         };
 
@@ -216,10 +221,12 @@ internal sealed unsafe class DrawProbes
             return string.Empty;
         }
 
-        int bytes = format == FloatRgba16 ? sizeof(ushort) : sizeof(float);
+        int bytes = format is FloatRgba16 or Float16 ? sizeof(ushort) : sizeof(float);
         var sum = new double[channels];
         var max = new double[channels];
+        var min = new double[channels];
         Array.Fill(max, double.MinValue);
+        Array.Fill(min, double.MaxValue);
 
         for (int y = 0; y < rows; y++)
         {
@@ -230,6 +237,7 @@ internal sealed unsafe class DrawProbes
                 double value = bytes == sizeof(float) ? BitConverter.ToSingle(row.Slice(i * bytes, bytes)) : (double)BitConverter.ToHalf(row.Slice(i * bytes, bytes));
                 sum[i % channels] += value;
                 max[i % channels] = Math.Max(max[i % channels], value);
+                min[i % channels] = Math.Min(min[i % channels], value);
             }
         }
 
@@ -237,7 +245,9 @@ internal sealed unsafe class DrawProbes
         string mean = string.Join(", ", sum.Select(value => (value / count).ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
         string largest = string.Join(", ", max.Select(value => value.ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
 
-        return $"; float mean ({mean}), max ({largest})";
+        string smallest = string.Join(", ", min.Select(value => value.ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
+
+        return $"; float mean ({mean}), max ({largest}), min ({smallest})";
     }
 
     /// <summary>One recorded copy: its buffer and size, the copied footprint, and the game's list and generation it was copied on.</summary>
