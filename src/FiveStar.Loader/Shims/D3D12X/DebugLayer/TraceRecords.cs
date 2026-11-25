@@ -11,7 +11,8 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// program reads at those byte offsets from every user SGPR that holds a window offset (a descriptor pointer the game
 /// passes as a root constant, which the root signature's tables do not show). Each record's dwords, then for a V# its
 /// base (or heap index), whether the address map has the base's page and the first dwords there; for a T# its base and
-/// map state.
+/// map state; and the game's own record at the same heap index, to tell a record the window lacks from one the game
+/// never wrote.
 /// </summary>
 internal static unsafe class TraceRecords
 {
@@ -52,7 +53,7 @@ internal static unsafe class TraceRecords
     /// The records at <paramref name="offsets"/> from each distinct user SGPR of <paramref name="sgprs"/> that is a
     /// record-aligned offset with room in the <paramref name="windowBytes"/> of view records at <paramref name="window"/>.
     /// </summary>
-    public static void Append(StringBuilder text, byte* window, uint windowBytes, ReadOnlySpan<uint> sgprs, IReadOnlyList<uint> offsets, Func<ulong, string> mapState, Func<ulong, int, nint> memory)
+    public static void Append(StringBuilder text, byte* window, uint windowBytes, ReadOnlySpan<uint> sgprs, IReadOnlyList<uint> offsets, TraceRecordSources sources)
     {
         if (window == null || offsets.Count == 0)
         {
@@ -75,17 +76,40 @@ internal static unsafe class TraceRecords
             {
                 var record = (uint*)(window + pointer + offset);
                 text.Append(CultureInfo.InvariantCulture, $"\n      sgpr {sgpr} 0x{pointer:x} +0x{offset:x}:");
-                AppendRecord(text, record, mapState, memory);
+                AppendRecord(text, record, sources.MapState, sources.Memory);
+                AppendGameRecord(text, pointer + offset, sources.GameRecord);
             }
         }
     }
 
-    private static void AppendRecord(StringBuilder text, uint* record, Func<ulong, string> mapState, Func<ulong, int, nint> memory)
+    /// <summary>The game's own record at the heap index of window offset <paramref name="offset"/>.</summary>
+    private static void AppendGameRecord(StringBuilder text, uint offset, Func<uint, nint> gameRecord)
+    {
+        uint index = (offset - Binding.DescriptorWindow.ViewBase) / RecordBytes;
+        var record = (uint*)gameRecord(offset);
+
+        if (record == null)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"\n        game record {index}: (no game heap)");
+
+            return;
+        }
+
+        text.Append(CultureInfo.InvariantCulture, $"\n        game record {index}:");
+        AppendDwords(text, record);
+    }
+
+    private static void AppendDwords(StringBuilder text, uint* record)
     {
         for (int dword = 0; dword < RecordDwords; dword++)
         {
             text.Append(CultureInfo.InvariantCulture, $" {record[dword]:x8}");
         }
+    }
+
+    private static void AppendRecord(StringBuilder text, uint* record, Func<ulong, string> mapState, Func<ulong, int, nint> memory)
+    {
+        AppendDwords(text, record);
 
         if (record[TypeDword] >> TypeShift >= FirstImageType)
         {

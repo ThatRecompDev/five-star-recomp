@@ -22,6 +22,7 @@ public sealed unsafe class TraceRecordsTests
 
         byte* window = (byte*)NativeMemory.AllocZeroed(WindowBytes);
         uint* constants = (uint*)NativeMemory.AllocZeroed(TraceRecords.BaseDwords * sizeof(uint));
+        uint* gameRecord = (uint*)NativeMemory.AllocZeroed(TraceRecords.RecordDwords * sizeof(uint));
 
         try
         {
@@ -29,6 +30,9 @@ public sealed unsafe class TraceRecordsTests
             Write(window + Table + 0x20, [0x8a43b440, 0x284, 0x10f0, 0x31014fac]);
             Write(window + Table + 0x40, [0x12345678, 0x00000000, 0, 0x90000000]);
             Write(window + Table + 0x60, [417733, 0, 1, 0x11014fac]);
+
+            gameRecord[0] = 0x7787000;
+            gameRecord[3] = 0x9000f000;
             constants[0] = 0x40000000;
             constants[2] = 0xbf800000;
 
@@ -36,7 +40,11 @@ public sealed unsafe class TraceRecordsTests
             uint[] sgprs = [Table, 0x123, 0, Table, WindowBytes];
             var mapped = new Dictionary<ulong, string> { [0x2848a43b440] = "mapped" };
             var memory = new Dictionary<ulong, nint> { [0x2848a43b440] = (nint)constants };
-            TraceRecords.Append(text, window, WindowBytes, sgprs, offsets, address => mapped.GetValueOrDefault(address, "UNMAPPED"), (address, _) => memory.GetValueOrDefault(address));
+
+            // The game's heap holds a T# where the window's +0x60 record is; the other records have no game heap behind them.
+            var game = new Dictionary<uint, nint> { [Table + 0x60] = (nint)gameRecord };
+            var sources = new TraceRecordSources(address => mapped.GetValueOrDefault(address, "UNMAPPED"), (address, _) => memory.GetValueOrDefault(address), offset => game.GetValueOrDefault(offset));
+            TraceRecords.Append(text, window, WindowBytes, sgprs, offsets, sources);
             string log = text.ToString();
 
             // Only sgpr 0 is a usable window offset: 0x123 is not record-aligned, sgpr 3 repeats it, 0x1000 has no room.
@@ -45,11 +53,15 @@ public sealed unsafe class TraceRecordsTests
             Assert.Contains("V# base 0x2848a43b440, 4336 records: mapped; first dwords: 40000000 00000000 bf800000", log, StringComparison.Ordinal);
             Assert.Contains("T# base 0x1234567800: UNMAPPED", log, StringComparison.Ordinal);
             Assert.Contains("V# holds heap index 417733, no console base", log, StringComparison.Ordinal);
+
+            Assert.Contains("game record 19: 07787000 00000000 00000000 9000f000", log, StringComparison.Ordinal);
+            Assert.Contains("game record 17: (no game heap)", log, StringComparison.Ordinal);
         }
         finally
         {
             NativeMemory.Free(window);
             NativeMemory.Free(constants);
+            NativeMemory.Free(gameRecord);
         }
     }
 
