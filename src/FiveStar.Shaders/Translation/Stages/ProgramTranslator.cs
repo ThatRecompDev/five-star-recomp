@@ -29,7 +29,8 @@ internal static class ProgramTranslator
         return Emit(
             coherent => new TranslationState(program, program.Instructions, program.Stage, false)
             {
-                EmulateWaves = true, Supersteps = true, Coherent = coherent, Loops = options.Loops ?? LoopCaps.Default,
+                EmulateWaves = true, Supersteps = true, SuperstepCarry = options.SuperstepCarry, Coherent = coherent,
+                Loops = options.Loops ?? LoopCaps.Default,
             },
             options with { StructuredControlFlow = false });
     }

@@ -487,7 +487,7 @@ cost tens of minutes.
 ```
 fivestar shader translate <program.fssm | folder> <out> [--cache <dir>] [--retry results.json]
                           [--stages ps,vs,cs,ms,gs] [--jobs N] [--limit N] [--step K] [--no-compile] [--dispatch]
-                          [--native-waves] [--mesh-fallbacks] [--waves min-max,...] [--first-used <pipelines-used.bin>]
+                          [--native-waves] [--mesh-fallbacks] [--superstep-carry] [--waves min-max,...] [--first-used <pipelines-used.bin>]
                           [--llvm-disassembler] [--llvm <folder>] [--dxc <path>] [--backend hlsl|dxil|dxil-only]
 ```
 
@@ -498,7 +498,7 @@ DXIL between runs (see Cache). `--retry` re-runs only programs whose status in t
 results. `--no-compile` skips dxc. `--backend dxil` compiles every program with the DXIL backend instead of dxc, and with dxc what the backend cannot lower; `dxil-only` uses no dxc (see [dxil-backend.md](dxil-backend.md)). `--dispatch` emits the dispatch form instead of structured control flow (see Control
 flow). `--native-waves` turns wave emulation off (see Wave size). A compute program pinned to 64 lanes, and a mesh program
 with a floor above 4 (its superstep form), also gets `<name>.w32.hlsl`/`.dxil` where possible; its reason in
-results.json says so (`wave32 variant ok`). `--mesh-fallbacks` also compiles the mesh fallback of every mesh program
+results.json says so (`wave32 variant ok`); `--superstep-carry` writes superstep forms with the liveness carry (see [dxil-backend.md](dxil-backend.md#size-of-the-superstep-form)). `--mesh-fallbacks` also compiles the mesh fallback of every mesh program
 that compiles (reason `fallback ok`, after `; ` when there is a superstep form), for GPUs without mesh shaders. A compiling
 run ends by writing `variants.json` (see Variant selection). `--llvm-disassembler` disassembles with
 llvm-mc/llvm-objdump instead of `RdnaDecoder` (see Disassembly). Every 10 seconds the command prints programs done,

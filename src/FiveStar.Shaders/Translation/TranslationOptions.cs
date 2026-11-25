@@ -15,4 +15,10 @@ namespace FiveStar.Shaders.Translation;
 public sealed record TranslationOptions(bool StructuredControlFlow, bool PinWaveSize, bool EmulateWaveSize)
 {
     public Core.LoopCaps? Loops { get; init; }
+
+    /// <summary>
+    /// The superstep form passes registers between its dispatch cases through carry slots, by liveness
+    /// (<see cref="Waves.SuperstepCarry"/>), instead of keeping every register live around the loop. Off by default.
+    /// </summary>
+    public bool SuperstepCarry { get; init; }
 }
