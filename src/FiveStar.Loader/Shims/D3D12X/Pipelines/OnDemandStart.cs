@@ -266,10 +266,17 @@ internal sealed class OnDemandStart
         return new OnDemandPrograms(index, ahead, producer, workers, warnings, () => BackendCounts);
     }
 
-    /// <summary>The adapter facts that pick a program's form: shader model, wave lane range, mesh-shader tier.</summary>
+    /// <summary>The adapter facts that pick a program's form: shader model, wave lane range, mesh-shader tier and mesh wave.</summary>
     private static string AdapterFolder(AdapterInfo adapter)
     {
-        return $"sm{adapter.ShaderModel}-w{adapter.WaveLaneCountMin}-{adapter.WaveLaneCountMax}-{adapter.MeshShaderTier}";
+        var folder = $"sm{adapter.ShaderModel}-w{adapter.WaveLaneCountMin}-{adapter.WaveLaneCountMax}-{adapter.MeshShaderTier}";
+
+        if (adapter.MeshWaveLanes is not null)
+        {
+            folder += $"-ms{adapter.MeshWaveLanes}";
+        }
+
+        return folder;
     }
 
     /// <summary>The runtime headers the sources include; another process may be writing them too.</summary>
