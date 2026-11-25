@@ -129,6 +129,33 @@ internal sealed unsafe class GpuTextures : IDisposable
             return;
         }
 
+        // A watched texture's memory can be unmapped by another thread while it is read every frame: a plain read
+        // faulted (an AccessViolation the guard cannot catch, boot v3), so its bytes are copied through the kernel first.
+        byte[]? copy = null;
+
+        if (texture.Watched)
+        {
+            copy = ReadThroughKernel(source, texture.Size);
+
+            if (copy is null)
+            {
+                return;
+            }
+        }
+
+        fixed (byte* copied = copy)
+        {
+            if (copied != null)
+            {
+                source = copied;
+            }
+
+            Fill(device, texture, source);
+        }
+    }
+
+    private void Fill(nint device, GpuTexture texture, byte* source)
+    {
         ulong hash = ContentHash.Of(source, texture.Size);
 
         if (hash == texture.UploadedHash)
@@ -223,6 +250,23 @@ internal sealed unsafe class GpuTextures : IDisposable
         }
 
         return texture;
+    }
+
+    /// <summary>The bytes at <paramref name="source"/> read through the kernel (ReadProcessMemory); null when a page went away.</summary>
+    private static byte[]? ReadThroughKernel(byte* source, ulong size)
+    {
+        var copy = GC.AllocateUninitializedArray<byte>(checked((int)size));
+        nuint done = 0;
+
+        fixed (byte* target = copy)
+        {
+            if (Kernel32.ReadProcessMemory(Kernel32.GetCurrentProcess(), (nint)source, target, (nuint)size, &done) == 0 || done != (nuint)size)
+            {
+                return null;
+            }
+        }
+
+        return copy;
     }
 
     /// <summary>
