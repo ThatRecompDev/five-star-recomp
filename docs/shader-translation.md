@@ -349,7 +349,11 @@ writelane, permlane, DPP, ds_swizzle, ds_bpermute, lane masks, mbcnt. A PC GPU r
 the driver. Compute shaders can ask for a size; pixel, vertex and mesh shaders cannot in shader model 6.7.
 
 Translated code therefore uses console (program) lane numbers through the prelude's `vw_lane`, `vw_read`,
-`vw_ballot`, `vw_any` and `vw_count`; `readfirstlane` and `lane_bit` build on them. With
+`vw_ballot`, `vw_any` and `vw_count`; `readfirstlane` and `lane_bit` build on them. `readfirstlane` takes the first lane
+with EXEC set with WaveReadLaneFirst under `if (active)` and a WaveActiveMax when the hardware wave holds no more
+than the program wave (outside the group forms): WaveReadLaneAt at the ballot's lowest bit crashed AMD's compiler
+(RX 7800 XT, driver 32.0.32029.2010) in CreatePipelineState on the decoration-baking mesh pipeline's pixel program,
+which does it seven times in a loop, and took the process with it. With
 `TranslationOptions.EmulateWaveSize` (the default; `--native-waves` turns it off) a pixel, vertex or mesh program
 starts with `#define VW_WAVE <32|64>` and `VW_EMULATE 1`, and each hardware wave of H lanes holds a window of the
 program wave of W lanes:
