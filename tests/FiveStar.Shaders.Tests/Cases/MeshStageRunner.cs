@@ -35,6 +35,25 @@ public sealed partial class MeshStageRunner
     /// </summary>
     public const string Windows = "ms_ngg_windows";
 
+    /// <summary>
+    /// The program with its counts taken by v_readfirstlane of a per-lane value, s8 + lane * s11, under a full EXEC: m0
+    /// and both export tests read them. With s11 = 0 every hardware wave of the console wave reads s8 (the windows agree);
+    /// the analysis cannot tell, so the group exchanges lane 0's value (Waves.FirstLaneExchange) and runs on narrower waves.
+    /// </summary>
+    public const string FirstLane = "ms_ngg_first_lane";
+
+    /// <summary><see cref="FirstLane"/> with s11 = 1: a 4-lane window would read s8 + 4k, the console wave lane 0's s8.</summary>
+    public const string FirstLaneSplit = "ms_ngg_first_lane_split";
+
+    private const string FirstLaneCounts = """
+        v_mbcnt_lo_u32_b32 v40, -1, 0
+        v_mbcnt_hi_u32_b32 v40, -1, v40
+        v_mul_lo_u32 v42, v40, s11
+        v_add_nc_u32_e32 v41, s8, v42
+        v_readfirstlane_b32 s50, v41
+        s_mov_b32 m0, s50
+        """;
+
     /// <summary>The program in the superstep form (HlslTranslator.SuperstepVariant): its barrier and both phases as steps.</summary>
     public const string Supersteps = "ms_ngg_supersteps";
 
@@ -177,10 +196,12 @@ public sealed partial class MeshStageRunner
         var (pixelSource, _) = PassThroughPixelShader.Build(mesh, ["param0"], flat: true);
         var pixel = _fixture.Workbench.Compile(variant + "_ps", pixelSource, "ps");
         var framebuffer = Framebuffer.Exact(1, Size, Size);
-        var bindings = new Bindings { UserSgprs = [(Primitives << 12) | Vertices, Culled, FloatBits.Of(AttributeBase)] };
+
+        uint lanes = variant == FirstLaneSplit ? 1u : 0u;
+        var bindings = new Bindings { UserSgprs = [(Primitives << 12) | Vertices, Culled, FloatBits.Of(AttributeBase), lanes] };
         var image = Reference();
 
-        if (variant is Native or Windows or Supersteps or SuperstepCarry)
+        if (variant is Native or Windows or Supersteps or SuperstepCarry or FirstLane or FirstLaneSplit)
         {
             var result = _fixture.Runner.Mesh(new MeshJob(_fixture.Workbench.Compile(variant, mesh, "ms", direct), pixel, framebuffer, bindings, 1));
 
@@ -293,6 +314,14 @@ public sealed partial class MeshStageRunner
             source = Program.Replace(RoundTrip, string.Empty, StringComparison.Ordinal)
                 .Replace(VertexRegion, VertexRegion + "\ns_mov_b32 s40, 7", StringComparison.Ordinal)
                 .Replace(PrimitiveRegion, PrimitiveRegion + "\nv_mov_b32 v32, s9\nv_readfirstlane_b32 s9, v32", StringComparison.Ordinal);
+        }
+
+        if (variant is FirstLane or FirstLaneSplit)
+        {
+            source = Program.Replace(RoundTrip, string.Empty, StringComparison.Ordinal).Replace("s_mov_b32 m0, s8", FirstLaneCounts, StringComparison.Ordinal)
+                .Replace("s_and_b32 s21, s8, 0xfff", "s_and_b32 s21, s50, 0xfff", StringComparison.Ordinal)
+                .Replace("s_lshr_b32 s21, s8, 12", "s_lshr_b32 s21, s50, 12", StringComparison.Ordinal);
+            variant = FirstLane;
         }
 
         var userSgprs = 4;

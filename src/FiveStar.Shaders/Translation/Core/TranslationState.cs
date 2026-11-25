@@ -194,6 +194,12 @@ internal sealed class TranslationState
     /// <summary>Mesh shader in two-phase direct-output mode (s_barrier becomes a yield point).</summary>
     public bool MeshYield { get; set; }
 
+    /// <summary>
+    /// Two-phase mesh programs: the v_readfirstlane instructions (address to site) whose console value the group exchanges
+    /// at a yield (Waves.FirstLaneExchange), so every hardware wave of the console wave reads its first lane's.
+    /// </summary>
+    public IReadOnlyDictionary<long, int> FirstLaneExchanges { get; set; } = new Dictionary<long, int>();
+
     /// <summary>The program ends a primitive-ordered (POPS) critical section.</summary>
     public bool Pops { get; set; }
 

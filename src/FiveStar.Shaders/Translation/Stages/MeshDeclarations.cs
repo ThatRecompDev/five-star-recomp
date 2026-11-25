@@ -22,6 +22,8 @@ internal sealed partial class MeshDeclarations
     private const int BytesPerComponent = 4;
     private const int CounterBytes = 8;
     private const int Vec4 = 4;
+    private const int Wave32 = 32;
+    private const int Wave64 = 64;
     private const string Components = "xyzw";
 
     private readonly TranslationState _state;
@@ -41,6 +43,29 @@ internal sealed partial class MeshDeclarations
         return $"[numthreads({_state.MeshThreads}, 1, 1)]\n[outputtopology(\"triangle\")]\n"
             + $"void main(uint3 in_gid : SV_GroupID, uint in_gi : SV_GroupIndex, out vertices Out verts[{MaxVertices}], "
             + $"out indices uint3 tris[{MaxPrimitives}], out primitives MSPrim prims[{MaxPrimitives}])";
+    }
+
+    /// <summary>
+    /// The groupshared slots of the first-lane exchanges (Waves.FirstLaneExchange): per site and console wave two, one
+    /// per parity of the barrier step, so a deposit is read after the next barrier and never overwritten before.
+    /// </summary>
+    public string FirstLaneDeclarations()
+    {
+        var sites = _state.FirstLaneExchanges.Count;
+
+        if (sites == 0)
+        {
+            return string.Empty;
+        }
+
+        var wave = _state.IsWave64 ? Wave64 : Wave32;
+        var waves = (_state.MeshThreads + wave - 1) / wave;
+
+        const int Parities = 2;
+
+        return $"\ngroupshared uint g_vw_first[{sites * waves * Parities}];\nstatic uint g_vw_wave;\n"
+            + $"void vw_first_put(uint site, uint step, uint x) {{ g_vw_first[(site * {waves}u + g_vw_wave) * 2u + (step & 1u)] = x; }}\n"
+            + $"uint vw_first(uint site, uint step) {{ return g_vw_first[(site * {waves}u + g_vw_wave) * 2u + ((step + 1u) & 1u)]; }}";
     }
 
     public static string DirectDeclarations()

@@ -97,24 +97,7 @@ internal sealed class BodyWriter
 
         if (stage == ShaderStage.Mesh)
         {
-            lines.Add("  if (in_gi == 0) { g_ms_nv = 0; g_ms_np = 0; g_ms_alloc = 0; }");
-
-            if (_state.MeshYield)
-            {
-                lines.AddRange(["  if (in_gi == 0) { g_ms_live[0] = 0; g_ms_live[1] = 0; g_ms_live[2] = 0; }", "  uint ms_step = 0;"]);
-            }
-
-            if (!_state.MeshYield)
-            {
-                lines.Add("  g_ms_prim[in_gi] = 0x80000000u;");
-            }
-
-            lines.Add("  GroupMemoryBarrierWithGroupSync();");
-
-            if (_state.EmulateWaves)
-            {
-                lines.Add($"  {WaveOps.GroupLane} = in_gi & (VW_WAVE - 1u);");
-            }
+            WriteMeshDeclarations(lines);
         }
 
         if (stage == ShaderStage.Compute && _state.Supersteps)
@@ -152,7 +135,34 @@ internal sealed class BodyWriter
         lines.AddRange(_state.Prologue);
     }
 
-    private bool IsTwoPhaseMesh => _state.MeshYield && _state.Stage == ShaderStage.Mesh;
+    private void WriteMeshDeclarations(List<string> lines)
+    {
+        lines.Add("  if (in_gi == 0) { g_ms_nv = 0; g_ms_np = 0; g_ms_alloc = 0; }");
+
+        if (_state.MeshYield)
+        {
+            lines.AddRange(["  if (in_gi == 0) { g_ms_live[0] = 0; g_ms_live[1] = 0; g_ms_live[2] = 0; }", "  uint ms_step = 0;"]);
+        }
+
+        if (!_state.MeshYield)
+        {
+            lines.Add("  g_ms_prim[in_gi] = 0x80000000u;");
+        }
+
+        lines.Add("  GroupMemoryBarrierWithGroupSync();");
+
+        if (_state.EmulateWaves)
+        {
+            lines.Add($"  {WaveOps.GroupLane} = in_gi & (VW_WAVE - 1u);");
+        }
+
+        if (_state.FirstLaneExchanges.Count > 0)
+        {
+            lines.Add("  g_vw_wave = in_gi / VW_WAVE;");
+        }
+    }
+
+    private bool IsTwoPhaseMesh =>_state.MeshYield && _state.Stage == ShaderStage.Mesh;
 
     /// <summary>The structured form; the dispatch form (with a comment naming the reason) when the graph does not allow it.</summary>
     private void WriteStructured(List<string> lines)
