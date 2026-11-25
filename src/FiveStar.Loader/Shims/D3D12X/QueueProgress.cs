@@ -66,6 +66,7 @@ internal static unsafe class QueueProgress
         if (pipeline != 0)
         {
             PipelineNames[pipeline] = names;
+            Binding.TableReaches.Register(pipeline, names);
         }
     }
 
