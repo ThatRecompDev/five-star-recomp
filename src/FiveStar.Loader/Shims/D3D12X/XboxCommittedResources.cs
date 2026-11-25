@@ -13,8 +13,10 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// Device slot 127, the committed resources. On the console D3D12.X takes their memory from the title's XMemAlloc
 /// hook, and the game counts on it: around its render targets (0x14247ad10) it pushes a hook that hands out a 64 MiB
 /// region for D3D allocations with page-size field 2, then breaks into the debugger unless all but 2 MiB of it went
-/// to the resources. The shim makes the same allocation, of the desktop resource's size, and frees it with the
-/// resource; the desktop resource itself lives in desktop memory.
+/// to the resources. The shim makes the same allocation, of the console's size for a texture (a desktop driver adds
+/// metadata of its own: 0x2010000 bytes for a 3840x2160 RGBA8 target on an RDNA3 card, and two of those overrun the
+/// region) and of the desktop size for a buffer, and frees it with the resource; the desktop resource itself lives in
+/// desktop memory.
 /// </summary>
 internal sealed unsafe class XboxCommittedResources
 {
@@ -68,7 +70,7 @@ internal sealed unsafe class XboxCommittedResources
         if (!HResult.Failed(hr) && resource != null && *resource != 0)
         {
             var wrapper = (XboxResourceObject*)*resource;
-            wrapper->TitleMemory = _hooks.Allocate((nuint)AllocationSize(device, &desktop), ResourceAttributes);
+            wrapper->TitleMemory = _hooks.Allocate((nuint)TitleAllocationSize(device, description, &desktop), ResourceAttributes);
             ResourceStates.Record(wrapper, desktop.Dimension, state, desktop.Flags);
         }
 
@@ -108,6 +110,16 @@ internal sealed unsafe class XboxCommittedResources
 
             return default;
         }
+    }
+
+    private static ulong TitleAllocationSize(nint device, ResourceDescription* console, ResourceDescription* desktop)
+    {
+        if (ConsoleAllocationSizes.TryCommittedTextureSize(console, out ulong size))
+        {
+            return size;
+        }
+
+        return AllocationSize(device, desktop);
     }
 
     private static ulong AllocationSize(nint device, ResourceDescription* description)
