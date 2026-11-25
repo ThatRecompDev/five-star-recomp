@@ -78,6 +78,7 @@ internal static unsafe class ListSplits
             return false;
         }
 
+        DebugLayer.GpuTimings.Split((nint)self, inner);
         int closed = ((delegate* unmanaged<nint, int>)ComObject.Slot(inner, CloseSlot))(inner);
         nint pipeline = Pipeline(self);
 
