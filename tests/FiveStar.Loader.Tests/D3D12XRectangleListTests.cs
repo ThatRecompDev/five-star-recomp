@@ -54,6 +54,18 @@ public sealed unsafe class D3D12XRectangleListTests
     [DxcFact]
     public void A_rectangle_list_draw_covers_the_whole_rectangle()
     {
+        CoversTheWholeRectangle("vs");
+    }
+
+    [DxcFact]
+    public void A_rectangle_list_draw_of_a_linked_producer_the_library_cannot_reload_covers_the_whole_rectangle()
+    {
+        // VS_TiledLighting linked to its TL_PS: the library reads no ".link-" program by name, so the recipe keeps it.
+        CoversTheWholeRectangle("vs.link-beb72bb57485");
+    }
+
+    private static void CoversTheWholeRectangle(string vertexName)
+    {
         using var test = TestRuntime.Create();
         var device = new XboxDevice(test);
         var folder = Directory.CreateTempSubdirectory("fivestar-rect-");
@@ -65,7 +77,7 @@ public sealed unsafe class D3D12XRectangleListTests
 
             using (desktop)
             {
-                nint pipeline = Pipelines(test, folder.FullName);
+                nint pipeline = Pipelines(test, folder.FullName, vertexName);
                 var pixels = Draw(device, desktop, pipeline, test.Runtime.D3D12X.Bindings.Root);
 
                 // The middle half is covered (all four quarters, the extrapolated one included), the border is not.
@@ -85,10 +97,10 @@ public sealed unsafe class D3D12XRectangleListTests
     }
 
     /// <summary>The base pipeline, and its rectangle-list variant's geometry shader compiled as <c>fivestar shader rect-gs</c> does.</summary>
-    private static nint Pipelines(TestRuntime test, string folder)
+    private static nint Pipelines(TestRuntime test, string folder, string vertexName)
     {
         var vertex = Compile(folder, "vs", Vertex);
-        var programs = new List<TranslatedProgram> { new("vs", HardwareStage.Vertex, vertex), new("ps", HardwareStage.Pixel, Compile(folder, "ps", Pixel)) };
+        var programs = new List<TranslatedProgram> { new(vertexName, HardwareStage.Vertex, vertex), new("ps", HardwareStage.Pixel, Compile(folder, "ps", Pixel)) };
         var outputs = PsvSignatureParser.Parse(DxbcContainer.Parse(vertex).Find(PsvSignatureParser.ChunkCode)!.Data.Span).Outputs;
         var source = RectangleGeometryShader.Source(outputs);
         File.WriteAllBytes(Path.Combine(folder, RectangleGeometryShader.FileName(source)), Compile(folder, "gs", source));
@@ -102,7 +114,9 @@ public sealed unsafe class D3D12XRectangleListTests
         var iid = DesktopDevice.PipelineStateIid;
         nint pipeline;
         Assert.Equal(0, DesktopPipelineBuilder.Graphics(device2, root, description, programs, &iid, &pipeline));
-        var rectangles = new RectanglePipelines(device2, root, folder, new FixedProgramLibrary([.. programs]), new OnceLog(new LoaderLog(new StringWriter(), null, false)));
+
+        var library = new FixedProgramLibrary([.. programs.Where(program => !RectanglePipelines.Derived(program.Name))]);
+        var rectangles = new RectanglePipelines(device2, root, folder, library, new OnceLog(new LoaderLog(new StringWriter(), null, false)));
         rectangles.Remember(pipeline, description, programs);
         test.Runtime.D3D12X.Rectangles.Attach(rectangles);
 
