@@ -51,7 +51,10 @@ internal sealed class ProgramProducer
     {
         _programs = programs;
         _folder = folder;
+
+        // Programs that trace rays are known by their markers here, or read from their console code.
         RayTracingPrograms.Folder = folder;
+        RayTracingPrograms.Scanner = TracesRays;
         _picker = picker;
         _compiler = compiler;
         _slow = slow;
@@ -99,6 +102,26 @@ internal sealed class ProgramProducer
 
     /// <summary>The folder the DXIL goes to.</summary>
     public string Folder => _folder;
+
+    /// <summary>Whether a program's console code holds an image_bvh instruction (it traces rays); null when it cannot be read.</summary>
+    public bool? TracesRays(string name)
+    {
+        var path = Path.Combine(_programs, DebugLayer.MeshProbes.Source(name) + ProgramExtension);
+
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return _loader.Load(path, null).Program?.Instructions.Any(instruction => instruction.Text.StartsWith("image_bvh", StringComparison.Ordinal));
+        }
+        catch (InvalidDataException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>Whether the program's DXIL is in the folder.</summary>
     public bool Exists(string name)
