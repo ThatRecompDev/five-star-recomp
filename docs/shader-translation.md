@@ -192,6 +192,10 @@ instruction offset. Every access below is one dword:
 | 2 | num_records = 0 |
 | 3, raw | offset + soffset + 4 > num_records; index × stride moves the address but is not checked |
 
+A format access (`buffer_load_format`, `tbuffer_*`) checks its element instead of a dword: 4 above becomes the format's
+size, 1 to 16 bytes (`fmt_limit`). With the dword check an R16 structured buffer of stride 2 failed every access and
+read 0; the mesh probe of `MS_VS_Transform_PositionOnly` found one format load out of range in 2,876 of 2,895 groups.
+
 Per access, `buf_limit` gives the end the dwords must fit under and `buf_offset` the checked offset (soffset counts
 for raw V#s). Each dword then costs one compare (`buf_fits`); formatted accesses check the element's first dword.
 The shim's records carry the OOB_SELECT of their view's kind (raw 3, structured 0, typed and constant buffers 1).

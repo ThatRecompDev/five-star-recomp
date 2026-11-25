@@ -407,6 +407,14 @@ static const uint FMT_UNIFIED[80] = {
     84, 85, 92, 93, 95, 96, 97, 98, 99, 100, 101, 103, 108, 109, 111, 116, 117, 119, 0, 0,
 };
 uint buf_code(uint d3) { uint f = (d3 >> 12) & 0x7fu; return select(f < 80u, FMT_UNIFIED[min(f, 79u)], 0u); }
+// A format access checks its element (1 to 16 bytes, FMT_FIELDS' layouts) against the range, not a dword: an R16
+// structured buffer of stride 2 is in range, where a dword check against its stride failed every access (the mesh
+// probe of MS_VS_Transform_PositionOnly: 2,876 of 2,895 groups read 0 at that load). As a limit for buf_fits.
+static const uint FMT_BYTES[16] = { 4, 1, 2, 2, 4, 4, 4, 4, 4, 4, 4, 8, 8, 12, 16, 4 };
+uint fmt_limit(uint limit, uint code) {
+    uint n = FMT_BYTES[(code >> 3) & 15u];
+    return select(limit < n, 0u, select(limit > 0xfffffff0u, limit, limit - n + 4u));
+}
 uint fmt_select(uint4 v, uint sel, uint one) {
     uint c = select((sel & 3u) == 0u, v.x, select((sel & 3u) == 1u, v.y, select((sel & 3u) == 2u, v.z, v.w)));
     return select(sel >= 4u, c, select(sel == 1u, one, 0u));
