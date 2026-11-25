@@ -78,6 +78,28 @@ public sealed unsafe class WaitObjectsTests
         }
     }
 
+    /// <summary>A stack value inside an image's range is only read when the call bytes before it are committed.</summary>
+    [Fact]
+    public void A_value_after_an_uncommitted_page_is_not_read()
+    {
+        int page = Environment.SystemPageSize;
+        nint region = Kernel32.VirtualAlloc(0, (nuint)(page * 2), Win32Constants.MemReserve, Win32Constants.PageReadWrite);
+        Assert.NotEqual(0, region);
+
+        try
+        {
+            Assert.NotEqual(0, Kernel32.VirtualAlloc(region + page, (nuint)page, Win32Constants.MemCommit, Win32Constants.PageReadWrite));
+
+            Assert.False(ReturnAddresses.CallBytesReadable(region + 16));
+            Assert.False(ReturnAddresses.CallBytesReadable(region + page + 2));
+            Assert.True(ReturnAddresses.CallBytesReadable(region + page + 16));
+        }
+        finally
+        {
+            _ = Kernel32.VirtualFree(region, 0, Win32Constants.MemRelease);
+        }
+    }
+
     /// <summary>Return addresses are told from other stack values by the call that ends right before them.</summary>
     [Theory]
     [InlineData(new byte[] { 0x90, 0xE8, 1, 2, 3, 4 }, true)]
