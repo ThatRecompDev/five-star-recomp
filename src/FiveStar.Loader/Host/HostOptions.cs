@@ -316,6 +316,9 @@ internal sealed record HostOptions
     /// <summary>The shipped BVH builder's constructor runs for an inventory of its pipelines, never built (<c>--raytracing-gpu</c>).</summary>
     public bool RayTracingGpuInventory { get; set; }
 
+    /// <summary><c>--no-rt-stand-ins</c>: held ray-tracing passes leave their outputs as they are (RtStandIns).</summary>
+    public bool NoRtStandIns { get; set; }
+
     /// <summary>Run the XDsp convolution effects on the CPU instead of returning silence (<c>--xdsp-convolution</c>).</summary>
     public bool XDspConvolution { get; set; }
 

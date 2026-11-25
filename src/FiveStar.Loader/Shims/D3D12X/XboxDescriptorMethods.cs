@@ -291,7 +291,14 @@ internal static unsafe class XboxDescriptorMethods
                 NoteUnorderedAccess(resource, description, handle, record);
             }
 
-            create(inner, desktop, objects.Unwrap(counter), TargetViewDescriptions.UnorderedAccessView(desktop, fitted, copy), destination);
+            void* view = TargetViewDescriptions.UnorderedAccessView(desktop, fitted, copy);
+
+            if (RtStandIns.Enabled)
+            {
+                UavViews.Note(destination, desc, view);
+            }
+
+            create(inner, desktop, objects.Unwrap(counter), view, destination);
         }
         catch (Exception exception)
         {
