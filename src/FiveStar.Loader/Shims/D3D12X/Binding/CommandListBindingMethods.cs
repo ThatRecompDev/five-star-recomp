@@ -527,16 +527,17 @@ internal static unsafe class CommandListBindingMethods
     }
 
     /// <summary>
-    /// <c>--depth-twins</c>, before a draw: when the bound depth-stencil view's texture has a depth or stencil twin that a
-    /// pass wrote since, the twin's values go into that plane (<see cref="DepthTwinCopy"/>), then the list's graphics
-    /// state is set again (heaps, input, targets, viewports, root signature, user data, pipeline).
+    /// <c>--depth-twins</c>, before a draw: the bound depth-stencil view's texture is a side the list uses
+    /// (<see cref="DepthTwinSides.UsePlane"/>); when the list wrote its depth or stencil twin since, the twin's values go
+    /// into that plane here (<see cref="DepthTwinCopy"/>), then the list's graphics state is set again (heaps, input,
+    /// targets, viewports, root signature, user data, pipeline). What lists submitted before it wrote is copied at
+    /// submission (<see cref="DepthTwinPrelude"/>).
     /// </summary>
     private static void CopyTwin(XboxObject* self)
     {
         var replay = ListReplayState.Of(self);
 
-        // The copy reads the twin through the bound view heap: a list without one set has nothing to read it by.
-        if ((replay->Set & ListReplayState.DepthStencilBit) == 0 || (replay->Set & ListReplayState.HeapsBit) == 0)
+        if ((replay->Set & ListReplayState.DepthStencilBit) == 0)
         {
             return;
         }
@@ -567,10 +568,19 @@ internal static unsafe class CommandListBindingMethods
         }
     }
 
-    /// <summary>Records the copy of <paramref name="twin"/> into its plane when a pass wrote it since; whether it was recorded.</summary>
+    /// <summary>
+    /// Notes the plane's use; records the copy of <paramref name="twin"/> into its plane when the list wrote the twin
+    /// since. The copy reads the twin through the bound view heap: a list without one set has nothing to read it by.
+    /// Whether it was recorded.
+    /// </summary>
     private static bool CopyPlane(XboxObject* self, DepthTwin? twin, nint view, int format)
     {
-        if (twin is null || twin.ViewHandle == 0 || !twin.TakeWritten())
+        if (twin is null || !DepthTwinSides.UsePlane((nint)self, twin, format))
+        {
+            return false;
+        }
+
+        if (twin.ViewHandle == 0 || (ListReplayState.Of(self)->Set & ListReplayState.HeapsBit) == 0)
         {
             return false;
         }
@@ -724,6 +734,11 @@ internal static unsafe class CommandListBindingMethods
         ListIndirectScratch.Of(self)->Budget = 0;
         ListActivity.Reset(self);
         ShimContext.Runtime.D3D12X.DrawTrace?.Reset(self);
+
+        if (DepthTwinSides.Any)
+        {
+            DepthTwinSides.Forget((nint)self);
+        }
 
         var objects = ShimContext.Runtime.D3D12X.Objects;
         nint inner = self->Inner;
