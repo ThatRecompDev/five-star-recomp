@@ -39,9 +39,14 @@ internal sealed class PipelineWaits
         return waits;
     }
 
-    /// <summary>Whether a stand-in named <paramref name="name"/> is waited for.</summary>
+    /// <summary>Whether a stand-in named <paramref name="name"/> is waited for; never one --skip-pipelines names, which stays a stand-in.</summary>
     public bool Matches(string name)
     {
+        if (SkippedPipelines.Skips(name))
+        {
+            return false;
+        }
+
         foreach (string part in _names)
         {
             if (name.Contains(part, StringComparison.OrdinalIgnoreCase))
