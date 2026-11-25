@@ -237,7 +237,7 @@ internal sealed unsafe class RectanglePipelines
         nint variant = 0;
         long shaderBytes = programs.Sum(program => (long)program.Dxil.Length);
         int hr;
-        CompileBudget.Enter(shaderBytes);
+        var ticket = CompileBudget.Enter(shaderBytes);
 
         try
         {
@@ -245,7 +245,7 @@ internal sealed unsafe class RectanglePipelines
         }
         finally
         {
-            CompileBudget.Exit(shaderBytes);
+            CompileBudget.Exit(ticket);
         }
 
         if (HResult.Failed(hr))
