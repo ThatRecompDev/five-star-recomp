@@ -123,10 +123,8 @@ internal sealed class CommandLineParser
                 return SetTraceSystem();
             case "--ffx":
                 return SetFidelityFxLibrary();
-            case "--d3d12-debug":
-                return SetD3D12Debug(false);
-            case "--d3d12-gpu-validation":
-                return SetD3D12Debug(true);
+            case "--d3d12-debug" or "--d3d12-gpu-validation" or "--d3d12-dred":
+                return SetD3D12Debug(option);
             case "--d3d12-skip":
                 return Add(_options.D3D12Skips);
             case "--d3d12-trace-queues":
@@ -209,8 +207,8 @@ internal sealed class CommandLineParser
                 _options.Dxc = Path.GetFullPath(Next());
 
                 return true;
-            case "--shader-jobs":
-                return SetShaderJobs();
+            case "--shader-jobs" or "--loop-caps":
+                return SetShaderJobs(option);
             case "--shader-backend":
                 return SetShaderBackend();
             default:
@@ -246,8 +244,16 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    private bool SetShaderJobs()
+    /// <summary>--shader-jobs N, or --loop-caps victory|default|compute,geometry,pixel (programs made on demand).</summary>
+    private bool SetShaderJobs(string option)
     {
+        if (option == "--loop-caps")
+        {
+            _options.LoopCaps = FiveStar.Shaders.Translation.Core.LoopCaps.Parse(Next()) ?? throw new ArgumentException("--loop-caps takes victory, default or compute,geometry,pixel");
+
+            return true;
+        }
+
         _options.ShaderJobs = int.Parse(Next(), CultureInfo.InvariantCulture);
 
         return true;
@@ -575,11 +581,18 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    /// <summary>--d3d12-debug, or --d3d12-gpu-validation, which implies it.</summary>
-    private bool SetD3D12Debug(bool gpuValidation)
+    /// <summary>--d3d12-debug, --d3d12-gpu-validation, which implies it, or --d3d12-dred (DRED without the debug layer).</summary>
+    private bool SetD3D12Debug(string option)
     {
+        if (option == "--d3d12-dred")
+        {
+            _options.D3D12Dred = true;
+
+            return true;
+        }
+
         _options.D3D12Debug = true;
-        _options.D3D12GpuValidation |= gpuValidation;
+        _options.D3D12GpuValidation |= option == "--d3d12-gpu-validation";
 
         return true;
     }

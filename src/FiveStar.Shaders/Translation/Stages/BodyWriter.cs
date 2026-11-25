@@ -17,11 +17,23 @@ internal sealed class BodyWriter
 {
     private const string Indent = "    ";
 
-    // End of a mesh phase loop: stop at s_endpgm, else run the barrier at the top level and resume after it.
-    private static readonly string[] PhaseTwoEnd =
+    // End of a mesh phase loop: the barrier at the top level for every thread of the group, then resume after it. On
+    // the console s_barrier waits only for waves that have not ended (s_endpgm); a D3D12 group barrier waits for every
+    // thread, so a thread that ended keeps meeting the barrier (counted out of g_ms_live) until no thread runs: a
+    // console wave that ends while another of its group meets an s_barrier would otherwise leave that barrier unfilled
+    // (a group hang). The counters rotate as vw_ss_step's do.
+    private static readonly string[] BarrierStep =
     [
-        "    if (pc == PC_END) break;", "    GroupMemoryBarrierWithGroupSync();", "    pc = pc_resume;", "  }",
+        "    if (pc != PC_END) InterlockedAdd(g_ms_live[ms_step % 3u], 1u);",
+        "    if (in_gi == 0) g_ms_live[(ms_step + 1u) % 3u] = 0;",
+        "    GroupMemoryBarrierWithGroupSync();",
+        "    uint ms_live = g_ms_live[ms_step % 3u];",
+        "    ms_step++;",
+        "    if (ms_live == 0u) break;",
+        "    if (pc != PC_END) pc = pc_resume;",
     ];
+
+    private static readonly string[] PhaseTwoEnd = [.. BarrierStep, "  }"];
 
     // Phase two when none of its blocks yields: the barrier could never run, and NVIDIA's driver (RTX 5070, 621.40) hangs
     // the group on dxc's optimized form of the program while it is there.
@@ -30,10 +42,10 @@ internal sealed class BodyWriter
         "    if (pc == PC_END) break;", "    pc = pc_resume;", "  }",
     ];
 
-    // Phase one also stops once the output counts are known.
+    // Phase one also stops once the output counts are known, all threads on the flag read before any can set it again.
     private static readonly string[] PhaseOneEnd =
     [
-        "    if (pc == PC_END) break;", "    GroupMemoryBarrierWithGroupSync();", "    pc = pc_resume;", "    if (g_ms_alloc != 0) break;", "  }",
+        .. BarrierStep, "    bool ms_alloc = g_ms_alloc != 0;", "    GroupMemoryBarrierWithGroupSync();", "    if (ms_alloc) break;", "  }",
     ];
 
     private readonly TranslationState _state;
@@ -83,6 +95,11 @@ internal sealed class BodyWriter
         if (stage == ShaderStage.Mesh)
         {
             lines.Add("  if (in_gi == 0) { g_ms_nv = 0; g_ms_np = 0; g_ms_alloc = 0; }");
+
+            if (_state.MeshYield)
+            {
+                lines.AddRange(["  if (in_gi == 0) { g_ms_live[0] = 0; g_ms_live[1] = 0; g_ms_live[2] = 0; }", "  uint ms_step = 0;"]);
+            }
 
             if (!_state.MeshYield)
             {
@@ -245,7 +262,7 @@ internal sealed class BodyWriter
     /// </summary>
     private List<string> Dispatch(bool dropOutputs)
     {
-        var lines = new List<string> { $"  [loop] for (uint pc_steps = 0; pc < PC_YIELD && pc_steps < {LoopGuard.DispatchHex}; pc_steps++) {{", "    switch (pc) {" };
+        var lines = new List<string> { $"  [loop] for (uint pc_steps = 0; pc < PC_YIELD && pc_steps < {LoopGuard.DispatchHex(_state.Stage, _state.Loops)}; pc_steps++) {{", "    switch (pc) {" };
 
         foreach (var block in _state.Blocks)
         {

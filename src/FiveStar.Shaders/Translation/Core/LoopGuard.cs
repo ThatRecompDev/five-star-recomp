@@ -14,27 +14,15 @@ public static class LoopGuard
 {
     public const long DispatchSteps = 1 << 24;
 
-    /// <summary>Pixel, vertex, geometry and mesh invocations run by the million a draw; a compute thread is one of fewer.</summary>
-    private const long GraphicsIterations = 1 << 12;
-    private const long ComputeIterations = 1 << 16;
-
-    /// <summary><see cref="DispatchSteps"/> as an HLSL literal.</summary>
-    public static string DispatchHex => Hlsl.HexUint(DispatchSteps);
-
-    /// <summary>Loop iterations one invocation of a <paramref name="stage"/> program may run.</summary>
-    public static long Iterations(ShaderStage stage)
+    /// <summary>The dispatch form's block steps of <paramref name="stage"/> under <paramref name="caps"/>, as an HLSL literal.</summary>
+    public static string DispatchHex(ShaderStage stage, LoopCaps caps)
     {
-        if (stage == ShaderStage.Compute)
-        {
-            return ComputeIterations;
-        }
-
-        return GraphicsIterations;
+        return Hlsl.HexUint(caps.DispatchSteps(stage));
     }
 
-    /// <summary><see cref="Iterations"/> as an HLSL literal.</summary>
-    public static string Hex(ShaderStage stage)
+    /// <summary>Loop iterations one invocation of a <paramref name="stage"/> program may run under <paramref name="caps"/>, as an HLSL literal.</summary>
+    public static string Hex(ShaderStage stage, LoopCaps caps)
     {
-        return Hlsl.HexUint(Iterations(stage));
+        return Hlsl.HexUint(caps.Iterations(stage));
     }
 }

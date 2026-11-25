@@ -15,7 +15,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// <see cref="TinyShaderBytes"/> of DXIL are counted but never wait, so a small compute pipeline made on the game's
 /// thread is not held up; while an urgent compile waits (<see cref="Urgent"/>), no other starts. Two ceilings bound
 /// the loader itself (<see cref="Configure"/>): at most <see cref="MaxCompiles"/> larger compiles at once, and none
-/// starts while the private bytes of the process and the compile host, the running ones' remaining need and its own
+/// starts while the private bytes of the process (less its write-combined memory) and the compile host, the running
+/// ones' remaining need and its own
 /// estimate would pass <see cref="CeilingBytes"/>; one always may when none runs, so builds go on. Program work waits
 /// while the compile host is large (<see cref="RoomForPrograms"/>), in a boot and in the warm-up alike. A cold boot to 450 s reached 40 GB
 /// private, 8 GB of it in the arenas of the 7 compiles that started at the story load.
@@ -217,7 +218,7 @@ internal static unsafe class CompileBudget
                 return false;
             }
 
-            if (!tiny && !UnderCeiling(estimate, _runningLarge, privateBytes + HelperPrivateBytes(), remaining, MaxCompiles, CeilingBytes))
+            if (!tiny && !UnderCeiling(estimate, _runningLarge, CountedBytes(privateBytes), remaining, MaxCompiles, CeilingBytes))
             {
                 return false;
             }
@@ -232,6 +233,15 @@ internal static unsafe class CompileBudget
 
             return true;
         }
+    }
+
+    /// <summary>
+    /// The private bytes the ceiling counts: the loader's less its write-combined memory (the driver's system-memory
+    /// pools, which grew by 20 GB after the story load while compiles were held to one), plus the compile host's.
+    /// </summary>
+    private static long CountedBytes(long privateBytes)
+    {
+        return Math.Max(0, privateBytes - Diagnostics.WriteCombinedMemory.CachedBytes) + HelperPrivateBytes();
     }
 
     private static long PrivateBytes()

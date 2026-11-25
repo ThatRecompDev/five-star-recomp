@@ -41,6 +41,9 @@ internal sealed unsafe class DrawTrace
     /// <summary>Draws matching <see cref="PipelineFilter"/> logged per traced frame.</summary>
     private const int FilterDraws = 64;
 
+    /// <summary>Argument records logged for a traced ExecuteIndirect.</summary>
+    private const uint IndirectRecordsShown = 4;
+
     /// <summary>Floats of a D3D12_VIEWPORT and ints of a D3D12_RECT (d3d12.h).</summary>
     private const int ViewportFloats = 6;
     private const int RectangleInts = 4;
@@ -57,6 +60,7 @@ internal sealed unsafe class DrawTrace
     private readonly ConcurrentDictionary<nint, (nint Resource, int Home)> _targetViews = new();
     private readonly ConcurrentDictionary<nint, string> _targetDescriptions = new();
     private readonly ConcurrentDictionary<nint, int> _dumped = new();
+    private readonly ConcurrentDictionary<nint, byte> _indirectProbes = new();
     private readonly ConcurrentDictionary<nint, long> _targetWidths = new();
     private long _dumpPresent;
     private int _dumps;
@@ -219,6 +223,80 @@ internal sealed unsafe class DrawTrace
         text.Append(state.VertexBuffers);
         AppendUserData(text, CommandListBindings.Of(list));
         _log.Info(text.ToString());
+    }
+
+    /// <summary>
+    /// An ExecuteIndirect whose pipeline matches <see cref="PipelineFilter"/> in the frame after a captured present: its
+    /// first argument records, the count's source, targets and the bindings, as a traced draw; its targets are read back
+    /// right after it (<see cref="AfterIndirect"/>), so one mesh pass shows whether it wrote anything.
+    /// </summary>
+    public void Indirect(XboxObject* list, uint maxCount, ulong argumentAddress, uint stride, bool counted)
+    {
+        var rectangles = RectangleListState.Of(list);
+
+        if (!Matches(rectangles->Pipeline))
+        {
+            return;
+        }
+
+        var state = List(list);
+        string pipeline = _d3d12.Rectangles.Pipelines?.Describe(rectangles->Pipeline) ?? "unknown";
+        var text = new StringBuilder($"  [draws] indirect: list 0x{(nint)list:x}, max {maxCount} records of {stride} bytes, count buffer {counted}");
+        text.Append($"\n      pipeline 0x{rectangles->Pipeline:x} topology {rectangles->Topology}: {pipeline}");
+        AppendRecords(text, argumentAddress, Math.Min(maxCount, IndirectRecordsShown), stride);
+
+        AppendTargets(text, state);
+        text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x}");
+        AppendUserData(text, CommandListBindings.Of(list));
+        _log.Info(text.ToString());
+        _indirectProbes[(nint)list] = 0;
+    }
+
+    /// <summary>After a traced ExecuteIndirect: its first render target and its depth target are read back in the list.</summary>
+    public void AfterIndirect(XboxObject* list)
+    {
+        if (!_indirectProbes.TryRemove((nint)list, out _))
+        {
+            return;
+        }
+
+        var state = List(list);
+
+        foreach (nint handle in state.Targets.Take(1).Append(state.DepthStencil))
+        {
+            if (handle == 0 || !_targetViews.TryGetValue(handle, out var target))
+            {
+                continue;
+            }
+
+            int current = _d3d12.ListStates.Find(list)?.Current(target.Resource, target.Home) ?? target.Home;
+            string label = $"indirect on list 0x{(nint)list:x} (target 0x{target.Resource:x} {_targetDescriptions.GetValueOrDefault(target.Resource, "?")})";
+            _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, target.Resource, current, label, (nint)list, state.Resets);
+            Interlocked.CompareExchange(ref _reportAt, Volatile.Read(ref _lastPresent) + ReportDelay, 0);
+        }
+    }
+
+    private void AppendRecords(StringBuilder text, ulong address, uint records, uint stride)
+    {
+        uint words = stride / sizeof(uint);
+        var data = address == 0 || words == 0 ? null : (uint*)_memory.Find(address, (ulong)records * stride);
+
+        if (data == null)
+        {
+            text.Append($"\n      arguments at 0x{address:x}: not readable");
+
+            return;
+        }
+
+        for (uint record = 0; record < records; record++)
+        {
+            text.Append($"\n      record {record}:");
+
+            for (uint word = 0; word < words; word++)
+            {
+                text.Append($" {data[(record * words) + word]}");
+            }
+        }
     }
 
     /// <summary>After a traced draw: the list's first render target is copied for <see cref="DrawProbes"/>.</summary>

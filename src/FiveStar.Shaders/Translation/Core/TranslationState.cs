@@ -82,6 +82,9 @@ internal sealed class TranslationState
     /// <summary>Wave operations keep console lane numbers on any hardware wave size (see TranslationOptions).</summary>
     public bool EmulateWaves { get; init; }
 
+    /// <summary>The loop caps (TranslationOptions.Loops, else the translator's own).</summary>
+    public LoopCaps Loops { get; init; } = LoopCaps.Default;
+
     /// <summary>Superstep form (mesh or compute): wave operations exchange through groupshared memory, one group step each.</summary>
     public bool Supersteps { get; init; }
 

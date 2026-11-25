@@ -51,6 +51,28 @@ public sealed unsafe class D3D12XGpuResourceTests
     }
 
     [Fact]
+    public void Older_textures_over_one_range_are_released_after_the_longer_grace_and_the_newest_two_kept()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        var registry = new GpuTextureRegistry();
+
+        // A streaming slot reused four times: three retired over exactly its range, the oldest past the two kept.
+        for (int i = 0; i < 4; i++)
+        {
+            registry.Register(Texture(test, device, 0x10000));
+        }
+
+        registry.Advance(GpuTextureRegistry.AliasGraceFrames - 1);
+        Assert.Equal(0, registry.Released);
+        registry.Advance(GpuTextureRegistry.AliasGraceFrames);
+
+        Assert.Equal(1, registry.Released);
+        Assert.Equal(GpuTextureRegistry.KeptAliases, registry.RetiredCount);
+        registry.Dispose();
+    }
+
+    [Fact]
     public void A_tiled_texture_written_by_the_cpu_reads_back_linear_through_a_slot_70_view()
     {
         using var test = TestRuntime.Create();

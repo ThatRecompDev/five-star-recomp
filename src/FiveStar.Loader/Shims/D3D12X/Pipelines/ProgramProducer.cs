@@ -110,7 +110,7 @@ internal sealed class ProgramProducer
             return new ProgramForm(name, null, NoProgram);
         }
 
-        var program = CorpusTranslator.TranslateFile(_loader, path, null, CorpusOptions.DefaultTranslation);
+        var program = CorpusTranslator.TranslateFile(_loader, path, null, OnDemandStart.Translation);
 
         if (program.Hlsl is null || program.Stage is null)
         {

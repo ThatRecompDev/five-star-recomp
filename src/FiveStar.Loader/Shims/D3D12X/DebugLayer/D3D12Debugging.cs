@@ -36,6 +36,7 @@ internal sealed unsafe class D3D12Debugging : IDisposable
     private readonly LoaderLog _log;
     private readonly RemovalWatch _watch = new();
     private bool _gpuValidation;
+    private bool _dredOnly;
     private nint _device;
     private int _reported;
 
@@ -58,6 +59,13 @@ internal sealed unsafe class D3D12Debugging : IDisposable
         _gpuValidation = gpuValidation;
     }
 
+    /// <summary>DRED and the removal report only (<c>--d3d12-dred</c>): the debug layer slows every call.</summary>
+    public void EnableDredOnly()
+    {
+        Enabled = true;
+        _dredOnly = true;
+    }
+
     /// <summary>Before D3D12CreateDevice: the debug layer, when installed, and DRED.</summary>
     public void BeforeDevice()
     {
@@ -66,7 +74,11 @@ internal sealed unsafe class D3D12Debugging : IDisposable
             return;
         }
 
-        if (File.Exists(Path.Combine(Environment.SystemDirectory, SdkLayers)))
+        if (_dredOnly)
+        {
+            _log.Info("  [d3d12-debug] DRED only, no debug layer");
+        }
+        else if (File.Exists(Path.Combine(Environment.SystemDirectory, SdkLayers)))
         {
             EnableDebugLayer();
         }

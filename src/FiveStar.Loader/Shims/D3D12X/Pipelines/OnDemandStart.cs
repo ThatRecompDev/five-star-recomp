@@ -83,7 +83,7 @@ internal sealed class OnDemandStart
     /// </summary>
     private static string Identity(IShaderCompiler compiler)
     {
-        string identity = ContentHash.OfText(ShadersIdentity(), nameof(RdnaDecoder), CorpusOptions.DefaultTranslation.ToString(), compiler.Identity);
+        string identity = ContentHash.OfText(ShadersIdentity(), nameof(RdnaDecoder), Translation.ToString(), compiler.Identity);
 
         if (DebugLayer.PoolStoreTrace.Enabled)
         {
@@ -102,6 +102,12 @@ internal sealed class OnDemandStart
 
         return identity;
     }
+
+    /// <summary>
+    /// The translator choices of programs made on demand (<c>--loop-caps</c> sets their loop caps); part of the
+    /// identity, so set before <see cref="Begin"/>.
+    /// </summary>
+    public static TranslationOptions Translation { get; set; } = CorpusOptions.DefaultTranslation;
 
     /// <summary>The program cache folder.</summary>
     public string Root { get; }

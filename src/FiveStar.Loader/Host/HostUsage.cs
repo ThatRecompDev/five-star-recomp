@@ -51,6 +51,8 @@ internal static class HostUsage
                                  default: FIVESTAR_DXC, beside the loader, then the Windows SDK
           --shader-jobs <n>      threads that make programs on first use (default: half the processors with the
                                  DXIL backend, a quarter with dxc)
+          --loop-caps <caps>     loop caps of programs made on demand: victory (4096 compute, 256 vertex/mesh, 128 pixel),
+                                 default, or compute,geometry,pixel; part of the program cache identity
           --max-driver-compiles <n>  driver pipeline compiles of 256 KB of DXIL or more at once (default 4)
           --compile-ceiling <GB> no such compile starts while private bytes and the running ones' expected arenas
                                  would pass this (default 28); one always may when none runs
@@ -75,6 +77,7 @@ internal static class HostUsage
           --d3d12-debug          D3D12 debug layer and DRED; their messages and the removal report go to the log
                                  (needs the Graphics Tools optional feature)
           --d3d12-gpu-validation --d3d12-debug plus GPU-based validation (slow)
+          --d3d12-dred           DRED alone (auto-breadcrumbs, page faults, the removal report), without the debug layer
           --d3d12-skip <i:n,...> D3D12.X slots that do nothing (list:51, queue:35, device:n), to bisect GPU faults
           --d3d12-trace-queues   log the first queue submissions, signals and waits (cross-queue protocol)
           --d3d12-breadcrumbs    a GPU marker after every draw and dispatch: a stalled queue names the one it hangs in
