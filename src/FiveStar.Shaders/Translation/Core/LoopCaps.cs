@@ -79,6 +79,17 @@ public sealed record LoopCaps(long Compute, long Geometry, long Pixel, long Step
         return Math.Min(LoopGuard.DispatchSteps, Iterations(stage) * RoundsPerIteration);
     }
 
+    /// <summary>
+    /// The blocks a thread of a mesh program's superstep form may run, at <see cref="RoundsPerIteration"/> per allowed
+    /// iteration (2^16 for mesh). The dispatch form's 256 per iteration let a one-block console loop fed a garbage count
+    /// run 2^20 times: MSNC_VS_LinearDepthSkin's loop over a constant-buffer count (dword 0x11c), each pass a sample and
+    /// some thirty dependent loads, the likely cause of the device removals of boots w39 and w40.
+    /// </summary>
+    public long SuperstepSteps(ShaderStage stage)
+    {
+        return Math.Min(DispatchSteps(stage), Iterations(stage) * RoundsPerIteration);
+    }
+
     /// <summary>The dispatch form's blocks for <paramref name="stage"/>.</summary>
     public long DispatchSteps(ShaderStage stage)
     {
