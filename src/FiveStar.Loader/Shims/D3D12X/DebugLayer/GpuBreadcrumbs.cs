@@ -25,8 +25,13 @@ internal static unsafe class GpuBreadcrumbs
     /// <summary>Recordings followed at once, a ring; each takes one dword. A power of two that divides 2^16.</summary>
     private const int Recordings = 1 << 13;
 
-    /// <summary>Operations per recording that are kept.</summary>
-    private const int KeptOperations = 512;
+    /// <summary>Operations kept per recording: chunks of <see cref="ChunkOperations"/>, made as a recording reaches them (w79's lists stopped at operations 520 to 3229, past the 512 kept before).</summary>
+    private const int ChunkOperations = 512;
+    private const int MaxChunks = 128;
+    private const int KeptOperations = ChunkOperations * MaxChunks;
+
+    /// <summary>The root tables noted per operation: their window offsets.</summary>
+    private const int NotedTables = MarkedOperation.MaxTables;
 
     /// <summary>A marker is the recording number (low 16 bits) over the operation index.</summary>
     private const int SerialShift = 16;
@@ -67,7 +72,7 @@ internal static unsafe class GpuBreadcrumbs
         public uint Serial;
         public int Position;
         public int Operations;
-        public MarkedOperation* Marked;
+        public MarkedOperation** Chunks;
     }
 
     /// <summary>Turns the markers on (or leaves them off) for the device created next.</summary>
@@ -97,6 +102,34 @@ internal static unsafe class GpuBreadcrumbs
         log.Info($"  [gpu] breadcrumbs on: a marker before every operation of the last {Recordings} command-list recordings");
     }
 
+    /// <summary>Turns the markers off and drops the buffer (tests: another device's lists must not write into it).</summary>
+    public static void Detach()
+    {
+        _markers = null;
+        _buffer?.Dispose();
+        _buffer = null;
+        _enabled = false;
+    }
+
+    /// <summary>Operation <paramref name="index"/> of recording <paramref name="serial"/> as the stall reports name it; null when not kept.</summary>
+    public static string? OperationText(uint serial, int index, Func<nint, string> pipelineName)
+    {
+        if (_recordings == null)
+        {
+            return null;
+        }
+
+        var recording = _recordings + (serial & (Recordings - 1));
+        var kept = recording->Serial == serial ? Kept(recording, index) : null;
+
+        if (kept == null)
+        {
+            return null;
+        }
+
+        return Operation(kept, pipelineName);
+    }
+
     /// <summary>At Reset: the list's next recording takes a slot of its own; 0 when the markers are off.</summary>
     [HotPath]
     public static uint Begin(XboxObject* list)
@@ -117,9 +150,9 @@ internal static unsafe class GpuBreadcrumbs
 
         var recording = _recordings + (serial & (Recordings - 1));
 
-        if (recording->Marked == null)
+        if (recording->Chunks == null)
         {
-            recording->Marked = (MarkedOperation*)NativeMemory.AllocZeroed((nuint)(KeptOperations * sizeof(MarkedOperation)));
+            recording->Chunks = (MarkedOperation**)NativeMemory.AllocZeroed((nuint)(MaxChunks * sizeof(nint)));
         }
 
         recording->List = (nint)list;
@@ -155,9 +188,9 @@ internal static unsafe class GpuBreadcrumbs
 
     /// <summary>Before an ExecuteIndirect: also notes its signature and the console address of its arguments.</summary>
     [HotPath]
-    public static void BeforeIndirect(XboxObject* list, nint signature, uint maxCount, ulong arguments)
+    public static void BeforeIndirect(XboxObject* list, nint signature, uint maxCount, ulong arguments, uint argumentOffset)
     {
-        var operation = new MarkedOperation { Kind = MarkedKind.Indirect, X = maxCount, Signature = signature, Address = arguments };
+        var operation = new MarkedOperation { Kind = MarkedKind.Indirect, X = maxCount, Signature = signature, Address = arguments, Y = argumentOffset };
         Before(list, &operation);
     }
 
@@ -230,9 +263,11 @@ internal static unsafe class GpuBreadcrumbs
 
         string operation = "?";
 
-        if (index < KeptOperations)
+        var kept = Kept(recording, (int)index);
+
+        if (kept != null)
         {
-            operation = Operation(recording->Marked + index, pipelineName);
+            operation = Operation(kept, pipelineName);
         }
 
         return string.Create(CultureInfo.InvariantCulture, $"{name}: {StoppedMark} {index} (the work before it is done), {operation}");
@@ -279,12 +314,15 @@ internal static unsafe class GpuBreadcrumbs
         if (operation->Kind != MarkedKind.Command)
         {
             operation->Pipeline = ListActivity.Of(list)->Pipeline;
+            NoteTables(list, operation);
             TransientPoolHits.Note(list, recording->Serial, index, operation->Kind, operation->Pipeline);
         }
 
-        if (index < KeptOperations)
+        var slot = Slot(recording, index);
+
+        if (slot != null)
         {
-            recording->Marked[index] = *operation;
+            *slot = *operation;
         }
 
         uint marker = LastIndex;
@@ -297,25 +335,118 @@ internal static unsafe class GpuBreadcrumbs
         Write(list, recording, marker);
     }
 
+    /// <summary>The kept operation at <paramref name="index"/>, its chunk made when first reached; null past <see cref="KeptOperations"/>.</summary>
+    [HotPath]
+    private static MarkedOperation* Slot(Recording* recording, int index)
+    {
+        if (index >= KeptOperations || recording->Chunks == null)
+        {
+            return null;
+        }
+
+        var chunk = recording->Chunks[index / ChunkOperations];
+
+        if (chunk == null)
+        {
+            chunk = (MarkedOperation*)NativeMemory.AllocZeroed((nuint)(ChunkOperations * sizeof(MarkedOperation)));
+            recording->Chunks[index / ChunkOperations] = chunk;
+        }
+
+        return chunk + (index % ChunkOperations);
+    }
+
+    /// <summary>The kept operation at <paramref name="index"/> of a recording; null when none is kept there.</summary>
+    private static MarkedOperation* Kept(Recording* recording, int index)
+    {
+        if (index < 0 || index >= KeptOperations || index >= recording->Operations || recording->Chunks == null)
+        {
+            return null;
+        }
+
+        var chunk = recording->Chunks[index / ChunkOperations];
+
+        if (chunk == null)
+        {
+            return null;
+        }
+
+        return chunk + (index % ChunkOperations);
+    }
+
+    /// <summary>The window offsets of the first root tables the operation's root signature binds (graphics for draws, compute for dispatches).</summary>
+    [HotPath]
+    private static void NoteTables(XboxObject* list, MarkedOperation* operation)
+    {
+        bool compute = operation->Kind == MarkedKind.Dispatch
+            || (operation->Kind == MarkedKind.Indirect && CommandSignatures.Clampable(operation->Signature).Kind == IndirectClamp.DispatchKind);
+        operation->Compute = compute;
+        var bindings = Binding.CommandListBindings.Of(list);
+        var layout = compute ? bindings->ComputeLayout : bindings->GraphicsLayout;
+
+        if (layout == null)
+        {
+            return;
+        }
+
+        uint* data = compute ? bindings->Compute : bindings->Graphics;
+        uint first = compute ? Binding.UserData.ComputeBase : Binding.UserData.GraphicsBase;
+
+        for (uint parameter = 0; parameter < (uint)layout->Count && operation->TableCount < NotedTables; parameter++)
+        {
+            uint sgpr = first + layout->Offsets[parameter];
+
+            if (layout->Kind(parameter) == Binding.RootParameterKind.Table && sgpr < Binding.CommandListBindings.UserDataDwords)
+            {
+                operation->Tables[operation->TableCount++] = data[sgpr];
+            }
+        }
+    }
+
     /// <summary>A kept operation as text: its kind and counts, an ExecuteIndirect's signature and current arguments.</summary>
     private static string Operation(MarkedOperation* operation, Func<nint, string> pipelineName)
     {
         string pipeline = pipelineName(operation->Pipeline);
+        string tables = Tables(operation);
 
         switch (operation->Kind)
         {
             case MarkedKind.Draw:
-                return string.Create(CultureInfo.InvariantCulture, $"draw ({operation->X} x {operation->Y}), pipeline {pipeline}");
+                return string.Create(CultureInfo.InvariantCulture, $"draw ({operation->X} x {operation->Y}), pipeline {pipeline}{tables}");
             case MarkedKind.Dispatch:
-                return string.Create(CultureInfo.InvariantCulture, $"dispatch ({operation->X}, {operation->Y}, {operation->Z}), pipeline {pipeline}");
+                return string.Create(CultureInfo.InvariantCulture, $"dispatch ({operation->X}, {operation->Y}, {operation->Z}), pipeline {pipeline}{tables}");
             case MarkedKind.Indirect:
                 string signature = CommandSignatures.Describe(operation->Signature);
                 string arguments = IndirectArguments(operation->Address, CommandSignatures.Stride(operation->Signature), operation->X);
 
-                return string.Create(CultureInfo.InvariantCulture, $"ExecuteIndirect (max {operation->X}, signature {signature}, arguments at 0x{operation->Address:x}: {arguments}), pipeline {pipeline}");
+                return string.Create(CultureInfo.InvariantCulture, $"ExecuteIndirect (max {operation->X}, signature {signature}, argument buffer offset 0x{operation->Y:x}, arguments at 0x{operation->Address:x}: {arguments}), pipeline {pipeline}{tables}");
             default:
                 return pipeline;
         }
+    }
+
+    /// <summary>"; graphics tables at window 0x.., 0x.." for the root tables noted with the operation; empty for none.</summary>
+    public static string Tables(MarkedOperation* operation)
+    {
+        if (operation->TableCount == 0)
+        {
+            return string.Empty;
+        }
+
+        var offsets = new string[operation->TableCount];
+
+        for (int i = 0; i < offsets.Length; i++)
+        {
+            offsets[i] = string.Create(CultureInfo.InvariantCulture, $"0x{operation->Tables[i]:x}");
+        }
+
+        string kind = "graphics";
+
+        if (operation->Compute)
+        {
+            kind = "compute";
+        }
+
+        return $"; {kind} tables at window {string.Join(", ", offsets)}";
     }
 
     /// <summary>The argument dwords as they are in title memory now (a buffer the GPU shares with the game).</summary>
@@ -448,9 +579,11 @@ internal static unsafe class GpuBreadcrumbs
                 string state = running && index == last ? "running" : "done";
                 string operation = "?";
 
-                if (index < KeptOperations)
+                var kept = Kept(recording, index);
+
+                if (kept != null)
                 {
-                    operation = Operation(recording->Marked + index, pipelineName);
+                    operation = Operation(kept, pipelineName);
                 }
 
                 text.Append(CultureInfo.InvariantCulture, $"\n    recording {recording->Serial} (list 0x{recording->List:x}) operation {index} {state}: {operation}");
