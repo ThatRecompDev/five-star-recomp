@@ -160,10 +160,7 @@ internal sealed class LoaderHost
             UseInputScript(_options.InputScript, capture);
         }
 
-        if (_options.D3D12Debug)
-        {
-            _runtime.D3D12X.Debugging.Enable(_options.D3D12GpuValidation);
-        }
+        EnableDebugging();
 
         if (_options.D3D12TraceQueues)
         {
@@ -187,6 +184,19 @@ internal sealed class LoaderHost
         if (_options.FidelityFxLibrary is not null)
         {
             _runtime.FidelityFx.Load(_options.FidelityFxLibrary);
+        }
+    }
+
+    /// <summary>--d3d12-debug (debug layer and DRED) or --d3d12-dred (DRED alone).</summary>
+    private void EnableDebugging()
+    {
+        if (_options.D3D12Debug)
+        {
+            _runtime.D3D12X.Debugging.Enable(_options.D3D12GpuValidation);
+        }
+        else if (_options.D3D12Dred)
+        {
+            _runtime.D3D12X.Debugging.EnableDredOnly();
         }
     }
 
