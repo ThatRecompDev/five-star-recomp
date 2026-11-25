@@ -67,6 +67,8 @@ internal static class HostUsage
                                  switch (the form before the liveness carry); part of the cache identity
           --committed-textures   a committed resource for each read-only console texture instead of the shared
                                  placed heaps (the default, also --placed-textures), whose released ranges stay mapped
+          --prebuild-jobs <n>    threads that build, from device creation on, the pipelines earlier boots used that the
+                                 disk cache lacks, giving way to the game's compiles (default 1; 0 for none)
           --wait-pipelines <name,...>
                                  a stand-in pipeline whose name holds one of these parts is waited for (up to 60 s, the
                                  game's hang watchdog paused) when a command list first sets it, instead of skipping its work

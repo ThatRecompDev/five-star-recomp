@@ -302,6 +302,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         Pipelines = new PipelineSlots(factory, warnings);
         PipelineSlotHandlers.Register(Objects);
         Prefetch(onDemand);
+        JournalPrebuild.Start(factory, cache, _pipelineFolders.Cache, _log);
         _log.Detail($"  [d3d12_xs] pipeline slots on: programs {programs}, translated {translated ?? "none"}");
     }
 
