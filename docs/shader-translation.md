@@ -100,9 +100,20 @@ it stay structured. A two-phase mesh shader keeps its phase loops and `[loop] wh
 one case per region (the entry and each resume point after a barrier) holding the structured code up to the next barrier
 or the end; WARP's shader compiler crashes when the `while` is left out.
 
+An irreducible graph (a cycle entered at more than one block) is first made reducible by entry guards
+(`EntryGuards`, LLVM's FixIrreducible): each such cycle gets one header, a chain of tests on a selector
+`uint irr_entryN`, and every edge into one of its entries sets the selector to that entry in a block of its own and
+goes to the header. The cycle becomes one loop; the rest of the program stays structured, and the function opens with
+`// control flow: N cycle(s) entered at several blocks, each given one entry guard`. The search takes the strongly
+connected components of the program, guards those entered at several blocks, and searches each component again
+without the edges back to its header, so cycles nested in loops are found too. 1 of 900 sampled programs needs it,
+but those are large: on the RX 7800 XT, a culling compute program compiled in 8.2 s instead of 22.4 s (DXIL 245 KB
+instead of 482 KB) and a raymarch one in 2.2 s instead of 7.5 s (161 KB instead of 319 KB). The same program in the
+dispatch form costs the driver about three times the time of the structured form (1.7 s against 4.7 s, 3.3 s against
+9.3 s) and up to seven times the memory.
+
 The whole program keeps the dispatch form, with a comment `// control flow: dispatch loop (<reason>)`, when its graph
-is irreducible (a cycle entered other than through one dominating header: `irreducible`) or has a loop that never
-exits (`loop without exit`; DXIL requires every loop to have a break). Each thread runs the switch on its own there,
+has a loop that never exits (`loop without exit`; DXIL requires every loop to have a break). Each thread runs the switch on its own there,
 so an s_barrier inside it keeps only its memory fence (`GroupMemoryBarrier`): a thread that ended or sits in another
 block never reaches the barrier the others wait in, and the group would hang (the console's s_barrier waits only for
 waves that have not ended; XCL counts live waves, VIctory keeps the fence where not every lane reaches the barrier;
