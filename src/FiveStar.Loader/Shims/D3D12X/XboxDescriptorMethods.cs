@@ -214,7 +214,7 @@ internal static unsafe class XboxDescriptorMethods
             nint destination = D3D12X.DescriptorHeaps.Destination(handle, record);
             void* written = DepthViewDescriptions.ShaderResourceView(desktop, view, copy);
             CreateDesktopView(self, CreateShaderResourceViewSlot, desktop, written, destination);
-            Written(destination, desktop, written, unordered: false);
+            Written(destination, resource, desktop, written, unordered: false);
         }
         catch (Exception exception)
         {
@@ -316,7 +316,7 @@ internal static unsafe class XboxDescriptorMethods
             }
 
             create(inner, desktop, objects.Unwrap(counter), view, destination);
-            Written(destination, desktop, view, unordered: true);
+            Written(destination, resource, desktop, view, unordered: true);
         }
         catch (Exception exception)
         {
@@ -631,11 +631,19 @@ internal static unsafe class XboxDescriptorMethods
 
     /// <summary>With <c>--check-view-liveness</c>: the view just written at <paramref name="destination"/>.</summary>
     [HotPath]
-    private static void Written(nint destination, nint desktop, void* view, bool unordered)
+    private static void Written(nint destination, nint resource, nint desktop, void* view, bool unordered)
     {
-        if (ViewLiveness.Enabled)
+        if (ViewLiveness.Noting)
         {
-            ViewLiveness.Written(destination, desktop, ViewLiveness.Shape(desktop, view, unordered));
+            var game = D3D12X.Objects.AsResource(resource);
+            int home = 0;
+
+            if (game != null)
+            {
+                home = game->HomeState;
+            }
+
+            ViewLiveness.Written(destination, desktop, ViewLiveness.Shape(desktop, view, unordered), home);
         }
     }
 
@@ -643,7 +651,7 @@ internal static unsafe class XboxDescriptorMethods
     [HotPath]
     private static void CopiedViews(nint destination, nint source, uint count, uint increment, int type)
     {
-        if (ViewLiveness.Enabled && type == ViewHeapType)
+        if (ViewLiveness.Noting && type == ViewHeapType)
         {
             ViewLiveness.Copied(destination, source, count, increment);
         }

@@ -118,7 +118,7 @@ internal sealed unsafe class AddressShaderViews
     /// <summary>With <c>--check-view-liveness</c>: the view written at <paramref name="handle"/>.</summary>
     private static void Noted(nint handle, nint target, AddressViewDescription* view)
     {
-        if (DebugLayer.ViewLiveness.Enabled)
+        if (DebugLayer.ViewLiveness.Noting)
         {
             DebugLayer.ViewLiveness.Written(handle, target, DebugLayer.ViewLiveness.Shape(target, view, unordered: false));
         }
