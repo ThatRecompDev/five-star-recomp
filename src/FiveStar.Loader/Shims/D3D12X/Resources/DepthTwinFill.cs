@@ -59,9 +59,12 @@ internal static class DepthTwinFill
             return false;
         }
 
-        var buffer = desktop.CreateCommittedResource(new HeapProperties(HeapType.Default), HeapFlags.None, Vortice.Direct3D12.ResourceDescription.Buffer(total), ResourceStates.Common);
-        twin.FillBuffer?.Dispose();
-        twin.FillBuffer = buffer;
+        // One buffer for the twin's life: a copy recorded earlier may still be running.
+        if (twin.FillBuffer is not ID3D12Resource buffer)
+        {
+            buffer = desktop.CreateCommittedResource(new HeapProperties(HeapType.Default), HeapFlags.None, Vortice.Direct3D12.ResourceDescription.Buffer(total), ResourceStates.Common);
+            twin.FillBuffer = buffer;
+        }
 
         Marshal.AddRef(list);
         using var commands = new ID3D12GraphicsCommandList(list);

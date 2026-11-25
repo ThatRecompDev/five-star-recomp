@@ -69,13 +69,14 @@ internal sealed unsafe class AddressShaderViews
             desktop.Format = ViewFormats.ForView(texture.DesktopFormat, viewFormat);
             desktop.ComponentMapping = TargetFormats.ComponentMapping(viewFormat, desktop.ComponentMapping);
             target = texture.Desktop;
-            NoteLoss(texture, viewFormat, desktop.Format);
 
             // The screen-probe light stand-in fills this R32_UINT texture's UAVs as shared-exponent light (RtStandIns).
             if (Binding.RtStandIns.Enabled && Binding.ImageViewClasses.SharedExponentRead(viewFormat, desktop.Format))
             {
                 Binding.UavViews.NoteSharedExponent(target);
             }
+
+            target = Aliased(device, texture, viewFormat, ref desktop);
         }
 
         if (target == 0 || desktop.Format == ViewFormats.Unknown)
@@ -115,6 +116,29 @@ internal sealed unsafe class AddressShaderViews
         }
 
         return ViewFormats.ForView(texture.DesktopFormat, DepthFormats.ShaderView(view->Format));
+    }
+
+    /// <summary>
+    /// The resource the view reads: an R9G9B9E5 view of R32_UINT light reads the texture's R9G9B9E5 shadow, in the view's
+    /// format (<see cref="SharedExponentAliases"/>); any other the texture, its lost format noted.
+    /// </summary>
+    private nint Aliased(nint device, GpuTexture texture, int viewFormat, ref AddressViewDescription desktop)
+    {
+        if (SharedExponentAliases.Takes(viewFormat, desktop.Format))
+        {
+            var alias = SharedExponentAliases.For(device, texture);
+
+            if (alias is not null)
+            {
+                desktop.Format = viewFormat;
+
+                return alias.Shadow;
+            }
+        }
+
+        NoteLoss(texture, viewFormat, desktop.Format);
+
+        return texture.Desktop;
     }
 
     /// <summary>With <c>--check-view-liveness</c>: the view written at <paramref name="handle"/>.</summary>

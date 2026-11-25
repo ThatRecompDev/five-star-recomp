@@ -684,6 +684,10 @@ internal sealed class CommandLineParser
                 _options.TypedImageViews = true;
 
                 return true;
+            case "--no-shared-exponent-copies":
+                _options.SharedExponentCopies = false;
+
+                return true;
             case "--shared-exponent-programs":
                 _options.SharedExponentPrograms = Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
