@@ -109,8 +109,9 @@ public sealed unsafe class D3D12XSectionHeapTests
             var third = Waiting(views, heaps, (ulong)range + (2 * SectionHeaps.LazyWindowBytes));
             var wanted = Waiting(views, heaps, (ulong)range + WantedOffset);
 
-            // Programs read the second and third windows: they open at the next present, filling the room.
-            flags[second.Id] = 1;
+            // A view is made over the second window (its record keeps its heap index meanwhile: the CPU asks) and a program
+            // reads the third: both open at the next present, filling the room.
+            Assert.False(views.Maps((ulong)range + SectionHeaps.LazyWindowBytes, Page));
             flags[third.Id] = 1;
             residency.Poll(desktop, flags, 1);
             Assert.Equal(3 * SectionHeaps.LazyWindowBytes, heaps.Opened);
@@ -178,6 +179,11 @@ public sealed unsafe class D3D12XSectionHeapTests
             {
                 Assert.Equal((ulong)memory + (2 * SectionHeaps.LazyWindowBytes), range.GameAddress);
                 Assert.Equal(SectionHeaps.LazyWindowBytes, range.Size);
+
+                // The first window starts at the allocation and is a window too, not the whole allocation (issue #13).
+                Assert.Equal(0, device.PlacedBuffer(memory + (nint)Page, Page, out _));
+                Assert.True(test.Runtime.D3D12X.PlacedResources.Addresses.TryFind((ulong)memory + Page, out var first));
+                Assert.Equal(SectionHeaps.LazyWindowBytes, first.Size);
             }
 
             Assert.Equal(Marker, XboxDevice.ReadFirst(readback));
