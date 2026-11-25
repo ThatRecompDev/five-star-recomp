@@ -208,6 +208,14 @@ forms) the carry cuts the DXIL from 354 MB to 149 MB: 45% less at the median, 30
 grows. The compute superstep cases and the mesh superstep programs run on WARP with and
 without it.
 
+A register no case on a path from the entry has mentioned still holds its declared zero, so it is carried only from
+where one may have: a case that reads it before then sets it to zero. VGPRs first written under EXEC (`if (active) v =
+..`) read their old value and were carried from the entry. Over the 8,765 mesh programs the registers carried across
+stops fell from 9,738,222 to 7,304,680 (the most at one stop from 269 to 246, slots from 842,082 to 813,444);
+`MSNC_VS_PropFoliageSkinDeferred` (0468631e) from at most 151 at a stop to 46, `MS_VS_TransformTerrainNormalTint`
+(0025c19f) from 156 to 116, `MSNC_VS_LinearDepthSkin_f1f2249c` from 151 to 150 (its VGPRs are written before its first
+stop). The carry comment names the most: `// carry: R registers in S slots, at most M across a stop`.
+
 ## Open
 
 - VIctory notes that the AMD driver hangs on divergent loops whose exiting block is not the latch; the backend folds

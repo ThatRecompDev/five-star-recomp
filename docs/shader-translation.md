@@ -360,8 +360,12 @@ program whose phase 2 carries a barrier it never reaches, while dxc `-Od` and th
 s_barrier waits only for waves that have not ended; a D3D12 group barrier waits for every thread. So a thread that
 reached `s_endpgm` keeps meeting each phase barrier, counted out of `g_ms_live` (three rotating counters, as
 `vw_ss_step`'s), and the loop ends when no thread runs. Phase 1 ends on GS_ALLOC_REQ's flag read after the barrier
-and before a second one, in both the native and the superstep form: read without it, a thread that resumed first
-could set the flag before a slower one read it, the two left phase 1 at different rounds and the group hung. Otherwise
+and before a second one in the native form: read without it, a thread that resumed first could set the flag before a
+slower one read it, the two left phase 1 at different rounds and the group hung. The superstep form keeps one barrier
+per round: the thread that sends GS_ALLOC_REQ marks it in the step's own rotating buffer (`vw_ss_allocated`), which
+every thread reads after that step's barrier. The loops of the looping mesh programs (`MSNC_VS_LinearDepthSkin`,
+`MS_VS_TransformTerrainNormalTint`, `MSNC_VS_PropFoliageSkinDeferred`) all run before GS_ALLOC_REQ, in phase 1, so
+their rounds had two barriers each. Otherwise
 exports are staged in compact `groupshared` structs (at most 28 KB with LDS) and copied out after the loop. A
 primitive export holds three 9-bit indices at bits 0/10/20; bit 31 culls. Thread index code uses a virtual wave64 lane
 (`in_gi & 63`).
