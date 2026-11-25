@@ -519,7 +519,7 @@ flowchart LR
   heap-relative on the console, and the game makes such addresses itself: MS_VS_Transform_PositionOnly reads its
   meshlet V# at root constant 2 (the game sets 0) + (root constant 0 & 0x3ff) × 32, game index 147. With the view
   records at 0x10000 that address read sampler record 0x126 and every typed load through the V# failed its range
-  check (w26); with them at 0 it reads the descriptor's record (victory models the console the same way: tables are
+  check (w26); with them at 0 it reads the descriptor's record (VIctory models the console the same way, THIRD_PARTY_NOTICES.md: tables are
   byte offsets in their heap, the heap pointer is 0). Dwords 0 to 3 of each mirror those
   of the title record: the desktop index (a record naming no desktop descriptor reads 5) and a buffer view's V#
   dwords 1 to 3 (below). A table's user SGPR is the window offset of its

@@ -14,7 +14,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Binding;
 /// keeps dword 0 of each record equal to the desktop index the game's descriptor stands for. A 32-bit descriptor
 /// address is relative to its heap on the console: the game passes heap-relative addresses of its own in root constants
 /// (MS_VS_Transform_PositionOnly reads its V# at root constant 2, which the game sets to 0, + index * 32), so the view
-/// records start at window offset 0 and such an address reaches the record of its game index. (victory, a GPL-3.0 port
+/// records start at window offset 0 and such an address reaches the record of its game index. (VIctory, a GPL-3.0 port
 /// of the same game, gives tables their byte offset in the heap and the heap pointer 0 the same way.)
 /// </summary>
 internal sealed unsafe class DescriptorWindow
