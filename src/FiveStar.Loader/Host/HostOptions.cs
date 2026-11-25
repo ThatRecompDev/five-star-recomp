@@ -109,6 +109,9 @@ internal sealed record HostOptions
     /// </summary>
     public bool PlacedTextures { get; set; } = true;
 
+    /// <summary>Name parts of stand-ins waited for at their first use instead of skipped (<c>--wait-pipelines</c>); null for none.</summary>
+    public string? WaitPipelines { get; set; }
+
     /// <summary>Retired textures over exactly one range kept until disposal (<c>--kept-aliases</c>).</summary>
     public int KeptAliases { get; set; } = Shims.D3D12X.Resources.GpuTextureRegistry.DefaultKeptAliases;
 

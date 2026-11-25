@@ -126,7 +126,14 @@ internal sealed unsafe class PipelineFactory
                 .ContinueWith(_ => PendingLink(description)?.Invoke(use) ?? Task.CompletedTask, TaskScheduler.Default).Unwrap();
 
             var wanted = *iid;
-            var what = string.Join(" + ", lacking.Select(names => names[0]).DefaultIfEmpty("a linked producer"));
+            var what = string.Join(" + ", lacking.Select(names => names[0]));
+
+            if (lacking.Count == 0)
+            {
+                // Named by its programs, so --wait-pipelines and the skip counts can tell the pairs apart.
+                what = $"{string.Join(" + ", Loadable(description)?.Select(program => program.Name) ?? [])} (linked producer)";
+            }
+
             var waiting = StandIns.Waiting(work, () => Prepared(PrepareGraphics(description), wanted), result, deferral, what);
 
             return Remember(description, waiting, result, "programs made on demand");
@@ -414,6 +421,19 @@ internal sealed unsafe class PipelineFactory
             return null;
         }
 
+        var programs = Loadable(description);
+
+        if (programs is null)
+        {
+            return null;
+        }
+
+        return OnDemand.Links.Pending(programs);
+    }
+
+    /// <summary>The description's programs, each loadable from the library; null when one is not.</summary>
+    private List<TranslatedProgram>? Loadable(GraphicsPipelineDescription description)
+    {
         var programs = new List<TranslatedProgram>();
 
         foreach (var source in description.Shaders)
@@ -437,7 +457,7 @@ internal sealed unsafe class PipelineFactory
             programs.Add(program);
         }
 
-        return OnDemand.Links.Pending(programs);
+        return programs;
     }
 
     /// <summary>
