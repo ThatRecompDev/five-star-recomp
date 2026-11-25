@@ -1,14 +1,18 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Runtime.InteropServices;
 using FiveStar.Graphics;
+using FiveStar.Graphics.Probes;
 using FiveStar.Loader.Native;
+using Vortice.Direct3D12;
 
 namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 
 /// <summary>
 /// The capabilities of the desktop device that decide which translated form of a program it runs: shader model,
-/// D3D12_OPTIONS1 wave lane counts and the D3D12_OPTIONS7 mesh-shader tier.
+/// D3D12_OPTIONS1 wave lane counts, the D3D12_OPTIONS7 mesh-shader tier and, with mesh shaders, the wave the driver runs
+/// them in (<see cref="MeshWaveProbe"/>, measured once per device).
 /// </summary>
 internal static unsafe class DesktopAdapter
 {
@@ -38,6 +42,8 @@ internal static unsafe class DesktopAdapter
     private const string NoMeshShaders = "NotSupported";
     private const string MeshTierPrefix = "Tier";
 
+    private static readonly Dictionary<nint, int?> MeshWaves = [];
+
     public static AdapterInfo Describe(nint device)
     {
         var options1 = stackalloc int[Options1Words];
@@ -58,7 +64,42 @@ internal static unsafe class DesktopAdapter
             meshTier = MeshTierPrefix + (options7[MeshShaderTierWord] / MeshTierScale);
         }
 
-        return new AdapterInfo(0, AdapterName, false, ShaderModel(device), waveMin, waveMax, meshTier);
+        int? meshWave = null;
+
+        if (meshTier != NoMeshShaders)
+        {
+            meshWave = MeshWave(device);
+        }
+
+        return new AdapterInfo(0, AdapterName, false, ShaderModel(device), waveMin, waveMax, meshTier) { MeshWaveLanes = meshWave };
+    }
+
+    /// <summary>The measured mesh-shader wave of <paramref name="device"/>, probed on its first call.</summary>
+    private static int? MeshWave(nint device)
+    {
+        lock (MeshWaves)
+        {
+            if (!MeshWaves.TryGetValue(device, out var lanes))
+            {
+                Marshal.AddRef(device);
+                using var desktop = new ID3D12Device(device);
+                lanes = MeshWaveProbe.Measure(desktop);
+                MeshWaves[device] = lanes;
+                ShimContext.Log?.Info($"  [d3d12_xs] mesh shaders run in {Lanes(lanes)} waves (probe)");
+            }
+
+            return lanes;
+        }
+    }
+
+    private static string Lanes(int? lanes)
+    {
+        if (lanes is null)
+        {
+            return "unmeasured";
+        }
+
+        return $"{lanes}-lane";
     }
 
     private static string? ShaderModel(nint device)

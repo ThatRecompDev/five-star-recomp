@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FiveStar.Graphics.Probes;
 using Vortice.Direct3D12;
 using Vortice.DXGI;
 using Feature = Vortice.Direct3D12.Feature;
@@ -41,6 +42,12 @@ public static class AdapterCatalog
             var options7 = default(FeatureDataD3D12Options7);
             Check(device.Device, Feature.Options1, ref options1);
             Check(device.Device, Feature.Options7, ref options7);
+            int? meshWave = null;
+
+            if (options7.MeshShaderTier != MeshShaderTier.NotSupported)
+            {
+                meshWave = MeshWaveProbe.Measure(device.Device);
+            }
 
             return new AdapterInfo(
                 index,
@@ -49,7 +56,10 @@ public static class AdapterCatalog
                 ShaderModelText(HighestShaderModel(device.Device)),
                 (int)options1.WaveLaneCountMin,
                 (int)options1.WaveLaneCountMax,
-                options7.MeshShaderTier.ToString());
+                options7.MeshShaderTier.ToString())
+            {
+                MeshWaveLanes = meshWave,
+            };
         }
         catch (SharpGen.Runtime.SharpGenException)
         {

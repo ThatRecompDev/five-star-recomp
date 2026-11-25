@@ -74,6 +74,17 @@ internal static class PsoCommand
         return Success;
     }
 
+    /// <summary>The measured mesh-shader wave (MeshWaveProbe), or nothing when it was not measured.</summary>
+    private static string MeshWave(AdapterInfo adapter)
+    {
+        if (adapter.MeshWaveLanes is null)
+        {
+            return string.Empty;
+        }
+
+        return $" ({adapter.MeshWaveLanes}-lane mesh waves)";
+    }
+
     /// <summary>Creates the pending pipelines on the adapter within the limits of the arguments; false when the device was removed.</summary>
     internal static bool Sweep(AdapterInfo adapter, bool debug, int jobs, string folder, CommandArguments arguments, PsoLog log, List<PsoTarget> pending)
     {
@@ -124,7 +135,7 @@ internal static class PsoCommand
                 continue;
             }
 
-            Console.WriteLine($"{adapter.Index}  {adapter.Name}{kind}: SM {adapter.ShaderModel}, wave lanes {adapter.WaveLaneCountMin}-{adapter.WaveLaneCountMax}, mesh {adapter.MeshShaderTier}");
+            Console.WriteLine($"{adapter.Index}  {adapter.Name}{kind}: SM {adapter.ShaderModel}, wave lanes {adapter.WaveLaneCountMin}-{adapter.WaveLaneCountMax}, mesh {adapter.MeshShaderTier}{MeshWave(adapter)}");
         }
 
         return Success;
