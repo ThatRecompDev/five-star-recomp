@@ -134,13 +134,19 @@ never sees it; with the dispatch form's 256 blocks per iteration (2^20) the loop
 over a constant-buffer count (dword 0x11c), a sample and about thirty dependent loads per pass, could run 2^20
 passes per thread, the likely cause of the w39 and w40 removals.
 
-A mesh program's group rounds are bounded too (`LoopCaps.Rounds`: 16 per allowed iteration, 65,536 for mesh by
-default, 4,096 with `victory`): the barriers of the two-phase form (`ms_step`) and the steps of the superstep form
+A mesh program's group rounds are bounded too (`LoopCaps.Rounds`: 1 per allowed iteration, 4,096 for mesh by
+default, 256 with `victory`): the barriers of the two-phase form (`ms_step`) and the steps of the superstep form
 (`ss_rounds`). A console loop around an `s_barrier` runs one round per iteration and no structured loop counts it,
 so a garbage trip count held the group: w31's ExecuteIndirect DispatchMesh(4, 1, 1) of
 `MSNC_VS_LinearDepthSkin_f1f2249c` never finished (DEVICE_HUNG), and before that the superstep form ran up to 2^24
 rounds. Every thread counts the same rounds, so all leave on the same one. A program cut off there culls its primitives
 (`MeshDeclarations.CutEpilogue`), so nothing it never wrote is drawn; WARP's rasterizer crashed on such outputs.
+The bound is a time bound: on the RTX 4090 a superstep round of `MS_VS_TransformTerrainNormalTint_e74ae427` in
+DispatchMesh(94, 1, 1) took 40 to 60 us (256, 1,024 and 4,096 forced rounds: 0.36, 0.41 and 0.59 s with the pipeline
+built), so the earlier 16 per iteration (65,536 rounds) ran 3 to 4 s, past the 2 s GPU timeout: the DEVICE_HUNG of the
+mesh ExecuteIndirects in boots w31 to w47 (LinearDepthSkin, PropFoliageSkinDeferred, TerrainNormalTint). A superstep
+block costs about 0.6 us a thread, so the 2^16 blocks of `ss_steps` end in about 40 ms. TransformSkinTransmission
+(no loops) ran to its end on zeroed inputs on the 4090 with both compilers, so the superstep structure itself holds.
 
 A direct-export mesh program (two-phase or superstep) starts every primitive of its count culled right after
 SetMeshOutputCounts, and an export culls a primitive whose indices pass the vertex count and keeps them inside it:
