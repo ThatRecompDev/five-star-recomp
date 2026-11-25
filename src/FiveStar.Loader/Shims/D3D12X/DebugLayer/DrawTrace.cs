@@ -28,7 +28,10 @@ internal sealed unsafe class DrawTrace
     private const int WindowDraws = 32;
 
     /// <summary>Targets read back in one dumped frame at most: each costs a readback buffer of its size.</summary>
-    private const int DumpsPerFrame = 24;
+    private const int DumpsPerFrame = 96;
+
+    /// <summary>Narrower targets are not dumped: the mip chains and probes filled the cap before the G-buffer.</summary>
+    private const int DumpMinimumWidth = 1024;
     private const long ReportDelay = 2;
     private const uint RecordsShown = 8;
     private const uint VerticesShown = 3;
@@ -53,7 +56,8 @@ internal sealed unsafe class DrawTrace
     private readonly ConcurrentDictionary<nint, ulong> _constantBuffers = new();
     private readonly ConcurrentDictionary<nint, (nint Resource, int Home)> _targetViews = new();
     private readonly ConcurrentDictionary<nint, string> _targetDescriptions = new();
-    private readonly ConcurrentDictionary<nint, byte> _dumped = new();
+    private readonly ConcurrentDictionary<nint, int> _dumped = new();
+    private readonly ConcurrentDictionary<nint, long> _targetWidths = new();
     private long _dumpPresent;
     private int _dumps;
     private readonly ConcurrentDictionary<nint, DrawTraceList> _lists = new();
@@ -134,11 +138,12 @@ internal sealed unsafe class DrawTrace
 
         // Described while alive: the census reports targets the game may have released since.
         _targetDescriptions[desktop] = Describe(desktop);
+        _targetWidths[desktop] = Width(desktop);
     }
 
     /// <summary>
     /// With <c>--d3d12-dump-targets</c>: in the frame after each captured present, every render and depth target is
-    /// read back when a list first leaves it (its first pass done) and written as a PNG beside the captures.
+    /// read back the 1st, 2nd, 4th, 8th... time a list leaves it (its passes one after another) and written as a PNG beside the captures.
     /// </summary>
     public static bool DumpTargets { get; set; }
 
@@ -324,7 +329,15 @@ internal sealed unsafe class DrawTrace
 
         foreach (nint handle in state.Targets.Append(state.DepthStencil))
         {
-            if (handle == 0 || !_targetViews.TryGetValue(handle, out var target) || !_dumped.TryAdd(target.Resource, 0))
+            if (handle == 0 || !_targetViews.TryGetValue(handle, out var target) || _targetWidths.GetValueOrDefault(target.Resource) < DumpMinimumWidth)
+            {
+                continue;
+            }
+
+            // The 1st, 2nd, 4th, 8th... time a list leaves the target this frame: its passes one after another.
+            int leave = _dumped.AddOrUpdate(target.Resource, 1, static (_, count) => count + 1);
+
+            if ((leave & (leave - 1)) != 0)
             {
                 continue;
             }
@@ -339,10 +352,10 @@ internal sealed unsafe class DrawTrace
 
             if (_capture.Directory is not null)
             {
-                png = Path.Combine(_capture.Directory, $"present-{present}-target-0x{target.Resource:x}.png");
+                png = Path.Combine(_capture.Directory, $"present-{present}-target-0x{target.Resource:x}-leave-{leave}.png");
             }
 
-            string label = $"present {present} target 0x{target.Resource:x} {_targetDescriptions.GetValueOrDefault(target.Resource, "?")}";
+            string label = $"present {present} target 0x{target.Resource:x} {_targetDescriptions.GetValueOrDefault(target.Resource, "?")} leave {leave}";
             _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, target.Resource, current, label, (nint)list, state.Resets, png);
             Interlocked.CompareExchange(ref _reportAt, Volatile.Read(ref _lastPresent) + ReportDelay, 0);
         }
@@ -527,6 +540,19 @@ internal sealed unsafe class DrawTrace
         }
 
         return string.Join(' ', Enumerable.Range(0, RectangleInts).Select(i => rect[i]));
+    }
+
+    private static long Width(nint resource)
+    {
+        if (resource == 0)
+        {
+            return 0;
+        }
+
+        Marshal.AddRef(resource);
+        using var desktop = new ID3D12Resource(resource);
+
+        return (long)desktop.Description.Width;
     }
 
     private static string Describe(nint resource)
