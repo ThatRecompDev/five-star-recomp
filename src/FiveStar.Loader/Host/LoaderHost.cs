@@ -59,6 +59,7 @@ internal sealed class LoaderHost
 
         string manual = string.Join(", ", _runtime.Loader.ManualModules.Order(StringComparer.Ordinal));
         string listed = manual.Length == 0 ? "(none)" : manual;
+        _log.Info($"fivestar-loader {RunIdentity.Line()}");
         _log.Info($"fivestar-loader pid {_processId}; manual modules: {listed}; unresolved={_options.Unresolved}");
 
         LoadAbiTable();

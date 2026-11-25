@@ -365,6 +365,11 @@ $dump = "<your dump folder>"
 fivestar-loader --load $dump\XboxBvhBuilder.dll --load $dump\Bink2Scarlett.dll --call all --unload --log run.log
 ```
 
+A log opens with the run's identity (`RunIdentity`): the loader's build, whose version carries the commit it was built
+from, the .NET version and the whole command line, so a log says which build and which options (skipped pipelines,
+guards, the shader backend chosen) shaped what it shows. The shader backend and its validator are named again when
+the first program is made (`[d3d12_xs] programs made on demand with ...`).
+
 | Option | Meaning |
 |---|---|
 | `--load <dll>` | map an image (repeatable) |
