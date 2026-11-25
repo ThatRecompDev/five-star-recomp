@@ -93,10 +93,10 @@ public sealed class WaveEmulationTests : IClassFixture<WarpFixture>
         """;
 
     [WarpTheory]
-    [InlineData("v_mov_b32 v3, v2", 4)]
-    [InlineData("v_mov_b32 v3, s40", 64)]
-    [InlineData("v_readfirstlane_b32 s41, v1\nv_mov_b32 v3, s41", 64)]
-    public void A_mesh_program_states_whether_narrower_waves_give_console_results(string tail, int floor)
+    [InlineData("v_mov_b32 v3, v2", 4, 4)]
+    [InlineData("v_mov_b32 v3, s40", 64, 4)]
+    [InlineData("v_readfirstlane_b32 s41, v1\nv_mov_b32 v3, s41", 64, 4)]
+    public void A_mesh_program_states_whether_narrower_waves_give_console_results(string tail, int floor, int fastFloor)
     {
         var code = $"{SkippedRegion}\n{tail}\nexp pos0 v2, v3, v2, v2 done\ns_endpgm";
         var assembled = _fixture.Workbench.Assemble($"mesh_floor_{floor}_{tail.Length}", code, 64);
@@ -105,6 +105,12 @@ public sealed class WaveEmulationTests : IClassFixture<WarpFixture>
         var program = new ShaderProgram(ShaderStage.Mesh, assembled.Instructions, assembled.Code, ShaderSignatures.None, config, pipeline);
 
         Assert.StartsWith($"// program wave 64; console results on hardware waves >= {floor} lanes\n", ShaderWorkbench.Translate(program), StringComparison.Ordinal);
+
+        // Fast waves take the window's first lane for the console's, and every window runs the region that writes s40.
+        var fast = HlslTranslator.Translate(program, new TranslationOptions(StructuredControlFlow: false, PinWaveSize: false, EmulateWaveSize: true) { FastWaves = true }).Hlsl;
+        Assert.StartsWith($"// program wave 64; console results on hardware waves >= {fastFloor} lanes\n", fast, StringComparison.Ordinal);
+        Assert.Equal(fastFloor != floor, fast.Contains(TranslationOptions.FastWavesComment, StringComparison.Ordinal));
+        Assert.Equal(!tail.Contains("s40", StringComparison.Ordinal), fast.Contains("pc = (!vw_any(active))", StringComparison.Ordinal));
     }
 
     private static string Program(int wave, bool groupLanes)

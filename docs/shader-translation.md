@@ -571,7 +571,16 @@ What cannot be emulated:
   memory and no barrier, so the value exists in no wave that could share it. Example: a wave64 reduction that ends with
   `v_readlane 32` or `63` on a 32-lane GPU.
 - Mesh programs the window analysis rejects run correctly on narrower waves only in the superstep form or, without
-  mesh shaders, the pinned or superstep fallback.
+  mesh shaders, the pinned or superstep fallback. `--fast-waves` (`TranslationOptions.FastWaves`, off by default, in
+  the program cache identity) trades that for speed, approximately: such a program keeps the native form when it passes
+  with each hardware wave's `readfirstlane` taken for its console wave's and its branches on "any lane" of a mask or a
+  ballot decided per hardware wave, and reads no lane by number (`vw_read`, `vw_count`, native wave operations, shared
+  LDS). A path a hardware wave skips must still change nothing read after it, as for the exact analysis; a skip whose
+  path writes scalars read after it is taken by every hardware wave instead (a jump replaces the branch), as the
+  console takes it whenever another of its lanes is active. Its header says
+  `// fast waves: approximate on narrower hardware waves: <why the exact analysis refused>`, and the loader logs it.
+  Of the 2,540 mesh programs that need their whole console wave, 1,399 run this way (none of 049945c2, 04a7a7b5,
+  LinearDepthSkin: their GS_ALLOC_REQ counts are the whole console wave's); the other 1,141 keep the superstep form.
 - Mesh lane numbers assume `SV_GroupIndex` fills hardware lanes in order. Drivers do this; D3D12 does not promise it.
 
 ## Runtime headers
@@ -590,7 +599,7 @@ cost tens of minutes.
 ```
 fivestar shader translate <program.fssm | folder> <out> [--cache <dir>] [--retry results.json]
                           [--stages ps,vs,cs,ms,gs] [--jobs N] [--limit N] [--step K] [--no-compile] [--dispatch]
-                          [--native-waves] [--mesh-fallbacks] [--plain-supersteps] [--waves min-max,...] [--first-used <pipelines-used.bin>]
+                          [--native-waves] [--mesh-fallbacks] [--plain-supersteps] [--fast-waves] [--waves min-max,...] [--first-used <pipelines-used.bin>]
                           [--llvm-disassembler] [--llvm <folder>] [--dxc <path>] [--backend hlsl|dxil|dxil-only]
 ```
 

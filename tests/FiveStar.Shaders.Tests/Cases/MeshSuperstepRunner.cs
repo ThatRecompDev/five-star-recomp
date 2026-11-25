@@ -76,6 +76,14 @@ public sealed class MeshSuperstepRunner
         return ShaderWorkbench.Translate(Build());
     }
 
+    /// <summary>The default form with fast waves (TranslationOptions.FastWaves): v_readlane of lane 63 still needs the whole wave.</summary>
+    public string TranslateFast()
+    {
+        var options = new TranslationOptions(StructuredControlFlow: false, PinWaveSize: false, EmulateWaveSize: true) { FastWaves = true };
+
+        return HlslTranslator.Translate(Build(), options).Hlsl;
+    }
+
     /// <summary>The superstep form; <paramref name="carry"/> with the liveness carry (TranslationOptions.SuperstepCarry).</summary>
     public string Supersteps(bool carry)
     {

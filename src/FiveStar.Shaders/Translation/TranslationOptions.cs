@@ -23,6 +23,9 @@ public sealed record TranslationOptions(bool StructuredControlFlow, bool PinWave
     /// <summary>The comment a superstep program starts its body with: its stops and its round bound (the loader logs it).</summary>
     public const string SuperstepCostComment = "  // superstep: ";
 
+    /// <summary>The header line of a program that runs approximately under <see cref="FastWaves"/> (the loader logs it).</summary>
+    public const string FastWavesComment = "// fast waves: ";
+
     public Core.LoopCaps? Loops { get; init; }
 
     public int? RoundsPerStop { get; init; }
@@ -33,4 +36,13 @@ public sealed record TranslationOptions(bool StructuredControlFlow, bool PinWave
     /// one switch. On by default; false gives the plain form.
     /// </summary>
     public bool SuperstepCarry { get; init; } = true;
+
+    /// <summary>
+    /// Fast waves, approximate (off by default): a mesh program the window analysis rejects keeps the native form on
+    /// narrower hardware waves when it would pass with each hardware wave's <c>readfirstlane</c> taken for its console
+    /// wave's and its branches on "any lane" decided per hardware wave (a skipped path still may change nothing read
+    /// after it, or every hardware wave takes it), and it reads no other lane by number (<c>vw_read</c>, <c>vw_count</c>,
+    /// native wave operations, shared LDS). It then needs no superstep form; its header says so (<see cref="FastWavesComment"/>).
+    /// </summary>
+    public bool FastWaves { get; init; }
 }

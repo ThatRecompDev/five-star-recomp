@@ -367,10 +367,19 @@ internal sealed class ProgramProducer
     /// <summary>
     /// A superstep program's cost, once: its wave-operation stops and its round bound (SuperstepWriter's comment). A round
     /// is a group barrier and a run of the dispatch switch, so stops x rounds tells a program that may outlast the
-    /// driver's timeout (w33: MSNC_VS_LinearDepthSkin_f1f2249c, 1,218 stops, DEVICE_HUNG on its first dispatch).
+    /// driver's timeout (w33: MSNC_VS_LinearDepthSkin_f1f2249c, 1,218 stops, DEVICE_HUNG on its first dispatch). A program
+    /// --fast-waves runs approximately is noted too, with why the exact analysis refused it.
     /// </summary>
     private static void NoteCost(string name, string hlsl)
     {
+        int fast = hlsl.IndexOf(FiveStar.Shaders.Translation.TranslationOptions.FastWavesComment, StringComparison.Ordinal);
+
+        if (fast >= 0)
+        {
+            // --fast-waves: the program runs natively on narrower waves, approximately.
+            ShimContext.Runtime.D3D12X.Warnings.Warn($"fast-waves-{name}", $"[d3d12_xs] fast waves {name}: {hlsl[fast..hlsl.IndexOf('\n', fast)]}");
+        }
+
         int at = hlsl.IndexOf(FiveStar.Shaders.Translation.TranslationOptions.SuperstepCostComment, StringComparison.Ordinal);
 
         if (at < 0)
