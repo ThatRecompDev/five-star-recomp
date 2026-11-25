@@ -97,9 +97,14 @@ internal static unsafe class UavViews
             return 1;
         }
 
+        if ((count == uint.MaxValue || first + count > all) && all > first)
+        {
+            return all - first;
+        }
+
         if (count == uint.MaxValue || first + count > all)
         {
-            return all > first ? all - first : 1;
+            return 1;
         }
 
         return count;
