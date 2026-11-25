@@ -27,13 +27,15 @@ over Morton codes, treelet optimisation, a BVH4 pass, refits and compaction.
 
 ## Offline inventory (2026-11-25, translate and compile for wave32)
 
-42 of the 52 programs translate and compile; 10 refuse on instructions the translator lacks: `buffer_load_ushort` (3),
-`global_atomic_fmax` (3), `global_atomic_sub` (3) and `global_atomic_fmin` (1). VIctory's fork reached 49 of 52 after
-adding byte and 16-bit buffer accesses and float min/max atomics by address (facts only, THIRD_PARTY_NOTICES.md).
+42 of the 52 programs translated and compiled at first; 10 refused on `buffer_load_ushort` (3), `global_atomic_fmax`
+(3), `global_atomic_sub` (3) and `global_atomic_fmin` (1), and one more then on `buffer_store_short`. With those (byte
+and short buffer loads and stores, atomic sub, and float min and max ordered as integers, WARP cases
+`cs_buffer_subdword`, `cs_buffer_subdword_store` and `cs_atomic_sub_fminmax`) all 52 translate and compile.
+VIctory's fork reached 49 of 52 after adding the same kinds of access (facts only, THIRD_PARTY_NOTICES.md).
 
 ## How we would run it
 
-1. Translate all 52 (the four instructions above), and check them against the ISA model on WARP.
+1. Translate all 52 (done offline), and check the builder's stages against the ISA model on WARP.
 2. Run the real constructor with our device: slot 62 makes each program through the usual program path, with its
    pipeline a stand-in until the driver is done.
 3. Bind the builder's entry points to the DLL again (with `--raytracing-gpu`), so it records its dispatches on the
