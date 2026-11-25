@@ -116,35 +116,59 @@ internal static unsafe class InputBuffers
         }
     }
 
-    /// <summary>The view with its desktop address; an unbound one (address 0) also has size 0, as the desktop requires.</summary>
+    /// <summary>The view with its desktop address (<see cref="Fit"/>); one outside known memory is unbound, warned once.</summary>
     [HotPath]
     private static VertexBufferView Translated(VertexBufferView view)
     {
-        view.Location = Translate(view.Location);
-
-        if (view.Location == 0)
+        if (view.Location == 0 || !ShimContext.Runtime.D3D12X.GameMemory.TryFind(view.Location, out var range))
         {
+            if (view.Location != 0)
+            {
+                ShimContext.Runtime.D3D12X.Warnings.Warn("ia-address", "[d3d12_xs] IASetVertexBuffers/IASetIndexBuffer: a GPU address outside known game memory, buffer unbound");
+            }
+
+            return Fit(view, null);
+        }
+
+        var fitted = Fit(view, range);
+
+        if (fitted.Size != view.Size)
+        {
+            WarnCut(view, range);
+        }
+
+        return fitted;
+    }
+
+    private static void WarnCut(VertexBufferView view, AddressRange range)
+    {
+        ShimContext.Runtime.D3D12X.Warnings.Warn("ia-size", $"[d3d12_xs] IASetVertexBuffers/IASetIndexBuffer: a view of 0x{view.Size:x} bytes at 0x{view.Location:x} runs past its desktop buffer (0x{range.Size:x} bytes from 0x{range.GameAddress:x}): its size is cut to the buffer");
+    }
+
+    /// <summary>
+    /// The view at its desktop address in <paramref name="range"/>, its size cut to what the range holds after it (a view
+    /// past its buffer reads unmapped desktop memory: a page fault, not the zeros the console's range check gives); with
+    /// no range, unbound (address and size 0, as the desktop requires).
+    /// </summary>
+    public static VertexBufferView Fit(VertexBufferView view, AddressRange? range)
+    {
+        if (range is null || view.Location < range.Value.GameAddress || view.Location - range.Value.GameAddress >= range.Value.Size)
+        {
+            view.Location = 0;
             view.Size = 0;
+
+            return view;
+        }
+
+        ulong offset = view.Location - range.Value.GameAddress;
+        ulong left = range.Value.Size - offset;
+        view.Location = range.Value.DesktopAddress + offset;
+
+        if (view.Size > left)
+        {
+            view.Size = (uint)left;
         }
 
         return view;
-    }
-
-    [HotPath]
-    private static ulong Translate(ulong location)
-    {
-        if (location == 0)
-        {
-            return 0;
-        }
-
-        if (ShimContext.Runtime.D3D12X.GameMemory.TryTranslate(location, out ulong desktop))
-        {
-            return desktop;
-        }
-
-        ShimContext.Runtime.D3D12X.Warnings.Warn("ia-address", "[d3d12_xs] IASetVertexBuffers/IASetIndexBuffer: a GPU address outside known game memory, buffer unbound");
-
-        return 0;
     }
 }
