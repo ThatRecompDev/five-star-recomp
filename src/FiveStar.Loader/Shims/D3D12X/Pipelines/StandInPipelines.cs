@@ -500,9 +500,15 @@ internal sealed unsafe class StandInPipelines
     /// </summary>
     public nint Unbuilt()
     {
+        return Unbuilt(string.Empty);
+    }
+
+    /// <summary>A stand-in named <paramref name="what"/> that never gets a pipeline: a held one (--skip-pipelines, ray tracing).</summary>
+    public nint Unbuilt(string what)
+    {
         Interlocked.Increment(ref _created);
 
-        return NewStandIn();
+        return NewStandIn(what);
     }
 
     /// <summary>Counts skipped work by pipeline name; the first <see cref="SkipsLogged"/> names are logged.</summary>
