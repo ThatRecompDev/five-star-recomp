@@ -73,6 +73,13 @@ public sealed class LoweringContext
 
     public ShaderFlagBits Flags { get; set; }
 
+    /// <summary>
+    /// Whether numeric locals live in memory (an alloca each) instead of SSA slots: for a program with a dispatch switch
+    /// of thousands of cases (the superstep form), where the joins of every register made phis with thousands of
+    /// operands (<see cref="DxilBackend.MemoryLocalsCases"/>).
+    /// </summary>
+    public bool MemoryLocals { get; set; }
+
     /// <summary>The user-data constant buffer's handle, made on first use in the entry block.</summary>
     public Value? UserDataHandle { get; set; }
 

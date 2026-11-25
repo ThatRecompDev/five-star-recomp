@@ -145,6 +145,21 @@ compiles real compute, pixel and vertex programs both ways (structured form, the
 inputs; pixel shaders drawn with their feeder, vertex shaders in their compute harness) and compares every output word
 on WARP; the variables of the control-flow differential size it.
 
+## Size of the superstep form
+
+Across the corpus the backend writes 86 (pixel) to 225 (mesh) bytes of DXIL per RDNA instruction at the median; the
+largest programs are large at the source (the screen-probe compute programs, 88,000 instructions, 12.8 MB). The
+outlier is the superstep form of mesh programs (`VW_GROUP_LANES`, which the loader picks for a 64-lane program on
+32-lane hardware): `MSNC_VS_PropFoliageSkinDeferred` is 2.07 MB of DXIL natively and 13.85 MB in that form from only 7%
+more HLSL. The form's `while (pc < PC_WAVE) switch (pc)` dispatch has about 2,600 cases over a few hundred registers,
+so the join after the switch and the loop header carry phis with thousands of operands each (13,900 phis, 321,000
+instructions). `fivestar shader dxil --memory-locals N` (`DxilBackend.MemoryLocalsCases`, off by default) keeps
+numeric locals and non-constant statics in memory when the entry point has a switch of N cases or more: 8.78 MB (37%
+less, 1.2 million instructions, 15,000 phis), valid under dxil.dll; `DxilMemoryLocalsTests` checks a dispatch loop's
+results on WARP both ways. The driver compile of the 13 MB form took about 20 GB; a smaller form is still to be
+measured on the driver, and carrying only the registers live across a step (the translator knows them) would cut
+further.
+
 ## Open
 
 - VIctory notes that the AMD driver hangs on divergent loops whose exiting block is not the latch; the backend folds
