@@ -27,6 +27,7 @@ internal sealed class InputPoller
     private readonly InputDevices _devices;
     private readonly LoaderLog _log;
     private readonly PressedKeys _keys = new();
+    private readonly PressedKeys _padKeys = new();
     private readonly int _keyboard;
     private readonly int _mouse;
     private readonly int _virtual;
@@ -138,7 +139,8 @@ internal sealed class InputPoller
 
         if (_virtualOn)
         {
-            var state = VirtualGamepad.Map(_config, _keys, deltaX, deltaY, seconds);
+            _desktop.ReadPadKeys(_padKeys);
+            var state = VirtualGamepad.Map(_config, _padKeys, deltaX, deltaY, seconds);
             _devices.PublishGamepad(_virtual, state, now);
         }
     }

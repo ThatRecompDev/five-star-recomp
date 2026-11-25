@@ -33,17 +33,46 @@ public sealed class ScriptedDesktopInputTests
     }
 
     [Fact]
-    public void Script_only_keeps_the_cursor_where_it_was_when_the_script_took_over()
+    public void Script_only_parks_the_cursor_once_and_the_real_mouse_cannot_move_it()
     {
         var real = new FakeDesktop { Cursor = new CursorPosition(1280, 720) };
         var input = Scripted(real, scriptOnly: true);
 
         var first = input.ReadCursor();
+        var parked = input.ReadCursor();
         real.Cursor = new CursorPosition(100, 50);
         var moved = input.ReadCursor();
 
         Assert.Equal(new CursorPosition(1280, 720), first);
-        Assert.Equal(first, moved);
+        Assert.Equal(new CursorPosition(1280 + ScriptedDesktopInput.ParkPixels, 720 - ScriptedDesktopInput.ParkPixels), parked);
+        Assert.Equal(parked, moved);
+    }
+
+    [Fact]
+    public void A_scripted_key_reaches_the_keyboard_and_a_pad_key_the_gamepad_never_both()
+    {
+        var real = new FakeDesktop();
+        var script = InputScript.Parse(["0 Space hold 1000", "0 PadA hold 1000"]);
+        var input = new ScriptedDesktopInput(real, script, Stopwatch.StartNew(), new LoaderLog(TextWriter.Null, null, false), scriptOnly: true);
+        var pad = new PressedKeys();
+        int padA = KeyNames.Parse("PadA")!.Value;
+
+        input.ReadPadKeys(pad);
+        var state = VirtualGamepad.Map(InputConfigFile.Defaults(), pad, 0, 0, 0.016f);
+
+        Assert.True(Read(input).IsDown(Space));
+        Assert.False(pad.IsDown(Space));
+        Assert.True(pad.IsDown(padA));
+        Assert.False(KeyNames.IsKeyboardKey(padA));
+        Assert.Equal(GameInputLayout.GamepadA, state.Buttons);
+    }
+
+    [Fact]
+    public void The_default_gamepad_binds_no_key_the_game_reads_from_the_keyboard()
+    {
+        var config = InputConfigFile.Defaults();
+
+        Assert.DoesNotContain(config.Buttons, binding => binding.Key == Space || binding.Key == Down || binding.Key == KeyNames.Parse("Escape") || binding.Key == KeyNames.Parse("Enter"));
     }
 
     [Fact]
@@ -62,6 +91,7 @@ public sealed class ScriptedDesktopInputTests
 
         bool downHandedBack = Read(input).IsDown(Down);
         var cursorHandedBack = input.ReadCursor();
+        _ = input.ReadCursor();
 
         real.Held.Add(ScriptedDesktopInput.HandBackKey);
         _ = Read(input);
@@ -71,7 +101,7 @@ public sealed class ScriptedDesktopInputTests
         Assert.Equal(new CursorPosition(500, 400), cursorHandedBack);
         Assert.True(input.ScriptOnly);
         Assert.False(Read(input).IsDown(Down));
-        Assert.Equal(new CursorPosition(500, 400), input.ReadCursor());
+        Assert.Equal(new CursorPosition(500 + ScriptedDesktopInput.ParkPixels, 400 - ScriptedDesktopInput.ParkPixels), input.ReadCursor());
     }
 
     [Fact]

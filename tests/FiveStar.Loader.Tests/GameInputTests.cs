@@ -23,7 +23,7 @@ public sealed unsafe class GameInputTests
         var keys = new PressedKeys();
         keys.Set('W', true);
         keys.Set('D', true);
-        keys.Set(' ', true);
+        keys.Set('C', true);
 
         var diagonal = VirtualGamepad.Map(config, keys, 0, 0, 0.016f);
         keys.Set('D', false);
@@ -31,7 +31,7 @@ public sealed unsafe class GameInputTests
 
         Assert.Equal(MathF.Sqrt(0.5f), diagonal.LeftX, Tolerance);
         Assert.Equal(MathF.Sqrt(0.5f), diagonal.LeftY, Tolerance);
-        Assert.Equal(0x4u, diagonal.Buttons);
+        Assert.Equal(GameInputLayout.GamepadB, diagonal.Buttons);
         Assert.Equal(0f, forward.LeftX);
         Assert.Equal(1f, forward.LeftY);
     }

@@ -37,18 +37,18 @@ internal static class InputConfigFile
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// WASD on the left stick, the mouse on the right stick, Space/C/R/F on A/B/X/Y, Q/E on the shoulders, Shift/V on
-    /// the stick buttons, the arrow keys on the d-pad, Escape/Tab on Menu/View, the right and left mouse buttons on the
-    /// left and right triggers, Scroll Lock to switch the virtual gamepad on and off.
+    /// WASD on the left stick, the mouse on the right stick, C/R/F on B/X/Y, Q/E on the shoulders, Shift/V on the stick
+    /// buttons, the right and left mouse buttons on the left and right triggers, Scroll Lock to switch the virtual
+    /// gamepad on and off. A, Menu, View and the d-pad have no key by default: the game reads Space, Escape, Tab and the
+    /// arrows from the keyboard itself, and a key bound to both reached it twice (a check box toggled on and off).
     /// </summary>
     public static InputConfig Defaults()
     {
         ButtonBinding[] buttons =
         [
-            Bind("a", "Space"), Bind("b", "C"), Bind("x", "R"), Bind("y", "F"),
+            Bind("b", "C"), Bind("x", "R"), Bind("y", "F"),
             Bind("left-shoulder", "Q"), Bind("right-shoulder", "E"), Bind("left-thumb", "LeftShift"),
-            Bind("right-thumb", "V"), Bind("menu", "Escape"), Bind("view", "Tab"), Bind("dpad-up", "Up"),
-            Bind("dpad-down", "Down"), Bind("dpad-left", "Left"), Bind("dpad-right", "Right"),
+            Bind("right-thumb", "V"),
         ];
         var stick = new StickKeys(KeyNames.Parse("W"), KeyNames.Parse("A"), KeyNames.Parse("S"), KeyNames.Parse("D"));
 

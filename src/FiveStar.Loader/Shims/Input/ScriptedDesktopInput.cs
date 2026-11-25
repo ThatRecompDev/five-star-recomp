@@ -22,6 +22,13 @@ internal sealed class ScriptedDesktopInput : IDesktopSource
     /// <summary>F9 on the real keyboard.</summary>
     public const int HandBackKey = 0x78;
 
+    /// <summary>
+    /// Script only, the cursor is parked this many pixels right and up once, at the second read (the first sets where
+    /// motion counts from): the game's pointer goes to the top right corner, off the menus, so it cannot hover an item
+    /// and take the focus from the keys.
+    /// </summary>
+    public const long ParkPixels = 1 << 16;
+
     private readonly IDesktopSource _inner;
     private readonly Stopwatch _clock;
     private readonly LoaderLog _log;
@@ -31,6 +38,7 @@ internal sealed class ScriptedDesktopInput : IDesktopSource
     private int _originSet;
     private long _originX;
     private long _originY;
+    private int _cursorReads;
 
     /// <param name="inner">The real keyboard and mouse.</param>
     /// <param name="script">The presses.</param>
@@ -104,10 +112,38 @@ internal sealed class ScriptedDesktopInput : IDesktopSource
 
         if (ScriptOnly)
         {
-            cursor = new CursorPosition(Volatile.Read(ref _originX), Volatile.Read(ref _originY));
+            cursor = Parked(new CursorPosition(Volatile.Read(ref _originX), Volatile.Read(ref _originY)));
         }
 
         return new CursorPosition(cursor.X + offset.X, cursor.Y + offset.Y);
+    }
+
+    /// <summary>The keys the virtual gamepad maps: the real ones unless script only, and the script's pad keys alone.</summary>
+    [HotPath]
+    public void ReadPadKeys(PressedKeys keys)
+    {
+        if (ScriptOnly)
+        {
+            keys.Clear();
+        }
+        else
+        {
+            _inner.ReadKeys(keys);
+        }
+
+        _state.Script.Apply(keys, _clock.Elapsed.TotalSeconds, padOnly: true);
+    }
+
+    /// <summary><paramref name="origin"/>, moved to the parking place from the second read on (<see cref="ParkPixels"/>).</summary>
+    [HotPath]
+    private CursorPosition Parked(CursorPosition origin)
+    {
+        if (Interlocked.Exchange(ref _cursorReads, 1) == 0)
+        {
+            return origin;
+        }
+
+        return new CursorPosition(origin.X + ParkPixels, origin.Y - ParkPixels);
     }
 
     [HotPath]
