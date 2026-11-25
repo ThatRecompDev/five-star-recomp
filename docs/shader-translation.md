@@ -532,7 +532,7 @@ flowchart TD
   ffloor -->|"yes"| wide
   mn -->|"yes"| native["native"]
   stage -->|"ps, vs, gs"| native
-  native --> floor{"floor above<br/>WaveLaneCountMin?"}
+  native --> floor{"floor above the narrowest wave?<br/>(mesh: measured mesh wave)"}
   floor -->|"no"| ok["ok"]
   floor -->|"yes"| ss{"mesh program<br/>with a superstep form?"}
   ss -->|"yes"| msvar["name.w32.dxil: variant"]
@@ -545,7 +545,13 @@ flowchart TD
 ```
 
 The driver picks a graphics wave anywhere between `WaveLaneCountMin` and `Max`, so a floor counts only as met when
-`WaveLaneCountMin` reaches it. The fallback is a compute shader, so it can ask for the console wave: on a GPU with
+`WaveLaneCountMin` reaches it, except for mesh shaders, whose wave is measured: at device creation
+(`DesktopAdapter`, and `AdapterCatalog` for the CLI) `MeshWaveProbe` dispatches a 128-thread probe mesh shader
+(`FiveStar.Graphics/Probes/mesh_wave_probe.hlsl`, embedded as source and compiled by the DXIL backend) that keeps the least `WaveGetLaneCount`, and a
+mesh program whose floor that wave reaches runs its native form. An RX 7800 XT reports 32-64 but runs every mesh
+shader in 64-lane waves (at 32, 64 and 128 threads and with long loops alike), so the wave64 mesh programs that took
+their superstep form there (85 group-barrier stops in a skinned depth pass, 1.5 s or more per draw) run natively;
+`--list-adapters` prints the measured wave. The loader logs `mesh shaders run in N-lane waves (probe)`. The fallback is a compute shader, so it can ask for the console wave: on a GPU with
 64-lane waves (AMD) it runs pinned to them, natively and with console results whatever its floor.
 `fivestar shader plan` prints the counts per adapter and `fivestar shader pso` creates
 the form each program runs on its adapter.

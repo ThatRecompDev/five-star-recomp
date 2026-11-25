@@ -51,6 +51,8 @@ internal static class CompileHostProtocol
         writer.Write(request.Adapter.WaveLaneCountMin);
         writer.Write(request.Adapter.WaveLaneCountMax);
         writer.Write(request.Adapter.MeshShaderTier ?? string.Empty);
+        writer.Write(request.Adapter.MeshWaveLanes ?? 0);
+
         writer.Write(request.Header);
         writer.Flush();
     }
@@ -79,8 +81,10 @@ internal static class CompileHostProtocol
         var laneMin = reader.ReadInt32();
         var laneMax = reader.ReadInt32();
         var tier = reader.ReadString();
+        var meshWave = reader.ReadInt32();
+
         var header = reader.ReadString();
-        var adapter = new AdapterInfo(0, string.Empty, false, Optional(model), laneMin, laneMax, Optional(tier));
+        var adapter = new AdapterInfo(0, string.Empty, false, Optional(model), laneMin, laneMax, Optional(tier)) { MeshWaveLanes = OptionalLanes(meshWave) };
 
         return (id, kind, priority, null, new MakeRequest(name, programs, folder, adapter, header));
     }
@@ -118,5 +122,16 @@ internal static class CompileHostProtocol
         }
 
         return text;
+    }
+
+    /// <summary>A measured lane count, or null for the 0 written when there is none.</summary>
+    private static int? OptionalLanes(int lanes)
+    {
+        if (lanes == 0)
+        {
+            return null;
+        }
+
+        return lanes;
     }
 }
