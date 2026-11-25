@@ -396,6 +396,27 @@ public sealed unsafe class D3D12XBindingTests
         Assert.Contains($"VIEW_SLOTS = {DescriptorWindow.MaxViews}u;", prelude, StringComparison.Ordinal);
         Assert.Contains($"SAMPLER_SLOTS = {DescriptorWindow.MaxSamplers}u;", prelude, StringComparison.Ordinal);
         Assert.Equal(DescriptorWindow.UnmappedSlot, FiveStar.Shaders.Translation.AddressMap.HeapSlot + 1);
+
+        // The null textures follow the reserved buffers, and the game's views follow them (tex_slot's threshold).
+        Assert.Equal(DescriptorWindow.NullTextureBase, FiveStar.Shaders.Translation.NullTextureSlots.First);
+        Assert.Equal(DescriptorWindow.ReservedViews, FiveStar.Shaders.Translation.NullTextureSlots.End);
+        Assert.Equal($"#define FIVESTAR_FIRST_GAME_VIEW {DescriptorWindow.ReservedViews}u\n", DescriptorWindow.Header);
+        Assert.Contains("uint tex_slot(uint i, uint null_slot)", prelude, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public unsafe void The_null_texture_descs_name_their_dimension_one_mip_and_one_slice()
+    {
+        var array = NullTextureViews.ShaderResource("Texture2DArray");
+        var volume = NullTextureViews.UnorderedAccess("RWTexture3D");
+        int* srv = (int*)&array;
+        int* uav = (int*)&volume;
+
+        // SRV: format, TEXTURE2DARRAY, mapping, MostDetailedMip 0, MipLevels 1, FirstArraySlice 0, ArraySize 1.
+        Assert.Equal([2, 5, 0x1688, 0, 1, 0, 1], new[] { srv[0], srv[1], srv[2], srv[4], srv[5], srv[6], srv[7] });
+
+        // UAV: format, TEXTURE3D, MipSlice 0, FirstWSlice 0, WSize 1.
+        Assert.Equal([2, 8, 0, 0, 1], new[] { uav[0], uav[1], uav[2], uav[3], uav[4] });
     }
 
     [Fact]

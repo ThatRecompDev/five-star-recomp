@@ -242,7 +242,7 @@ internal sealed partial class AtomicEmitter
         // Needs an integer-typed UAV view (R32_UINT/SINT) of the image.
         var element = atomic.Signed ? "int" : "uint";
         var result = atomic.Result;
-        _state.Emit($"  uint {result} = 0; if (active) {{ {type}<{element}> _u{result} = ResourceDescriptorHeap[uav_slot({texture})];");
+        _state.Emit($"  uint {result} = 0; if (active) {{ {type}<{element}> _u{result} = ResourceDescriptorHeap[{NullTextureSlots.Slot(type, texture)}];");
 
         if (atomic.Kind == "cmpswap")
         {
@@ -296,7 +296,7 @@ internal sealed partial class AtomicEmitter
         var element = atomic.Signed ? "int64_t" : "uint64_t";
         var result = atomic.Result;
         var value = $"(({element})((uint64_t({_operands.Read(atomic.Data, 1)}) << 32) | {_operands.Read(atomic.Data, 0)}))";
-        _state.Emit($"  {element} {result} = 0; if (active) {{ {type}<{element}> _u{result} = ResourceDescriptorHeap[uav_slot({texture})];");
+        _state.Emit($"  {element} {result} = 0; if (active) {{ {type}<{element}> _u{result} = ResourceDescriptorHeap[{NullTextureSlots.Slot(type, texture)}];");
 
         if (atomic.Kind == "cmpswap")
         {
