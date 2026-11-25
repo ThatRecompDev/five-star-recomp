@@ -35,6 +35,7 @@ public sealed class MeshShaderTests : IClassFixture<WarpFixture>
     [WarpTheory]
     [InlineData(MeshStageRunner.Native)]
     [InlineData(MeshStageRunner.Supersteps)]
+    [InlineData(MeshStageRunner.SuperstepCarry)]
     public void The_dxil_backend_compiles_the_mesh_program(string variant)
     {
         var mismatches = new MeshStageRunner(_fixture).Run(variant, direct: true);
@@ -54,15 +55,18 @@ public sealed class MeshShaderTests : IClassFixture<WarpFixture>
         Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
     }
 
-    [WarpFact]
-    public void A_mesh_group_of_two_console_waves_gets_console_results_in_supersteps()
+    [WarpTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_mesh_group_of_two_console_waves_gets_console_results_in_supersteps(bool carry)
     {
         var runner = new MeshSuperstepRunner(_fixture);
 
         Assert.StartsWith("// program wave 64; console results on hardware waves >= 64 lanes\n", runner.Translate(), StringComparison.Ordinal);
-        Assert.StartsWith("// program wave 64; console results on hardware waves >= 4 lanes\n", runner.Supersteps(), StringComparison.Ordinal);
+        Assert.StartsWith("// program wave 64; console results on hardware waves >= 4 lanes\n", runner.Supersteps(carry), StringComparison.Ordinal);
+        Assert.Equal(carry, runner.Supersteps(carry).Contains("// carry: ", StringComparison.Ordinal));
 
-        var mismatches = runner.Run();
+        var mismatches = runner.Run(carry);
 
         Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
     }

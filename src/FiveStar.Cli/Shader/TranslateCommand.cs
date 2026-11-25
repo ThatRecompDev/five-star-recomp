@@ -26,15 +26,16 @@ internal static class TranslateCommand
     private const string StructuredFlag = "structured";
     private const string NativeWavesFlag = "native-waves";
     private const string MeshFallbacksFlag = "mesh-fallbacks";
+    private const string PlainSuperstepsFlag = "plain-supersteps";
 
     public static int Run(IReadOnlyList<string> args)
     {
-        var arguments = new CommandArguments(args, new HashSet<string> { NoCompileFlag, DispatchFlag, StructuredFlag, NativeWavesFlag, MeshFallbacksFlag, ShaderTools.LlvmDisassemblerFlag });
+        var arguments = new CommandArguments(args, new HashSet<string> { NoCompileFlag, DispatchFlag, StructuredFlag, NativeWavesFlag, MeshFallbacksFlag, PlainSuperstepsFlag, ShaderTools.LlvmDisassemblerFlag });
 
         if (arguments.Positional.Count != TwoPaths)
         {
             throw new ArgumentException(
-                "translate <fssm-or-folder> <out> [--cache <dir>] [--retry results.json] [--stages ps,vs,cs,ms,gs] [--jobs N] [--dispatch] [--native-waves] [--mesh-fallbacks] [--waves min-max,...] [--first-used pipelines-used.bin] [--llvm-disassembler] [--backend hlsl|dxil|dxil-only]");
+                "translate <fssm-or-folder> <out> [--cache <dir>] [--retry results.json] [--stages ps,vs,cs,ms,gs] [--jobs N] [--dispatch] [--native-waves] [--mesh-fallbacks] [--plain-supersteps] [--waves min-max,...] [--first-used pipelines-used.bin] [--llvm-disassembler] [--backend hlsl|dxil|dxil-only]");
         }
 
         var programs = Programs(arguments);
@@ -42,7 +43,10 @@ internal static class TranslateCommand
         var (disassembler, llvm) = ShaderTools.Disassembler(arguments);
         var options = new CorpusOptions(arguments.Positional[1], Stages(arguments), arguments.IntegerOption("jobs") ?? Environment.ProcessorCount, retry)
         {
-            Translation = new TranslationOptions(!arguments.Flag(DispatchFlag), PinWaveSize: true, EmulateWaveSize: !arguments.Flag(NativeWavesFlag)),
+            Translation = new TranslationOptions(!arguments.Flag(DispatchFlag), PinWaveSize: true, EmulateWaveSize: !arguments.Flag(NativeWavesFlag))
+            {
+                SuperstepCarry = !arguments.Flag(PlainSuperstepsFlag),
+            },
             MeshFallbacks = arguments.Flag(MeshFallbacksFlag),
             Waves = Waves(arguments.Option("waves")),
         };

@@ -15,6 +15,9 @@ internal static class HostComposition
     private const string DataFolder = "FiveStar";
     private const string GdkDataFolder = "GdkData";
 
+    /// <summary>How long after the pipelines are set up large compiles count as in the game's load window.</summary>
+    private static readonly TimeSpan LoadWindowSpan = TimeSpan.FromSeconds(120);
+
     /// <summary>The shipped MSVC runtime, mapped from the target's directory unless --system-crt is given.</summary>
     public static readonly IReadOnlyList<string> ShippedCrt =
     [
@@ -47,6 +50,9 @@ internal static class HostComposition
     public static PipelineFolders CreatePipelineFolders(HostOptions options)
     {
         CompileBudget.Configure(options.MaxDriverCompiles, options.CompileCeilingBytes);
+        var boot = System.Diagnostics.Stopwatch.StartNew();
+        CompileBudget.LoadWindow = () => Diagnostics.GameHangWatch.Loading(boot.Elapsed, LoadWindowSpan);
+
         Shims.D3D12X.Resources.PlacedTextureHeaps.Enabled = options.PlacedTextures;
         Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
 
@@ -60,6 +66,8 @@ internal static class HostComposition
             cache = options.PipelineCache ?? Path.Combine(WorkDirectory(options), PipelineLibraryCache.FolderName);
         }
 
+        UnbuildablePipelines.OpenIn(cache);
+        PipelineHost.Current = options.HostPipelines ? new PipelineHost(Environment.ProcessPath!) : null;
         var folders = new PipelineFolders(options.ShaderDirectory, options.TranslatedDirectory, cache) { EagerBuilds = options.EagerPipelines };
 
         if (folders.Programs is not null && !options.NoOnDemand)
@@ -68,7 +76,7 @@ internal static class HostComposition
             Shims.D3D12X.DebugLayer.PoolStoreTrace.Enabled = options.TracePoolStores;
             Shims.D3D12X.Binding.UserDataConstants.Enabled = options.UserDataConstants;
             Shims.D3D12X.Binding.WindowFeedback.Enabled = options.EvictWindows;
-            OnDemandStart.Translation = FiveStar.Shaders.Compilation.CorpusOptions.DefaultTranslation with { Loops = options.LoopCaps, RoundsPerStop = options.SuperstepRoundsPerStop };
+            OnDemandStart.Translation = FiveStar.Shaders.Compilation.CorpusOptions.DefaultTranslation with { Loops = options.LoopCaps, SuperstepCarry = options.SuperstepCarry, RoundsPerStop = options.SuperstepRoundsPerStop };
             folders = folders with { OnDemand = OnDemandStart.Begin(root, options.Dxc, options.DxcBackend, options.ShaderJobs, out var message), OnDemandNote = message };
         }
 

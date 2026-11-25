@@ -22,6 +22,7 @@ public static class ProgramIndexFile
     private const uint Magic = 0x58505346; // "FSPX"
     private const uint Version = 1;
     private const string TemporarySuffix = ".tmp";
+    private const int MinimumEntryBytes = 2 + 1 + ProgramIndex.PrefixSize;
 
     /// <summary>The entries saved in <paramref name="path"/> for <paramref name="stamp"/>, or null when absent, stale or damaged.</summary>
     public static IReadOnlyList<ProgramIndexEntry>? TryRead(string path, ulong stamp)
@@ -37,8 +38,9 @@ public static class ProgramIndexFile
 
             return ReadEntries(reader);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or FormatException)
         {
+            // Damaged (EndOfStreamException is an IOException): as if absent.
             return null;
         }
     }
@@ -77,8 +79,10 @@ public static class ProgramIndexFile
     private static List<ProgramIndexEntry>? ReadEntries(BinaryReader reader)
     {
         int count = reader.ReadInt32();
+        long remaining = reader.BaseStream.Length - reader.BaseStream.Position;
 
-        if (count < 0)
+        // Every entry takes at least its name's length byte, a name byte, the stage and the prefix.
+        if (count < 0 || count > remaining / MinimumEntryBytes)
         {
             return null;
         }
@@ -91,7 +95,9 @@ public static class ProgramIndexFile
             var stage = (HardwareStage)reader.ReadByte();
             var prefix = reader.ReadBytes(ProgramIndex.PrefixSize);
 
-            if (!Enum.IsDefined(stage) || prefix.Length != ProgramIndex.PrefixSize)
+            // A name names a file in the program folder: one that is not a plain file name (a path, "..", a UNC
+            // name) makes the whole index damaged.
+            if (!Enum.IsDefined(stage) || prefix.Length != ProgramIndex.PrefixSize || !PlainFileName.Is(name))
             {
                 return null;
             }

@@ -41,6 +41,9 @@ public sealed partial class MeshStageRunner
     /// <summary>The superstep form through the mesh-to-compute fallback (GPUs without mesh shaders and narrow waves).</summary>
     public const string SuperstepFallback = "msfb_ngg_supersteps";
 
+    /// <summary>The superstep form with the liveness carry (TranslationOptions.SuperstepCarry).</summary>
+    public const string SuperstepCarry = "ms_ngg_supersteps_carry";
+
     /// <summary>
     /// The program with five loads first (results unused): a buffer of no records through the null page view (s[12:15]),
     /// a good buffer (s[16:19]), a pointer whose page the address map has unmapped (s[20:21]), a buffer through the
@@ -165,7 +168,7 @@ public sealed partial class MeshStageRunner
         _fixture = fixture;
     }
 
-    public static IReadOnlyList<string> Variants => [Native, FallbackTable, FallbackRoot, FallbackOverflow, Supersteps, SuperstepFallback];
+    public static IReadOnlyList<string> Variants => [Native, FallbackTable, FallbackRoot, FallbackOverflow, Supersteps, SuperstepFallback, SuperstepCarry];
 
     /// <summary>Draws a variant; <paramref name="direct"/> compiles a native mesh shader with the DXIL backend.</summary>
     public IReadOnlyList<string> Run(string variant, bool direct = false)
@@ -177,7 +180,7 @@ public sealed partial class MeshStageRunner
         var bindings = new Bindings { UserSgprs = [(Primitives << 12) | Vertices, Culled, FloatBits.Of(AttributeBase)] };
         var image = Reference();
 
-        if (variant is Native or Windows or Supersteps)
+        if (variant is Native or Windows or Supersteps or SuperstepCarry)
         {
             var result = _fixture.Runner.Mesh(new MeshJob(_fixture.Workbench.Compile(variant, mesh, "ms", direct), pixel, framebuffer, bindings, 1));
 
@@ -305,9 +308,11 @@ public sealed partial class MeshStageRunner
         var pipeline = new PipelineStateInfo { Stage = "ms", NumThreads = new ThreadGroupSize(64, 1, 1), MaxVertices = MaxOutputs, MaxPrimitives = MaxOutputs };
         var program = new ShaderProgram(ShaderStage.Mesh, assembled.Instructions, assembled.Code, ShaderSignatures.None, config, pipeline);
 
-        if (variant is Supersteps or SuperstepFallback or ProbeSupersteps)
+        if (variant is Supersteps or SuperstepFallback or ProbeSupersteps or SuperstepCarry)
         {
-            return HlslTranslator.SuperstepVariant(program, new TranslationOptions(StructuredControlFlow: false, PinWaveSize: false, EmulateWaveSize: true));
+            var options = new TranslationOptions(StructuredControlFlow: false, PinWaveSize: false, EmulateWaveSize: true) { SuperstepCarry = variant == SuperstepCarry };
+
+            return HlslTranslator.SuperstepVariant(program, options);
         }
 
         return ShaderWorkbench.Translate(program);

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Runtime.InteropServices;
 using FiveStar.Loader.Native;
 using FiveStar.Shaders.Containers;
 using FiveStar.Shaders.Hardware;
@@ -29,6 +30,7 @@ internal sealed unsafe class PipelineFactory
     public const int SmallComputeShaderBytes = 16 << 10;
 
     private const int MegabyteShift = 20;
+    private const int GigabyteShift = 30;
 
     /// <summary>D3D12_RASTERIZER_DESC.CullMode and D3D12_CULL_MODE_NONE (d3d12.h).</summary>
     private const int CullModeOffset = 4;
@@ -43,6 +45,7 @@ internal sealed unsafe class PipelineFactory
     private readonly OnceLog _warnings;
     private readonly RectanglePipelines? _rectangles;
     private readonly Dictionary<nint, GraphicsPipelineDescription> _created = [];
+    private readonly Lazy<PipelineHostRequest?> _hostRequest;
 
     /// <param name="device2">A desktop ID3D12Device2 (the caller keeps it alive).</param>
     /// <param name="rootSignature">The root signature of translated programs on that device (<see cref="BindlessRoot"/>).</param>
@@ -66,6 +69,7 @@ internal sealed unsafe class PipelineFactory
         _rectangles = rectangles;
         StandIns = standIns;
         Cache = cache;
+        _hostRequest = new Lazy<PipelineHostRequest?>(HostRequest);
     }
 
     /// <summary>The disk cache of built pipelines, or null.</summary>
@@ -301,7 +305,7 @@ internal sealed unsafe class PipelineFactory
             built?.Invoke(pipeline);
         };
 
-        if (Cache is not null && !HResult.Failed(Cache.Load(stream, iid, result)))
+        if (!SkippedPipelines.Skips(names) && Cache is not null && !HResult.Failed(Cache.Load(stream, iid, result)))
         {
             stream.Dispose();
             named(*result);
@@ -491,12 +495,13 @@ internal sealed unsafe class PipelineFactory
     {
         entered = false;
 
-        if (!CompileBudget.NoWait)
+        if (!CompileBudget.NoWait && !CompileBudget.GiveBack)
         {
             return true;
         }
 
-        if (shaderBytes >= HeavyShaderBytes || !CompileBudget.TryEnterNow(shaderBytes))
+        // A game thread never builds a heavy one; a build thread with a speculative one gives it back rather than wait.
+        if ((CompileBudget.NoWait && shaderBytes >= HeavyShaderBytes) || !CompileBudget.TryEnterNow(shaderBytes))
         {
             return false;
         }
@@ -516,6 +521,13 @@ internal sealed unsafe class PipelineFactory
     /// </summary>
     public PipelineResult Build(DesktopStream stream, Guid iid, string what)
     {
+        if (SkippedPipelines.Skips(what))
+        {
+            stream.Dispose();
+
+            return new PipelineResult(HResult.Fail, 0);
+        }
+
         if (!MayStartHere(stream.ShaderBytes, out bool entered))
         {
             return new PipelineResult(HResult.Pending, 0);
@@ -537,6 +549,11 @@ internal sealed unsafe class PipelineFactory
                 return new PipelineResult(HResult.Ok, cached);
             }
 
+            if (!entered && !CompileBudget.Buildable(stream.ShaderBytes))
+            {
+                return Unbuildable(stream, what);
+            }
+
             if (!entered)
             {
                 CompileBudget.Enter(stream.ShaderBytes);
@@ -548,15 +565,7 @@ internal sealed unsafe class PipelineFactory
 
             try
             {
-                if (stream.ShaderBytes < HeavyShaderBytes)
-                {
-                    return BuildNow(stream, iid);
-                }
-
-                lock (_heavy)
-                {
-                    return BuildNow(stream, iid);
-                }
+                return Compile(stream, iid, what);
             }
             finally
             {
@@ -565,6 +574,107 @@ internal sealed unsafe class PipelineFactory
                 CompileBudget.Exit(stream.ShaderBytes);
             }
         }
+    }
+
+    /// <summary>The driver compile of an admitted pipeline: in a pipeline host first when one is on, the heaviest one at a time.</summary>
+    private PipelineResult Compile(DesktopStream stream, Guid iid, string what)
+    {
+        var stopped = BuildInHost(stream, what);
+
+        if (stopped.HasValue)
+        {
+            return stopped.Value;
+        }
+
+        if (stream.ShaderBytes < HeavyShaderBytes)
+        {
+            return BuildNow(stream, iid);
+        }
+
+        lock (_heavy)
+        {
+            return BuildNow(stream, iid);
+        }
+    }
+
+    /// <summary>
+    /// A heavy pipeline (<see cref="CompileBudget.IsHeavy"/>) built first in a pipeline host (<c>--host-pipelines</c>):
+    /// one the host's limits ended is recorded unbuildable and stays a stand-in (the failure returned); otherwise null,
+    /// and the loader creates it, from the driver's cache when the host built it.
+    /// </summary>
+    private PipelineResult? BuildInHost(DesktopStream stream, string what)
+    {
+        var host = PipelineHost.Current;
+
+        if (host is null || !CompileBudget.IsHeavy(stream.ShaderBytes))
+        {
+            return null;
+        }
+
+        var request = _hostRequest.Value;
+
+        if (request is null)
+        {
+            return null;
+        }
+
+        long limit = PipelineHost.MemoryLimit(WarmMemoryGuard.AvailablePhysical(), CompileBudget.VendorId);
+        var result = host.Build(request, stream, limit, PipelineHost.DefaultTimeLimit);
+        string line = $"[d3d12_xs] pipeline host: {what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL) {result.Outcome} (0x{result.HResult:x8}) after {result.Seconds:F0} s, peak {result.PeakBytes >> GigabyteShift} GB of {limit >> GigabyteShift} GB";
+
+        if (result.Reason is not null)
+        {
+            ShimContext.Runtime.Log.Warn($"{line}: {result.Reason}; the loader builds it itself");
+
+            return null;
+        }
+
+        if (result.Outcome == PipelineHostOutcome.Crashed)
+        {
+            ShimContext.Runtime.Log.Warn(line + ": the driver crashed in the host, so the loader does not build it; it stays a stand-in");
+
+            return new PipelineResult(HResult.Fail, 0);
+        }
+
+        if (!result.Killed)
+        {
+            ShimContext.Runtime.Log.Detail("  " + line);
+
+            return null;
+        }
+
+        ShimContext.Runtime.Log.Warn(line + "; it stays a stand-in");
+        _ = UnbuildablePipelines.Add(stream.Key);
+
+        return new PipelineResult(HResult.OutOfMemory, 0);
+    }
+
+    /// <summary>The adapter and root signature a pipeline host builds against; null when either is unknown.</summary>
+    private PipelineHostRequest? HostRequest()
+    {
+        var root = BindlessRoot.Serialized();
+
+        if (root is null)
+        {
+            return null;
+        }
+
+        Marshal.AddRef(_device2);
+        using var device = new Vortice.Direct3D12.ID3D12Device(_device2);
+
+        return new PipelineHostRequest(device.AdapterLuid, root, 0);
+    }
+
+    /// <summary>A pipeline whose compile could never be admitted here: logged once, recorded, left a stand-in.</summary>
+    private static PipelineResult Unbuildable(DesktopStream stream, string what)
+    {
+        if (UnbuildablePipelines.Add(stream.Key))
+        {
+            long estimate = CompileBudget.Estimate(stream.ShaderBytes) >> GigabyteShift;
+            ShimContext.Runtime.Log.Warn($"[d3d12_xs] pipeline {what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL) not built: its compile is expected to take {estimate} GB, more than this machine can give; it stays a stand-in");
+        }
+
+        return new PipelineResult(HResult.OutOfMemory, 0);
     }
 
     private PipelineResult BuildNow(DesktopStream stream, Guid iid)

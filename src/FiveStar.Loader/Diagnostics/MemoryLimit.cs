@@ -22,14 +22,14 @@ internal sealed unsafe class MemoryLimit
 
     private readonly ulong _minimumFree;
     private readonly ulong _maximumCommit;
-    private readonly MemoryMap _map;
+    private readonly MemoryMap? _map;
     private readonly LoaderLog _log;
 
     /// <param name="minimumFree">Free physical bytes below which the process ends; 0 for no floor.</param>
     /// <param name="maximumCommit">System commit bytes above which the process ends; 0 for no ceiling.</param>
-    /// <param name="map">Logs the last memory map.</param>
+    /// <param name="map">Logs the last memory map; null where no game runs (<c>--warm-pipelines</c>).</param>
     /// <param name="log">Where the end is logged.</param>
-    public MemoryLimit(ulong minimumFree, ulong maximumCommit, MemoryMap map, LoaderLog log)
+    public MemoryLimit(ulong minimumFree, ulong maximumCommit, MemoryMap? map, LoaderLog log)
     {
         _minimumFree = minimumFree;
         _maximumCommit = maximumCommit;
@@ -92,7 +92,7 @@ internal sealed unsafe class MemoryLimit
 
         try
         {
-            _map.Log(0, seconds);
+            _map?.Log(0, seconds);
         }
         finally
         {

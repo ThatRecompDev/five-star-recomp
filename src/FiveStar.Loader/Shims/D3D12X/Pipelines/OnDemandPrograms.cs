@@ -66,8 +66,10 @@ internal sealed class OnDemandPrograms : IProgramLibrary
             var ready = Math.Max(1, Volatile.Read(ref _ready));
             var average = TimeSpan.FromTicks(Interlocked.Read(ref _readyTicks) / ready).TotalSeconds;
             var slowest = TimeSpan.FromTicks(Interlocked.Read(ref _slowestTicks)).TotalSeconds;
-            var failed = _failures.Values.Sum();
-            var causes = string.Join("; ", _failures.OrderByDescending(entry => entry.Value).Take(CausesShown).Select(entry => $"{entry.Value} {entry.Key}"));
+            // A snapshot: LINQ over the dictionary itself sizes an array by Count, then copies while workers add causes.
+            var failures = _failures.ToArray();
+            var failed = failures.Sum(entry => entry.Value);
+            var causes = string.Join("; ", failures.OrderByDescending(entry => entry.Value).Take(CausesShown).Select(entry => $"{entry.Value} {entry.Key}"));
 
             return $"programs on demand: {_jobs.Count} asked for, {Volatile.Read(ref _made)} translated and compiled, {Volatile.Read(ref _found)} found compiled{_compilerCounts?.Invoke()}, ready after {average:F1} s on average and {slowest:F0} s at most, {failed} failed ({causes}), {_workers.Backlog} queued, {_workers.Running} running, {_workers.WaitingForMemory} waiting for memory, {Links.Summary}";
         }

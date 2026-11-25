@@ -30,6 +30,9 @@ internal enum GpuResourceEvent
     /// <summary>A refresh found the memory unchanged.</summary>
     UploadSkipped,
 
+    /// <summary>A refresh was not done: a GPU copy wrote the texture, and its memory does not hold that.</summary>
+    UploadKeptCopy,
+
     /// <summary>A fill failed: the desktop refused its upload buffer or queue, or the copy did not finish.</summary>
     UploadFailed,
 

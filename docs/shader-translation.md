@@ -369,7 +369,11 @@ writelane, permlane, DPP, ds_swizzle, ds_bpermute, lane masks, mbcnt. A PC GPU r
 the driver. Compute shaders can ask for a size; pixel, vertex and mesh shaders cannot in shader model 6.7.
 
 Translated code therefore uses console (program) lane numbers through the prelude's `vw_lane`, `vw_read`,
-`vw_ballot`, `vw_any` and `vw_count`; `readfirstlane` and `lane_bit` build on them. With
+`vw_ballot`, `vw_any` and `vw_count`; `readfirstlane` and `lane_bit` build on them. `readfirstlane` takes the first lane
+with EXEC set with WaveReadLaneFirst under `if (active)` and a WaveActiveMax when the hardware wave holds no more
+than the program wave (outside the group forms): WaveReadLaneAt at the ballot's lowest bit crashed AMD's compiler
+(RX 7800 XT, driver 32.0.32029.2010) in CreatePipelineState on the decoration-baking mesh pipeline's pixel program,
+which does it seven times in a loop, and took the process with it. With
 `TranslationOptions.EmulateWaveSize` (the default; `--native-waves` turns it off) a pixel, vertex or mesh program
 starts with `#define VW_WAVE <32|64>` and `VW_EMULATE 1`, and each hardware wave of H lanes holds a window of the
 program wave of W lanes:
@@ -541,7 +545,7 @@ cost tens of minutes.
 ```
 fivestar shader translate <program.fssm | folder> <out> [--cache <dir>] [--retry results.json]
                           [--stages ps,vs,cs,ms,gs] [--jobs N] [--limit N] [--step K] [--no-compile] [--dispatch]
-                          [--native-waves] [--mesh-fallbacks] [--waves min-max,...] [--first-used <pipelines-used.bin>]
+                          [--native-waves] [--mesh-fallbacks] [--plain-supersteps] [--waves min-max,...] [--first-used <pipelines-used.bin>]
                           [--llvm-disassembler] [--llvm <folder>] [--dxc <path>] [--backend hlsl|dxil|dxil-only]
 ```
 
@@ -552,7 +556,7 @@ DXIL between runs (see Cache). `--retry` re-runs only programs whose status in t
 results. `--no-compile` skips dxc. `--backend dxil` compiles every program with the DXIL backend instead of dxc, and with dxc what the backend cannot lower; `dxil-only` uses no dxc (see [dxil-backend.md](dxil-backend.md)). `--dispatch` emits the dispatch form instead of structured control flow (see Control
 flow). `--native-waves` turns wave emulation off (see Wave size). A compute program pinned to 64 lanes, and a mesh program
 with a floor above 4 (its superstep form), also gets `<name>.w32.hlsl`/`.dxil` where possible; its reason in
-results.json says so (`wave32 variant ok`). `--mesh-fallbacks` also compiles the mesh fallback of every mesh program
+results.json says so (`wave32 variant ok`); `--plain-supersteps` writes superstep forms without the liveness carry (see [dxil-backend.md](dxil-backend.md#size-of-the-superstep-form)). `--mesh-fallbacks` also compiles the mesh fallback of every mesh program
 that compiles (reason `fallback ok`, after `; ` when there is a superstep form), for GPUs without mesh shaders. A compiling
 run ends by writing `variants.json` (see Variant selection). `--llvm-disassembler` disassembles with
 llvm-mc/llvm-objdump instead of `RdnaDecoder` (see Disassembly). Every 10 seconds the command prints programs done,

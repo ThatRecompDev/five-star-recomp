@@ -44,16 +44,30 @@ public sealed class ComputeShaderTests : IClassFixture<WarpFixture>
     }
 
     // Raw programs number their threads for 64-thread groups; ds_permute's loop over lanes has no superstep form.
-    public static TheoryData<string> SuperstepCases =>
-        [.. ComputeWaveCases.All().Concat(ComputeWaveCases.FullWave())
-            .Where(testCase => testCase.Wave == 64 && !testCase.Raw && !testCase.Name.StartsWith("cs_ds_permute", StringComparison.Ordinal))
-            .Select(testCase => testCase.Name)];
+    // Each with and without the liveness carry.
+    public static TheoryData<string, bool> SuperstepCases
+    {
+        get
+        {
+            var data = new TheoryData<string, bool>();
+            var cases = ComputeWaveCases.All().Concat(ComputeWaveCases.FullWave())
+                .Where(testCase => testCase.Wave == 64 && !testCase.Raw && !testCase.Name.StartsWith("cs_ds_permute", StringComparison.Ordinal));
+
+            foreach (var testCase in cases)
+            {
+                data.Add(testCase.Name, false);
+                data.Add(testCase.Name, true);
+            }
+
+            return data;
+        }
+    }
 
     [WarpTheory]
     [MemberData(nameof(SuperstepCases))]
-    public void A_wave64_program_runs_in_supersteps_with_several_waves_per_group(string name)
+    public void A_wave64_program_runs_in_supersteps_with_several_waves_per_group(string name, bool carry)
     {
-        var mismatches = new ComputeCaseRunner(_fixture).RunSupersteps(ComputeCases.Find(name));
+        var mismatches = new ComputeCaseRunner(_fixture).RunSupersteps(ComputeCases.Find(name), carry);
 
         Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
     }

@@ -369,7 +369,7 @@ internal sealed class ProgramProducer
 
     private string DxilPath(string name)
     {
-        return Path.Combine(_folder, name + DxilExtension);
+        return FiveStar.Shaders.Cache.PlainFileName.Inside(_folder, name + DxilExtension);
     }
 
     private ProgramForm Refused(string name, string failure)
@@ -381,7 +381,7 @@ internal sealed class ProgramProducer
 
     private void Keep(string name, string failure)
     {
-        var path = Path.Combine(_folder, name + FailExtension);
+        var path = FiveStar.Shaders.Cache.PlainFileName.Inside(_folder, name + FailExtension);
         File.WriteAllText(path + ".tmp", failure, Encoding.UTF8);
         File.Move(path + ".tmp", path, overwrite: true);
     }

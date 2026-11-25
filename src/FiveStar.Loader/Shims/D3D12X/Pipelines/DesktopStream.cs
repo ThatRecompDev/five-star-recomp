@@ -31,6 +31,10 @@ internal sealed unsafe class DesktopStream : IDisposable
     private readonly IncrementalHash _identity = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
     private nint* _desc;
     private string? _key;
+    private int _rootOffset = -1;
+
+    /// <summary>The longest stream, shader or table a stream from another process may hold.</summary>
+    private const int MaximumLength = 1 << 30;
 
     /// <summary>The bytes of shader bytecode in the stream.</summary>
     public long ShaderBytes { get; private set; }
@@ -41,7 +45,95 @@ internal sealed unsafe class DesktopStream : IDisposable
     public void AddPointer(PipelineStateSubObjectType type, nint address)
     {
         Begin(type, PipelineLayout.PointerSize);
+
+        if (type == PipelineStateSubObjectType.RootSignature)
+        {
+            _rootOffset = _bytes.Count;
+        }
+
         _bytes.AddRange(BitConverter.GetBytes((long)address));
+    }
+
+    /// <summary>
+    /// Writes the stream for another process (<see cref="PipelineHost"/>): its bytes, its shaders and input layouts
+    /// by offset, and where the root signature goes; pointers are filled in again by <see cref="Read"/>.
+    /// </summary>
+    public void Write(BinaryWriter writer)
+    {
+        Align(PipelineLayout.PointerSize);
+        writer.Write(_bytes.Count);
+        writer.Write(_bytes.ToArray());
+        writer.Write(_rootOffset);
+        writer.Write(_shaders.Count);
+
+        foreach (var (offset, bytecode) in _shaders)
+        {
+            writer.Write(offset);
+            writer.Write(bytecode.Length);
+            writer.Write(bytecode);
+        }
+
+        writer.Write(_layouts.Count);
+
+        foreach (var (offset, elements) in _layouts)
+        {
+            writer.Write(offset);
+            writer.Write(elements.Count);
+
+            foreach (var element in elements)
+            {
+                writer.Write(element.Semantic);
+                Fields(element).ToList().ForEach(writer.Write);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A stream <see cref="Write"/> wrote, over <paramref name="rootSignature"/> (an ID3D12RootSignature of this
+    /// process); <see cref="InvalidDataException"/> when a length or offset does not fit.
+    /// </summary>
+    public static DesktopStream Read(BinaryReader reader, nint rootSignature)
+    {
+        var stream = new DesktopStream();
+        stream._bytes.AddRange(Bytes(reader, Length(reader)));
+        stream._rootOffset = reader.ReadInt32();
+        int size = stream._bytes.Count;
+
+        if (stream._rootOffset != -1)
+        {
+            CheckPointer(stream._rootOffset, size);
+            var pointer = BitConverter.GetBytes((long)rootSignature);
+
+            for (var index = 0; index < pointer.Length; index++)
+            {
+                stream._bytes[stream._rootOffset + index] = pointer[index];
+            }
+        }
+
+        for (var count = Length(reader); count > 0; count--)
+        {
+            var offset = reader.ReadInt32();
+            CheckSlot(offset, size);
+            var bytecode = Bytes(reader, Length(reader));
+            stream._shaders.Add((offset, bytecode));
+            stream.ShaderBytes += bytecode.Length;
+        }
+
+        for (var count = Length(reader); count > 0; count--)
+        {
+            var offset = reader.ReadInt32();
+            CheckSlot(offset, size);
+            var elements = new List<VertexElement>();
+
+            for (var element = Length(reader); element > 0; element--)
+            {
+                elements.Add(new VertexElement(reader.ReadString(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32()));
+            }
+
+            stream._layouts.Add((offset, elements));
+        }
+
+        return stream;
     }
 
     /// <summary>A D3D12_SHADER_BYTECODE subobject over <paramref name="bytecode"/>, which must not change afterwards.</summary>
@@ -114,11 +206,13 @@ internal sealed unsafe class DesktopStream : IDisposable
 
         foreach (var (offset, bytecode) in _shaders)
         {
+            CheckSlot(offset, _bytes.Count);
             *(nint*)(stream + offset) = Native(bytecode);
         }
 
         foreach (var (offset, elements) in _layouts)
         {
+            CheckSlot(offset, _bytes.Count);
             *(nint*)(stream + offset) = InputElements(elements);
         }
 
@@ -154,6 +248,52 @@ internal sealed unsafe class DesktopStream : IDisposable
     {
         Release();
         _identity.Dispose();
+    }
+
+    /// <summary>
+    /// A count or length read from a stream: not negative, not past <see cref="MaximumLength"/>, and on a stream that
+    /// can tell (a file, memory) not past what is left of it. The pipeline host reads its request from a pipe, which
+    /// has no length: asking it ended every host of boot w28 before it built anything.
+    /// </summary>
+    private static int Length(BinaryReader reader)
+    {
+        int length = reader.ReadInt32();
+        var source = reader.BaseStream;
+
+        if (length < 0 || length > MaximumLength || (source.CanSeek && length > source.Length - source.Position))
+        {
+            throw new InvalidDataException($"a length of {length} in a pipeline stream");
+        }
+
+        return length;
+    }
+
+    /// <summary><paramref name="count"/> bytes; <see cref="InvalidDataException"/> when the stream ends first.</summary>
+    private static byte[] Bytes(BinaryReader reader, int count)
+    {
+        var bytes = reader.ReadBytes(count);
+
+        if (bytes.Length != count)
+        {
+            throw new InvalidDataException($"a pipeline stream ends {count - bytes.Length} bytes early");
+        }
+
+        return bytes;
+    }
+
+    /// <summary>A pointer-sized field at <paramref name="offset"/> lies inside a stream of <paramref name="size"/> bytes.</summary>
+    private static void CheckPointer(int offset, int size)
+    {
+        if (offset < 0 || offset > size - PipelineLayout.PointerSize)
+        {
+            throw new InvalidDataException($"a pointer at {offset} in a pipeline stream of {size} bytes");
+        }
+    }
+
+    /// <summary>A pointer and its size (D3D12_SHADER_BYTECODE, D3D12_INPUT_LAYOUT_DESC) at <paramref name="offset"/> lie inside the stream.</summary>
+    private static void CheckSlot(int offset, int size)
+    {
+        CheckPointer(offset, size - PipelineLayout.PointerSize);
     }
 
     /// <summary>A native D3D12_INPUT_ELEMENT_DESC table: semantic name pointer, then the six u32 fields.</summary>
