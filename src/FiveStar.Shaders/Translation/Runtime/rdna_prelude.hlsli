@@ -54,9 +54,12 @@ void MemStore(uint ptr_lo, uint off, uint v) {
 // With the loader's --evict-windows (FIVESTAR_WINDOW_FEEDBACK is the byte offset of its flags in the window), a page
 // that waits for its section window's heap names the null views with 0x80000000 | window id in its offset field: the
 // access reads zeros and sets the window's flag, so the loader opens that window (WindowFeedback).
+// A high dword past the 47-bit user space (>= GPU_MAP_SPANS: a V# base_hi of 0x8000-0xffff, a high dword holding an
+// index or a float, CODE_TAG) names no game memory: on the console the access faults. It reads the null table (level-1
+// bytes end where table 0 starts), never a mapped span its low bits alias (lowvram's stores past a 4 GiB line).
 uint2 gpu_page(uint lo, uint hi) {
     ByteAddressBuffer map = ResourceDescriptorHeap[GPU_MAP_HEAP];
-    uint table = map.Load((hi & (GPU_MAP_SPANS - 1u)) * 4u);
+    uint table = hi < GPU_MAP_SPANS ? map.Load(hi * 4u) : GPU_MAP_SPANS * 4u;
     uint2 page = map.Load2(table + (lo >> 16) * 8u);
 #ifdef FIVESTAR_WINDOW_FEEDBACK
     if (page.x == GPU_MAP_HEAP + 1u && (page.y & 0x80000000u) != 0u) MemStore(FIVESTAR_WINDOW_FEEDBACK, (page.y & 0xffffu) * 4u, 1u);
@@ -79,7 +82,7 @@ uint2 ptr_add(uint lo, uint hi, uint u, int s) {
 // heap indices from + 112; entries of {program id, address lo or byte offset, address hi or heap index | kind << 31,
 // value} from + 256. TRACE_BASE is DescriptorWindow.TraceBase.
 #ifdef FIVESTAR_STORE_TRACE
-static const uint TRACE_BASE = 0x04016100u;
+static const uint TRACE_BASE = 0x04018100u;
 static const uint TRACE_ENTRIES = 65536u;
 void trace_entry(uint lo, uint hi, uint v) {
     RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
@@ -151,6 +154,19 @@ void ss_cap_hit(uint kind) {
 #else
 void ss_cap_hit(uint kind) {}
 #endif
+// ---- Span guard (with the window guard, FIVESTAR_SPAN_GUARD is the byte offset of its table in the window): a store or
+// atomic whose high dword is past the user space reaches nothing (gpu_page); it is counted in slot FIVESTAR_PROGRAM_ID
+// & 1023 of the table, {program id, drops}, so the loader names the programs that build such pointers.
+void span_store(uint hi) {
+#ifdef FIVESTAR_SPAN_GUARD
+    if (hi < GPU_MAP_SPANS) return;
+    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    uint slot = FIVESTAR_SPAN_GUARD + (FIVESTAR_PROGRAM_ID & 1023u) * 8u;
+    m.Store(slot, FIVESTAR_PROGRAM_ID);
+    m.InterlockedAdd(slot + 4u, 1u);
+#endif
+}
+void vstore_span(uint d1) { span_store(d1 & 0xffffu); }   // a buffer store through a V# (base_hi in dword1 bits 0-15)
 void loop_cap_hit(uint guard, uint cap) {   // structured loop number guard spent the invocation's loop cap
     TRACE_GUARD(guard, cap);
     if (WaveIsFirstLane()) ss_cap_hit(2u);
@@ -177,6 +193,7 @@ void PtrStore(uint lo, uint hi, uint off, uint v) {
 #else
     if (hi == 0u) { MemStore(a.x, 0u, v); return; }
 #endif
+    span_store(a.y);
     TRACE_ADDR(a.x, a.y, v);
     uint2 p = gpu_page(a.x, a.y);
     RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(p.x + 1u)];
