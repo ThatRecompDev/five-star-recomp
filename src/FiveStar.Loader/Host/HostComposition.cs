@@ -16,6 +16,13 @@ internal static class HostComposition
     private const string GdkDataFolder = "GdkData";
 
     /// <summary>How long after the pipelines are set up large compiles count as in the game's load window.</summary>
+    /// <summary><c>--frame-rate</c> and <c>--check-view-liveness</c>, static settings of the D3D12.X shim.</summary>
+    private static void ApplyPacingAndChecks(HostOptions options)
+    {
+        Shims.D3D12X.Present.FramePacer.Rate = options.FrameRate;
+        Shims.D3D12X.DebugLayer.ViewLiveness.Enabled = options.CheckViewLiveness;
+    }
+
     private static readonly TimeSpan LoadWindowSpan = TimeSpan.FromSeconds(120);
 
     /// <summary>The shipped MSVC runtime, mapped from the target's directory unless --system-crt is given.</summary>
@@ -91,7 +98,7 @@ internal static class HostComposition
         Shims.D3D12X.Resources.TypelessTargets.Enabled = options.TypelessTargets;
         Shims.D3D12X.Binding.ImageViewClasses.Enabled = options.TypedImageViews;
 
-        Shims.D3D12X.Present.FramePacer.Rate = options.FrameRate;
+        ApplyPacingAndChecks(options);
 
         Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
 

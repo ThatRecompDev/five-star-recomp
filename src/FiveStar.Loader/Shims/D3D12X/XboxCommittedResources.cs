@@ -98,6 +98,7 @@ internal sealed unsafe class XboxCommittedResources
 
             if (left == 0)
             {
+                XboxObjectMethods.Released(inner);
                 ShimContext.Runtime.D3D12X.CommittedResources.Release(self);
                 NativeMemory.Free(self);
             }

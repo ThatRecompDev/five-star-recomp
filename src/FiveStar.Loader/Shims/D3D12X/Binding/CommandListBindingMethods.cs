@@ -298,6 +298,18 @@ internal static unsafe class CommandListBindingMethods
         }
     }
 
+    /// <summary>Before a draw, dispatch or ExecuteIndirect: its pass's timestamp (<c>--gpu-timings</c>) and the bound tables' views (<c>--check-view-liveness</c>).</summary>
+    [HotPath]
+    private static void BeforeWork(XboxObject* self, bool compute)
+    {
+        GpuTimings.Work((nint)self, self->Inner, compute, ListActivity.Of(self)->Pipeline);
+
+        if (ViewLiveness.Enabled)
+        {
+            ViewLiveness.Check(self, compute);
+        }
+    }
+
     [HotPath]
     [UnmanagedCallersOnly]
     public static void DrawInstanced(XboxObject* self, uint vertices, uint instances, uint firstVertex, uint firstInstance)
@@ -317,7 +329,7 @@ internal static unsafe class CommandListBindingMethods
             Flush(self, false);
             ListActivity.Of(self)->Draws++;
             GpuBreadcrumbs.Before(self, MarkedKind.Draw, vertices, instances, 0);
-            GpuTimings.Work((nint)self, self->Inner, false, ListActivity.Of(self)->Pipeline);
+            BeforeWork(self, false);
 
             ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
             ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, vertices, instances);
@@ -350,7 +362,7 @@ internal static unsafe class CommandListBindingMethods
             Flush(self, false);
             ListActivity.Of(self)->Draws++;
             GpuBreadcrumbs.Before(self, MarkedKind.Draw, indices, instances, 0);
-            GpuTimings.Work((nint)self, self->Inner, false, ListActivity.Of(self)->Pipeline);
+            BeforeWork(self, false);
 
             ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
             ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, indices, instances);
@@ -378,7 +390,7 @@ internal static unsafe class CommandListBindingMethods
             Flush(self, true);
             ListActivity.Of(self)->Dispatches++;
             GpuBreadcrumbs.Before(self, MarkedKind.Dispatch, x, y, z);
-            GpuTimings.Work((nint)self, self->Inner, true, ListActivity.Of(self)->Pipeline);
+            BeforeWork(self, true);
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDispatch))(inner, x, y, z);
 
@@ -418,7 +430,7 @@ internal static unsafe class CommandListBindingMethods
             FlushForIndirect(self, signature);
             ListActivity.Of(self)->Indirect++;
             GpuBreadcrumbs.BeforeIndirect(self, signature, maxCount, ArgumentAddress(arguments, argumentOffset));
-            GpuTimings.Work((nint)self, self->Inner, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind, ListActivity.Of(self)->Pipeline);
+            BeforeWork(self, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind);
             var trace = ShimContext.Runtime.D3D12X.DrawTrace;
             trace?.Indirect(self, maxCount, ArgumentAddress(arguments, argumentOffset), CommandSignatures.Clampable(signature).Stride, count != 0);
 
