@@ -51,6 +51,7 @@ internal sealed class ProgramProducer
     {
         _programs = programs;
         _folder = folder;
+        RayTracingPrograms.Folder = folder;
         _picker = picker;
         _compiler = compiler;
         _slow = slow;
@@ -164,6 +165,7 @@ internal sealed class ProgramProducer
             hlsl = DebugLayer.PoolStoreTrace.Header(name) + hlsl;
         }
 
+        RayTracingPrograms.Note(name, hlsl, _folder);
         hlsl = Probed(name, hlsl);
         NoteCost(name, hlsl);
         StaticSampler.Keep(_folder, hlsl);
