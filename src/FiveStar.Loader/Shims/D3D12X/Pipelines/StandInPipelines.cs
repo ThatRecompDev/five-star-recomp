@@ -14,7 +14,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// all of them before it finishes a frame (docs/d3d12x-pipelines.md); the console builds them at once, the desktop
 /// driver compiles some translated programs for minutes. A creation that has not returned within the budget hands the
 /// game a <see cref="StandInPipelineObject"/> and goes on in the background; the stand-in becomes the desktop pipeline
-/// when the driver is done. Until then the command lists skip the work it would run.
+/// when the driver is done. Until then the command lists skip the work it would run, unless the stand-in is named by
+/// <c>--wait-pipelines</c> (<see cref="Waits"/>): its first use then waits for the pipeline.
 /// </summary>
 internal sealed unsafe class StandInPipelines
 {
@@ -39,6 +40,9 @@ internal sealed unsafe class StandInPipelines
     private int _smallNotReady;
     private int _smallProgramsInline;
     private int _smallOverBudget;
+    private readonly HashSet<nint> _waited = [];
+    private int _waitedFor;
+    private int _waitsPastLimit;
 
     private readonly object _gate = new();
     private readonly HashSet<nint> _live = [];
@@ -73,8 +77,11 @@ internal sealed unsafe class StandInPipelines
         _self = GCHandle.Alloc(this, GCHandleType.Weak);
     }
 
+    /// <summary>The stand-ins a command list waits for at their first use instead of skipping their work; null for none.</summary>
+    public PipelineWaits? Waits { get; init; } = PipelineWaits.Current;
+
     /// <summary>Stand-ins handed out, how many have their pipeline, the work skipped meanwhile and the work recorded.</summary>
-    public string Summary => $"{Volatile.Read(ref _created)} stand-in pipelines ({Volatile.Read(ref _deferred)} built on first use, {Volatile.Read(ref _used)} of them used, {Volatile.Read(ref _onDemand)} with programs made on demand, {Volatile.Read(ref _ready)} built since, {Count(queue => queue.Backlog)} queued, {Count(queue => queue.WaitingForMemory)} build threads waiting for memory), {Interlocked.Read(ref _skipped)} draws and dispatches skipped, {Interlocked.Read(ref _skippedAfterChain)} dispatches and ExecuteIndirects skipped after a skipped one of their list,{Interlocked.Read(ref _recorded)} recorded, {SkippedBeforeSummary()}, {Volatile.Read(ref _smallMade)} small compute pipelines made at first use ({Volatile.Read(ref _smallProgramsInline)} with programs made inline or found ready,{Volatile.Read(ref _smallNotReady)} not waited for: programs not made, {Volatile.Read(ref _smallOverBudget)} over the first-use budget)";
+    public string Summary => $"{Volatile.Read(ref _created)} stand-in pipelines ({Volatile.Read(ref _deferred)} built on first use, {Volatile.Read(ref _used)} of them used, {Volatile.Read(ref _onDemand)} with programs made on demand, {Volatile.Read(ref _ready)} built since, {Count(queue => queue.Backlog)} queued, {Count(queue => queue.WaitingForMemory)} build threads waiting for memory), {Interlocked.Read(ref _skipped)} draws and dispatches skipped, {Interlocked.Read(ref _skippedAfterChain)} dispatches and ExecuteIndirects skipped after a skipped one of their list,{Interlocked.Read(ref _recorded)} recorded, {SkippedBeforeSummary()}, {Volatile.Read(ref _smallMade)} small compute pipelines made at first use ({Volatile.Read(ref _smallProgramsInline)} with programs made inline or found ready,{Volatile.Read(ref _smallNotReady)} not waited for: programs not made, {Volatile.Read(ref _smallOverBudget)} over the first-use budget), {Volatile.Read(ref _waitedFor)} waited for by name ({Volatile.Read(ref _waitsPastLimit)} past the limit)";
 
     /// <summary>
     /// Runs <paramref name="create"/> and writes its pipeline to <paramref name="result"/>; when it takes longer than
@@ -328,7 +335,70 @@ internal sealed unsafe class StandInPipelines
             pending = desktop == 0;
         }
 
+        if (pending && Waits is not null)
+        {
+            desktop = WaitIfNamed(pipeline, Waits);
+            pending = desktop == 0;
+        }
+
         return desktop;
+    }
+
+    /// <summary>
+    /// The first use of a stand-in <paramref name="waits"/> names: this thread waits for its pipeline (made first, as the
+    /// first use promoted it) up to the limit, the game's hang watchdog paused meanwhile. Past the limit the stand-in
+    /// stays and is not waited for again; its work is skipped as without the option. A heavy mesh pipeline's compile can
+    /// take minutes and several gigabytes, so the limit bounds the frame it holds.
+    /// </summary>
+    private nint WaitIfNamed(nint pipeline, PipelineWaits waits)
+    {
+        string name = Name(pipeline);
+
+        if (!waits.Matches(name) || !FirstWait(pipeline))
+        {
+            return 0;
+        }
+
+        var standIn = (StandInPipelineObject*)pipeline;
+        long started = Stopwatch.GetTimestamp();
+        long deadline = started + (long)(waits.Limit.TotalSeconds * Stopwatch.Frequency);
+
+        using (WatchdogPause.Enter())
+        using (BlockingWaits.Enter("a pipeline named by --wait-pipelines"))
+        {
+            while (Volatile.Read(ref standIn->Desktop) == 0 && Stopwatch.GetTimestamp() < deadline)
+            {
+                Thread.Sleep(1);
+            }
+        }
+
+        nint desktop = Volatile.Read(ref standIn->Desktop);
+        Waited(name, desktop != 0, Stopwatch.GetElapsedTime(started));
+
+        return desktop;
+    }
+
+    private bool FirstWait(nint pipeline)
+    {
+        lock (_gate)
+        {
+            return _waited.Add(pipeline);
+        }
+    }
+
+    private void Waited(string name, bool built, TimeSpan took)
+    {
+        Interlocked.Increment(ref _waitedFor);
+
+        if (built)
+        {
+            _warnings.Warn($"waited-{name}", $"[d3d12_xs] waited {took.TotalSeconds:F1} s for pipeline {name} at its first use (--wait-pipelines)");
+
+            return;
+        }
+
+        Interlocked.Increment(ref _waitsPastLimit);
+        _warnings.Warn($"wait-limit-{name}", $"[d3d12_xs] pipeline {name} not built within {took.TotalSeconds:F0} s of its first use (--wait-pipelines): its work is skipped until it is");
     }
 
     /// <summary>
@@ -414,6 +484,7 @@ internal sealed unsafe class StandInPipelines
             _waiting.Remove((nint)standIn);
             _work.Remove((nint)standIn);
             _small.Remove((nint)standIn);
+            _waited.Remove((nint)standIn);
             desktop = standIn->Desktop;
         }
 

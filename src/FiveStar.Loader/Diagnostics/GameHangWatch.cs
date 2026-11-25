@@ -184,7 +184,8 @@ internal sealed unsafe class GameHangWatch
         return $"main state {(short)state} (next {(short)next}), loading screen {loading}, loading render callback {loadingRender}, session 0x{session:x} ready {ready}, watchdog paused {paused}, handler 0x{handler:x}";
     }
 
-    private static bool IsReadable(ulong address)
+    /// <summary>Whether <paramref name="address"/> is committed and accessible in this process.</summary>
+    internal static bool IsReadable(ulong address)
     {
         MemoryBasicInformation info;
 
