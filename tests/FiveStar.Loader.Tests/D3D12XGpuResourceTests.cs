@@ -80,14 +80,16 @@ public sealed unsafe class D3D12XGpuResourceTests
         registry.Dispose();
     }
 
-    [Fact]
-    public void Older_textures_over_one_range_are_released_after_the_longer_grace_and_the_newest_two_kept()
+    [Theory]
+    [InlineData(GpuTextureRegistry.DefaultKeptAliases)]
+    [InlineData(2)]
+    public void Older_textures_over_one_range_are_released_after_the_longer_grace_and_the_newest_kept(int kept)
     {
         using var test = TestRuntime.Create();
         var device = new XboxDevice(test);
-        var registry = GpuTextureRegistry.OfQueues();
+        var registry = GpuTextureRegistry.OfQueues(kept);
 
-        // A streaming slot reused four times: three retired over exactly its range, the oldest past the two kept.
+        // A streaming slot reused four times: three retired over exactly its range, the older ones past those kept.
         for (int i = 0; i < 4; i++)
         {
             registry.Register(Texture(test, device, 0x10000));
@@ -97,8 +99,8 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.Equal(0, registry.Released);
         registry.Advance(GpuTextureRegistry.AliasGraceFrames);
 
-        Assert.Equal(1, registry.Released);
-        Assert.Equal(GpuTextureRegistry.KeptAliases, registry.RetiredCount);
+        Assert.Equal(3 - kept, registry.Released);
+        Assert.Equal(kept, registry.RetiredCount);
         registry.Dispose();
     }
 

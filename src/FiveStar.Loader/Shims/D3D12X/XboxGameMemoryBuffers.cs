@@ -53,6 +53,7 @@ internal sealed unsafe class XboxGameMemoryBuffers
     private readonly GraphicsAllocations _graphics;
     private readonly LoaderLog _log;
     private int _windows;
+    private long _coveredBytes;
 
     public XboxGameMemoryBuffers(XboxObjects objects, AddressTable addresses, GraphicsAllocations graphics, LoaderLog log)
     {
@@ -63,6 +64,9 @@ internal sealed unsafe class XboxGameMemoryBuffers
     }
 
     private readonly HashSet<nint> _readOnly = [];
+
+    /// <summary>Bytes of the game's own memory covered by buffers (heaps over it, charged to the game's commit).</summary>
+    public long CoveredBytes => Interlocked.Read(ref _coveredBytes);
 
     /// <summary>Whether <paramref name="resource"/> is a buffer this class made over memory the GPU may not write.</summary>
     public bool IsReadOnly(nint resource)
@@ -156,6 +160,7 @@ internal sealed unsafe class XboxGameMemoryBuffers
 
         ulong gpu = ((delegate* unmanaged<nint, ulong>)ComObject.Slot(buffer, GetGpuAddressSlot))(buffer);
         _addresses.Add(new AddressRange((ulong)key, bytes, gpu, buffer));
+        Interlocked.Add(ref _coveredBytes, (long)bytes);
         string access = writable ? string.Empty : ", read-only";
         _log.Detail($"  [d3d12_xs] game memory 0x{key:x} (0x{bytes:x} bytes of the allocation at 0x{allocation:x}) on the GPU at 0x{gpu:x}{access}");
 

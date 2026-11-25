@@ -298,6 +298,9 @@ internal static unsafe class CompileBudget
         return running == 0 || privateBytes <= ceilingBytes;
     }
 
+    /// <summary>What the running compiles are expected to take (their estimates).</summary>
+    public static long ExpectedBytes => Interlocked.Read(ref _expected);
+
     /// <summary>Compiles running now.</summary>
     public static int Running => Volatile.Read(ref _running);
 
