@@ -94,7 +94,8 @@ internal static class SuperstepWriter
     }
 
     /// <summary>Names the code after the dispatch loop reads: the staging epilogue of a one-phase mesh program.</summary>
-    private static HashSet<string> Pinned(TranslationState state, MeshDeclarations mesh)
+    /// <summary>Registers the staging epilogue reads after the dispatch loop (a staged mesh program); none otherwise.</summary>
+    public static HashSet<string> Pinned(TranslationState state, MeshDeclarations mesh)
     {
         if (state.Stage != ShaderStage.Mesh || state.MeshYield)
         {
