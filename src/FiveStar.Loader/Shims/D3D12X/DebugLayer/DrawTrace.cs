@@ -239,8 +239,30 @@ internal sealed unsafe class DrawTrace
     private void AppendWindowRecords(StringBuilder text, CommandListBindings* bindings)
     {
         var graphics = new ReadOnlySpan<uint>(bindings->Graphics, UserDwordsShown);
-        var sources = new TraceRecordSources(MapState, (address, bytes) => (nint)_memory.Find(address, (ulong)bytes), GameRecord, TextureState);
+        var sources = new TraceRecordSources(MapState, (address, bytes) => (nint)_memory.Find(address, (ulong)bytes), GameRecord, TextureState, ViewAt);
         TraceRecords.Append(text, _d3d12.Bindings.Window.Data, DescriptorWindow.NullTableBase, graphics, TraceRecords.Offsets, sources);
+    }
+
+    /// <summary>The view this trace saw written at desktop heap index <paramref name="index"/> (resource, size and format).</summary>
+    private string ViewAt(uint index)
+    {
+        var window = _d3d12.Bindings.Window;
+
+        if (window.ViewHeap == 0)
+        {
+            return "no view heap";
+        }
+
+        nint device = _d3d12.Objects.DesktopDevice;
+        uint increment = ((delegate* unmanaged<nint, int, uint>)ComObject.Slot(device, IncrementSlot))(device, ViewHeapType);
+        nint handle = DesktopCalls.HeapCpuStart(window.ViewHeap) + (nint)((ulong)index * increment);
+
+        if (_views.TryGetValue(handle, out var known))
+        {
+            return known;
+        }
+
+        return "not a view this trace saw";
     }
 
     /// <summary>How the texture registered at <paramref name="address"/> got its texels: GPU-written, copied into, or uploaded from memory.</summary>
