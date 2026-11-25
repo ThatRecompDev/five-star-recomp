@@ -24,10 +24,18 @@ internal static partial class DeadWaveOperations
     /// <summary>A ballot's temporary is named twice: where it is set and where it is copied to its SGPR half.</summary>
     private const int TempMentions = 2;
 
-    /// <summary>Removes dead wave operations from <paramref name="blocks"/> in place; <paramref name="pinned"/> are read after the program.</summary>
-    public static int Remove(List<CodeBlock> blocks, IReadOnlySet<string> pinned)
+    /// <summary>
+    /// Removes dead wave operations from <paramref name="blocks"/> in place; <paramref name="pinned"/> are read after the
+    /// program. <paramref name="ownBits"/> first reads a lane's own ballot bit from its mask bool (<see cref="BallotBits"/>);
+    /// pixel programs keep the ballot, since helper lanes, in EXEC on the console, take no part in an HLSL ballot.
+    /// </summary>
+    public static int Remove(List<CodeBlock> blocks, IReadOnlySet<string> pinned, bool ownBits = true)
     {
-        BallotBits.Substitute(blocks);
+        if (ownBits)
+        {
+            BallotBits.Substitute(blocks);
+        }
+
         int removed = 0;
 
         for (int pass = 0; pass < MaxPasses; pass++)
@@ -137,10 +145,26 @@ internal static partial class DeadWaveOperations
         return liveIn;
     }
 
-    /// <summary>What is live after a block: its successors' live-in; at the program's end the pinned registers.</summary>
+    /// <summary>
+    /// What is live after a block: its successors' live-in; at the program's end the pinned registers. A two-phase mesh
+    /// yield (s_barrier) resumes at the next instruction with every register kept, so that block's live-in counts too.
+    /// </summary>
     private static HashSet<string> LiveOut(FlowGraph graph, int block, List<HashSet<string>> liveIn, HashSet<string> names, IReadOnlySet<string> pinned)
     {
         var live = new HashSet<string>(StringComparer.Ordinal);
+        var exit = graph.Blocks[block].Exit;
+
+        if (exit.Kind == BlockExitKind.Yield)
+        {
+            if (exit.Target is long resume && graph.NodeAt(resume) is int next)
+            {
+                live.UnionWith(liveIn[next]);
+            }
+            else
+            {
+                live.UnionWith(names);
+            }
+        }
 
         foreach (int next in graph.Successors[block])
         {
