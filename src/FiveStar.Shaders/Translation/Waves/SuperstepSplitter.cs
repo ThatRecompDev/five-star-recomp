@@ -33,12 +33,6 @@ internal sealed partial class SuperstepSplitter
     /// <summary>The values one step deposits for readfirstlanes of one mask.</summary>
     public const int FirstLaneValues = 4;
 
-    /// <summary>Whether a statement is a step of its own: a wave operation, an LDS or memory access, or a group barrier.</summary>
-    public static bool Stops(string statement)
-    {
-        return WaveCallPattern().IsMatch(statement) || SharedPattern().IsMatch(statement) || statement.Contains("GroupMemoryBarrier", StringComparison.Ordinal);
-    }
-
     /// <summary>The cut blocks; throws <see cref="UnsupportedProgramException"/> for a statement it cannot cut.</summary>
     public List<CodeBlock> Split(IReadOnlyList<CodeBlock> blocks)
     {

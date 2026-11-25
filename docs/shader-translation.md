@@ -171,15 +171,6 @@ the most any program has went from 449 to 284, and none has more than 300 (48 ha
 (049945c2), whose pipeline the driver did not build in 10 minutes, went from 393 stops to 234 (1,291 to 973 cases); its
 remaining rounds are mostly the 192 branches on "any lane" of a mask.
 
-A branch on "any lane" of a mask then becomes a branch on the lane's own bit where that gives the console's result
-(`LaneBranches`, from `WindowAnalysis.PerLaneBranches`, the window analysis with windows of one lane): the mask is
-EXEC, or EXEC and a uniform value (or the same on every lane), so a lane outside it is inactive; both paths, run with
-that lane inactive, change nothing it reads after they meet (`SkipRegion`); and neither path holds a step, a native
-wave or quad operation, GS_ALLOC_REQ, a barrier or the program end, so the lanes of a console wave meet again before
-their next step. Over the 8,765 mesh programs the stops fell from 299,243 to 226,058 (every program lost some; the
-most any has went from 284 to 251). 049945c2 went from 234 to 207 and 04a7a7b5 from 215 to 188: most of their
-remaining branches guard paths with readfirstlanes or ballots in them.
-
 A superstep program names its cost in its first body line, `// superstep: <stops> stops, round bound <n>` (the loader
 logs it once per program): a round is a group barrier and a run of the dispatch switch to the next stop, so a large
 program's rounds can outlast the driver's timeout well before the caps' bound (`MSNC_VS_LinearDepthSkin_f1f2249c`:
@@ -811,7 +802,7 @@ of the mesh program whose 4-lane waves skip regions their console wave runs (an 
 inside) is classified as right on 4 lanes and draws the reference; small programs check that an SGPR read after a
 skipped region or a first-lane read of a per-lane value keep the whole wave as floor. Supersteps: the mesh program in
 the superstep form, and a 128-thread group whose two console waves branch apart (first lane under EXEC, readlane 63, a
-ballot count, a readlane only one wave runs, an execz path each lane enters by its own bit), give console results on 4-lane waves; the mesh program also through the fallback of its superstep form, and every wave64 compute case in groups of two console waves. Missing lanes: a pixel shader with whole-wave minimum and sum reductions (permlanex16, readlane 20) is classified as right on 4 lanes and gives the quad's results there. Pair-time linking is
+ballot count, a readlane only one wave runs), give console results on 4-lane waves; the mesh program also through the fallback of its superstep form, and every wave64 compute case in groups of two console waves. Missing lanes: a pixel shader with whole-wave minimum and sum reductions (permlanex16, readlane 20) is classified as right on 4 lanes and gives the quad's results there. Pair-time linking is
 checked with a VS whose two float2 outputs share a register while the PS reads one of them flat: unlinked the
 pipeline fails, linked it draws the flat value of the provoking vertex. Test
 classes run one at a time (`xunit.runner.json`): WARP crashes the test host when they run in parallel.
