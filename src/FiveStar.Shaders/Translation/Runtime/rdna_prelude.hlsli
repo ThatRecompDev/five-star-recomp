@@ -359,8 +359,20 @@ uint vw_count(bool c) {
 }
 
 // ---- cross-lane
+// When the hardware wave holds no more than the program wave, the first lane with EXEC set is the first hardware lane
+// with `active`: it is read under `if (active)` and spread to the wave with a max (the other lanes give 0). Reading it
+// with WaveReadLaneAt at the ballot's lowest bit crashed AMD's compiler in CreatePipelineState (RX 7800 XT, driver
+// 32.0.32029.2010) on a pixel program that does it seven times in a loop, through dxc and the DXIL backend alike.
 uint readfirstlane(uint x, bool active) {   // first lane with EXEC set (not just the first HLSL-active lane); lane 0 if none
     uint2 m = vw_ballot(active);
+#if !VW_GROUP_WAVE && !VW_GROUP_LANES
+    if (!VW_EMULATE || WaveGetLaneCount() <= VW_WAVE) {
+        if ((m.x | m.y) == 0u) return vw_read(x, 0u);
+        uint v = 0u;
+        if (active) v = WaveReadLaneFirst(x);
+        return WaveActiveMax(v);
+    }
+#endif
     uint l = m.x != 0 ? firstbitlow(m.x) : m.y != 0 ? 32 + firstbitlow(m.y) : 0u;
     return vw_read(x, l);
 }

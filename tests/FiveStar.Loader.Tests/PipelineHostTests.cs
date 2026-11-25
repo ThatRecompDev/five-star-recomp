@@ -34,6 +34,10 @@ public sealed class PipelineHostTests
         using var moved = DesktopStream.Read(new BinaryReader(new MemoryStream(first)), 0x5678);
         Assert.NotEqual(first, Written(moved));
 
+        // The host reads from a pipe, which has no length (boot w28: every host ended on asking it).
+        using var piped = DesktopStream.Read(new BinaryReader(new Unseekable(first)), 0x1234);
+        Assert.Equal(first, Written(piped));
+
         // A shader slot past the stream's bytes, and a length past the data, are refused before anything is written.
         var outside = (byte[])first.Clone();
         BitConverter.TryWriteBytes(outside.AsSpan(4 + BitConverter.ToInt32(first) + 8), 4096);
@@ -68,12 +72,27 @@ public sealed class PipelineHostTests
         Assert.Equal(PipelineHostOutcome.KilledMemory, PipelineHost.Classify(null, 23 * Gigabyte, 24 * Gigabyte, timedOut: false));
         Assert.Equal(PipelineHostOutcome.KilledMemory, PipelineHost.Classify(unchecked((int)0x8007000E), 24 * Gigabyte, 24 * Gigabyte, timedOut: false));
         Assert.Equal(PipelineHostOutcome.Failed, PipelineHost.Classify(unchecked((int)0x80070057), Gigabyte, 24 * Gigabyte, timedOut: false));
+        Assert.Equal(PipelineHostOutcome.Crashed, PipelineHost.Classify(null, Gigabyte, 24 * Gigabyte, timedOut: false));
 
         // Free memory less the 4 GB floor, within 4 GB and the vendor's cap.
         Assert.Equal(24 * Gigabyte, PipelineHost.MemoryLimit(60UL * Gigabyte, 0x10DE));
         Assert.Equal(48 * Gigabyte, PipelineHost.MemoryLimit(60UL * Gigabyte, CompileBudget.AmdVendorId));
         Assert.Equal(10 * Gigabyte, PipelineHost.MemoryLimit(14UL * Gigabyte, 0x10DE));
         Assert.Equal(4 * Gigabyte, PipelineHost.MemoryLimit(5UL * Gigabyte, 0x10DE));
+    }
+
+    /// <summary>A stream that, like a pipe, cannot seek or tell its length.</summary>
+    private sealed class Unseekable(byte[] bytes) : MemoryStream(bytes)
+    {
+        public override bool CanSeek => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
     }
 
     private static byte[] Written(DesktopStream stream)

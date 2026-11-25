@@ -59,6 +59,10 @@ public sealed class CompileBudgetTests
         Assert.Equal(CompileBudget.Estimate(3L << 20, 0), CompileBudget.Estimate(3L << 20, Nvidia));
         Assert.InRange(CompileBudget.Estimate(2_883_584, Nvidia), 6.4 * Gigabyte, 8 * Gigabyte);
 
+        // In game the 1.25 to 2.25 MB mesh + pixel pipelines peaked at 19 to 37.5 GB on average and at most from 1.5 MB.
+        Assert.InRange(CompileBudget.Estimate(3L << 19, Amd), 29 * Gigabyte, 31 * Gigabyte);
+        Assert.True(CompileBudget.Estimate(7L << 18, Amd) >= 37 * Gigabyte);
+
         // The 12 MB ScreenProbes program would need more than a 64 GB machine has free.
         Assert.Equal(48 * Gigabyte, CompileBudget.Estimate(12L << 20, Amd));
     }
@@ -90,6 +94,24 @@ public sealed class CompileBudgetTests
             UnbuildablePipelines.Open(null);
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void A_running_compile_keeps_its_whole_estimate_reserved_only_until_it_settles()
+    {
+        long estimate = CompileBudget.Estimate(2_800_000);
+
+        Assert.Equal(estimate, CompileBudget.Reservation(estimate, 10, 0));
+        Assert.Equal(4 * Gigabyte, CompileBudget.Reservation(estimate, 135, 4 * Gigabyte));
+        Assert.Equal(estimate / 4, CompileBudget.Reservation(estimate, 135, -Gigabyte));
+        Assert.Equal(estimate, CompileBudget.Reservation(estimate, 135, 20 * Gigabyte));
+
+        // Boot w32 at 153 s: 14.1 GB free, 15 GB of commit left, the 2 MB compile 73 s in while the process grew 4 GB.
+        // A 1 MB compile now fits (5 + 4 + 2.75 GB physical, 8 + 4 + 2.75 GB commit); with the whole 7.5 GB it did not.
+        long resolve = CompileBudget.Estimate(1L << 20);
+        long reserve = CompileBudget.PhysicalReserve(CompileBudget.GrowthAllowance(2 * Gigabyte));
+        Assert.True(CompileBudget.Room(resolve, 14_100UL << 20, 15UL * Gigabyte, CompileBudget.Reservation(estimate, 73, 4 * Gigabyte), reserve));
+        Assert.False(CompileBudget.Room(resolve, 14_100UL << 20, 15UL * Gigabyte, estimate, reserve));
     }
 
     [Fact]

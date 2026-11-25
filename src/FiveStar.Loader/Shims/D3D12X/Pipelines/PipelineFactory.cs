@@ -495,12 +495,13 @@ internal sealed unsafe class PipelineFactory
     {
         entered = false;
 
-        if (!CompileBudget.NoWait)
+        if (!CompileBudget.NoWait && !CompileBudget.GiveBack)
         {
             return true;
         }
 
-        if (shaderBytes >= HeavyShaderBytes || !CompileBudget.TryEnterNow(shaderBytes))
+        // A game thread never builds a heavy one; a build thread with a speculative one gives it back rather than wait.
+        if ((CompileBudget.NoWait && shaderBytes >= HeavyShaderBytes) || !CompileBudget.TryEnterNow(shaderBytes))
         {
             return false;
         }
@@ -612,13 +613,20 @@ internal sealed unsafe class PipelineFactory
 
         long limit = PipelineHost.MemoryLimit(WarmMemoryGuard.AvailablePhysical(), CompileBudget.VendorId);
         var result = host.Build(request, stream, limit, PipelineHost.DefaultTimeLimit);
-        string line = $"[d3d12_xs] pipeline host: {what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL) {result.Outcome} after {result.Seconds:F0} s, peak {result.PeakBytes >> GigabyteShift} GB of {limit >> GigabyteShift} GB";
+        string line = $"[d3d12_xs] pipeline host: {what} ({stream.ShaderBytes >> MegabyteShift} MB of DXIL) {result.Outcome} (0x{result.HResult:x8}) after {result.Seconds:F0} s, peak {result.PeakBytes >> GigabyteShift} GB of {limit >> GigabyteShift} GB";
 
         if (result.Reason is not null)
         {
             ShimContext.Runtime.Log.Warn($"{line}: {result.Reason}; the loader builds it itself");
 
             return null;
+        }
+
+        if (result.Outcome == PipelineHostOutcome.Crashed)
+        {
+            ShimContext.Runtime.Log.Warn(line + ": the driver crashed in the host, so the loader does not build it; it stays a stand-in");
+
+            return new PipelineResult(HResult.Fail, 0);
         }
 
         if (!result.Killed)

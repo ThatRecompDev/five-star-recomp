@@ -33,6 +33,9 @@ internal sealed unsafe class DesktopStream : IDisposable
     private string? _key;
     private int _rootOffset = -1;
 
+    /// <summary>The longest stream, shader or table a stream from another process may hold.</summary>
+    private const int MaximumLength = 1 << 30;
+
     /// <summary>The bytes of shader bytecode in the stream.</summary>
     public long ShaderBytes { get; private set; }
 
@@ -92,7 +95,7 @@ internal sealed unsafe class DesktopStream : IDisposable
     public static DesktopStream Read(BinaryReader reader, nint rootSignature)
     {
         var stream = new DesktopStream();
-        stream._bytes.AddRange(reader.ReadBytes(Length(reader)));
+        stream._bytes.AddRange(Bytes(reader, Length(reader)));
         stream._rootOffset = reader.ReadInt32();
         int size = stream._bytes.Count;
 
@@ -111,7 +114,7 @@ internal sealed unsafe class DesktopStream : IDisposable
         {
             var offset = reader.ReadInt32();
             CheckSlot(offset, size);
-            var bytecode = reader.ReadBytes(Length(reader));
+            var bytecode = Bytes(reader, Length(reader));
             stream._shaders.Add((offset, bytecode));
             stream.ShaderBytes += bytecode.Length;
         }
@@ -247,17 +250,35 @@ internal sealed unsafe class DesktopStream : IDisposable
         _identity.Dispose();
     }
 
-    /// <summary>A count or length read from a stream: not negative and not past what is left of it.</summary>
+    /// <summary>
+    /// A count or length read from a stream: not negative, not past <see cref="MaximumLength"/>, and on a stream that
+    /// can tell (a file, memory) not past what is left of it. The pipeline host reads its request from a pipe, which
+    /// has no length: asking it ended every host of boot w28 before it built anything.
+    /// </summary>
     private static int Length(BinaryReader reader)
     {
         int length = reader.ReadInt32();
+        var source = reader.BaseStream;
 
-        if (length < 0 || length > reader.BaseStream.Length - reader.BaseStream.Position)
+        if (length < 0 || length > MaximumLength || (source.CanSeek && length > source.Length - source.Position))
         {
             throw new InvalidDataException($"a length of {length} in a pipeline stream");
         }
 
         return length;
+    }
+
+    /// <summary><paramref name="count"/> bytes; <see cref="InvalidDataException"/> when the stream ends first.</summary>
+    private static byte[] Bytes(BinaryReader reader, int count)
+    {
+        var bytes = reader.ReadBytes(count);
+
+        if (bytes.Length != count)
+        {
+            throw new InvalidDataException($"a pipeline stream ends {count - bytes.Length} bytes early");
+        }
+
+        return bytes;
     }
 
     /// <summary>A pointer-sized field at <paramref name="offset"/> lies inside a stream of <paramref name="size"/> bytes.</summary>

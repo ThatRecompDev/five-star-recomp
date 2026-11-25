@@ -102,7 +102,8 @@ side: their outputs are equal apart from fast-math rounding in dxc.
 
 Every loop is bounded (`LoopGuard`): every iteration of a structured loop spends one of the invocation's
 `loop_budget`, and once the stage's cap is spent each loop leaves at its next iteration through `break` (a loop with
-several exits then takes the one numbered 0). The dispatch `while` stops after 2^24 blocks. A console program's loops end
+several exits then takes the one numbered 0). The dispatch `while` stops after 256 blocks per allowed iteration (2^24
+for compute, 2^20 elsewhere; 2^24 for every stage before). A console program's loops end
 on the data the console gives it; on the PC one wrong input keeps a loop going until the driver removes the device.
 
 The console has no cap, so a cap is only a safety net against our own wrong inputs and must not bind for a correct
@@ -119,6 +120,14 @@ victory-gta6's 4,096 compute, 256 vertex and mesh, 128 pixel, and also bounds th
 allowed iteration; `compute,geometry,pixel` gives other numbers. The caps are part of the translation options, so of
 the program cache identity. The superstep form had no bound at all; it now ends a thread that has run the stage's
 dispatch steps (`ss_steps`), which then meets every later barrier as an ended thread.
+
+A mesh program's group rounds are bounded too (`LoopCaps.Rounds`: 16 per allowed iteration, 65,536 for mesh by
+default, 4,096 with `victory`): the barriers of the two-phase form (`ms_step`) and the steps of the superstep form
+(`ss_rounds`). A console loop around an `s_barrier` runs one round per iteration and no structured loop counts it,
+so a garbage trip count held the group: w31's ExecuteIndirect DispatchMesh(4, 1, 1) of
+`MSNC_VS_LinearDepthSkin_f1f2249c` never finished (DEVICE_HUNG), and before that the superstep form ran up to 2^24
+rounds. Every thread counts the same rounds, so all leave on the same one. A program cut off there culls its primitives
+(`MeshDeclarations.CutEpilogue`), so nothing it never wrote is drawn; WARP's rasterizer crashed on such outputs.
 
 Lower caps cut correct programs short, not only runaways. In the 25,908-program corpus 4,816 of 12,067 pixel programs
 have loops, 1,251 of them ten or more, whose iterations all count against one cap; 1,944 of 2,689 compute programs and
@@ -349,7 +358,11 @@ writelane, permlane, DPP, ds_swizzle, ds_bpermute, lane masks, mbcnt. A PC GPU r
 the driver. Compute shaders can ask for a size; pixel, vertex and mesh shaders cannot in shader model 6.7.
 
 Translated code therefore uses console (program) lane numbers through the prelude's `vw_lane`, `vw_read`,
-`vw_ballot`, `vw_any` and `vw_count`; `readfirstlane` and `lane_bit` build on them. With
+`vw_ballot`, `vw_any` and `vw_count`; `readfirstlane` and `lane_bit` build on them. `readfirstlane` takes the first lane
+with EXEC set with WaveReadLaneFirst under `if (active)` and a WaveActiveMax when the hardware wave holds no more
+than the program wave (outside the group forms): WaveReadLaneAt at the ballot's lowest bit crashed AMD's compiler
+(RX 7800 XT, driver 32.0.32029.2010) in CreatePipelineState on the decoration-baking mesh pipeline's pixel program,
+which does it seven times in a loop, and took the process with it. With
 `TranslationOptions.EmulateWaveSize` (the default; `--native-waves` turns it off) a pixel, vertex or mesh program
 starts with `#define VW_WAVE <32|64>` and `VW_EMULATE 1`, and each hardware wave of H lanes holds a window of the
 program wave of W lanes:
