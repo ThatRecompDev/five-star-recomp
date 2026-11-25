@@ -23,8 +23,16 @@ internal sealed class GpuTextureRegistry : IDisposable
     /// <summary>Presents between retiring a texture whose memory was reused and releasing it, its submitted work done.</summary>
     public const long GraceFrames = 8;
 
-    /// <summary>Retired textures over exactly one range kept until disposal: the newest ones.</summary>
-    public const int KeptAliases = 2;
+    /// <summary>
+    /// Retired textures over exactly one range kept until disposal, the newest ones, by default (<c>--kept-aliases</c>). Two
+    /// kept a second texture alive per reused streaming slot, its video memory charged to commit through the driver's
+    /// write-combined mirror; one keeps the latest the game's older descriptors may still name, and a placed texture's heap range stays mapped
+    /// until its texture goes, so a stale read never reaches freed memory (issue #23).
+    /// </summary>
+    public const int DefaultKeptAliases = 1;
+
+    /// <summary>Retired textures over exactly one range kept until disposal for registries made from now on (<c>--kept-aliases</c>).</summary>
+    public static int KeptAliases { get; set; } = DefaultKeptAliases;
 
     /// <summary>Presents before an older texture over the same range is released, its submitted work done.</summary>
     public const long AliasGraceFrames = 30;
@@ -35,6 +43,7 @@ internal sealed class GpuTextureRegistry : IDisposable
     private readonly Queue<(GpuTexture Texture, long Frame, ulong[] Submitted)> _agedAliases = new();
     private readonly Func<ulong[]> _submitted;
     private readonly Func<ulong[]> _completed;
+    private int _keptAliases = KeptAliases;
     private int _aliasCount;
     private GpuTexture[] _sorted = [];
     private long _frame;
@@ -43,7 +52,13 @@ internal sealed class GpuTextureRegistry : IDisposable
     /// <summary>The registry of the loader's queues (<see cref="QueueProgress"/>).</summary>
     public static GpuTextureRegistry OfQueues()
     {
-        return new GpuTextureRegistry(QueueProgress.Submitted, QueueProgress.Completed);
+        return OfQueues(KeptAliases);
+    }
+
+    /// <summary>A registry over the shim queues' fences keeping <paramref name="kept"/> retired textures per range.</summary>
+    public static GpuTextureRegistry OfQueues(int kept)
+    {
+        return new GpuTextureRegistry(QueueProgress.Submitted, QueueProgress.Completed) { _keptAliases = kept };
     }
 
     /// <param name="submitted">Every queue's submitted fence value now.</param>
@@ -69,6 +84,9 @@ internal sealed class GpuTextureRegistry : IDisposable
     }
 
     public int Count => Volatile.Read(ref _sorted).Length;
+
+    /// <summary>Retired textures over one range this registry keeps until disposal.</summary>
+    public int Kept => _keptAliases;
 
     /// <summary>Retired textures still holding their reference.</summary>
     public int RetiredCount
@@ -232,7 +250,7 @@ internal sealed class GpuTextureRegistry : IDisposable
         kept.Enqueue(entry);
         _aliasCount++;
 
-        if (kept.Count > KeptAliases)
+        if (kept.Count > _keptAliases)
         {
             _agedAliases.Enqueue((kept.Dequeue(), _frame, _submitted()));
             _aliasCount--;

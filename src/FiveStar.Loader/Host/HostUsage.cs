@@ -65,6 +65,7 @@ internal static class HostUsage
                                  switch (the form before the liveness carry); part of the cache identity
           --committed-textures   a committed resource for each read-only console texture instead of the shared
                                  placed heaps (the default, also --placed-textures), whose released ranges stay mapped
+          --kept-aliases <n>     textures retired over exactly one reused range kept alive for older descriptors (default 1)
           --max-driver-compiles <n>  driver pipeline compiles of 256 KB of DXIL or more at once (default one per 5 GB of RAM, 2 to 12)
           --compile-ceiling <GB> no such compile starts while private bytes and the running ones' expected arenas
                                  would pass this (default none: free RAM less the game's growth decides); one
