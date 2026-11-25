@@ -61,8 +61,7 @@ internal sealed unsafe class DrawTrace
     private const int ViewHeapType = 0;
     private const int IncrementSlot = 15;
 
-    private readonly ConcurrentDictionary<nint, string> _views = new();
-    private readonly ConcurrentDictionary<nint, (nint Resource, int Home)> _shaderViews = new();
+    private readonly TracedViews _views = new();
     private readonly ConcurrentDictionary<nint, ulong> _constantBuffers = new();
     private readonly ConcurrentDictionary<nint, (nint Resource, int Home)> _targetViews = new();
     private readonly ConcurrentDictionary<nint, (int Game, int View)> _viewFormats = new();
@@ -99,10 +98,10 @@ internal sealed unsafe class DrawTrace
     /// <summary>Also logs, in the frame after each captured present, the draws whose pipeline name holds this text.</summary>
     public string? PipelineFilter { get; init; }
 
-    /// <summary>A view was written at desktop CPU handle <paramref name="handle"/>.</summary>
+    /// <summary>A view was written at desktop CPU handle <paramref name="handle"/> (no texture a probe can read there).</summary>
     public void View(nint handle, string text)
     {
-        _views[handle] = text;
+        _views.Write(handle, text);
     }
 
     /// <summary>Slot 70 wrote a view of <paramref name="texture"/> (null: a buffer or null view) at <paramref name="handle"/>.</summary>
@@ -119,12 +118,20 @@ internal sealed unsafe class DrawTrace
 
         if (texture is not null)
         {
-            _shaderViews[handle] = (texture.Desktop, texture.State);
             string writer = texture.GpuWritten ? "GPU-written" : $"from memory, hash 0x{texture.UploadedHash:x}";
             desktop = $"texture 0x{texture.Desktop:x} at 0x{texture.Address:x} fmt {texture.DesktopFormat}, {writer}";
         }
 
-        View(handle, $"slot70 0x{view->Address:x} ({console}, view fmt {view->Format}) -> {desktop}");
+        string text = $"slot70 0x{view->Address:x} ({console}, view fmt {view->Format}) -> {desktop}";
+
+        if (texture is null)
+        {
+            View(handle, text);
+
+            return;
+        }
+
+        _views.Write(handle, text, texture.Desktop, texture.State);
     }
 
     /// <summary>Slot 17 wrote a CBV into the game's heaps (a raw SRV) at <paramref name="handle"/>.</summary>
@@ -138,13 +145,15 @@ internal sealed unsafe class DrawTrace
     public void ShaderResourceView(nint resource, nint handle, nint wrapper = 0)
     {
         var game = _d3d12.Objects.AsResource(wrapper);
+        string text = resource == 0 ? "SRV of null" : $"SRV of 0x{resource:x} {Describe(resource)}";
 
         if (resource != 0 && game != null)
         {
-            _shaderViews[handle] = (resource, game->HomeState);
+            _views.Write(handle, text, resource, game->HomeState);
+
+            return;
         }
 
-        string text = resource == 0 ? "SRV of null" : $"SRV of 0x{resource:x} {Describe(resource)}";
         View(handle, text);
     }
 
@@ -305,7 +314,7 @@ internal sealed unsafe class DrawTrace
         uint increment = ((delegate* unmanaged<nint, int, uint>)ComObject.Slot(device, IncrementSlot))(device, ViewHeapType);
         nint handle = DesktopCalls.HeapCpuStart(window.ViewHeap) + (nint)((ulong)index * increment);
 
-        if (_views.TryGetValue(handle, out var known))
+        if (_views.TryText(handle, out var known))
         {
             return known;
         }
@@ -476,7 +485,7 @@ internal sealed unsafe class DrawTrace
 
             uint? index = DepthUavs.HeapIndex((uint*)(window.Data + table + entry.Offset));
 
-            if (!index.HasValue || !_shaderViews.TryGetValue(start + (nint)((ulong)index.Value * increment), out var view))
+            if (!index.HasValue || !_views.TryTexture(start + (nint)((ulong)index.Value * increment), out var view))
             {
                 continue;
             }
@@ -886,7 +895,7 @@ internal sealed unsafe class DrawTrace
             uint offset = pointer + (record * DescriptorWindow.ViewRecordBytes);
             uint index = ((uint*)(window.Data + offset))[Binding.DescriptorWindow.MirroredDesktopDword];
             nint handle = start + (nint)((ulong)index * increment);
-            string view = _views.TryGetValue(handle, out var known) ? known : "not a view this trace saw";
+            string view = _views.TryText(handle, out var known) ? known : "not a view this trace saw";
 
             text.Append($"\n        [{record}] desktop {index}: {view}");
             AppendTitleRecord(text, offset);
