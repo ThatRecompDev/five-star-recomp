@@ -252,9 +252,7 @@ internal sealed class CommandLineParser
     {
         if (option == "--mirror-table-records")
         {
-            _options.MirrorTableRecords = Shims.D3D12X.Binding.DescriptorWindow.ParseTableRecords(Next()) ?? throw new ArgumentException("--mirror-table-records takes full or a count from 1 to 1024");
-
-            return true;
+            return SetMirrorTableRecords(Next());
         }
 
         if (option == "--skip-pipelines")
@@ -300,6 +298,19 @@ internal sealed class CommandLineParser
         }
 
         _options.ShaderJobs = int.Parse(Next(), CultureInfo.InvariantCulture);
+
+        return true;
+    }
+
+    /// <summary>--mirror-table-records reach, full or a count.</summary>
+    private bool SetMirrorTableRecords(string value)
+    {
+        _options.MirrorTableReach = value.Equals("reach", StringComparison.OrdinalIgnoreCase);
+
+        if (!_options.MirrorTableReach)
+        {
+            _options.MirrorTableRecords = Shims.D3D12X.Binding.DescriptorWindow.ParseTableRecords(value) ?? throw new ArgumentException("--mirror-table-records takes reach, full or a count from 1 to 1024");
+        }
 
         return true;
     }
