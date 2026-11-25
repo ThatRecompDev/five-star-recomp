@@ -12,7 +12,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// <summary>
 /// The rectangle-list variant of each graphics pipeline (docs/d3d12x-shim.md, Rectangle lists): the same pipeline with
 /// the geometry shader of its vertex program's output signature added, read from <c>rect-gs/</c> of the translate
-/// output (<c>fivestar shader rect-gs</c>; never compiled here). A variant is built on the first rectangle-list draw with
+/// output (<c>fivestar shader rect-gs</c>; never compiled here). A variant is built off the game's threads, started by the first rectangle-list draw with
 /// its pipeline; 0 stands for a pipeline that has none (mesh or geometry stage, no shader file, creation failed).
 /// </summary>
 internal sealed unsafe class RectanglePipelines
@@ -23,6 +23,9 @@ internal sealed unsafe class RectanglePipelines
     /// <summary>Leading D3D12_RASTERIZER_DESC and D3D12_DEPTH_STENCIL_DESC1 bytes a trace shows (fill, cull; depth enable, write mask, function).</summary>
     private const int StateTraceBytes = 12;
 
+    /// <summary>What <see cref="Variant"/> returns while the variant builds: its draws are skipped meanwhile.</summary>
+    public const nint Pending = -1;
+
     private readonly nint _device2;
     private readonly nint _rootSignature;
     private readonly string _folder;
@@ -30,6 +33,7 @@ internal sealed unsafe class RectanglePipelines
     private readonly OnceLog _warnings;
     private readonly ConcurrentDictionary<nint, RectangleRecipe> _recipes = new();
     private readonly ConcurrentDictionary<nint, nint> _variants = new();
+    private readonly ConcurrentDictionary<nint, VariantBuild> _building = new();
     private readonly ConcurrentDictionary<string, byte[]?> _shaders = new(StringComparer.Ordinal);
 
     /// <param name="device2">A desktop ID3D12Device2 (the caller keeps it alive).</param>
@@ -103,7 +107,12 @@ internal sealed unsafe class RectanglePipelines
         return $"{programs}; inputs [{inputs}]; targets [{string.Join(", ", description.RenderTargetFormats)}] depth {description.DepthStencilFormat}; blend {blend}; raster {raster}; depth state {depth}; sample mask 0x{description.SampleMask:x}, samples {description.SampleCount}.{description.SampleQuality}, raster all {Convert.ToHexString(description.Rasterizer)}";
     }
 
-    /// <summary>The variant of a desktop pipeline, built on the first call; 0 when it has none.</summary>
+    /// <summary>
+    /// The variant of a desktop pipeline; 0 when it has none; <see cref="Pending"/> while it builds. The first call starts
+    /// the build on a thread of its own and never waits for it: the variant of a tiled-lighting pipeline is a full
+    /// compile of its pixel program, and built on the drawing game thread it held a frame's job for over 25 s, until the
+    /// game's hang watchdog ended the run in the opening cutscene.
+    /// </summary>
     [HotPath]
     public nint Variant(nint pipeline)
     {
@@ -112,29 +121,65 @@ internal sealed unsafe class RectanglePipelines
             return variant;
         }
 
-        return Create(pipeline);
+        if (_building.ContainsKey(pipeline))
+        {
+            return Pending;
+        }
+
+        return Start(pipeline);
     }
 
-    private nint Create(nint pipeline)
+    /// <summary>The first call for a pipeline: 0 without a recipe, otherwise its build started and <see cref="Pending"/>.</summary>
+    private nint Start(nint pipeline)
+    {
+        if (!_recipes.TryGetValue(pipeline, out var recipe))
+        {
+            _variants.TryAdd(pipeline, 0);
+
+            return _variants[pipeline];
+        }
+
+        var build = new VariantBuild(recipe);
+
+        if (_building.TryAdd(pipeline, build))
+        {
+            var thread = new Thread(() => Finish(pipeline, build)) { IsBackground = true, Name = "fivestar rectangle variant" };
+            thread.Start();
+        }
+
+        return Pending;
+    }
+
+    /// <summary>Waits until the variant of <paramref name="pipeline"/> is no longer building; false on timeout.</summary>
+    public bool WaitBuilt(nint pipeline, TimeSpan timeout)
+    {
+        return !_building.TryGetValue(pipeline, out var build) || build.Done.Wait(timeout);
+    }
+
+    /// <summary>Builds the variant within the compile budget, then keeps it unless the pipeline was remembered again since.</summary>
+    private void Finish(nint pipeline, VariantBuild build)
     {
         nint variant = 0;
 
-        if (_recipes.TryGetValue(pipeline, out var recipe))
+        try
         {
-            variant = Build(recipe);
+            variant = Build(build.Recipe);
         }
-
-        if (_variants.TryAdd(pipeline, variant))
+        finally
         {
-            return variant;
-        }
+            if (_recipes.TryGetValue(pipeline, out var current) && ReferenceEquals(current, build.Recipe) && _variants.TryAdd(pipeline, variant))
+            {
+                variant = 0;
+            }
 
-        if (variant != 0)
-        {
-            DesktopDevice.Release(variant);
-        }
+            if (variant != 0)
+            {
+                DesktopDevice.Release(variant);
+            }
 
-        return _variants[pipeline];
+            _building.TryRemove(new KeyValuePair<nint, VariantBuild>(pipeline, build));
+            build.Done.Set();
+        }
     }
 
     private nint Build(RectangleRecipe recipe)
@@ -166,7 +211,18 @@ internal sealed unsafe class RectanglePipelines
         programs.Add(TranslatedProgram.Of(vertex.Name, HardwareStage.Geometry, shader));
         var iid = DesktopDevice.PipelineStateIid;
         nint variant = 0;
-        var hr = DesktopPipelineBuilder.Graphics(_device2, _rootSignature, recipe.Description, programs, &iid, &variant);
+        long shaderBytes = programs.Sum(program => (long)program.Dxil.Length);
+        int hr;
+        CompileBudget.Enter(shaderBytes);
+
+        try
+        {
+            hr = DesktopPipelineBuilder.Graphics(_device2, _rootSignature, recipe.Description, programs, &iid, &variant);
+        }
+        finally
+        {
+            CompileBudget.Exit(shaderBytes);
+        }
 
         if (HResult.Failed(hr))
         {
