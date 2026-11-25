@@ -75,6 +75,13 @@ ran 300 to 600 s. VIctory holds such pipelines until its builder has run (its PR
 
 The lighting still reads what the held passes would have written, so their texture outputs get a constant instead (`RtStandIns`, default on without `--raytracing`, off with `--no-rt-stand-ins`). At a skipped dispatch of a ray-traced shadow pass (`shadowmask~CS_TraceShadowRays_*`, `rtdirectionalshadows~*`) every texture UAV of its compute tables (the root signature's UAV ranges, 8 records each at most) is written fully lit; planar reflections (`CS_PPR_Raytrace`) black; and the screen-probe light, whose rays are held, is overwritten with a 0.6 grey after `CS_ScreenProbes_TemporalResolve` runs (as VIctory's ambient stand-in: ZJOU-VICTORY 1fc58f3 after Belobug 4f45ab8, vitutu1 c3faf2a; facts only), R9G9B9E5-packed for its R32_UINT view. A small compute program (`UavFill`) writes the value by heap index, a float4 for float, unorm and snorm views and a uint for uint views (sint views are left), knowing each view from `CreateUnorderedAccessView` (`UavViews`, by desktop descriptor). Passes that write only raw buffers (the probe rays, the deferred gather) are left alone.
 
+Some programs only serve ray tracing but trace no rays. They are held by name (`RayTracingPrograms.ServesRays`):
+- the `bvh_` groups (`bvh_skinning`, `bvh_skinning_smh`) skin geometry for structures that are never built;
+- `CS_RaytracingResolve` shades the hits of rays that are never traced;
+- `rtdirectionalshadows` feeds and upsamples the held distant-shadow traces.
+
+Boot w70e held only the tracing programs and lost the device after the world loaded. w71 also skipped these and survived the world load.
+
 
 The loader builds no acceleration structure without `--raytracing` (XboxBvhBuilder builds nothing), so programs it
 makes on demand define `FIVESTAR_BVH_MISS` (`BvhMiss`, part of the program cache identity): every node misses and

@@ -111,6 +111,16 @@ internal static partial class RayTracingPrograms
 
         foreach (Match program in ProgramPattern().Matches(names))
         {
+            if (ServesRays(program.Value))
+            {
+                if (Logged.TryAdd(names, 0))
+                {
+                    ShimContext.Log?.Warn($"[d3d12_xs] pipeline {names} only serves ray tracing ({program.Value}) and no acceleration structure is built without --raytracing: it stays a stand-in and its work is skipped");
+                }
+
+                return true;
+            }
+
             if (!Is(program.Value, folder, scanner))
             {
                 continue;
@@ -204,6 +214,20 @@ internal static partial class RayTracingPrograms
             // Another process wrote it.
         }
     }
+
+    /// <summary>
+    /// Whether a program only serves ray tracing though it traces no rays, by its group or entry: the bvh_ groups skin
+    /// geometry for acceleration structures that are never built, CS_RaytracingResolve shades the hits of rays that are
+    /// never traced, and rtdirectionalshadows upsamples and feeds the held distant-shadow traces. Boot w70e, which held
+    /// only the tracing programs, lost the device after the world loaded; w71, which also skipped these, did not.
+    /// </summary>
+    public static bool ServesRays(string program)
+    {
+        return ServesRaysPattern().IsMatch(program);
+    }
+
+    [GeneratedRegex(@"_t[0-9a-f]+_(\w*bvh_\w*|rtdirectionalshadows)~|~CS_RaytracingResolve_")]
+    private static partial Regex ServesRaysPattern();
 
     /// <summary>A program's name in a pipeline's names (which add link and trim suffixes and " + ").</summary>
     [GeneratedRegex(@"sgd\d_[0-9a-f]{8}_t[0-9a-f]+_\S*?_Wrapped")]
