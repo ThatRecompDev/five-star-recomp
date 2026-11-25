@@ -115,7 +115,20 @@ public sealed class CompileBudgetTests
     }
 
     [Fact]
-    public void Heavy_compiles_run_one_at_a_time_and_while_the_game_loads_only_when_urgent()
+    public void No_compile_starts_past_the_system_commit_left_less_8_GB()
+    {
+        // Boot w35 at 558 s: 77.4 of 79.4 GB committed (2 GB left), 30 GB of RAM free: a 1 MB compile must not start.
+        long resolve = CompileBudget.Estimate(1L << 20);
+        long reserve = CompileBudget.PhysicalReserve(0);
+        Assert.False(CompileBudget.Room(resolve, 30UL * Gigabyte, 2UL * Gigabyte, 0, reserve));
+
+        // With 12 GB of commit left it starts (8 GB kept + 2.75 GB), and not with 10 GB.
+        Assert.True(CompileBudget.Room(resolve, 30UL * Gigabyte, 12UL * Gigabyte, 0, reserve));
+        Assert.False(CompileBudget.Room(resolve, 30UL * Gigabyte, 10UL * Gigabyte, 0, reserve));
+    }
+
+    [Fact]
+    public void Heavy_compiles_share_half_the_free_memory_and_while_the_game_loads_start_only_when_urgent()
     {
         // The carry form of the foliage pipeline: 2.84 MB of DXIL.
         long foliage = 2980000;
@@ -125,9 +138,15 @@ public sealed class CompileBudgetTests
         Assert.False(CompileBudget.HeldForLoad(foliage, urgent: false, loadWindow: false));
         Assert.False(CompileBudget.HeldForLoad(CompileBudget.HeavyShaderBytes, urgent: false, loadWindow: true));
 
-        Assert.True(CompileBudget.HeavyRoom(foliage, 0));
-        Assert.False(CompileBudget.HeavyRoom(foliage, 1));
-        Assert.True(CompileBudget.HeavyRoom(1L << 20, 1));
+        // Heavy compiles share half the free memory past the reserve. The first always starts; with 30 GB free and a
+        // 5 GB reserve a second 7.7 GB foliage pipeline waits (15.4 of 12.5 GB), with 40 GB free it starts (of 17.5 GB);
+        // a light compile never waits for them here.
+        long estimate = CompileBudget.Estimate(foliage);
+        long reserve = 5 * Gigabyte;
+        Assert.True(CompileBudget.HeavyRoom(estimate, heavy: true, 0, 2UL * Gigabyte, reserve));
+        Assert.False(CompileBudget.HeavyRoom(estimate, heavy: true, estimate, 30UL * Gigabyte, reserve));
+        Assert.True(CompileBudget.HeavyRoom(estimate, heavy: true, estimate, 40UL * Gigabyte, reserve));
+        Assert.True(CompileBudget.HeavyRoom(CompileBudget.Estimate(1L << 20), heavy: false, 3 * estimate, 10UL * Gigabyte, reserve));
     }
 
     [Fact]
