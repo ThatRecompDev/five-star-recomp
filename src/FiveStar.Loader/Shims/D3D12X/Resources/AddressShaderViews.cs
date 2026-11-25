@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Five Star Recomp contributors.
+// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Numerics;
@@ -36,7 +36,7 @@ internal sealed unsafe class AddressShaderViews
     }
 
     /// <summary>Writes the view into <paramref name="handle"/>, a desktop CPU descriptor handle; returns its texture, null for a null view.</summary>
-    public GpuTexture? Create(nint device, ResourceDescription* resource, AddressViewDescription* view, nint handle)
+    public GpuTexture? Create(nint device, ResourceDescription* resource, AddressViewDescription* view, nint handle, Binding.BufferRecord record)
     {
         var counters = _textures.Counters;
 
@@ -51,7 +51,7 @@ internal sealed unsafe class AddressShaderViews
         {
             counters.Add(GpuResourceEvent.ViewBuffer);
 
-            if (_buffers.Create(device, view, handle))
+            if (_buffers.Create(device, view, handle, record))
             {
                 return null;
             }

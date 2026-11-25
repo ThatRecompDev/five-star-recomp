@@ -238,6 +238,9 @@ internal sealed record HostOptions
     /// <summary>Buffer descriptor records keep the desktop heap index in dword 0, not the console base (<c>--buffer-records-heap-index</c>).</summary>
     public bool BufferRecordsHeapIndex { get; set; }
 
+    /// <summary>Buffer views at heap slots programs reach by index keep the game's kind, not raw (<c>--typed-buffer-views</c>).</summary>
+    public bool TypedBufferViews { get; set; }
+
     /// <summary>Programs' stores through 32-bit pointers reach the descriptor window (<c>--no-window-guard</c>).</summary>
     public bool NoWindowGuard { get; set; }
 

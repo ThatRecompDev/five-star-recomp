@@ -109,6 +109,8 @@ internal static class HostUsage
                                  default they are dropped and counted per program at each captured present)
           --buffer-records-heap-index  buffer descriptor records hold the desktop heap index where the console has the
                                  view's base address (the behaviour before; programs that build pointers from a V# break)
+          --typed-buffer-views   buffer views at slots programs reach by heap index keep the game's typed or structured
+                                 kind (the behaviour before); by default they are raw, as programs read them
           --user-data-constants  draws pass their user data as root constants, not a root CBV in upload memory (needs
                                  programs made on demand)
           --trace-pool-stores    programs made on demand log their stores into the transient pool and the game heap
