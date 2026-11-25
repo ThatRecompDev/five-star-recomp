@@ -24,10 +24,12 @@ public sealed record LoopCaps(long Compute, long Geometry, long Pixel, long Step
     public const long RoundsPerIteration = 1;
 
     /// <summary>
-    /// Blocks a superstep thread may run per allowed iteration (<see cref="SuperstepSteps"/>, 65,536 for mesh): a block
-    /// cost about 0.6 us per thread on the RTX 4090, so a loop without a wave operation ends in about 40 ms.
+    /// Blocks a superstep thread may run per allowed iteration (<see cref="SuperstepSteps"/>, 8,192 for mesh). A light
+    /// block cost about 0.6 us per thread on the RTX 4090, but MSNC_VS_LinearDepthSkin's layer loop (a sample and some
+    /// thirty dependent loads a pass) ran its 2^16 blocks (16 per iteration) in 0.5 to 1.5 s per DispatchMesh in boot w49,
+    /// so frames passed the game's 30 s hang watchdog; 8,192 take about 0.1 to 0.2 s. A program runs 100 to 250 blocks.
     /// </summary>
-    public const long SuperstepBlocksPerIteration = 16;
+    public const long SuperstepBlocksPerIteration = 2;
 
     /// <summary>Blocks per allowed iteration in the dispatch form, both caps.</summary>
     private const long VictorySteps = 256;
