@@ -247,6 +247,18 @@ internal sealed unsafe class PipelineFactory
         return description with { Rasterizer = rasterizer };
     }
 
+    /// <summary>Whether a graphics description's programs and linked producer are all made (nothing to make on demand).</summary>
+    public bool Ready(GraphicsPipelineDescription description)
+    {
+        return Lacking(description.Shaders) is null && PendingLink(description) is null;
+    }
+
+    /// <summary>Whether a compute description's program is made.</summary>
+    public bool Ready(ComputePipelineDescription description)
+    {
+        return Lacking([description.Shader]) is null;
+    }
+
     /// <summary>The desktop stream of a compute description; null when its shader has no translation.</summary>
     public PipelineRecipe? PrepareCompute(ComputePipelineDescription description)
     {

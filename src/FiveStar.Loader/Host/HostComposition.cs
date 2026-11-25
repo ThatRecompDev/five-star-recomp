@@ -75,6 +75,7 @@ internal static class HostComposition
     public static PipelineFolders CreatePipelineFolders(HostOptions options)
     {
         CompileBudget.Configure(options.MaxDriverCompiles, options.CompileCeilingBytes);
+        Shims.D3D12X.Pipelines.JournalPrebuild.Jobs = options.PrebuildJobs;
         var boot = System.Diagnostics.Stopwatch.StartNew();
         CompileBudget.LoadWindow = () => Diagnostics.GameHangWatch.Loading(boot.Elapsed, LoadWindowSpan);
 

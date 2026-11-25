@@ -590,6 +590,10 @@ internal sealed class CommandLineParser
                 _options.PlacedTextures = false;
 
                 return true;
+            case "--prebuild-jobs":
+                _options.PrebuildJobs = int.Parse(Next(), CultureInfo.InvariantCulture);
+
+                return true;
             case "--wait-pipelines":
                 _options.WaitPipelines = Next();
 
