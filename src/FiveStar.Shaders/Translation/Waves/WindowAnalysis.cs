@@ -25,6 +25,10 @@ internal sealed partial class WindowAnalysis
     private readonly IReadOnlyList<string> _prologue;
     private readonly int _threads;
     private readonly Dictionary<int, WindowState> _entries = [];
+    private readonly Dictionary<int, LaneBranch> _laneBranches = [];
+
+    // The one-lane mode of LaneBranches: every wave operation gives console results, only the branches are judged.
+    private bool _perLane;
 
     public WindowAnalysis(IReadOnlyList<CodeBlock> blocks, IReadOnlyList<string> prologue, int threads)
     {
@@ -52,6 +56,31 @@ internal sealed partial class WindowAnalysis
         }
 
         return Solve(start);
+    }
+
+    /// <summary>
+    /// For the superstep form, where every wave operation gives console results: the branches on "any active lane" each
+    /// thread may decide by its own lane, a window of one. A lane outside the mask is inactive, so it may skip the path its
+    /// console wave runs when both paths, run with it inactive, change nothing it reads after they meet
+    /// (<see cref="SkipRegion"/>). Whether the paths hold a step is for the caller (<see cref="LaneBranches"/>).
+    /// </summary>
+    public IReadOnlyCollection<LaneBranch> PerLaneBranches()
+    {
+        _perLane = true;
+        var start = new WindowState();
+        var transfer = new StatementTransfer(start, _threads);
+
+        foreach (var line in _prologue)
+        {
+            transfer.Apply(WindowStatement.Parse(line));
+        }
+
+        if (Solve(start) is not null)
+        {
+            return [];
+        }
+
+        return _laneBranches.Values;
     }
 
     private string? Solve(WindowState start)
@@ -94,7 +123,7 @@ internal sealed partial class WindowAnalysis
         {
             var reason = transfer.Apply(statement);
 
-            if (reason is not null)
+            if (reason is not null && !_perLane)
             {
                 return reason;
             }
@@ -122,6 +151,15 @@ internal sealed partial class WindowAnalysis
         var exit = block.Exit;
         var condition = exit.Condition ?? string.Empty;
         var (target, next) = ((int)exit.Target!.Value, (int)exit.Next!.Value);
+
+        if (_perLane)
+        {
+            Judge(block, state);
+            Propagate(target, state, pending);
+            Propagate(next, state, pending);
+
+            return null;
+        }
 
         var fact = ValueRules.Condition(condition, state);
 
@@ -167,6 +205,52 @@ internal sealed partial class WindowAnalysis
         Propagate(some, holding, pending);
 
         return null;
+    }
+
+    /// <summary>
+    /// Records whether a branch on "any lane of a mask" may be decided by each lane's own bit, under the facts of its
+    /// last visit (the weakest): the mask is the same on every lane, or it is active and a uniform value, so a lane
+    /// outside it is inactive or its whole console wave is outside it.
+    /// </summary>
+    private void Judge(WindowBlock block, WindowState state)
+    {
+        _laneBranches.Remove(block.Address);
+        var exit = block.Exit;
+        var any = LaneAnyPattern().Match(exit.Condition ?? string.Empty);
+
+        if (!any.Success)
+        {
+            return;
+        }
+
+        var (some, none) = ((int)exit.Target!.Value, (int)exit.Next!.Value);
+
+        if (any.Groups["not"].Value.Length > 0)
+        {
+            (some, none) = (none, some);
+        }
+
+        var mask = any.Groups["mask"].Value;
+        var kind = state.Get(mask).Kind;
+
+        if (mask != WindowNames.Active && kind == MaskKind.Uniform)
+        {
+            _laneBranches[block.Address] = new LaneBranch(block.Address, mask, some, none, null);
+
+            return;
+        }
+
+        var join = _graph.Join(block.Address);
+
+        if ((mask != WindowNames.Active && kind != MaskKind.ActiveAnd) || join is null)
+        {
+            return;
+        }
+
+        if (new SkipRegion(_graph, some, join.Value, state, true).Check() is null && new SkipRegion(_graph, none, join.Value, state, false).Check() is null)
+        {
+            _laneBranches[block.Address] = new LaneBranch(block.Address, mask, some, none, join);
+        }
     }
 
     /// <summary>
@@ -225,4 +309,8 @@ internal sealed partial class WindowAnalysis
 
     [GeneratedRegex(@"^(?<not>!?)vw_any\((?<mask>[A-Za-z_]\w*)\)$")]
     private static partial Regex AnyPattern();
+
+    // A branch condition as the translator writes it: the mask may be parenthesized (vccz).
+    [GeneratedRegex(@"^(?<not>!?)vw_any\((?:\((?<mask>[A-Za-z_]\w*)\)|(?<mask>[A-Za-z_]\w*))\)$")]
+    private static partial Regex LaneAnyPattern();
 }
