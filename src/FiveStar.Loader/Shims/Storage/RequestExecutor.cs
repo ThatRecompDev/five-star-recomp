@@ -118,7 +118,13 @@ internal sealed unsafe class RequestExecutor : IDisposable
             return ReadInPieces(request, handle);
         }
 
-        int result = slot.Wait(out var data);
+        int result;
+        ReadOnlySpan<byte> data;
+
+        using (BlockingWaits.Enter("storage read"))
+        {
+            result = slot.Wait(out data);
+        }
 
         if (!HResult.Failed(result))
         {
