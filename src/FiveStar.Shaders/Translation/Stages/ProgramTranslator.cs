@@ -56,7 +56,13 @@ internal static class ProgramTranslator
 
         if (state.Supersteps)
         {
-            // Every wave operation is a group round in this form: those whose result nothing reads go first.
+            // Every wave operation is a group round in this form: those whose result every lane already holds, and
+            // then those whose result nothing reads, go first.
+            if (state.Stage == ShaderStage.Mesh)
+            {
+                UniformWaveOperations.Rewrite(state.Blocks, state.Prologue, state.MeshThreads);
+            }
+
             DeadWaveOperations.Remove(state.Blocks, SuperstepWriter.Pinned(state, new MeshDeclarations(state)));
             var splitter = new SuperstepSplitter();
             var blocks = splitter.Split(state.Blocks);
