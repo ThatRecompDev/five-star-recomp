@@ -15,8 +15,19 @@ namespace FiveStar.Shaders.Translation.Core;
 /// </summary>
 public sealed record LoopCaps(long Compute, long Geometry, long Pixel, long StepsPerIteration)
 {
-    /// <summary>Group rounds per allowed iteration.</summary>
-    public const long RoundsPerIteration = 16;
+    /// <summary>
+    /// Group rounds per allowed iteration (4,096 for mesh). A superstep round of TransformTerrainNormalTint e74ae427 cost
+    /// 40 to 60 us on the RTX 4090 for DispatchMesh(94, 1, 1) (each thread runs to its next stop, then the group's
+    /// barrier), so 16 per iteration (65,536) let a loop around a wave operation run for 3 to 4 s, past the 2 s GPU
+    /// timeout: the DEVICE_HUNG of the mesh-shader ExecuteIndirects in boots w31 to w47. 4,096 rounds take about 0.25 s.
+    /// </summary>
+    public const long RoundsPerIteration = 1;
+
+    /// <summary>
+    /// Blocks a superstep thread may run per allowed iteration (<see cref="SuperstepSteps"/>, 65,536 for mesh): a block
+    /// cost about 0.6 us per thread on the RTX 4090, so a loop without a wave operation ends in about 40 ms.
+    /// </summary>
+    public const long SuperstepBlocksPerIteration = 16;
 
     /// <summary>Blocks per allowed iteration in the dispatch form, both caps.</summary>
     private const long VictorySteps = 256;
@@ -80,14 +91,14 @@ public sealed record LoopCaps(long Compute, long Geometry, long Pixel, long Step
     }
 
     /// <summary>
-    /// The blocks a thread of a mesh program's superstep form may run, at <see cref="RoundsPerIteration"/> per allowed
-    /// iteration (2^16 for mesh). The dispatch form's 256 per iteration let a one-block console loop fed a garbage count
+    /// The blocks a thread of a mesh program's superstep form may run, at <see cref="SuperstepBlocksPerIteration"/> per
+    /// allowed iteration (2^16 for mesh). The dispatch form's 256 per iteration let a one-block console loop fed a garbage count
     /// run 2^20 times: MSNC_VS_LinearDepthSkin's loop over a constant-buffer count (dword 0x11c), each pass a sample and
     /// some thirty dependent loads, the likely cause of the device removals of boots w39 and w40.
     /// </summary>
     public long SuperstepSteps(ShaderStage stage)
     {
-        return Math.Min(DispatchSteps(stage), Iterations(stage) * RoundsPerIteration);
+        return Math.Min(DispatchSteps(stage), Iterations(stage) * SuperstepBlocksPerIteration);
     }
 
     /// <summary>The dispatch form's blocks for <paramref name="stage"/>.</summary>

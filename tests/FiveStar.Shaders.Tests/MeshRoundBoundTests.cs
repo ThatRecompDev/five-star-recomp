@@ -11,12 +11,12 @@ namespace FiveStar.Shaders.Tests;
 /// <summary>
 /// A console loop around an s_barrier in a mesh program runs one group round per iteration, in the two-phase and in the
 /// superstep form. A few iterations draw the program's image; a garbage count (2^31) ends at the round bound
-/// (LoopCaps.Rounds, here 4 x 16) instead of holding the group, which before only ss_steps (2^24 blocks) or nothing
+/// (LoopCaps.Rounds, here 64 x 1) instead of holding the group, which before only ss_steps (2^24 blocks) or nothing
 /// bounded: w31's DispatchMesh(4, 1, 1) of MSNC_VS_LinearDepthSkin never finished.
 /// </summary>
 public sealed class MeshRoundBoundTests : IClassFixture<WarpFixture>
 {
-    private static readonly LoopCaps Small = new(64, 4, 64, 256);
+    private static readonly LoopCaps Small = new(64, 64, 64, 256);
 
     private readonly WarpFixture _fixture;
 
@@ -43,10 +43,10 @@ public sealed class MeshRoundBoundTests : IClassFixture<WarpFixture>
     public void A_superstep_loop_without_a_wave_operation_ends_at_the_block_bound_not_the_dispatch_forms()
     {
         // A loop that never reaches a group step is bounded only by the blocks a thread may run: 16 per allowed
-        // iteration (here 4 x 16), not the dispatch form's 256 (w39/w40: MSNC_VS_LinearDepthSkin's constant-buffer count).
+        // iteration (here 64 x 16), not the dispatch form's 256 (w39/w40: MSNC_VS_LinearDepthSkin's constant-buffer count).
         var runner = new MeshStageRunner(_fixture);
 
-        Assert.Contains("if (++ss_steps > 0x40u)", runner.TranslateBarrierLoop(true, Small, spin: true), StringComparison.Ordinal);
+        Assert.Contains("if (++ss_steps > 0x400u)", runner.TranslateBarrierLoop(true, Small, spin: true), StringComparison.Ordinal);
         Assert.Contains("if (++ss_steps > 0x10000u)", runner.TranslateBarrierLoop(true, LoopCaps.Default, spin: true), StringComparison.Ordinal);
 
         var few = runner.RunBarrierLoop(true, 3, Small, spin: true);
@@ -60,10 +60,10 @@ public sealed class MeshRoundBoundTests : IClassFixture<WarpFixture>
         var runner = new MeshStageRunner(_fixture);
         string bounded = runner.TranslateBarrierLoop(true, LoopCaps.Default, roundsPerStop: 4);
 
-        // A few stops: the budget's floor of 256 rounds, below the caps' 65,536.
+        // A few stops: the budget's floor of 256 rounds, below the caps' 4,096.
         Assert.Matches(@"// superstep: \d+ stops, round bound 256\n", bounded);
         Assert.Contains("const uint SS_ROUNDS = 0x100u;", bounded, StringComparison.Ordinal);
-        Assert.Contains("round bound 65536", runner.TranslateBarrierLoop(true, LoopCaps.Default), StringComparison.Ordinal);
+        Assert.Contains("round bound 4096", runner.TranslateBarrierLoop(true, LoopCaps.Default), StringComparison.Ordinal);
 
         // Every primitive starts culled after SetMeshOutputCounts, and an export's indices stay inside the vertex count.
         foreach (string form in new[] { bounded, runner.TranslateBarrierLoop(false, LoopCaps.Default) })
