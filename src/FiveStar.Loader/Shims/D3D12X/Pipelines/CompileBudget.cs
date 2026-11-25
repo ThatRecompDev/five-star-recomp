@@ -34,8 +34,12 @@ internal static unsafe class CompileBudget
     /// <summary>DXIL below which a compile is not held back.</summary>
     public const long TinyShaderBytes = 256L << 10;
 
-    /// <summary>The default of <see cref="MaxCompiles"/> (<c>--max-driver-compiles</c>).</summary>
-    public const int DefaultMaxCompiles = 4;
+    /// <summary>
+    /// The default of <see cref="MaxCompiles"/> (<c>--max-driver-compiles</c>). It was 4: in boot w33 that cap made
+    /// 1,660 refusals by 154 s against 291 for free memory, so free memory and commit, which count each compile's
+    /// reservation, now bound the compiles before the cap does.
+    /// </summary>
+    public const int DefaultMaxCompiles = 6;
 
     /// <summary>The default of <see cref="CeilingBytes"/> (<c>--compile-ceiling</c>, in GB): none, free RAM decides.</summary>
     public const long DefaultCeilingBytes = 0;
@@ -121,6 +125,7 @@ internal static unsafe class CompileBudget
     private static long _refusedMemory;
     private static long _refusedCommit;
     private static long _refusedCeiling;
+    private static long _refusedInFlight;
     private static readonly List<RunningCompile> Compiles = [];
     private static int _waiting;
     private static int _urgentWaiting;
@@ -559,6 +564,13 @@ internal static unsafe class CompileBudget
             return Refused(ref _refusedCommit);
         }
 
+        // Two refusals in one check: the most compiles in flight (--max-driver-compiles), and the private-bytes ceiling
+        // (--compile-ceiling, off by default). Boot w33's 1,660 "ceiling" refusals were all the first.
+        if (_runningLarge > 0 && _runningLarge >= MaxCompiles)
+        {
+            return Refused(ref _refusedInFlight);
+        }
+
         if (!UnderCeiling(estimate, _runningLarge, CountedBytes(PrivateBytes()), remaining, MaxCompiles, CeilingBytes))
         {
             return Refused(ref _refusedCeiling);
@@ -590,7 +602,7 @@ internal static unsafe class CompileBudget
                 reserved = Remaining();
             }
 
-            return $"refused by load window {Interlocked.Read(ref _refusedLoad)}, urgent first {Interlocked.Read(ref _refusedUrgentFirst)}, one heavy {Interlocked.Read(ref _refusedHeavy)}, free memory {Interlocked.Read(ref _refusedMemory)}, commit {Interlocked.Read(ref _refusedCommit)}, ceiling {Interlocked.Read(ref _refusedCeiling)}; {reserved / BytesPerGigabyte:F1} GB reserved for running compiles, reserve {PhysicalReserve(Interlocked.Read(ref _growthAllowance)) / BytesPerGigabyte:F1} GB";
+            return $"refused by load window {Interlocked.Read(ref _refusedLoad)}, urgent first {Interlocked.Read(ref _refusedUrgentFirst)}, one heavy {Interlocked.Read(ref _refusedHeavy)}, free memory {Interlocked.Read(ref _refusedMemory)}, commit {Interlocked.Read(ref _refusedCommit)}, {MaxCompiles} in flight {Interlocked.Read(ref _refusedInFlight)}, private ceiling {Interlocked.Read(ref _refusedCeiling)}; {reserved / BytesPerGigabyte:F1} GB reserved for running compiles, reserve {PhysicalReserve(Interlocked.Read(ref _growthAllowance)) / BytesPerGigabyte:F1} GB";
         }
     }
 
