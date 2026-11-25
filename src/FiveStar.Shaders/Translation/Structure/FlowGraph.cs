@@ -34,7 +34,31 @@ internal sealed class FlowGraph
         }
     }
 
+    private FlowGraph(IReadOnlyList<CodeBlock> blocks, int[][] successors)
+    {
+        Blocks = blocks;
+        End = blocks.Count;
+        _successors = successors;
+
+        for (var node = 0; node < blocks.Count; node++)
+        {
+            if (blocks[node].Address >= 0)
+            {
+                _nodes.TryAdd(blocks[node].Address, node);
+            }
+        }
+    }
+
     public IReadOnlyList<CodeBlock> Blocks { get; }
+
+    /// <summary>
+    /// A graph given by its edges: <paramref name="successors"/> has one more entry than <paramref name="blocks"/>, the
+    /// end node, which has none. Blocks with a negative address (added by <see cref="EntryGuards"/>) start no address.
+    /// </summary>
+    public static FlowGraph WithEdges(IReadOnlyList<CodeBlock> blocks, int[][] successors)
+    {
+        return new FlowGraph(blocks, successors);
+    }
 
     /// <summary>The program-end node.</summary>
     public int End { get; }
