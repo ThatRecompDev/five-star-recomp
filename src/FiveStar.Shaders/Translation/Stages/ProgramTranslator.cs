@@ -66,6 +66,12 @@ internal static class ProgramTranslator
             state.Hoisted.AddRange(splitter.Hoisted);
             state.SuperstepValues = splitter.UsesValues;
         }
+        else if (!state.IsCopyShader)
+        {
+            // dxc keeps a wave operation whose result is unused (WaveActiveBallot is not dead code to it): the ballots
+            // into SGPR halves that nothing reads cost a ballot and the lane-origin arithmetic each.
+            DeadWaveOperations.Remove(state.Blocks, SuperstepWriter.Pinned(state, new MeshDeclarations(state)), ownBits: state.Stage != ShaderStage.Pixel);
+        }
 
         var mesh = new MeshDeclarations(state);
         var body = new BodyWriter(state, mesh, new StructuredBodyWriter(state), options.StructuredControlFlow);

@@ -166,7 +166,11 @@ SGPR half or an scc write that is dead after it, by liveness over the block grap
 ballot from the mask bool it took (`BallotBits`: `lane_bit(lo, hi)` of `vw_ballot(m).x` and `.y` is `m` while
 neither half nor `m` is written, since every thread of the console wave deposits its bit). Over the 8,765 mesh
 programs the stops fell from 1,340,858 to 406,824; none has more than 500 left (207 had before), and
-`MSNC_VS_LinearDepthSkin_f1f2249c` went from 611 to 180.
+`MSNC_VS_LinearDepthSkin_f1f2249c` went from 611 to 180. The other forms drop them too (pixel programs without the
+own-bit rewrite, since helper lanes take no part in an HLSL ballot): dxc keeps an unused `WaveActiveBallot`. In every
+40th mesh, pixel and vertex program the ballots fell from 29,486 to 818 (mesh) and 30,499 to 8,252 (pixel and vertex),
+the `vw_any`s from 40,389 to 17,276; `MS_VS_Transform_PositionOnly_8d8b5e7b` went from 75 to 23 ballots and 4,623 to
+4,359 DXIL instructions. A mesh yield (s_barrier) resumes with every register kept, so liveness crosses it.
 
 One round then serves every ballot, `vw_any` and `vw_count` of the mask the last round took, until something that mask
 reads is written or the block ends (`SuperstepSplitter`): the round's mask buffer holds the whole ballot, so a ballot's
