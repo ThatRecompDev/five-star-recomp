@@ -1,7 +1,10 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FiveStar.Loader.Diagnostics;
+using FiveStar.Loader.Loading;
 using FiveStar.Loader.Native;
+using FiveStar.Loader.Shims;
 using Xunit;
 
 namespace FiveStar.Loader.Tests;
@@ -14,6 +17,10 @@ public sealed class AlignedReservationsTests
 {
     private const nuint Bytes = 0x20000;
     private const uint Offset = 0xc000;
+
+    /// <summary>XALLOC_ATTRIBUTES alignment code 23 (bits 24..28): 1 &lt;&lt; 22, 4 MiB.</summary>
+    private const ulong FourMiBAlignment = 23UL << 24;
+    private const ulong FourMiB = 1UL << 22;
 
     [Theory]
     [InlineData(Win32Constants.MemReserveCommit, Win32Constants.PageReadWrite)]
@@ -36,5 +43,17 @@ public sealed class AlignedReservationsTests
         {
             _ = Kernel32.VirtualFree(range, 0, Win32Constants.MemRelease);
         }
+    }
+
+    [Fact]
+    public void An_XMemAlloc_block_honours_an_alignment_past_the_allocation_granularity()
+    {
+        var allocator = new XMemAllocator(new ImageTable(), new LoaderLog(new StringWriter(), null, false));
+        nint block = allocator.Allocate(0x100, FourMiBAlignment);
+
+        Assert.NotEqual(0, block);
+        Assert.Equal(0UL, (ulong)block % FourMiB);
+        allocator.Free(block, FourMiBAlignment);
+        Assert.Equal(0, allocator.LiveBytes);
     }
 }
