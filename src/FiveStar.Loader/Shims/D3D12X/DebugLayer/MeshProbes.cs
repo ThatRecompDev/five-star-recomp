@@ -1,0 +1,204 @@
+// Copyright (c) 2026 Five Star Recomp contributors.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+using System.Collections.Concurrent;
+using System.Text;
+using FiveStar.Loader.Diagnostics;
+using FiveStar.Loader.Shims.D3D12X.Binding;
+using FiveStar.Shaders.Cache;
+using FiveStar.Shaders.Translation;
+
+namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
+
+/// <summary>
+/// <c>--probe-pipeline &lt;text&gt;</c>: the mesh programs whose name holds the text are made on demand with probe code
+/// (<see cref="MeshProbe"/>) under their name plus <see cref="Suffix"/> (the program index renames them), so their DXIL,
+/// links and pipelines are cache entries of their own and every other program stays warm. Each group of such a program
+/// appends a record to a ring in the descriptor window past the window flags; at every captured present the records
+/// written since the last are summed up per program: groups, the counts they gave SetMeshOutputCounts, culled
+/// primitives, vertex 0's positions, and per load site how many groups saw its range check fail, an unmapped page or a
+/// record naming no descriptor, with the site's text (kept beside the DXIL as <c>&lt;name&gt;.sites.txt</c>).
+/// </summary>
+internal static unsafe class MeshProbes
+{
+    /// <summary>The ring's window offset, past the window flags of <see cref="WindowFeedback"/>.</summary>
+    public const uint Base = WindowFeedback.Bytes;
+
+    /// <summary>Window bytes the ring needs.</summary>
+    public const uint Bytes = Base + MeshProbe.RingBytes;
+
+    private const string SitesExtension = ".sites.txt";
+    private const string Prefix = "  [mesh probe] ";
+    private const int SitesShown = 12;
+    private const int PositionsShown = 4;
+    private const int MaskBits = 32;
+    private const int SiteFields = 2;
+
+    private static readonly ConcurrentDictionary<uint, string> Names = new();
+    private static uint _reported;
+
+    /// <summary>The name a probed program is made under: its own plus this, which names the ring offset its code writes to.</summary>
+    public static string Suffix { get; } = $".probe-{Base:x}";
+
+    /// <summary>The text probed program names hold; null without <c>--probe-pipeline</c>.</summary>
+    public static string? Filter { get; set; }
+
+    public static bool Enabled => Filter is not null;
+
+    /// <summary>The program cache folder of this boot's programs, where the site lists are.</summary>
+    public static string? Folder { get; set; }
+
+    /// <summary>The index with the probed programs renamed, each registered by its record id.</summary>
+    public static ProgramIndex Rename(ProgramIndex index)
+    {
+        if (Filter is null)
+        {
+            return index;
+        }
+
+        return index.Renamed(Matches, Suffix);
+    }
+
+    /// <summary>Whether <paramref name="name"/> is a probed program's name (<see cref="Suffix"/>).</summary>
+    public static bool IsProbed(string name)
+    {
+        return Enabled && name.EndsWith(Suffix, StringComparison.Ordinal);
+    }
+
+    /// <summary>The extracted program a name stands for: a probed program's without <see cref="Suffix"/>.</summary>
+    public static string Source(string name)
+    {
+        if (IsProbed(name))
+        {
+            return name[..^Suffix.Length];
+        }
+
+        return name;
+    }
+
+    /// <summary>A probed program's source with the probe code; its site list goes beside its DXIL in <paramref name="folder"/>.</summary>
+    public static string Instrument(string name, string hlsl, string folder)
+    {
+        var (probed, sites) = MeshProbe.Instrument(hlsl, MeshProbe.Id(Source(name)), Base);
+        var lines = sites.Select((text, site) => $"{site}\t{text}");
+        File.WriteAllLines(Path.Combine(folder, name + SitesExtension), lines, Encoding.UTF8);
+
+        return probed;
+    }
+
+    /// <summary>Logs the records written since the last report; the GPU finished everything submitted.</summary>
+    public static void Report(long present, LoaderLog log)
+    {
+        byte* window = ShimContext.Runtime.D3D12X.Bindings.Window.Data;
+
+        if (!Enabled || window == null)
+        {
+            return;
+        }
+
+        uint* ring = (uint*)(window + Base);
+        uint written = Volatile.Read(ref *ring);
+        uint fresh = Math.Min(written - _reported, MeshProbe.Records);
+        _reported = written;
+        var records = new List<MeshProbeRecord>((int)fresh);
+
+        for (uint i = written - fresh; i != written; i++)
+        {
+            var at = (uint*)((byte*)ring + MeshProbe.RecordsOffset + ((i % MeshProbe.Records) * MeshProbe.RecordBytes));
+            records.Add(MeshProbeRecord.Read(new ReadOnlySpan<uint>(at, MeshProbeRecord.Dwords)));
+        }
+
+        log.Info($"{Prefix}present {present}: {written} groups probed so far, the last {records.Count}:");
+
+        foreach (var program in records.GroupBy(record => record.Id))
+        {
+            Summarize(program.Key, [.. program], log);
+        }
+    }
+
+    private static bool Matches(string name)
+    {
+        if (!name.Contains(Filter!, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        Names[MeshProbe.Id(name)] = name;
+
+        return true;
+    }
+
+    private static void Summarize(uint id, List<MeshProbeRecord> groups, LoaderLog log)
+    {
+        string name = Names.GetValueOrDefault(id, $"program 0x{id:x8}");
+        int empty = groups.Count(group => group.Vertices == 0 || group.Primitives == 0);
+        long primitives = groups.Sum(group => (long)group.Primitives);
+        long culled = groups.Sum(group => (long)group.Culled);
+
+        var positions = groups.Where(group => group.Position is not null).Select(group => group.Position!.Value).ToList();
+        int degenerate = positions.Count(position => position.W == 0 || float.IsNaN(position.X) || (position.X == 0 && position.Y == 0 && position.Z == 0));
+        string shown = string.Join(" ", positions.Take(PositionsShown).Select(p => $"({p.X:G4}, {p.Y:G4}, {p.Z:G4}, {p.W:G4})"));
+
+        log.Info($"{Prefix}{name}: {groups.Count} groups, {empty} with no vertices or primitives; vertices {groups.Min(g => g.Vertices)} to {groups.Max(g => g.Vertices)}, primitives {groups.Min(g => g.Primitives)} to {groups.Max(g => g.Primitives)}, {culled} of {primitives} primitives culled");
+        log.Info($"{Prefix}{name}: vertex 0 written by {positions.Count} groups, {degenerate} at w 0, NaN or the origin; first {shown}");
+        LogSites(name, groups, log);
+    }
+
+    /// <summary>Per site with a failure: the groups whose range check failed, that read an unmapped page or a null record.</summary>
+    private static void LogSites(string name, List<MeshProbeRecord> groups, LoaderLog log)
+    {
+        var texts = SiteTexts(name);
+        var flagged = new List<string>();
+
+        for (int site = 0; site < MaskBits; site++)
+        {
+            uint bit = 1u << site;
+            int range = groups.Count(group => (group.RangeFailed & bit) != 0);
+            int unmapped = groups.Count(group => (group.Unmapped & bit) != 0);
+            int empty = groups.Count(group => (group.NullRecord & bit) != 0);
+
+            if (range + unmapped + empty == 0)
+            {
+                continue;
+            }
+
+            string text = texts.GetValueOrDefault(site, "?");
+            flagged.Add($"site {site}: range {range}, unmapped {unmapped}, null record {empty} of {groups.Count} groups: {text}");
+        }
+
+        if (flagged.Count == 0)
+        {
+            log.Info($"{Prefix}{name}: every load site in range and mapped ({texts.Count} sites)");
+
+            return;
+        }
+
+        foreach (var line in flagged.Take(SitesShown))
+        {
+            log.Info($"{Prefix}{name}: {line}");
+        }
+    }
+
+    private static Dictionary<int, string> SiteTexts(string name)
+    {
+        var texts = new Dictionary<int, string>();
+        var path = Folder is null ? null : Path.Combine(Folder, name + Suffix + SitesExtension);
+
+        if (path is null || !File.Exists(path))
+        {
+            return texts;
+        }
+
+        foreach (var line in File.ReadLines(path))
+        {
+            var fields = line.Split('\t', SiteFields);
+
+            if (fields.Length == SiteFields && int.TryParse(fields[0], out int site))
+            {
+                texts[site] = fields[1];
+            }
+        }
+
+        return texts;
+    }
+}

@@ -48,6 +48,7 @@ internal static class HostComposition
     {
         CompileBudget.Configure(options.MaxDriverCompiles, options.CompileCeilingBytes);
         Shims.D3D12X.Resources.PlacedTextureHeaps.Enabled = options.PlacedTextures;
+        Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
         string? cache = null;
 
         if (!options.NoPipelineCache)

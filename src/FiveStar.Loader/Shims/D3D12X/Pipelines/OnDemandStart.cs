@@ -221,6 +221,7 @@ internal sealed class OnDemandStart
         var folder = Path.Combine(Root, Identity(out _)[..IdentityLength], AdapterFolder(adapter));
         Directory.CreateDirectory(folder);
         WriteIncludes(folder);
+        DebugLayer.MeshProbes.Folder = folder;
 
         var ownLog = Path.Combine(Root, TimedCompiler.LogName);
         List<string> logs = [ownLog];

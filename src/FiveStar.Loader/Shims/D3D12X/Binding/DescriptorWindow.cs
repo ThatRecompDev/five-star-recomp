@@ -128,6 +128,12 @@ internal sealed unsafe class DescriptorWindow
             bytes = WindowFeedback.Bytes;
         }
 
+        // --probe-pipeline: the mesh probe's ring, past the flags.
+        if (DebugLayer.MeshProbes.Enabled && bytes < DebugLayer.MeshProbes.Bytes)
+        {
+            bytes = DebugLayer.MeshProbes.Bytes;
+        }
+
         var properties = new HeapProperties { Type = HeapProperties.Custom, CpuPageProperty = HeapProperties.WriteCombine, MemoryPool = HeapProperties.SystemPool };
         nint buffer = DesktopCalls.CreateBuffer(device, properties, bytes, DesktopCalls.UnorderedAccessFlag, CommonState);
         byte* data = buffer == 0 ? null : DesktopCalls.Map(buffer);

@@ -63,6 +63,32 @@ public sealed class ProgramIndex
         return new ProgramIndex(entries, false);
     }
 
+    /// <summary>
+    /// The index with every program <paramref name="renamed"/> picks under its name plus <paramref name="suffix"/>, so
+    /// what is made for it (DXIL, links) stays apart from the program's usual files.
+    /// </summary>
+    public ProgramIndex Renamed(Func<string, bool> renamed, string suffix)
+    {
+        var entries = new List<ProgramIndexEntry>();
+
+        foreach (var (prefix, names) in _byPrefix)
+        {
+            foreach (var name in names)
+            {
+                string kept = name;
+
+                if (renamed(name))
+                {
+                    kept = name + suffix;
+                }
+
+                entries.Add(new ProgramIndexEntry(kept, _stages[name], prefix));
+            }
+        }
+
+        return new ProgramIndex(entries, Saved);
+    }
+
     /// <summary>The names (file stems) of the programs whose code starts like <paramref name="code"/>.</summary>
     public IReadOnlyList<string> Find(ReadOnlySpan<byte> code)
     {

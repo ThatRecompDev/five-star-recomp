@@ -101,6 +101,9 @@ internal static class HostUsage
                                  their render targets back
           --d3d12-trace-pipeline <text>  with the draw trace, also log the draws of pipelines named with <text> in
                                  the frame after each captured present
+          --probe-pipeline <text>  mesh programs named with <text> are made with probe code: per group its output
+                                 counts, culling, vertex 0's position and the load sites that read out of range,
+                                 unmapped pages or null records, summed up at each captured present (--capture-presents)
           --d3d12-dump-targets   the draw trace, and in the frame after each captured present every render and depth
                                  target read back when a list leaves it, as PNG in the capture folder
           --capture-dir <dir>    write read-back planes and render targets there as PNG
