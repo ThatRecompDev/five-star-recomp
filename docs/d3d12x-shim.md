@@ -324,7 +324,12 @@ B5G6R5, B5G5R5A1 or B4G4R4A4 take a substitute format; see [gpu-resources.md](gp
 **Allocation info (slots 25, 108).** A texture desc in a console layout (0x100 + swizzle mode), or with layout
 UNKNOWN and none of ALLOW_RENDER_TARGET, ALLOW_DEPTH_STENCIL, ALLOW_UNORDERED_ACCESS, gets the XG layout's size and
 alignment ([xg.md](xg.md); UNKNOWN takes the suggested mode), as the console reports it, not the desktop driver's
-(`ConsoleAllocationSizes`; other descs, or a query mixing them, keep the desktop answer). The game sizes streamed
+(`ConsoleAllocationSizes`). So does a single-sample render target, depth target or UAV texture with layout UNKNOWN:
+the game places those in its 2.2 GiB graphics heap at the size slot 108 answers (0x140abfad0), while the shim backs
+them with desktop textures of their own. AMD's driver (RX 7800 XT) adds its compression metadata, 0x1330000 bytes for
+a 2560x1440 depth target where XG gives 0xb40000; with the desktop sizes the heap held 2050 MB of its 2199 MB after
+boot and the story load stopped on a 46 MiB request (the allocator's fatal path, 0x142219650). Buffers, multisampled
+textures, or a query mixing them keep the desktop answer. The game sizes streamed
 textures without size fields in their header this way (0x1451fb8f3 through 0x140343e80, desc built without a
 layout), stores the size in 4 KiB units in its streaming table (0x149c3e1d0, 0x38-byte entries, words +0x18 offsets
 and +0x20 sizes) and reads exactly that many bytes from the archive (0x1443c4850); the archive's compressed chunks
@@ -408,8 +413,10 @@ in a boot split; the elements past a cut read 0 until such a buffer is one deskt
 **Committed resources (slot 127).** Created in the state of the initial barrier layout (buffers COMMON), heap flags
 0 (the game passes 8). On the console D3D12.X takes their memory from the title's XMemAlloc hook, and the game checks
 it: around its two 4K render targets (0x14247ad10) it pushes a hook for D3D allocations with page-size field 2 that
-hands out a 64 MiB region, and breaks into the debugger unless all but 2 MiB of it was used. The shim allocates the
-desktop size with attributes 0x11808000 (allocator 128, page size 2, 64 KiB alignment) and frees it with the resource.
+hands out a 64 MiB region, and breaks into the debugger unless all but 2 MiB of it was used. The shim allocates a
+texture's XG console size (a desktop driver pads: an RDNA3 card asks 0x2010000 bytes per 4K target, and two overrun the
+region) and a buffer's desktop size, with attributes 0x11808000 (allocator 128, page size 2, 64 KiB alignment), and
+frees it with the resource.
 
 **Root signatures.** `D3D12SerializeVersionedRootSignature` drops the flag bits above 0xFFF (`XboxBvhBuilder.dll`
 passes 0x3000000) and logs the serializer's message when it still fails.

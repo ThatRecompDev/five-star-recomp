@@ -11,11 +11,27 @@ namespace FiveStar.Loader;
 /// <summary>Entry point of fivestar-loader: maps the console's x64 images and runs inspected exports.</summary>
 public static class Program
 {
-    public static int Main(string[] args)
+    /// <summary>The exit code of a helper process mode (compile host, pipeline host), or null for a load.</summary>
+    private static int? Helper(string[] args)
     {
         if (args.Length > 0 && args[0] == CompileHostProtocol.Mode)
         {
             return CompileHostServer.Run(args);
+        }
+
+        if (args.Length > 0 && args[0] == PipelineHostProtocol.Mode)
+        {
+            return PipelineHostServer.Run();
+        }
+
+        return null;
+    }
+
+    public static int Main(string[] args)
+    {
+        if (Helper(args) is int helper)
+        {
+            return helper;
         }
 
         var options = Parse(args);

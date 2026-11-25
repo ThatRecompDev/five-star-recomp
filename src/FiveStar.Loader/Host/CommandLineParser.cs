@@ -207,7 +207,7 @@ internal sealed class CommandLineParser
                 _options.Dxc = Path.GetFullPath(Next());
 
                 return true;
-            case "--shader-jobs" or "--loop-caps" or "--force-cull-none" or "--superstep-round-budget":
+            case "--shader-jobs" or "--loop-caps" or "--force-cull-none" or "--skip-pipelines" or "--plain-supersteps" or "--host-pipelines" or "--superstep-round-budget":
                 return SetShaderJobs(option);
             case "--shader-backend":
                 return SetShaderBackend();
@@ -244,9 +244,33 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    /// <summary>--shader-jobs N, --loop-caps victory|default|compute,geometry,pixel (programs made on demand) or --force-cull-none text.</summary>
+    /// <summary>
+    /// --shader-jobs N, --loop-caps victory|default|compute,geometry,pixel, --plain-supersteps, --host-pipelines (programs made on demand) or
+    /// --force-cull-none text or --skip-pipelines text,....
+    /// </summary>
     private bool SetShaderJobs(string option)
     {
+        if (option == "--skip-pipelines")
+        {
+            _options.SkipPipelines = Shims.D3D12X.Pipelines.SkippedPipelines.Parse(Next());
+
+            return true;
+        }
+
+        if (option == "--plain-supersteps")
+        {
+            _options.SuperstepCarry = false;
+
+            return true;
+        }
+
+        if (option == "--host-pipelines")
+        {
+            _options.HostPipelines = true;
+
+            return true;
+        }
+
         if (option == "--force-cull-none")
         {
             _options.ForceCullNone = Next();
@@ -534,6 +558,10 @@ internal sealed class CommandLineParser
                 return SetCompileLimit(option);
             case "--placed-textures":
                 _options.PlacedTextures = true;
+
+                return true;
+            case "--committed-textures":
+                _options.PlacedTextures = false;
 
                 return true;
             default:

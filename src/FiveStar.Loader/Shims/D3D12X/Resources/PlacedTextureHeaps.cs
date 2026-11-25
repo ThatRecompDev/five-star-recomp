@@ -53,7 +53,7 @@ internal sealed unsafe class PlacedTextureHeaps
     private long _placed;
     private long _freed;
 
-    /// <summary>Whether read-only textures are placed (<c>--placed-textures</c>; off by default until a boot shows it).</summary>
+    /// <summary>Whether read-only textures are placed (on by default; <c>--committed-textures</c> turns it off).</summary>
     public static bool Enabled { get; set; }
 
     /// <summary>"placed textures: N live in H heaps (G GB)", for the texture counters.</summary>

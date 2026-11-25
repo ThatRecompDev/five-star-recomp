@@ -28,6 +28,12 @@ internal static unsafe class WarmPipelinesCommand
 
     public static int Run(HostOptions options, LoaderLog log)
     {
+        // --min-free-memory and --max-commit end the warm-up as they end a boot, its helper processes with it.
+        if (options.MinimumFreeMemory != 0 || options.MaximumCommit != 0)
+        {
+            new MemoryLimit(options.MinimumFreeMemory, options.MaximumCommit, null, log).Start();
+        }
+
         var folders = HostComposition.CreatePipelineFolders(options);
 
         if (folders.Programs is null || (folders.Translated is null && folders.OnDemand is null) || folders.Cache is null)

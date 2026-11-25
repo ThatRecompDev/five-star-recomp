@@ -37,7 +37,17 @@ internal sealed class GpuMemoryBudget : IDisposable
             using var desktop = new ID3D12Device(device);
             using var factory = DXGI.CreateDXGIFactory2<IDXGIFactory4>(false);
             var budget = new GpuMemoryBudget(factory.EnumAdapterByLuid<IDXGIAdapter3>(AdapterLuid(desktop.AdapterLuid)));
-            log.Info($"  [d3d12_xs] GPU memory: {budget.Describe()}");
+
+            uint vendor = budget._adapter.Description.VendorId;
+            long driver = 0;
+
+            if (budget._adapter.CheckInterfaceSupport<IDXGIDevice>(out long version))
+            {
+                driver = version;
+            }
+
+            Pipelines.CompileBudget.UseAdapter(vendor, driver);
+            log.Info($"  [d3d12_xs] GPU memory: {budget.Describe()}; driver compile estimates for vendor 0x{vendor:x4}, driver 0x{driver:x}");
 
             return budget;
         }
@@ -92,7 +102,7 @@ internal sealed class GpuMemoryBudget : IDisposable
     }
 
     /// <summary>LUID: LowPart, the low dword, and HighPart (winnt.h).</summary>
-    private static Luid AdapterLuid(long value)
+    internal static Luid AdapterLuid(long value)
     {
         return new Luid(unchecked((uint)value), (int)(value >> LuidHighShift));
     }

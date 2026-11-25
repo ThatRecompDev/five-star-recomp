@@ -83,7 +83,23 @@ internal static unsafe class WarmMemoryGuard
         return AvailableCommit();
     }
 
+    /// <summary>
+    /// The system commit available now (the commit limit less the charge, GlobalMemoryStatusEx's ullAvailPageFile),
+    /// without the page files' possible growth: boot w35's device was removed at 77.4 of 79.4 GB committed, a driver
+    /// allocation failing, while the growth Windows could still give the page file kept the compile budget's check from
+    /// ever refusing. The write-combined memory of the driver (20 GB there) is charged here too.
+    /// </summary>
+    public static ulong CommitAvailableNow()
+    {
+        return Status().AvailablePageFile;
+    }
+
     /// <summary>The machine's free physical memory.</summary>
+    public static ulong TotalPhysical()
+    {
+        return Status().TotalPhysical;
+    }
+
     public static ulong AvailablePhysical()
     {
         return Status().AvailablePhysical;

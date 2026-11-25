@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Five Star Recomp contributors.
+// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Buffers.Binary;
@@ -76,39 +76,49 @@ internal static class ReadbackPixels
     /// <summary>Non-black pixel count, their bounding box and the mean colour of an RGBA8 image.</summary>
     public static string Summarize(byte[] rgba, int width, int height)
     {
-        long lit = 0;
-        long red = 0;
-        long green = 0;
-        long blue = 0;
+        var tally = new PixelTally(width, height);
 
-        int left = width;
-        int top = height;
-        int right = -1;
-        int bottom = -1;
-
-        for (int i = 0; i < rgba.Length; i += Channels)
+        for (int y = 0; y < height; y++)
         {
-            red += rgba[i];
-            green += rgba[i + Green];
-            blue += rgba[i + Blue];
-
-            if ((rgba[i] | rgba[i + Green] | rgba[i + Blue]) == 0)
-            {
-                continue;
-            }
-
-            lit++;
-            int pixel = i / Channels;
-            left = Math.Min(left, pixel % width);
-            right = Math.Max(right, pixel % width);
-            top = Math.Min(top, pixel / width);
-            bottom = Math.Max(bottom, pixel / width);
+            tally.Add(rgba.AsSpan(y * width * Channels, width * Channels), y);
         }
 
-        long count = Math.Max(1L, (long)width * height);
-        string box = lit == 0 ? "none" : $"({left},{top})-({right},{bottom})";
+        return tally.Describe();
+    }
 
-        return $"{lit} of {count} pixels not black, box {box}, mean rgb ({red / count}, {green / count}, {blue / count})";
+    /// <summary>
+    /// The summary of <see cref="Summarize(byte[], int, int)"/> read straight from texels laid out as the GPU copied them
+    /// (<paramref name="rowPitch"/> bytes apart, a mapped readback buffer), one row converted at a time into a pooled
+    /// buffer; with a non-empty <paramref name="image"/> (width × height × 4 bytes) the RGBA8 rows also go there, for a
+    /// PNG. Null for a format this does not read.
+    /// </summary>
+    public static string? Summarize(ReadOnlySpan<byte> source, int rowPitch, int width, int height, int format, Span<byte> image)
+    {
+        int rowBytes = width * Channels;
+        byte[] scratch = System.Buffers.ArrayPool<byte>.Shared.Rent(rowBytes);
+
+        try
+        {
+            var tally = new PixelTally(width, height);
+
+            for (int y = 0; y < height; y++)
+            {
+                var output = image.IsEmpty ? scratch.AsSpan(0, rowBytes) : image.Slice(y * rowBytes, rowBytes);
+
+                if (!Row(format, source.Slice(y * rowPitch), output, width))
+                {
+                    return null;
+                }
+
+                tally.Add(output, y);
+            }
+
+            return tally.Describe();
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(scratch);
+        }
     }
 
     private static bool Row(int format, ReadOnlySpan<byte> row, Span<byte> output, int width)
@@ -271,6 +281,64 @@ internal static class ReadbackPixels
             output[at + Green] = row[x];
             output[at + Blue] = row[x];
             output[at + Alpha] = Opaque;
+        }
+    }
+
+    /// <summary>The running counts of a summary: non-black pixels, their box and the colour sums.</summary>
+    private sealed class PixelTally
+    {
+        private readonly int _width;
+        private readonly int _height;
+        private long _lit;
+        private long _red;
+        private long _green;
+        private long _blue;
+        private int _left;
+        private int _top;
+        private int _right = -1;
+        private int _bottom = -1;
+
+        public PixelTally(int width, int height)
+        {
+            _width = width;
+            _height = height;
+            _left = width;
+            _top = height;
+        }
+
+        public void Add(ReadOnlySpan<byte> row, int y)
+        {
+            for (int x = 0; x < _width; x++)
+            {
+                int at = x * Channels;
+                _red += row[at];
+                _green += row[at + Green];
+                _blue += row[at + Blue];
+
+                if ((row[at] | row[at + Green] | row[at + Blue]) == 0)
+                {
+                    continue;
+                }
+
+                _lit++;
+                _left = Math.Min(_left, x);
+                _right = Math.Max(_right, x);
+                _top = Math.Min(_top, y);
+                _bottom = Math.Max(_bottom, y);
+            }
+        }
+
+        public string Describe()
+        {
+            long count = Math.Max(1L, (long)_width * _height);
+            string box = "none";
+
+            if (_lit > 0)
+            {
+                box = $"({_left},{_top})-({_right},{_bottom})";
+            }
+
+            return $"{_lit} of {count} pixels not black, box {box}, mean rgb ({_red / count}, {_green / count}, {_blue / count})";
         }
     }
 }

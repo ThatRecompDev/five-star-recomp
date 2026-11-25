@@ -59,11 +59,16 @@ internal static class HostUsage
           --superstep-round-budget <k>
                                  a superstep program's group rounds at most k per wave-operation stop of its code (at
                                  least 256): a cut before the driver's timeout culls the draw; part of the cache identity
-          --placed-textures      read-only console textures share large placed heaps instead of a committed
-                                 resource each (the driver's write-combined memory grew about 0.55 MB per texture)
-          --max-driver-compiles <n>  driver pipeline compiles of 256 KB of DXIL or more at once (default 4)
+          --host-pipelines       pipelines of more than 2 MB of DXIL are built first in a child process held to the
+                                 free memory and 10 minutes; one past a limit stays a stand-in (off by default)
+          --plain-supersteps     superstep forms made on demand keep every register live around one dispatch
+                                 switch (the form before the liveness carry); part of the cache identity
+          --committed-textures   a committed resource for each read-only console texture instead of the shared
+                                 placed heaps (the default, also --placed-textures), whose released ranges stay mapped
+          --max-driver-compiles <n>  driver pipeline compiles of 256 KB of DXIL or more at once (default 12)
           --compile-ceiling <GB> no such compile starts while private bytes and the running ones' expected arenas
-                                 would pass this (default 28); one always may when none runs
+                                 would pass this (default none: free RAM less the game's growth decides); one
+                                 always may when none runs
           --shader-backend <b>   dxil (default): programs made on first use compile with the DXIL backend, dxc
                                  for those it cannot lower or dxil.dll rejects; dxc: dxc for all
           --pipeline-cache <dir> disk cache of built pipelines (default: <work-dir>\pipeline-cache)
@@ -86,6 +91,8 @@ internal static class HostUsage
                                  (needs the Graphics Tools optional feature)
           --d3d12-gpu-validation --d3d12-debug plus GPU-based validation (slow)
           --force-cull-none <text>  pipelines whose programs' names hold <text> cull no faces (a winding check)
+          --skip-pipelines <text,...>  pipelines whose programs' names hold a text stay stand-ins: never built or
+                                 loaded, their draws skipped (to get past one that hangs the GPU)
           --d3d12-dred           DRED alone (auto-breadcrumbs, page faults, the removal report), without the debug layer
           --d3d12-skip <i:n,...> D3D12.X slots that do nothing (list:51, queue:35, device:n), to bisect GPU faults
           --d3d12-trace-queues   log the first queue submissions, signals and waits (cross-queue protocol)

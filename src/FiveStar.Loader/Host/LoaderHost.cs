@@ -356,6 +356,7 @@ internal sealed class LoaderHost
         Shims.D3D12X.Binding.CommandListBindingMethods.EmptyIndirectAfterSkip = _options.EmptyIndirectAfterSkip;
         Shims.D3D12X.DebugLayer.DrawTrace.DumpTargets = _options.D3D12DumpTargets;
         Shims.D3D12X.Pipelines.PipelineFactory.CullNoneFor = _options.ForceCullNone;
+        Shims.D3D12X.Pipelines.SkippedPipelines.Texts = _options.SkipPipelines;
 
         Shims.D3D12X.RetireWaits.Enable(_options.RetireWaitsAllQueues, _log);
         Shims.D3D12X.ListSplits.Enabled = _options.SplitAtWaits;
@@ -446,7 +447,19 @@ internal sealed class LoaderHost
     private string SampledCounters()
     {
         string pipelines = _runtime.D3D12X.Pipelines?.Summary ?? "pipeline slots off";
-        string memory = ProcessMemory.Summary(_runtime.XMem.LiveBytes, _runtime.XMemPhysical.LivePages * (long)XMemPhysicalMemory.PageSize);
+        long pages = _runtime.XMemPhysical.LivePages * (long)XMemPhysicalMemory.PageSize;
+        string memory = ProcessMemory.Summary(_runtime.XMem.LiveBytes, pages);
+        ulong? gpuSystem = null;
+
+        var budget = _runtime.D3D12X.SectionHeaps.Budget;
+
+        if (budget is not null && budget.TryReadSystem(out _, out var usage))
+        {
+            gpuSystem = usage;
+        }
+
+        long helpers = Shims.D3D12X.Pipelines.CompileBudget.HelperPrivateBytes() + (Shims.D3D12X.Pipelines.PipelineHost.Current?.PrivateBytes ?? 0);
+        memory += "; " + ProcessMemory.Machine(pages, helpers, gpuSystem);
 
         string audio = $"audio: {_runtime.Audio.Summary}; XDsp {_runtime.XDsp.Submitted} commands";
 

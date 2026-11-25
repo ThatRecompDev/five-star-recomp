@@ -74,16 +74,25 @@ public sealed class MeshSuperstepRunner
         return ShaderWorkbench.Translate(Build());
     }
 
-    /// <summary>The superstep form.</summary>
-    public string Supersteps()
+    /// <summary>The superstep form; <paramref name="carry"/> with the liveness carry (TranslationOptions.SuperstepCarry).</summary>
+    public string Supersteps(bool carry)
     {
-        return HlslTranslator.SuperstepVariant(Build(), new TranslationOptions(StructuredControlFlow: false, PinWaveSize: false, EmulateWaveSize: true));
+        var options = new TranslationOptions(StructuredControlFlow: false, PinWaveSize: false, EmulateWaveSize: true) { SuperstepCarry = carry };
+
+        return HlslTranslator.SuperstepVariant(Build(), options);
     }
 
     /// <summary>Runs the superstep form; the mismatches against the console waves.</summary>
-    public IReadOnlyList<string> Run()
+    public IReadOnlyList<string> Run(bool carry)
     {
-        var mesh = _fixture.Workbench.Compile("ms_supersteps", Supersteps(), "ms");
+        var name = "ms_supersteps";
+
+        if (carry)
+        {
+            name += "_carry";
+        }
+
+        var mesh = _fixture.Workbench.Compile(name, Supersteps(carry), "ms");
         var pixel = _fixture.Workbench.Compile("ps_supersteps", "float4 main() : SV_Target { return 0; }", "ps");
         var output = new BufferResource(OutputHeap, new uint[Threads * Results], Writable: true);
         var bindings = new Bindings { UserSgprs = ComputeCase.Descriptor(OutputHeap), Buffers = [output] };

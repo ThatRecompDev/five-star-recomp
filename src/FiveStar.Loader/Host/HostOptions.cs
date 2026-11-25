@@ -101,8 +101,13 @@ internal sealed record HostOptions
     /// <summary><c>--shader-backend dxc</c>: programs made on demand compile with dxc instead of the DXIL backend.</summary>
     public bool DxcBackend { get; set; }
 
-    /// <summary><c>--placed-textures</c>: read-only console textures go to shared heaps instead of a committed resource each.</summary>
-    public bool PlacedTextures { get; set; }
+    /// <summary>
+    /// Read-only console textures go to shared heaps instead of a committed resource each (the default;
+    /// <c>--committed-textures</c> turns it off). A released texture's range stays mapped, as console memory does, so a
+    /// stale read the game still makes hits memory instead of a freed resource (issue #23; w28 lost the device at 185 s
+    /// without it, w29 ran 1,018 s into gameplay with it).
+    /// </summary>
+    public bool PlacedTextures { get; set; } = true;
 
     /// <summary>The most driver compiles of 256 KB of DXIL or more at once (<c>--max-driver-compiles</c>).</summary>
     public int MaxDriverCompiles { get; set; } = Shims.D3D12X.Pipelines.CompileBudget.DefaultMaxCompiles;
@@ -173,8 +178,17 @@ internal sealed record HostOptions
     /// <summary>Pipelines whose programs' names hold this text cull no faces (<c>--force-cull-none &lt;text&gt;</c>).</summary>
     public string? ForceCullNone { get; set; }
 
+    /// <summary>Pipelines whose programs' names hold one of these texts stay stand-ins (<c>--skip-pipelines &lt;text,...&gt;</c>).</summary>
+    public IReadOnlyList<string> SkipPipelines { get; set; } = [];
+
     /// <summary>Loop caps of programs made on demand (<c>--loop-caps victory|default|compute,geometry,pixel</c>); null for the translator's own.</summary>
     public FiveStar.Shaders.Translation.Core.LoopCaps? LoopCaps { get; set; }
+
+    /// <summary>Heavy pipelines are built first in a pipeline host held to memory and time limits (<c>--host-pipelines</c>).</summary>
+    public bool HostPipelines { get; set; }
+
+    /// <summary>Superstep forms made on demand carry registers by liveness; <c>--plain-supersteps</c> turns it off.</summary>
+    public bool SuperstepCarry { get; set; } = true;
 
     /// <summary>A superstep program's group rounds per wave-operation stop (<c>--superstep-round-budget</c>); null for the loop caps' bound.</summary>
     public int? SuperstepRoundsPerStop { get; set; }

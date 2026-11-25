@@ -3,6 +3,7 @@
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using FiveStar.Loader.Native;
 using FiveStar.Shaders.Compilation;
 
@@ -44,6 +45,9 @@ internal sealed class CompileHost : IBackendRunner
     /// guard included), so no host outlives it.
     /// </summary>
     private static readonly Lazy<nint> HostJob = new(CreateJob);
+
+    /// <summary>Why the hosts' job does not hold them (shown in <see cref="Summary"/>), or null.</summary>
+    private static string? _jobFailure;
 
     private readonly string _executable;
     private readonly string? _validator;
@@ -104,7 +108,14 @@ internal sealed class CompileHost : IBackendRunner
                 return "compile host: did not start, compiling in this process";
             }
 
-            return $"compile host: {Volatile.Read(ref _starts)} started, {Volatile.Read(ref _ends)} ended, {Volatile.Read(ref _timeouts)} requests not answered in time, {gigabytes:F1} GB private";
+            var job = string.Empty;
+
+            if (Volatile.Read(ref _jobFailure) is string failure)
+            {
+                job = "; " + failure;
+            }
+
+            return $"compile host: {Volatile.Read(ref _starts)} started, {Volatile.Read(ref _ends)} ended, {Volatile.Read(ref _timeouts)} requests not answered in time, {gigabytes:F1} GB private{job}";
         }
     }
 
@@ -200,10 +211,22 @@ internal sealed class CompileHost : IBackendRunner
     private static unsafe nint CreateJob()
     {
         nint job = Kernel32.CreateJobObjectW(0, 0);
+
+        if (job == 0)
+        {
+            _jobFailure = $"no job object (error {Marshal.GetLastSystemError()}): a host may outlive the loader";
+
+            return 0;
+        }
+
         byte* limits = stackalloc byte[ExtendedLimitBytes];
         new Span<byte>(limits, ExtendedLimitBytes).Clear();
         *(uint*)(limits + LimitFlagsOffset) = KillOnJobClose;
-        _ = Kernel32.SetInformationJobObject(job, ExtendedLimitInformation, limits, ExtendedLimitBytes);
+
+        if (Kernel32.SetInformationJobObject(job, ExtendedLimitInformation, limits, ExtendedLimitBytes) == 0)
+        {
+            _jobFailure = $"the job takes no kill-on-close (error {Marshal.GetLastSystemError()}): a host may outlive the loader";
+        }
 
         return job;
     }
@@ -285,6 +308,7 @@ internal sealed class CompileHost : IBackendRunner
     /// <summary>One host process: a writer for requests and a thread that hands each answer to its waiting request.</summary>
     private sealed class Connection
     {
+        private readonly HostProcess _host;
         private readonly Process _process;
         private readonly Lock _writing = new();
         private readonly ConcurrentDictionary<int, TaskCompletionSource<HostAnswer?>> _pending = new();
@@ -292,9 +316,10 @@ internal sealed class CompileHost : IBackendRunner
         private volatile bool _answered;
         private long _lastAnswer;
 
-        private Connection(Process process)
+        private Connection(HostProcess host)
         {
-            _process = process;
+            _host = host;
+            _process = host.Process;
             var reader = new Thread(Read) { IsBackground = true, Name = "fivestar compile host reader" };
             reader.Start();
         }
@@ -323,39 +348,28 @@ internal sealed class CompileHost : IBackendRunner
 
         public static Connection? Start(string executable, string? validator)
         {
-            var start = new ProcessStartInfo(executable)
-            {
-                UseShellExecute = false,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                CreateNoWindow = true,
-            };
-            start.ArgumentList.Add(CompileHostProtocol.Mode);
+            var arguments = new List<string> { CompileHostProtocol.Mode };
 
             if (validator is not null)
             {
-                start.ArgumentList.Add(validator);
+                arguments.Add(validator);
             }
 
-            start.Environment[ServerGcVariable] = "1";
+            var environment = new Dictionary<string, string> { [ServerGcVariable] = "1" };
+            var host = HostProcess.Start(executable, arguments, environment, HostJob.Value, requireJob: false, out var failure);
 
-            try
+            // The host runs outside the job only when the job refused it: it may then outlive the loader.
+            if (failure is not null)
             {
-                var process = Process.Start(start);
-
-                if (process is null)
-                {
-                    return null;
-                }
-
-                _ = Kernel32.AssignProcessToJobObject(HostJob.Value, process.Handle);
-
-                return new Connection(process);
+                _jobFailure = failure;
             }
-            catch (System.ComponentModel.Win32Exception)
+
+            if (host is null)
             {
                 return null;
             }
+
+            return new Connection(host);
         }
 
         public int ProcessId => _process.Id;
@@ -380,7 +394,7 @@ internal sealed class CompileHost : IBackendRunner
             {
                 lock (_writing)
                 {
-                    using var writer = new BinaryWriter(_process.StandardInput.BaseStream, System.Text.Encoding.UTF8, leaveOpen: true);
+                    using var writer = new BinaryWriter(_host.Input, System.Text.Encoding.UTF8, leaveOpen: true);
                     write(writer, id);
                 }
             }
@@ -413,7 +427,7 @@ internal sealed class CompileHost : IBackendRunner
 
         private void Read()
         {
-            using var reader = new BinaryReader(_process.StandardOutput.BaseStream);
+            using var reader = new BinaryReader(_host.Output);
 
             try
             {
