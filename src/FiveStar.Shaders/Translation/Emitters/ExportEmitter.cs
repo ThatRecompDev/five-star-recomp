@@ -135,11 +135,30 @@ internal sealed class ExportEmitter
                 continue;
             }
 
-            var packed = _operands.Read(OperandParser.Parse(source));
-            values.AddRange([ExportPacking.Channel(packed, type), ExportPacking.Channel($"{packed} >> 16", type)]);
+            values.AddRange(Pair(source, type));
         }
 
         return values;
+    }
+
+    /// <summary>The two channels of compressed register <paramref name="source"/>: an integer target's pair sources as bits when known, else the halves.</summary>
+    private string[] Pair(string source, string type)
+    {
+        if (type != "float")
+        {
+            var pair = ExportPacking.Sources(_state.Instructions, _state.Address, source);
+
+            if (pair is not null)
+            {
+                var (low, high) = pair.Value;
+
+                return [$"asfloat({_operands.Read(OperandParser.Parse(low))})", $"asfloat({_operands.Read(OperandParser.Parse(high))})"];
+            }
+        }
+
+        var packed = _operands.Read(OperandParser.Parse(source));
+
+        return [ExportPacking.Channel(packed, type), ExportPacking.Channel($"{packed} >> 16", type)];
     }
 
     /// <summary>The component type of a pixel program's colour target (<c>float</c>, <c>uint</c> or <c>int</c>); <c>float</c> for any other export.</summary>
