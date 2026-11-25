@@ -19,7 +19,17 @@ public sealed class DxcCompiler : IShaderCompiler
     private const int ErrorTextLength = 200;
 
     /// <summary>The arguments besides the profile, the include folder and -Od, for compiler identities.</summary>
-    internal const string FixedArguments = "-E main -HV 2021";
+    internal const string FixedArguments = "-E main -HV 2021; -Gis for vs, ms and gs";
+
+    /// <summary>
+    /// IEEE strictness (no fast-math reassociation or contraction) for the stages that write SV_Position: two programs that
+    /// compute the same position (a depth prepass and a pass that tests EQUAL) must round it the same, which dxc's default
+    /// fast math does not promise (SharpEmu marks every operation feeding the position precise; facts only). The DXIL
+    /// backend writes no fast-math flags at all.
+    /// </summary>
+    private const string StrictArgument = "-Gis";
+
+    private static readonly string[] PositionStages = ["vs", "ms", "gs"];
 
     private readonly DxcOptions _options;
     private readonly Lazy<string> _identity;
@@ -76,6 +86,11 @@ public sealed class DxcCompiler : IShaderCompiler
         if (request.DisableOptimizations)
         {
             arguments.Add("-Od");
+        }
+
+        if (PositionStages.Contains(request.Profile))
+        {
+            arguments.Add(StrictArgument);
         }
 
         arguments.Add(request.HlslPath);
