@@ -66,7 +66,11 @@ internal static unsafe class DredReport
         hr = ((delegate* unmanaged<nint, nint*, int>)ComObject.Slot(dred, BreadcrumbsSlot))(dred, &head);
         log.Error($"[d3d12-debug] DRED auto-breadcrumbs ({HResult.Format(hr)}):");
 
-        if (!HResult.Failed(hr))
+        if (!HResult.Failed(hr) && head == 0)
+        {
+            log.Error("[d3d12-debug]   none recorded: DRED kept no command list, so its page fault below says nothing either");
+        }
+        else if (!HResult.Failed(hr))
         {
             WriteBreadcrumbs(head, log);
         }
@@ -76,12 +80,26 @@ internal static unsafe class DredReport
 
         if (!HResult.Failed(hr))
         {
-            log.Error($"[d3d12-debug] DRED page fault at GPU VA 0x{*(ulong*)fault:x}");
+            log.Error(PageFaultLine(*(ulong*)fault, *(nint*)(fault + ExistingOffset), *(nint*)(fault + FreedOffset)));
             WriteAllocations("existing", *(nint*)(fault + ExistingOffset), log);
             WriteAllocations("recently freed", *(nint*)(fault + FreedOffset), log);
         }
 
         ComObject.Release(dred);
+    }
+
+    /// <summary>
+    /// The page-fault line. An empty output (address 0, no allocation at or near it) is no fault DRED saw: w78 and w79
+    /// read as "a page fault at GPU VA 0" while DRED had recorded nothing at all.
+    /// </summary>
+    public static string PageFaultLine(ulong address, nint existing, nint freed)
+    {
+        if (address == 0 && existing == 0 && freed == 0)
+        {
+            return "[d3d12-debug] DRED recorded no page fault (address 0 and no allocations: not a fault at VA 0)";
+        }
+
+        return $"[d3d12-debug] DRED page fault at GPU VA 0x{address:x}";
     }
 
     private static void WriteBreadcrumbs(nint node, LoaderLog log)
