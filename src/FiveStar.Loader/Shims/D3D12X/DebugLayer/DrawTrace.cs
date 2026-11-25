@@ -410,10 +410,13 @@ internal sealed unsafe class DrawTrace
 
         var state = List(list);
         FirstBind(list, state, [(target.Resource, target.Home)], "cleared");
-        string rgba = colour == null ? "none" : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"({colour[0]:G6}, {colour[1]:G6}, {colour[2]:G6}, {colour[3]:G6})");
+        string rgba = colour == null ? "none" : $"({string.Join(", ", new ReadOnlySpan<float>(colour, ClearColourChannels).ToArray().Select(channel => channel.ToString("G6", System.Globalization.CultureInfo.InvariantCulture)))})";
         string area = rects == 0 ? "whole target" : $"{rects} rects";
         _log.Info($"  [draws] clear of watched target 0x{target.Resource:x} on list 0x{(nint)list:x} (draw {Interlocked.Read(ref _draws)}): colour {rgba}, {area}");
     }
+
+    /// <summary>A clear colour's channels (RGBA).</summary>
+    private const int ClearColourChannels = 4;
 
     /// <summary>The desktop RTV descriptor size (D3D12_DESCRIPTOR_HEAP_TYPE_RTV).</summary>
     private uint RenderTargetIncrement()
@@ -604,6 +607,7 @@ internal sealed unsafe class DrawTrace
         string kind = compute ? "compute indirect" : "indirect";
         var text = new StringBuilder($"  [draws] {kind}: list 0x{(nint)list:x}, max {maxCount} records of {stride} bytes, count buffer {counted}");
         text.Append($"\n      pipeline 0x{rectangles->Pipeline:x} topology {rectangles->Topology}: {Label(rectangles->Pipeline)}");
+
         AppendRecords(text, argumentAddress, Math.Min(maxCount, IndirectRecordsShown), stride);
 
         if (!compute)

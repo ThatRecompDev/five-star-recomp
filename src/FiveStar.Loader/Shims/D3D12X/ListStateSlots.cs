@@ -32,10 +32,12 @@ internal static unsafe class ListStateSlots
     {
         delegate* unmanaged<XboxObject*, uint, float*, void> viewports = &SetViewports;
         delegate* unmanaged<XboxObject*, uint, int*, void> scissors = &SetScissors;
+
         delegate* unmanaged<XboxObject*, float*, void> blend = &SetBlendFactor;
         delegate* unmanaged<XboxObject*, uint, void> stencil = &SetStencilReference;
         delegate* unmanaged<XboxObject*, uint, nint*, int, nint*, void> targets = &SetRenderTargets;
         delegate* unmanaged<XboxObject*, float, float, void> depthBounds = &SetDepthBounds;
+        delegate* unmanaged<XboxObject*, nint, float*, uint, int*, void> clear = &ClearRenderTarget;
 
         objects.SetHandler(XboxInterfaceKind.CommandList, SetViewportsSlot, (nint)viewports);
         objects.SetHandler(XboxInterfaceKind.CommandList, SetScissorsSlot, (nint)scissors);
@@ -43,7 +45,7 @@ internal static unsafe class ListStateSlots
         objects.SetHandler(XboxInterfaceKind.CommandList, SetStencilReferenceSlot, (nint)stencil);
         objects.SetHandler(XboxInterfaceKind.CommandList, SetRenderTargetsSlot, (nint)targets);
         objects.SetHandler(XboxInterfaceKind.CommandList, SetDepthBoundsSlot, (nint)depthBounds);
-        delegate* unmanaged<XboxObject*, nint, float*, uint, int*, void> clear = &ClearRenderTarget;
+
         objects.SetHandler(XboxInterfaceKind.CommandList, ClearRenderTargetSlot, (nint)clear);
     }
 
