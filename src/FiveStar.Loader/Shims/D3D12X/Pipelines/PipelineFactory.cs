@@ -330,11 +330,11 @@ internal sealed unsafe class PipelineFactory
             built?.Invoke(pipeline);
         };
 
-        // A held pipeline (--skip-pipelines; ray tracing without --raytracing) is a stand-in that never builds, at once:
-        // its build failed, and a creation that finished within the budget handed the game that failure (0x80004005),
-        // which stalled its loading at the black press-a-button screen (boots w66d to w68a, with a warm pipeline cache;
-        // an empty one queued every creation, so the game got stand-ins). Nor is it loaded from the cache.
-        if (SkippedPipelines.Skips(names) || RayTracingPrograms.Skips(names, RayTracingPrograms.Folder, scan: true))
+        // A held pipeline (--skip-pipelines; ray tracing without --raytracing, by what is known and the markers: this is
+        // the game's thread, which must not read programs) is a stand-in that never builds, at once, and is not loaded
+        // from the cache. One that only its build finds held fails there, and the creation hands out a stand-in
+        // (StandInPipelines.Create): the game never gets a failure.
+        if (SkippedPipelines.Skips(names) || RayTracingPrograms.Skips(names))
         {
             stream.Dispose();
             *result = StandIns.Unbuilt(names);
@@ -571,7 +571,9 @@ internal sealed unsafe class PipelineFactory
     /// </summary>
     public PipelineResult Build(DesktopStream stream, Guid iid, string what)
     {
-        // Before the compile budget and the driver: a held ray-tracing pipeline takes no compile slot.
+        // Before the compile budget and the driver, on a build thread (reading the console code of an unmarked program
+        // there, never on a game thread: boots w66d to w69 read them on the game's creating threads and its loading
+        // stopped): a held ray-tracing pipeline takes no compile slot.
         if (SkippedPipelines.Skips(what) || RayTracingPrograms.Skips(what, RayTracingPrograms.Folder, scan: true))
         {
             stream.Dispose();
