@@ -49,6 +49,12 @@ internal sealed class FrameCapture : IDisposable
         return _presents.Contains(present) || present == Volatile.Read(ref _requestedPresent);
     }
 
+    /// <summary>Captures <paramref name="present"/> as well (the world trigger); the presenting thread, as <see cref="Wants"/>.</summary>
+    public void Add(long present)
+    {
+        _presents.Add(present);
+    }
+
     /// <summary>Captures the next present as well (an input script's <c>capture</c> line); any thread.</summary>
     public void RequestNext()
     {

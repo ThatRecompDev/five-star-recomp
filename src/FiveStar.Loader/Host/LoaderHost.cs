@@ -376,12 +376,7 @@ internal sealed class LoaderHost
         EnableGpuMarkers();
         Shims.D3D12X.Binding.CommandListBindingMethods.SkipComputeChains = _options.SkipComputeChains;
         Shims.D3D12X.Binding.CommandListBindingMethods.EmptyIndirectAfterSkip = _options.EmptyIndirectAfterSkip;
-        Shims.D3D12X.DebugLayer.DrawTrace.DumpTargets = _options.D3D12DumpTargets;
-        Shims.D3D12X.DebugLayer.DrawTrace.ProbeTraced = _options.D3D12ProbeTraced;
-        Shims.D3D12X.DebugLayer.TraceRecords.Offsets = _options.D3D12TraceRecords;
-
-        Shims.D3D12X.DebugLayer.DrawTrace.WatchShape = _options.D3D12WatchTarget;
-        Shims.D3D12X.DebugLayer.DrawTrace.WatchLimit = _options.D3D12WatchLimit;
+        ApplyTraceOptions();
 
         ApplyBindingOptions();
 
@@ -445,6 +440,17 @@ internal sealed class LoaderHost
         {
             Shims.D3D12X.DebugLayer.FourGiBLineWatch.Start(_log);
         }
+    }
+
+    /// <summary>The draw trace's options: dumps, probes, records, the watched target and the world trigger.</summary>
+    private void ApplyTraceOptions()
+    {
+        Shims.D3D12X.DebugLayer.DrawTrace.DumpTargets = _options.D3D12DumpTargets;
+        Shims.D3D12X.DebugLayer.DrawTrace.ProbeTraced = _options.D3D12ProbeTraced;
+        Shims.D3D12X.DebugLayer.TraceRecords.Offsets = _options.D3D12TraceRecords;
+        Shims.D3D12X.DebugLayer.DrawTrace.WatchShape = _options.D3D12WatchTarget;
+        Shims.D3D12X.DebugLayer.DrawTrace.WatchLimit = _options.D3D12WatchLimit;
+        Shims.D3D12X.DebugLayer.DrawTrace.CaptureWhenWorld = _options.CaptureWhenWorld;
     }
 
     /// <summary>Pipeline and binding options the D3D12.X shim reads as static settings.</summary>
