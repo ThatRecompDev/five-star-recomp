@@ -20,6 +20,8 @@ internal static class CompileHostServer
     private const int ValidatorArgument = 1;
     private const string DxilExtension = ".dxil";
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Programs, string Folder, FiveStar.Graphics.AdapterInfo Adapter), ProgramProducer> Producers = new();
+
     public static int Run(string[] args)
     {
         string? validator = null;
@@ -92,9 +94,14 @@ internal static class CompileHostServer
     /// <summary>Translates, picks the form and compiles it into <c>&lt;folder&gt;/&lt;name&gt;.dxil</c>; a form the backend cannot take comes back for dxc.</summary>
     private static HostAnswer Make(InProcessBackend backend, OnceLog warnings, MakeRequest make)
     {
-        var picker = new ProgramVariantPicker(new ShaderManifest([]), make.Adapter, warnings);
-        var compiler = new DxilBackendCompiler(DxcOptions.Defaults(string.Empty, retry: false), null, backend);
-        var producer = new ProgramProducer(make.Programs, make.Folder, picker, compiler, SlowCompiles.Read([], compiler.Options.CompileTimeout));
+        // One producer per folder and adapter: its program loader (the decoder's tables) is made once.
+        var producer = Producers.GetOrAdd((make.Programs, make.Folder, make.Adapter), _ =>
+        {
+            var picker = new ProgramVariantPicker(new ShaderManifest([]), make.Adapter, warnings);
+            var compiler = new DxilBackendCompiler(DxcOptions.Defaults(string.Empty, retry: false), null, backend);
+
+            return new ProgramProducer(make.Programs, make.Folder, picker, compiler, SlowCompiles.Read([], compiler.Options.CompileTimeout));
+        });
         var form = producer.Prepare(make.Name);
 
         if (form.Failure is not null)
