@@ -251,6 +251,15 @@ given as a container then takes its input signature from the extracted program o
 record is flushed at once, so a boot that crashes keeps what it asked for; a record cut off is dropped when the next
 boot opens the file. `--warm-step` and `--warm-match` apply to the journal's pipelines too.
 
+**Prebuild.** From device creation on, a boot builds every journal pipeline the disk cache lacks, in first-use
+order (`JournalPrebuild`, `--prebuild-jobs <n>` threads of below-normal priority, default 1, 0 for none): before, a
+journal pipeline was queued only when the game created it, just before its first use, so the world's G-buffer
+pipelines each cost a 20 to 60 s driver compile at the cutscene (w64e took over 10 minutes to reach the world). A
+prebuild never waits in the compile budget: one that may not start now is given back and tried again in a pass 30 s
+later, as is one whose programs or linked producer the boot's prefetch has not made yet; the prebuild ends after 20
+passes in a row that build nothing. The sample line counts what it built, found cached, gave back and refused. The
+idea follows VIctory, which starts the last run's pipelines at device creation (THIRD_PARTY_NOTICES.md).
+
 **Measured (RTX 4090, 64 GB, 4 jobs, driver cache partly warm).** Every 20th record (1,409 pipelines): 1,367 handled
 in 26 minutes, 981 built into 137 MB (about 140 KiB each), the rest refused by the runtime (E_INVALIDARG, the stage
 linkage errors under Unknown). Graphics pipelines with a mesh shader take 2 to 6.5 minutes each and dominate, so the
