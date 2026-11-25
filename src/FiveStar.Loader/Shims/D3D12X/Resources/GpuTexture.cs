@@ -50,6 +50,9 @@ internal sealed class GpuTexture
     /// <summary>Whether the CPU maps the texture's memory, so it is checked for new bytes every frame (<see cref="GpuTextures.Watch"/>).</summary>
     public bool Watched { get; set; }
 
+    /// <summary>Whether memory under the texture is unmapped now (<see cref="GpuTextureRegistry.Unmapped"/>).</summary>
+    public bool OverUnmapped { get; set; }
+
     /// <summary>
     /// Whether a GPU copy (list slots 85, 86) wrote the desktop texture. Its contents are then on the desktop, not in
     /// the console memory (on the console the copy wrote that memory), so a refresh from memory would undo the copy.

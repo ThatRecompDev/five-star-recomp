@@ -67,6 +67,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
 
         StalePages = new StaleGpuPages(PlacedResources.Addresses, memory, log);
         memory.ObservePages(StalePages.Changed);
+        memory.ObservePages((address, _, frame) => UnmappedTextures(memory, address, frame));
 
         Uploads = new UploadArena(Objects, PlacedResources.Addresses, log);
         AddressBuffers = new AddressBufferViews(GameMemory);
@@ -221,6 +222,28 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
     }
 
     private const int MebibyteShift = 20;
+
+    /// <summary>A page the game mapped or unmapped: the textures over it (at its GPU address, the alias of a CPU range) are marked, or retired (<see cref="GpuTextureRegistry.RetireUnmapped"/>).</summary>
+    private void UnmappedTextures(XMemPhysicalMemory memory, nint address, ulong frame)
+    {
+        nint page = (nint)((ulong)address & ~(XMemPhysicalMemory.PageSize - 1));
+        nint alias = memory.GpuAlias(page);
+        ulong gpu = (ulong)page;
+
+        if (alias != 0)
+        {
+            gpu = (ulong)alias;
+        }
+
+        if (frame == 0)
+        {
+            Textures.Registry.Unmapped(gpu, XMemPhysicalMemory.PageSize);
+
+            return;
+        }
+
+        Textures.Registry.Mapped(gpu, XMemPhysicalMemory.PageSize);
+    }
 
     /// <summary>The GPU's memory groups and what of the game's memory the GPU reads in place, for the removal report.</summary>
     private string InPlaceSummary()
