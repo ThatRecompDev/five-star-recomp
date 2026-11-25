@@ -85,15 +85,20 @@ internal sealed unsafe class DesktopStream : IDisposable
         }
     }
 
-    /// <summary>A stream <see cref="Write"/> wrote, over <paramref name="rootSignature"/> (an ID3D12RootSignature of this process).</summary>
+    /// <summary>
+    /// A stream <see cref="Write"/> wrote, over <paramref name="rootSignature"/> (an ID3D12RootSignature of this
+    /// process); <see cref="InvalidDataException"/> when a length or offset does not fit.
+    /// </summary>
     public static DesktopStream Read(BinaryReader reader, nint rootSignature)
     {
         var stream = new DesktopStream();
-        stream._bytes.AddRange(reader.ReadBytes(reader.ReadInt32()));
+        stream._bytes.AddRange(reader.ReadBytes(Length(reader)));
         stream._rootOffset = reader.ReadInt32();
+        int size = stream._bytes.Count;
 
-        if (stream._rootOffset >= 0)
+        if (stream._rootOffset != -1)
         {
+            CheckPointer(stream._rootOffset, size);
             var pointer = BitConverter.GetBytes((long)rootSignature);
 
             for (var index = 0; index < pointer.Length; index++)
@@ -102,20 +107,22 @@ internal sealed unsafe class DesktopStream : IDisposable
             }
         }
 
-        for (var count = reader.ReadInt32(); count > 0; count--)
+        for (var count = Length(reader); count > 0; count--)
         {
             var offset = reader.ReadInt32();
-            var bytecode = reader.ReadBytes(reader.ReadInt32());
+            CheckSlot(offset, size);
+            var bytecode = reader.ReadBytes(Length(reader));
             stream._shaders.Add((offset, bytecode));
             stream.ShaderBytes += bytecode.Length;
         }
 
-        for (var count = reader.ReadInt32(); count > 0; count--)
+        for (var count = Length(reader); count > 0; count--)
         {
             var offset = reader.ReadInt32();
+            CheckSlot(offset, size);
             var elements = new List<VertexElement>();
 
-            for (var element = reader.ReadInt32(); element > 0; element--)
+            for (var element = Length(reader); element > 0; element--)
             {
                 elements.Add(new VertexElement(reader.ReadString(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32()));
             }
@@ -196,11 +203,13 @@ internal sealed unsafe class DesktopStream : IDisposable
 
         foreach (var (offset, bytecode) in _shaders)
         {
+            CheckSlot(offset, _bytes.Count);
             *(nint*)(stream + offset) = Native(bytecode);
         }
 
         foreach (var (offset, elements) in _layouts)
         {
+            CheckSlot(offset, _bytes.Count);
             *(nint*)(stream + offset) = InputElements(elements);
         }
 
@@ -236,6 +245,34 @@ internal sealed unsafe class DesktopStream : IDisposable
     {
         Release();
         _identity.Dispose();
+    }
+
+    /// <summary>A count or length read from a stream: not negative and not past what is left of it.</summary>
+    private static int Length(BinaryReader reader)
+    {
+        int length = reader.ReadInt32();
+
+        if (length < 0 || length > reader.BaseStream.Length - reader.BaseStream.Position)
+        {
+            throw new InvalidDataException($"a length of {length} in a pipeline stream");
+        }
+
+        return length;
+    }
+
+    /// <summary>A pointer-sized field at <paramref name="offset"/> lies inside a stream of <paramref name="size"/> bytes.</summary>
+    private static void CheckPointer(int offset, int size)
+    {
+        if (offset < 0 || offset > size - PipelineLayout.PointerSize)
+        {
+            throw new InvalidDataException($"a pointer at {offset} in a pipeline stream of {size} bytes");
+        }
+    }
+
+    /// <summary>A pointer and its size (D3D12_SHADER_BYTECODE, D3D12_INPUT_LAYOUT_DESC) at <paramref name="offset"/> lie inside the stream.</summary>
+    private static void CheckSlot(int offset, int size)
+    {
+        CheckPointer(offset, size - PipelineLayout.PointerSize);
     }
 
     /// <summary>A native D3D12_INPUT_ELEMENT_DESC table: semantic name pointer, then the six u32 fields.</summary>
