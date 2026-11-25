@@ -255,6 +255,8 @@ internal sealed class OnDemandStart
         workers.Start();
         log.Detail($"  [d3d12_xs] programs on demand: {folder}, {Jobs} threads and one for heavy compiles, {slow.Count} sources slow at -O3");
 
+        ShimContext.ActiveRuntime?.D3D12X.Bindings.Window.StaticSamplers.AddFolder(folder);
+
         ProgramHosting? hosting = null;
 
         if (_runner is CompileHost host && _backend is not null)

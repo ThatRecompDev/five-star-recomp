@@ -32,7 +32,18 @@ internal static class SkippedPipelines
     /// <summary>True when the pipeline of <paramref name="names"/> is skipped; the first time, logged.</summary>
     public static bool Skips(string names)
     {
-        var text = Match(names, Texts);
+        return Skips(names, Texts);
+    }
+
+    /// <summary>True when one of <paramref name="texts"/> skips the pipeline of <paramref name="names"/>; the first time, logged.</summary>
+    public static bool Skips(string names, IReadOnlyList<string> texts)
+    {
+        if (RayTracingPrograms.Skips(names))
+        {
+            return true;
+        }
+
+        var text = Match(names, texts);
 
         if (text is null)
         {
@@ -41,7 +52,7 @@ internal static class SkippedPipelines
 
         if (Logged.TryAdd(names, 0))
         {
-            ShimContext.Runtime.Log.Warn($"[d3d12_xs] pipeline {names} skipped (--skip-pipelines {text}): it stays a stand-in and its draws are skipped");
+            ShimContext.Log?.Warn($"[d3d12_xs] pipeline {names} skipped (--skip-pipelines {text}): it stays a stand-in and its draws are skipped");
         }
 
         return true;

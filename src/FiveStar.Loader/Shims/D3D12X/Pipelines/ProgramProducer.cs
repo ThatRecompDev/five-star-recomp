@@ -51,6 +51,7 @@ internal sealed class ProgramProducer
     {
         _programs = programs;
         _folder = folder;
+        RayTracingPrograms.Folder = folder;
         _picker = picker;
         _compiler = compiler;
         _slow = slow;
@@ -164,8 +165,10 @@ internal sealed class ProgramProducer
             hlsl = DebugLayer.PoolStoreTrace.Header(name) + hlsl;
         }
 
+        RayTracingPrograms.Note(name, hlsl, _folder);
         hlsl = Probed(name, hlsl);
         NoteCost(name, hlsl);
+        StaticSampler.Keep(_folder, hlsl);
 
         if (hlsl.Length == 0)
         {
@@ -372,10 +375,19 @@ internal sealed class ProgramProducer
     /// <summary>
     /// A superstep program's cost, once: its wave-operation stops and its round bound (SuperstepWriter's comment). A round
     /// is a group barrier and a run of the dispatch switch, so stops x rounds tells a program that may outlast the
-    /// driver's timeout (w33: MSNC_VS_LinearDepthSkin_f1f2249c, 1,218 stops, DEVICE_HUNG on its first dispatch).
+    /// driver's timeout (w33: MSNC_VS_LinearDepthSkin_f1f2249c, 1,218 stops, DEVICE_HUNG on its first dispatch). A program
+    /// --fast-waves runs approximately is noted too, with why the exact analysis refused it.
     /// </summary>
     private static void NoteCost(string name, string hlsl)
     {
+        int fast = hlsl.IndexOf(FiveStar.Shaders.Translation.TranslationOptions.FastWavesComment, StringComparison.Ordinal);
+
+        if (fast >= 0)
+        {
+            // --fast-waves: the program runs natively on narrower waves, approximately.
+            Note($"fast-waves-{name}", $"[d3d12_xs] fast waves {name}: {hlsl[fast..hlsl.IndexOf('\n', fast)]}");
+        }
+
         int at = hlsl.IndexOf(FiveStar.Shaders.Translation.TranslationOptions.SuperstepCostComment, StringComparison.Ordinal);
 
         if (at < 0)
@@ -385,10 +397,17 @@ internal sealed class ProgramProducer
 
         int start = at + FiveStar.Shaders.Translation.TranslationOptions.SuperstepCostComment.Length;
         int end = hlsl.IndexOf('\n', start);
-        string message = $"[d3d12_xs] superstep program {name}: {hlsl[start..end]}";
-        var runtime = ShimContext.Active;
+        Note($"superstep-{name}", $"[d3d12_xs] superstep program {name}: {hlsl[start..end]}");
+    }
 
-        // The warm-up has no runtime: asking for one threw, and every superstep program it made failed with that.
+    /// <summary>
+    /// A note once per key through the runtime's warnings, or the log in the warm-up, which has no runtime: asking for
+    /// one threw, and every superstep program a cold warm-up made failed with that.
+    /// </summary>
+    private static void Note(string key, string message)
+    {
+        var runtime = ShimContext.ActiveRuntime;
+
         if (runtime is null)
         {
             ShimContext.Log?.Info($"  {message}");
@@ -396,7 +415,7 @@ internal sealed class ProgramProducer
             return;
         }
 
-        runtime.D3D12X.Warnings.Warn($"superstep-{name}", message);
+        runtime.D3D12X.Warnings.Warn(key, message);
     }
 
     /// <summary>A --probe-pipeline program's source with the probe code (empty when it cannot take it); any other as it is.</summary>

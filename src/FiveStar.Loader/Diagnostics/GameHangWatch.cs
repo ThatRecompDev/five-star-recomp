@@ -47,6 +47,7 @@ internal sealed unsafe class GameHangWatch
     private const double StallSeconds = 2;
 
     private readonly ThreadStacks _stacks;
+    private readonly ImageTable _images;
     private readonly Func<string> _counters;
     private readonly Func<ulong, ulong, string> _fenceWait;
     private readonly LoaderLog _log;
@@ -55,6 +56,7 @@ internal sealed unsafe class GameHangWatch
     private GameHangWatch(ImageTable images, Func<string> counters, Func<ulong, ulong, string> fenceWait, LoaderLog log)
     {
         _stacks = new ThreadStacks(images, MaxFrames);
+        _images = images;
         _counters = counters;
         _fenceWait = fenceWait;
         _log = log;
@@ -120,7 +122,19 @@ internal sealed unsafe class GameHangWatch
             string stall = BlockingWaits.Summary("loader waits since the heartbeat last moved, all threads", BlockingWaits.Snapshot(), waitsAtBeat);
             _log.Info($"{Prefix}{now:F1} s: heartbeat still for {now - beatAt:F1} s; {stall}; {BlockingWaits.Summary()}; {_counters()}");
             _stacks.Log(_log, Prefix);
+            LogWaitObjects();
             LogFenceWaits();
+        }
+    }
+
+    /// <summary>The game's events and semaphores that blocked threads wait on (<see cref="WaitObjects"/>), when any.</summary>
+    private void LogWaitObjects()
+    {
+        string report = WaitObjects.Report(_images, Prefix);
+
+        if (report.Length != 0)
+        {
+            _log.Info(report);
         }
     }
 
