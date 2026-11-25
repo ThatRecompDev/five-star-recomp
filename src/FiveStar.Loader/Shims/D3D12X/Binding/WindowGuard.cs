@@ -16,7 +16,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Binding;
 /// sink dword after the table. At every captured present the programs that dropped stores since the last are logged.
 /// Such stores come from pointers built from a V# base that holds a heap index, and from 32-bit table pointers. A cap
 /// table follows (<see cref="CapDefine"/>): per program {id, threads past the superstep block cap, groups past the
-/// round bound}, logged likewise, so a program whose loop runs to the caps (a garbage trip count) is named.
+/// round bound, waves past the loop cap}, logged likewise. A cap only keeps the device alive while a wrong input or a
+/// translation bug runs a loop on; every hit is named so that its cause is found and fixed.
 /// </summary>
 internal static unsafe class WindowGuard
 {
@@ -46,16 +47,16 @@ internal static unsafe class WindowGuard
     /// <summary>A slot: the program id, then its drops.</summary>
     private const uint SlotDwords = 2;
 
-    /// <summary>A cap slot: the program id, threads past the block cap, groups past the round bound, unused.</summary>
+    /// <summary>A cap slot: the program id, threads past the block cap, groups past the round bound, waves past the loop cap.</summary>
     private const uint CapSlotDwords = 4;
     private const int BlockDword = 1;
     private const int RoundDword = 2;
+    private const int LoopDword = 3;
     private const int Shown = 12;
     private const string Prefix = "  [window guard] ";
 
     private static readonly uint[] Reported = new uint[Slots];
-    private static readonly uint[] ReportedBlocks = new uint[Slots];
-    private static readonly uint[] ReportedRounds = new uint[Slots];
+    private static readonly CapCounts ReportedCaps = new(new uint[Slots], new uint[Slots], new uint[Slots]);
     private static Dictionary<uint, string>? _names;
 
     /// <summary>Whether programs made on demand drop their stores into the window.</summary>
@@ -122,8 +123,8 @@ internal static unsafe class WindowGuard
     }
 
     /// <summary>
-    /// Logs the programs that ran into the superstep caps since the last report: threads past the block cap and groups
-    /// past the round bound, by name; nothing when none did. The GPU is idle.
+    /// Logs the programs that ran into a cap since the last report: threads past the superstep block cap, groups past
+    /// the round bound and waves past the loop cap, by name; nothing when none did. The GPU is idle.
     /// </summary>
     public static void ReportCaps(long present, LoaderLog log)
     {
@@ -134,7 +135,7 @@ internal static unsafe class WindowGuard
             return;
         }
 
-        var hits = CapHits((uint*)(window + Base + CapOffset), ReportedBlocks, ReportedRounds);
+        var hits = CapHits((uint*)(window + Base + CapOffset), ReportedCaps);
 
         if (hits.Count == 0)
         {
@@ -142,33 +143,34 @@ internal static unsafe class WindowGuard
         }
 
         var names = Names();
-        var text = new StringBuilder($"{Prefix}present {present}: {hits.Count} programs ran into the superstep caps:");
+        var text = new StringBuilder($"{Prefix}present {present}: {hits.Count} programs ran into a cap (a wrong input or translation to fix):");
 
-        foreach (var (id, blocks, rounds) in hits.OrderByDescending(hit => hit.Blocks + hit.Rounds).Take(Shown))
+        foreach (var hit in hits.OrderByDescending(hit => (long)hit.Blocks + hit.Rounds + hit.Loops).Take(Shown))
         {
-            text.Append($"\n{Prefix}  {names.GetValueOrDefault(id, $"program 0x{id:x8}")}: {blocks} threads past the block cap, {rounds} groups past the round bound");
+            var name = names.GetValueOrDefault(hit.Id, $"program 0x{hit.Id:x8}");
+            text.Append($"\n{Prefix}  {name}: {hit.Blocks} threads past the block cap, {hit.Rounds} groups past the round bound, {hit.Loops} waves past the loop cap");
         }
 
         log.Warn(text.ToString());
     }
 
     /// <summary>
-    /// The programs of the cap <paramref name="table"/> whose counts grew since <paramref name="blocks"/> and
-    /// <paramref name="rounds"/> (the counts last seen, updated): {id, new block-cap threads, new round-bound groups}.
+    /// The programs of the cap <paramref name="table"/> whose counts grew since <paramref name="seen"/> (the counts last
+    /// seen, updated): the program id and the new block-cap threads, round-bound groups and loop-cap waves.
     /// </summary>
-    public static List<(uint Id, uint Blocks, uint Rounds)> CapHits(uint* table, uint[] blocks, uint[] rounds)
+    public static List<CapHit> CapHits(uint* table, CapCounts seen)
     {
-        var hits = new List<(uint Id, uint Blocks, uint Rounds)>();
+        var hits = new List<CapHit>();
 
         for (uint slot = 0; slot < Slots; slot++)
         {
             uint* entry = table + (slot * CapSlotDwords);
-            var (block, round) = (entry[BlockDword] - blocks[slot], entry[RoundDword] - rounds[slot]);
-            (blocks[slot], rounds[slot]) = (entry[BlockDword], entry[RoundDword]);
+            var hit = new CapHit(entry[0], entry[BlockDword] - seen.Blocks[slot], entry[RoundDword] - seen.Rounds[slot], entry[LoopDword] - seen.Loops[slot]);
+            (seen.Blocks[slot], seen.Rounds[slot], seen.Loops[slot]) = (entry[BlockDword], entry[RoundDword], entry[LoopDword]);
 
-            if (block != 0 || round != 0)
+            if (hit.Blocks != 0 || hit.Rounds != 0 || hit.Loops != 0)
             {
-                hits.Add((entry[0], block, round));
+                hits.Add(hit);
             }
         }
 

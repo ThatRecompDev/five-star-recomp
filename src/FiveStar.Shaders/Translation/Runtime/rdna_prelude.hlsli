@@ -129,9 +129,11 @@ void window_guard_count() {
     m.InterlockedAdd(slot + 4u, 1u);
 }
 #endif
-// ---- Superstep caps (with the window guard, FIVESTAR_CAP_TABLE is the byte offset of its table in the window): a
-// thread that ran out of blocks (kind 0) or a group that ran out of rounds (kind 1, counted by thread 0) is counted
-// in slot FIVESTAR_PROGRAM_ID & 1023: {program id, threads past the block cap, groups past the round bound, 0}.
+// ---- Caps (with the window guard, FIVESTAR_CAP_TABLE is the byte offset of its table in the window): a thread that
+// ran out of superstep blocks (kind 0), a group that ran out of rounds (kind 1, counted by thread 0) and a wave whose
+// lanes spent the loop cap (kind 2, counted by its first active lane) are counted in slot FIVESTAR_PROGRAM_ID & 1023:
+// {program id, threads past the block cap, groups past the round bound, waves past the loop cap}. A cap keeps the
+// device alive; the loader names every program that reaches one, so the input or translation behind it gets fixed.
 #ifdef FIVESTAR_CAP_TABLE
 void ss_cap_hit(uint kind) {
     RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
@@ -142,6 +144,10 @@ void ss_cap_hit(uint kind) {
 #else
 void ss_cap_hit(uint kind) {}
 #endif
+void loop_cap_hit(uint guard, uint cap) {   // structured loop number guard spent the invocation's loop cap
+    TRACE_GUARD(guard, cap);
+    if (WaveIsFirstLane()) ss_cap_hit(2u);
+}
 uint PtrLoad(uint lo, uint hi, uint off) {   // off is signed (a dword offset or an SMEM offset)
     uint2 a = ptr_add(lo, hi, 0u, asint(off));
     if (hi == 0u) return MemLoad(a.x, 0u);
