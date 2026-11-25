@@ -13,11 +13,20 @@ uint user_sgpr(uint i) { return g_user4[i >> 2][i & 3]; }
 #endif
 static const uint GPU_MEM_HEAP = 0;                            // raw window of the loader's 32-bit space, RW view at + 1
 static const uint GPU_MAP_HEAP = 7;                            // address map of game memory (raw SRV)
+static const uint VIEW_SLOTS = 1000000u;                       // the desktop view heap (DescriptorWindow.MaxViews)
+static const uint SAMPLER_SLOTS = 2048u;                       // the desktop sampler heap (DescriptorWindow.MaxSamplers)
 static const uint GPU_MAP_SPANS = 0x8000u;                     // 4 GiB spans of the 47-bit address space
 static const uint STATIC_SAMPLER_BASE = 2032;                  // runtime-created samplers for literal S#s
 static const uint PC_END = 0xffffffffu;
 static const uint PC_YIELD = 0xfffffffeu;                      // mesh shaders: s_barrier yield point
 static const uint CODE_TAG = 0xc0de0000u;                       // pointer hi-word for PC-relative (embedded) data
+
+// A descriptor index a program read from memory names a slot inside its heap: past the end it names the null SRV or
+// UAV the address map uses for unmapped pages, and a sampler past the end the last sampler. Without the clamp a stray
+// index reads outside the heap (VIctory's port of the same game saw NVIDIA hang and AMD fault on it).
+uint view_slot(uint i) { return i < VIEW_SLOTS ? i : GPU_MAP_HEAP + 1u; }
+uint uav_slot(uint i) { return i < VIEW_SLOTS ? i : GPU_MAP_HEAP + 2u; }
+uint sampler_slot(uint i) { return min(i, SAMPLER_SLOTS - 1u); }
 
 uint MemLoad(uint ptr_lo, uint off) {
     ByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP];
@@ -127,6 +136,14 @@ uint PtrLoad(uint lo, uint hi, uint off) {   // off is signed (a dword offset or
     ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(p.x)];
     return b.Load(p.y & ~3u);
 }
+// An S#'s dword through a 32-bit pointer: relative to the sampler heap, whose records start at SAMPLER_WINDOW_BASE in
+// the window (DescriptorWindow.SamplerBase); a view's 32-bit pointer is relative to the view heap, whose records start
+// at 0. Scaleform's FTexTG programs read their S# at a root constant + index * 16 (SamplerLoads).
+static const uint SAMPLER_WINDOW_BASE = 0x04008000u;
+uint SamplerPtrLoad(uint lo, uint hi, uint off) {
+    if (hi == 0u) return MemLoad(SAMPLER_WINDOW_BASE + lo, off);
+    return PtrLoad(lo, hi, off);
+}
 void PtrStore(uint lo, uint hi, uint off, uint v) {
     uint2 a = ptr_add(lo, hi, 0u, asint(off));
 #ifdef FIVESTAR_WINDOW_GUARD
@@ -189,16 +206,16 @@ uint sbuf_limit(uint d1, uint d2) {
 }
 
 uint BufLoad(uint heap_index, uint off) {
-    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
+    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(view_slot(heap_index))];
     return b.Load(off & ~3u);
 }
 uint BufLoadRW(uint heap_index, uint off) {   // load through a UAV slot (buffer also written by this shader)
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
+    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
     return b.Load(off & ~3u);
 }
 void BufStore(uint heap_index, uint off, uint v) {
     TRACE_VIEW(heap_index, off, v);
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
+    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
     b.Store(off & ~3u, v);
 }
 
@@ -412,7 +429,7 @@ uint fmt_component(uint4 w, uint field, uint num, uint missing) {
     return select((field >> 8) != 0u, fmt_convert(fmt_field(w, field), field >> 8, num), missing);
 }
 uint4 FmtLoad(uint heap_index, uint addr, uint code) {
-    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
+    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(view_slot(heap_index))];
     uint base = addr & ~3u, sh = (addr & 3u) * 8u;
     uint4 w = b.Load4(base); uint w4 = b.Load(base + 16);
     uint4 shifted = (w >> sh) | (uint4(w.yzw, w4) << ((32u - sh) & 31u));
@@ -505,7 +522,7 @@ uint enc_num(float f, uint bits, uint num) {
     return 0;
 }
 void FmtStore(uint heap_index, uint addr, uint code, uint4 v, uint n) {
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
+    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
     uint layout = code >> 3, num = code & 7;
     bool ints = num == 4 || num == 5;
     uint4 c = v;

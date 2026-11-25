@@ -164,7 +164,11 @@ internal sealed unsafe class ShaderVisibleHeap
         Mirror(destination, count);
     }
 
-    /// <summary>A table at <paramref name="index"/> of up to <paramref name="extent"/> descriptors: its records mirrored, its window pointer returned.</summary>
+    /// <summary>
+    /// A table at <paramref name="index"/> of up to <paramref name="extent"/> descriptors: its records mirrored, its
+    /// pointer returned, relative to its heap as on the console (the view records start at window offset 0; a program
+    /// reads an S# through a 32-bit pointer from the sampler records, prelude SamplerPtrLoad).
+    /// </summary>
     [HotPath]
     public uint Table(uint index, uint extent)
     {
@@ -177,7 +181,7 @@ internal sealed unsafe class ShaderVisibleHeap
 
         Mirror(index, extent);
 
-        return _layout.Base + (index * _layout.RecordBytes);
+        return index * _layout.RecordBytes;
     }
 
     [HotPath]

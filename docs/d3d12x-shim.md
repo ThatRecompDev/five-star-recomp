@@ -520,7 +520,11 @@ flowchart LR
   meshlet V# at root constant 2 (the game sets 0) + (root constant 0 & 0x3ff) × 32, game index 147. With the view
   records at 0x10000 that address read sampler record 0x126 and every typed load through the V# failed its range
   check (w26); with them at 0 it reads the descriptor's record (VIctory models the console the same way, THIRD_PARTY_NOTICES.md: tables are
-  byte offsets in their heap, the heap pointer is 0). Dwords 0 to 3 of each mirror those
+  byte offsets in their heap, the heap pointer is 0). The sampler heap is a space of its own, also based at 0:
+  Scaleform's FTexTG programs read their S# at a root constant + index × 16, so an S# load through a 32-bit pointer
+  reads the sampler records (shader-translation.md, `SamplerPtrLoad`), and a sampler table's pointer is index × 16.
+  With the sampler records at 0x4008000 and no such split, w27's front-end UI read view records as S#s and the device
+  was removed. Dwords 0 to 3 of each mirror those
   of the title record: the desktop index (a record naming no desktop descriptor reads 5) and a buffer view's V#
   dwords 1 to 3 (below). A table's user SGPR is the window offset of its
   first record (base + (handle - title start) / increment × record size, for views the heap-relative address), so a program's `MemLoad(table + k * 32)`
