@@ -16,6 +16,10 @@ public sealed unsafe class ImageViewClassesTests
     private const int R32Sint = 43;
     private const int Texture2D = 4;
 
+    /// <summary>R32_UINT, the light targets' format, and R9G9B9E5_SHAREDEXP, the game's view of them.</summary>
+    private const int R32Uint = 42;
+    private const int SharedExponent = 67;
+
     [Fact]
     public void A_texture_views_record_names_its_class_and_a_buffer_views_keeps_its_format()
     {
@@ -34,6 +38,31 @@ public sealed unsafe class ImageViewClassesTests
 
             ImageViewClasses.Enabled = false;
             Assert.Equal(ImageViewClasses.Float, Class(R8Uint));
+        }
+        finally
+        {
+            ImageViewClasses.Enabled = false;
+        }
+    }
+
+    /// <summary>
+    /// The game writes light as R9G9B9E5 bits into R32_UINT targets and views them in R9G9B9E5: the desktop view stays
+    /// R32_UINT (no view of that texture can be R9G9B9E5) and the record's class has the program decode the bits.
+    /// </summary>
+    [Fact]
+    public void A_shared_exponent_view_of_an_R32_UINT_texture_is_decoded_by_the_program()
+    {
+        try
+        {
+            ImageViewClasses.Enabled = true;
+
+            Assert.Equal(R32Uint, FiveStar.Loader.Shims.D3D12X.Resources.ViewFormats.ForView(R32Uint, SharedExponent));
+            Assert.Equal(ImageViewClasses.SharedExponent, ImageViewClasses.Read(BufferRecord.None, SharedExponent, R32Uint).Word3);
+            Assert.Equal(ImageViewClasses.Float, ImageViewClasses.Read(BufferRecord.None, SharedExponent, SharedExponent).Word3);
+            Assert.Equal(ImageViewClasses.Float, ImageViewClasses.Read(BufferRecord.None, Rgba8Unorm, R32Uint).Word3);
+
+            ImageViewClasses.Enabled = false;
+            Assert.Equal(ImageViewClasses.Float, ImageViewClasses.Read(BufferRecord.None, SharedExponent, R32Uint).Word3);
         }
         finally
         {
