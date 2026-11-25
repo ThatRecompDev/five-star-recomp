@@ -30,6 +30,13 @@ public sealed class FrameLogTests
 
             var (submit, refresh) = FrameLog.Take();
             Assert.True(refresh > 0 && submit >= refresh);
+
+            // Taken in every ExecuteCommandLists: no allocation per submission.
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            FrameLog.AddSubmit(FrameLog.Start());
+            FrameLog.AddRefresh(FrameLog.Start());
+            FrameLog.Take();
+            Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
             Assert.Equal((0L, 0L), FrameLog.Take());
         }
         finally
@@ -52,7 +59,7 @@ public sealed class FrameLogTests
             var times = new FrameTimes(612.4, 600.1, 257.0, 12.5, 4.7, 102.0, 12.3, 0, 0.5, 1.2, 10.6, 48.3);
             string line = FrameLog.Line(61, times);
 
-            Assert.Equal("  [frame] present 61: 612.4 ms = game 600.1 (our submit path 257.0, of it texture refresh 12.5; descriptor mirroring 4.7; GC pauses 102.0, 48.3 MB allocated) + present 12.3 (latency wait 0.0, retire wait 0.5, copy submit 1.2, Present 10.6)", line);
+            Assert.Equal("  [frame] present 61: 612.4 ms = game 600.1 (our submit path 257.0, of it texture refresh 12.5; descriptor mirroring 4.7; GC pauses 102.0 in 0/0/0 collections of gen 0/1/2, 48.3 MB allocated) + present 12.3 (latency wait 0.0, retire wait 0.5, copy submit 1.2, Present 10.6)", line);
         }
         finally
         {

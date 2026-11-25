@@ -27,6 +27,10 @@ internal sealed class PresentTimeline
     private const int Lines = 64;
     private const double MillisecondsPerSecond = 1000.0;
     private const double BytesPerMegabyte = 1024.0 * 1024.0;
+    private const int Gen0 = 0;
+    private const int Gen1 = 1;
+    private const int Gen2 = 2;
+    private const int Generations = 3;
 
     private readonly LoaderLog _log;
     private readonly long[] _marks = new long[Phases];
@@ -38,6 +42,7 @@ internal sealed class PresentTimeline
     private long _previousWaited;
     private long _previousMirroring;
     private long _previousAllocated;
+    private readonly int[] _previousCollections = new int[Generations];
     private int _lines;
 
     public PresentTimeline(LoaderLog log)
@@ -114,6 +119,7 @@ internal sealed class PresentTimeline
         long allocated = GC.GetTotalAllocatedBytes();
         long allocatedFrame = allocated - _previousAllocated;
         _previousAllocated = allocated;
+        var (gen0, gen1, gen2) = (Collections(Gen0), Collections(Gen1), Collections(Gen2));
         double frame = Milliseconds(now - _previousExit);
 
         if (!FrameLog.Logs(presents, frame, SlowMilliseconds))
@@ -123,8 +129,18 @@ internal sealed class PresentTimeline
 
         double present = Milliseconds(now - _entered);
         var times = new FrameTimes(frame, Milliseconds(_entered - _previousExit), Milliseconds(submit), Milliseconds(refresh), Milliseconds(mirrored),
-            (pause - _previousPause).TotalMilliseconds, present, Milliseconds(_marks[LatencyWait]), Milliseconds(_marks[RetireWait]), Milliseconds(_marks[Submit]), Milliseconds(_marks[Present]), allocatedFrame / BytesPerMegabyte);
+            (pause - _previousPause).TotalMilliseconds, present, Milliseconds(_marks[LatencyWait]), Milliseconds(_marks[RetireWait]), Milliseconds(_marks[Submit]), Milliseconds(_marks[Present]), allocatedFrame / BytesPerMegabyte, gen0, gen1, gen2);
         _log.Info(FrameLog.Line(presents, times));
+    }
+
+    /// <summary>Collections of <paramref name="generation"/> since the last call (a gen 2 one counts in 0 and 1 too).</summary>
+    private int Collections(int generation)
+    {
+        int count = GC.CollectionCount(generation);
+        int since = count - _previousCollections[generation];
+        _previousCollections[generation] = count;
+
+        return since;
     }
 
     private static double Milliseconds(long ticks)

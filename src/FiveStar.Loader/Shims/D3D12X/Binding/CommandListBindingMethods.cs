@@ -298,11 +298,17 @@ internal static unsafe class CommandListBindingMethods
         }
     }
 
-    /// <summary>Before a draw, dispatch or ExecuteIndirect: its pass's timestamp (<c>--gpu-timings</c>) and the bound tables' views (<c>--check-view-liveness</c>).</summary>
+    /// <summary>
+    /// Before a draw, dispatch or ExecuteIndirect: its pass's timestamp (<c>--gpu-timings</c>; an ExecuteIndirect takes it
+    /// after its argument clamp, <paramref name="timed"/> false) and the bound tables' views (<c>--check-view-liveness</c>).
+    /// </summary>
     [HotPath]
-    private static void BeforeWork(XboxObject* self, bool compute)
+    private static void BeforeWork(XboxObject* self, bool compute, bool timed = true)
     {
-        GpuTimings.Work((nint)self, self->Inner, compute, ListActivity.Of(self)->Pipeline);
+        if (timed)
+        {
+            GpuTimings.Work((nint)self, self->Inner, compute, ListActivity.Of(self)->Pipeline);
+        }
 
         if (NanScan.Enabled)
         {
@@ -313,6 +319,13 @@ internal static unsafe class CommandListBindingMethods
         {
             ViewLiveness.Check(self, compute);
         }
+    }
+
+    /// <summary>An unclamped ExecuteIndirect's pass timestamp, right before it runs (a clamped one's: <see cref="IndirectClamp.Record"/>).</summary>
+    [HotPath]
+    private static void TimeIndirect(XboxObject* self, nint signature)
+    {
+        GpuTimings.Work((nint)self, self->Inner, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind, ListActivity.Of(self)->Pipeline);
     }
 
     [HotPath]
@@ -439,11 +452,10 @@ internal static unsafe class CommandListBindingMethods
             FlushForIndirect(self, signature);
             ListActivity.Of(self)->Indirect++;
             GpuBreadcrumbs.BeforeIndirect(self, signature, maxCount, ArgumentAddress(arguments, argumentOffset), (uint)argumentOffset);
-            BeforeWork(self, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind);
+            BeforeWork(self, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind, timed: false);
             var trace = ShimContext.Runtime.D3D12X.DrawTrace;
             trace?.Indirect(self, maxCount, ArgumentAddress(arguments, argumentOffset), CommandSignatures.Clampable(signature).Stride, count != 0, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind);
 
-            var objects = ShimContext.Runtime.D3D12X.Objects;
             nint inner = self->Inner;
             var execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
 
@@ -460,14 +472,15 @@ internal static unsafe class CommandListBindingMethods
                 RestoreCompute(self);
                 inner = self->Inner;
                 execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
-                execute(inner, objects.Unwrap(signature), maxCount, scratch, scratchOffset, countBuffer, countOffset);
+                execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, scratch, scratchOffset, countBuffer, countOffset);
                 IndirectClamp.Done(self, scratch);
                 trace?.AfterIndirect(self);
 
                 return;
             }
 
-            execute(inner, objects.Unwrap(signature), maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+            TimeIndirect(self, signature);
+            execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
             trace?.AfterIndirect(self);
         }
         catch (Exception exception)
