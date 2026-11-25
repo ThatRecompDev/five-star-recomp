@@ -49,13 +49,27 @@ internal static unsafe class ReturnAddresses
             nint value = *slot;
             var image = images.FindByAddress(value);
 
-            if (image is not null && value - IndirectCall >= image.Base && AfterCall((byte*)value))
+            if (image is not null && value - IndirectCall >= image.Base && CallBytesReadable(value) && AfterCall((byte*)value))
             {
                 found.Add(value);
             }
         }
 
         return [.. found];
+    }
+
+    /// <summary>
+    /// Whether the 6 bytes before <paramref name="value"/> are committed: an image's range has pages that are not (a section
+    /// window unmapped, a discarded section), and a read there killed a boot inside a wait.
+    /// </summary>
+    internal static bool CallBytesReadable(nint value)
+    {
+        ulong first = (ulong)(value - IndirectCall);
+        ulong last = (ulong)(value - 1);
+        ulong page = (ulong)Environment.SystemPageSize;
+        bool samePage = first / page == last / page;
+
+        return GameHangWatch.IsReadable(first) && (samePage || GameHangWatch.IsReadable(last));
     }
 
     /// <summary>Whether the bytes before <paramref name="address"/> end a call instruction (6 readable bytes before it).</summary>
