@@ -12,11 +12,20 @@ namespace FiveStar.Loader.Tests;
 /// </summary>
 public sealed class RayTracingProgramsTests : IDisposable
 {
-    private const string Tracing = "sgd1_0e14c743_t41_standard_doublesided~CS_RaytracingResolve_b1139868_Wrapped";
-    private const string Earlier = "sgd1_0f2cdead_t32_rtdirectionalshadows~CS_TraceShadows_12345678_Wrapped";
+    private const string Tracing = "sgd1_0c2a3b4b_t41_indirect_diffuse_lighting~CS_ScreenProbes_TraceRays_43a82a92_Wrapped";
+    private const string Earlier = "sgd1_0d458407_t41_shadowmask~CS_TraceShadowRays_Checkerboard_c568be8a_Wrapped";
     private const string Plain = "sgd1_0b7ec5e0_t32_PS_LinearDepthOpaque_f1f2249c_Wrapped";
 
     private readonly string _folder = Directory.CreateTempSubdirectory("fivestar-rt-").FullName;
+
+    [Fact]
+    public void A_program_that_only_serves_ray_tracing_stays_a_stand_in_by_its_name()
+    {
+        Assert.True(RayTracingPrograms.Skips("sgd1_0be781f2_t32_bvh_skinning~CSComputeSkinningDefaultVelocity_1c34db0a_Wrapped", _folder, scanner: null));
+        Assert.True(RayTracingPrograms.Skips("sgd1_0e14c743_t41_standard_doublesided~CS_RaytracingResolve_b1139868_Wrapped", _folder, scanner: null));
+        Assert.True(RayTracingPrograms.Skips("sgd1_0d11f39a_t41_rtdirectionalshadows~CS_RTDistantShadowFinalUpsample_588514d8_Wrapped", _folder, scanner: null));
+        Assert.False(RayTracingPrograms.Skips("sgd1_0d4187bb_t32_shadowmask~CS_ClearShadowMask_6367c9e9_Wrapped", _folder, scanner: null));
+    }
 
     [Fact]
     public void A_pipeline_whose_programs_trace_rays_stays_a_stand_in()
@@ -43,7 +52,7 @@ public sealed class RayTracingProgramsTests : IDisposable
     {
         // Found compiled with no marker: a game thread's check (no scanner) builds it, the check before a build reads
         // its code once, marks it and holds it; the next boot reads the marker.
-        const string Old = "sgd1_0e2b1ac5_t41_standard_emissive_layer~CS_RaytracingResolve_f21e9178_Wrapped";
+        const string Old = "sgd1_0c075372_t41_deferred_tiled~CS_LaserLightShadowRaytracing_c3ab3042_Wrapped";
         const string Lit = "sgd1_0b12c1ad_t32_TL_PS_PBR_MATERIAL_STANDARD_42ad1e50_Wrapped";
         int scans = 0;
 

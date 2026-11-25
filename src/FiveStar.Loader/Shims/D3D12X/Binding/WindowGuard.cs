@@ -17,7 +17,9 @@ namespace FiveStar.Loader.Shims.D3D12X.Binding;
 /// Such stores come from pointers built from a V# base that holds a heap index, and from 32-bit table pointers. A cap
 /// table follows (<see cref="CapDefine"/>): per program {id, threads past the superstep block cap, groups past the
 /// round bound, waves past the loop cap}, logged likewise. A cap only keeps the device alive while a wrong input or a
-/// translation bug runs a loop on; every hit is named so that its cause is found and fixed.
+/// translation bug runs a loop on; every hit is named so that its cause is found and fixed. A span table follows
+/// (<see cref="SpanDefine"/>): per program {id, stores and atomics through a high dword past the user space}, which reach
+/// nothing (they used to alias into a mapped span of game memory).
 /// </summary>
 internal static unsafe class WindowGuard
 {
@@ -36,8 +38,14 @@ internal static unsafe class WindowGuard
     /// <summary>The cap table's offset from <see cref="Base"/>: past the store table and its sink.</summary>
     public const uint CapOffset = 0x2100;
 
-    /// <summary>The store table, its sink and the cap table (4 dwords a slot).</summary>
-    public const uint RegionBytes = CapOffset + (Slots * CapSlotDwords * sizeof(uint));
+    /// <summary>The define of the span table's window offset (rdna_prelude.hlsli, span_store).</summary>
+    public const string SpanDefine = "FIVESTAR_SPAN_GUARD";
+
+    /// <summary>The span table's offset from <see cref="Base"/>: past the cap table.</summary>
+    public const uint SpanOffset = CapOffset + (Slots * CapSlotDwords * sizeof(uint));
+
+    /// <summary>The store table, its sink, the cap table (4 dwords a slot) and the span table (2 dwords a slot).</summary>
+    public const uint RegionBytes = SpanOffset + (Slots * SlotDwords * sizeof(uint));
 
     /// <summary>Window bytes the guard needs.</summary>
     public const uint Bytes = Base + RegionBytes;
@@ -56,6 +64,7 @@ internal static unsafe class WindowGuard
     private const string Prefix = "  [window guard] ";
 
     private static readonly uint[] Reported = new uint[Slots];
+    private static readonly uint[] ReportedSpans = new uint[Slots];
     private static readonly CapCounts ReportedCaps = new(new uint[Slots], new uint[Slots], new uint[Slots]);
     private static readonly object CapGate = new();
     private static Dictionary<uint, string>? _names;
@@ -67,7 +76,7 @@ internal static unsafe class WindowGuard
     public static ProgramIndex? Index { get; set; }
 
     /// <summary>The mode define (<see cref="Pipelines.ProgramProducer.ModeHeader"/>).</summary>
-    public static string Header => $"#define {Define} {Base}u\n#define {CapDefine} {Base + CapOffset}u\n";
+    public static string Header => $"#define {Define} {Base}u\n#define {CapDefine} {Base + CapOffset}u\n#define {SpanDefine} {Base + SpanOffset}u\n";
 
     /// <summary>The define of <paramref name="name"/>'s id, for a program made with the guard (its header holds <see cref="Define"/>).</summary>
     public static string ProgramHeader(string header, string name)
@@ -90,14 +99,36 @@ internal static unsafe class WindowGuard
             return;
         }
 
+        var dropped = Drops((uint*)(window + Base), Reported);
+
+        if (dropped.Count == 0)
+        {
+            log.Info($"{Prefix}present {present}: no program stored into the window");
+        }
+        else
+        {
+            log.Info(Listing($"present {present}: {dropped.Count} programs stored into the window (dropped):", dropped));
+        }
+
+        // A store past the user space (span table) is rare and points at a wrong pointer: logged only when one happened.
+        var outside = Drops((uint*)(window + Base + SpanOffset), ReportedSpans);
+
+        if (outside.Count != 0)
+        {
+            log.Warn(Listing($"present {present}: {outside.Count} programs stored through a high dword past the user space (dropped):", outside));
+        }
+    }
+
+    /// <summary>The programs of a {id, drops} <paramref name="table"/> whose drops grew since <paramref name="seen"/> (updated).</summary>
+    private static List<(uint Id, uint Count)> Drops(uint* table, uint[] seen)
+    {
         var dropped = new List<(uint Id, uint Count)>();
-        uint* table = (uint*)(window + Base);
 
         for (uint slot = 0; slot < Slots; slot++)
         {
             uint count = table[(slot * SlotDwords) + 1];
-            uint fresh = count - Reported[slot];
-            Reported[slot] = count;
+            uint fresh = count - seen[slot];
+            seen[slot] = count;
 
             if (fresh != 0)
             {
@@ -105,22 +136,20 @@ internal static unsafe class WindowGuard
             }
         }
 
-        if (dropped.Count == 0)
-        {
-            log.Info($"{Prefix}present {present}: no program stored into the window");
+        return dropped;
+    }
 
-            return;
-        }
-
+    private static string Listing(string title, List<(uint Id, uint Count)> dropped)
+    {
         var names = Names();
-        var text = new StringBuilder($"{Prefix}present {present}: {dropped.Count} programs stored into the window (dropped):");
+        var text = new StringBuilder($"{Prefix}{title}");
 
         foreach (var (id, count) in dropped.OrderByDescending(entry => entry.Count).Take(Shown))
         {
             text.Append($"\n{Prefix}  {count} by {names.GetValueOrDefault(id, $"program 0x{id:x8}")}");
         }
 
-        log.Info(text.ToString());
+        return text.ToString();
     }
 
     /// <summary>
