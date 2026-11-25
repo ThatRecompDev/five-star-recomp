@@ -82,24 +82,45 @@ internal sealed unsafe class RectangleDraws
     }
 
     /// <summary>
-    /// Before a draw: under the rectangle list, binds the variant and counts the draw. True when the draw is to be
-    /// skipped: its variant is still building (off the game's threads), and half of each rectangle is not drawn instead.
+    /// First thing before a draw: true when it is to be skipped, since it is under the rectangle list and the variant of
+    /// its pipeline is still building (off the game's threads; the first call starts the build). The variant is bound
+    /// later, by <see cref="BeforeDraw"/>, after anything that binds the game's pipeline again (a depth-twin copy).
     /// </summary>
     [HotPath]
-    public bool BeforeDraw(XboxObject* list)
+    public bool Building(XboxObject* list)
+    {
+        var state = RectangleListState.Of(list);
+        var pipelines = Pipelines;
+
+        if (state->Topology != PrimitiveTopologies.RectangleList || state->VariantBound != 0 || pipelines is null || state->Pipeline == 0)
+        {
+            return false;
+        }
+
+        if (pipelines.Variant(state->Pipeline) != RectanglePipelines.Pending)
+        {
+            return false;
+        }
+
+        Interlocked.Increment(ref _pending);
+
+        return true;
+    }
+
+    /// <summary>Right before a draw: under the rectangle list, binds the variant and counts the draw.</summary>
+    [HotPath]
+    public void BeforeDraw(XboxObject* list)
     {
         var state = RectangleListState.Of(list);
 
         if (state->Topology != PrimitiveTopologies.RectangleList)
         {
-            return false;
+            return;
         }
 
-        if (state->VariantBound == 0 && BindVariant(list, state) == RectanglePipelines.Pending)
+        if (state->VariantBound == 0)
         {
-            Interlocked.Increment(ref _pending);
-
-            return true;
+            BindVariant(list, state);
         }
 
         if (state->VariantBound == 0)
@@ -109,37 +130,33 @@ internal sealed unsafe class RectangleDraws
                 Warn(state->Pipeline);
             }
 
-            return false;
+            return;
         }
 
         if ((Interlocked.Increment(ref _expanded) & (ReportInterval - 1)) == 0)
         {
             Report();
         }
-
-        return false;
     }
 
-    /// <summary>Binds the variant when it is built; returns what <see cref="RectanglePipelines.Variant"/> gave (0 without pipelines).</summary>
     [HotPath]
-    private nint BindVariant(XboxObject* list, RectangleListState* state)
+    private void BindVariant(XboxObject* list, RectangleListState* state)
     {
         var pipelines = Pipelines;
 
         if (pipelines is null || state->Pipeline == 0)
         {
-            return 0;
+            return;
         }
 
         nint variant = pipelines.Variant(state->Pipeline);
 
+        // Pending only if the pipeline was remembered again since Building: the draw then covers half of each rectangle.
         if (variant != 0 && variant != RectanglePipelines.Pending)
         {
             Bind(list, variant);
             state->VariantBound = 1;
         }
-
-        return variant;
     }
 
     [HotPath]
