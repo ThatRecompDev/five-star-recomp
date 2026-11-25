@@ -81,6 +81,21 @@ public sealed unsafe class DrawProbeReadbackTests
         Assert.Equal(18u, DrawProbes.PlaneSubresource(1, 3, 6));
     }
 
+    /// <summary>An R32_UINT copy tells float words (a -1.0 written into TL_PS's packed light) from zeros and small packed words.</summary>
+    [Fact]
+    public void A_uint_target_reports_its_float_like_words()
+    {
+        const int R32Uint = 42;
+        uint[] words = [0, 0, 0xBF800000, 0x00012345];
+        byte[] bytes = new byte[words.Length * sizeof(uint)];
+        Buffer.BlockCopy(words, 0, bytes, 0, bytes.Length);
+
+        string summary = DrawProbes.UintSummary(bytes, bytes.Length, words.Length, 1, R32Uint);
+
+        Assert.StartsWith("; uint zero 50.0%, float-like 25.0%, sign set 25.0%; commonest 0x00000000 50.0%", summary, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, DrawProbes.UintSummary(bytes, bytes.Length, words.Length, 1, 41));
+    }
+
     /// <summary>The world trigger captures three frames 100 presents apart, starting with the present after the first world one.</summary>
     [Fact]
     public void The_world_trigger_captures_three_frames_after_the_world_arrives()

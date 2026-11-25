@@ -40,6 +40,14 @@ internal sealed unsafe class DrawProbes
     private const int R8Uint = 62;
     private const int StencilValuesShown = 8;
     private const double Percent = 100;
+
+    /// <summary>DXGI_FORMAT_R32_UINT, and the IEEE float fields a uint word is tested against.</summary>
+    private const int R32Uint = 42;
+    private const int FloatMantissaBits = 23;
+    private const uint FloatExponentMask = 0xFF;
+    private const uint FloatSign = 0x80000000;
+    private const uint SmallestFloatExponent = 127 - 16;
+    private const uint LargestFloatExponent = 127 + 16;
     private const long BytesPerMegabyte = 1L << 20;
 
     private readonly object _gate = new();
@@ -192,7 +200,8 @@ internal sealed unsafe class DrawProbes
             var summary = ReadbackPixels.Summarize(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format, target);
 
             string floats = FloatSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format)
-                + StencilSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format);
+                + StencilSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format)
+                + UintSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format);
 
             if (summary is null)
             {
@@ -295,6 +304,57 @@ internal sealed unsafe class DrawProbes
         string top = string.Join(", ", common.Take(StencilValuesShown).Select(value => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"0x{value:x2} {counts[value] * Percent / total:F1}%")));
 
         return $"; stencil {common.Count} values: {top}";
+    }
+
+    /// <summary>
+    /// For an R32_UINT copy (TL_PS's packed light, which PS_SSSResolve decodes as three 5e5m fields): the share of zero
+    /// words, of words that read as ordinary floats (sign clear or set, exponent 2^-16 to 2^16: a float written into the
+    /// uint target, which decodes to a large R with G = B = 0), of those with the sign set, and the commonest words.
+    /// </summary>
+    public static string UintSummary(ReadOnlySpan<byte> source, int rowPitch, int width, int rows, int format)
+    {
+        if (format != R32Uint || width == 0 || rows == 0)
+        {
+            return string.Empty;
+        }
+
+        long zero = 0;
+        long floatLike = 0;
+        long negative = 0;
+        var counts = new Dictionary<uint, long>();
+
+        for (int y = 0; y < rows; y++)
+        {
+            var row = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, uint>(source.Slice(y * rowPitch, width * sizeof(uint)));
+
+            foreach (uint word in row)
+            {
+                uint exponent = (word >> FloatMantissaBits) & FloatExponentMask;
+                counts[word] = counts.GetValueOrDefault(word) + 1;
+
+                if (word == 0)
+                {
+                    zero++;
+
+                    continue;
+                }
+
+                if (exponent >= SmallestFloatExponent && exponent <= LargestFloatExponent)
+                {
+                    floatLike++;
+                }
+
+                if ((word & FloatSign) != 0)
+                {
+                    negative++;
+                }
+            }
+        }
+
+        double total = (double)width * rows;
+        string top = string.Join(", ", counts.OrderByDescending(pair => pair.Value).Take(StencilValuesShown).Select(pair => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"0x{pair.Key:x8} {pair.Value * Percent / total:F1}%")));
+
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"; uint zero {zero * Percent / total:F1}%, float-like {floatLike * Percent / total:F1}%, sign set {negative * Percent / total:F1}%; commonest {top}");
     }
 
     /// <summary>One recorded copy: its buffer and size, the copied footprint, and the game's list and generation it was copied on.</summary>
