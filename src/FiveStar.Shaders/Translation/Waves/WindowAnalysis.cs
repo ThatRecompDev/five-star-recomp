@@ -218,7 +218,7 @@ internal sealed partial class WindowAnalysis
     /// </summary>
     private bool EntersAlways(WindowBlock block, string mask, int some, int join, WindowState state)
     {
-        if (mask.Length == 0 || (mask != WindowNames.Active && state.Get(mask).Kind != MaskKind.ActiveAnd))
+        if (mask.Length == 0 || (mask != WindowNames.Active && state.Get(mask).Kind != MaskKind.ActiveAnd) || Returns(some, block.Address, join))
         {
             return false;
         }
@@ -231,6 +231,35 @@ internal sealed partial class WindowAnalysis
         _entersAlways[block.Address] = some;
 
         return true;
+    }
+
+    /// <summary>
+    /// Whether the path from <paramref name="start"/> comes back to <paramref name="branch"/> before <paramref name="join"/>:
+    /// the branch then tests a loop's exit, and a jump in its place would never leave the loop.
+    /// </summary>
+    private bool Returns(int start, int branch, int join)
+    {
+        var seen = new HashSet<int>();
+        var pending = new Stack<int>([start]);
+
+        while (pending.Count > 0)
+        {
+            var address = pending.Pop();
+
+            if (address == branch)
+            {
+                return true;
+            }
+
+            if (address == join || !seen.Add(address))
+            {
+                continue;
+            }
+
+            _graph.Find(address)?.Successors.ToList().ForEach(pending.Push);
+        }
+
+        return false;
     }
 
     /// <summary>
