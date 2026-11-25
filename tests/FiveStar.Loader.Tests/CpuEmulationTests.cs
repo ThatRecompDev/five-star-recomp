@@ -31,6 +31,7 @@ public sealed unsafe class CpuEmulationTests
     private const uint AccessViolation = 0xC0000005;
 
     private static AmdInstructionHandler? _installed;
+    private static FaultReporter? _backstop;
 
     [Theory]
     [InlineData(new byte[] { 0xF2, 0x44, 0x0F, 0x78, 0xCF, 0x08, 0x00 }, (int)AmdInstructionKind.Insertq, 7)]
@@ -173,19 +174,20 @@ public sealed unsafe class CpuEmulationTests
     }
 
     /// <summary>
-    /// The handler-order race of issue #13: a module's first handler (Bink) continues the search, and the fault reporter's
-    /// own first registration is gone at that moment (it was being moved back to the front). The backstop at the end of
-    /// the list still emulates every instruction.
+    /// The handler-order race of issue #13: a module's first handler (Bink) continues the search and the fault
+    /// reporter's first registration is not there. The backstop's answer, registered last as FaultReporter.Install
+    /// does, still emulates every instruction. (The reporter's native entry passes on faults outside the mapped images,
+    /// where the self-test's code lives, so the test registers the backstop's answer itself.)
     /// </summary>
     [Fact]
     public void The_backstop_emulates_when_another_first_handler_runs_and_ours_left_the_front()
     {
         using var test = Support.TestRuntime.Create();
-        var faults = test.Runtime.Faults;
-        faults.Install();
+        _backstop = test.Runtime.Faults;
         delegate* unmanaged<nint, int> foreign = &ContinueSearch;
+        delegate* unmanaged<nint, int> backstop = &Backstop;
+        nint last = Kernel32.AddVectoredExceptionHandler(0, (nint)backstop);
         nint bink = Kernel32.AddVectoredExceptionHandler(1, (nint)foreign);
-        _ = Kernel32.RemoveVectoredExceptionHandler(faults.FirstRegistration);
 
         try
         {
@@ -197,8 +199,22 @@ public sealed unsafe class CpuEmulationTests
         finally
         {
             _ = Kernel32.RemoveVectoredExceptionHandler(bink);
-            faults.Uninstall();
+            _ = Kernel32.RemoveVectoredExceptionHandler(last);
+            _backstop = null;
         }
+    }
+
+    [UnmanagedCallersOnly]
+    private static int Backstop(nint pointers)
+    {
+        var faults = _backstop;
+
+        if (faults is null)
+        {
+            return 0;
+        }
+
+        return faults.EmulateOnly(pointers);
     }
 
     [UnmanagedCallersOnly]

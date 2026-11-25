@@ -21,6 +21,9 @@ public sealed class RayTracingProgramsTests : IDisposable
     [Fact]
     public void A_pipeline_whose_programs_trace_rays_stays_a_stand_in()
     {
+        // Its warning goes to the active runtime's log: one of its own, not a disposed test's (a closed writer threw).
+        using var test = Support.TestRuntime.Create();
+
         RayTracingPrograms.Note(Tracing, "#include \"rdna_prelude.hlsli\"\n#include \"rdna_bvh.hlsli\"\nvoid main() {}", _folder);
         RayTracingPrograms.Note(Plain, "#include \"rdna_prelude.hlsli\"\nvoid main() {}", _folder);
 

@@ -106,21 +106,6 @@ internal sealed unsafe class FaultReporter
         _log.Info("fault reporter: vectored exception handler installed, with the AMD-only instruction emulation last as well");
     }
 
-    /// <summary>The registration at the head of the list, 0 before <see cref="Install"/>.</summary>
-    internal nint FirstRegistration => _handle;
-
-    /// <summary>Removes both registrations (tests).</summary>
-    internal void Uninstall()
-    {
-        lock (_registration)
-        {
-            _ = Kernel32.RemoveVectoredExceptionHandler(_handle);
-            _ = Kernel32.RemoveVectoredExceptionHandler(_backstop);
-            _handle = 0;
-            _backstop = 0;
-        }
-    }
-
     /// <summary>
     /// Moves the handler back to the front after mapped code added its own first handler (the game's crash handler
     /// would otherwise end the process before the fault is reported). The new registration goes in before the old one
@@ -215,12 +200,12 @@ internal sealed unsafe class FaultReporter
         {
             var runtime = ShimContext.ActiveRuntime;
 
-            if (runtime is not null && runtime.Faults._cpu.TryEmulate(pointers))
+            if (runtime is null)
             {
-                return ContinueExecution;
+                return ContinueSearch;
             }
 
-            return ContinueSearch;
+            return runtime.Faults.EmulateOnly(pointers);
         }
         catch (Exception exception)
         {
@@ -228,6 +213,17 @@ internal sealed unsafe class FaultReporter
 
             return ContinueSearch;
         }
+    }
+
+    /// <summary>What the backstop answers for a fault: continue execution when it was an AMD-only instruction now performed.</summary>
+    internal int EmulateOnly(nint pointers)
+    {
+        if (_cpu.TryEmulate(pointers))
+        {
+            return ContinueExecution;
+        }
+
+        return ContinueSearch;
     }
 
     private static bool IsFault(uint code)
