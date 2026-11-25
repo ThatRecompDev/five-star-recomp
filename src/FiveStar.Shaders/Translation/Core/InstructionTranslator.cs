@@ -182,7 +182,7 @@ internal sealed partial class InstructionTranslator
         if (operation.EndsWith("_dpp", StringComparison.Ordinal) || modifiers.Has("dpp8"))
         {
             operation = DppSuffixPattern().Replace(operation, string.Empty);
-            a = _emitters.Dpp.Apply(a, modifiers);
+            a = _emitters.Dpp.Apply(operation, a, modifiers);
         }
 
         operation = SdwaSuffixPattern().Replace(operation, string.Empty);

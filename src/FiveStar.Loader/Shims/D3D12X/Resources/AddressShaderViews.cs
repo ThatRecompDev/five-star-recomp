@@ -89,6 +89,7 @@ internal sealed unsafe class AddressShaderViews
 
         var create = (delegate* unmanaged<nint, nint, AddressViewDescription*, nint, void>)ComObject.Slot(device, DesktopShaderResourceViewSlot);
         create(device, target, &desktop, handle);
+        Noted(handle, target, &desktop);
 
         return texture;
     }
@@ -112,6 +113,15 @@ internal sealed unsafe class AddressShaderViews
         }
 
         return ViewFormats.ForView(texture.DesktopFormat, DepthFormats.ShaderView(view->Format));
+    }
+
+    /// <summary>With <c>--check-view-liveness</c>: the view written at <paramref name="handle"/>.</summary>
+    private static void Noted(nint handle, nint target, AddressViewDescription* view)
+    {
+        if (DebugLayer.ViewLiveness.Enabled)
+        {
+            DebugLayer.ViewLiveness.Written(handle, target, DebugLayer.ViewLiveness.Shape(target, view, unordered: false));
+        }
     }
 
     /// <summary>Counts a view that reads in another format than the game asked for, and names each pair of formats once.</summary>

@@ -84,6 +84,8 @@ internal static unsafe class XboxQueueMethods
         d3d12.Residency?.Poll(objects.DesktopDevice, d3d12.Bindings.Window.WindowFlags, d3d12.Presenter.Presents);
 
         nint inner = self->Inner;
+        d3d12.Textures.Uploader.OrderBefore(inner);
+
         var execute = (delegate* unmanaged<nint, uint, nint*, void>)ComObject.Slot(inner, DesktopExecuteSlot);
         nint* desktop = stackalloc nint[Batch];
 

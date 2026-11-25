@@ -25,6 +25,7 @@ public static class PixelLaneCases
         return
         [
             QuadPermutes(),
+            CarryDppSdwa(),
             LaneCount(),
             ExecFromScalar(),
             WholeQuadMode(),
@@ -115,6 +116,28 @@ public static class PixelLaneCases
             uint Read(int[] pattern) => Value(pixel, CrossLane.QuadPermute(slot, pattern));
 
             return [Read([1, 0, 3, 2]), Read([2, 3, 0, 1]), Read([0, 0, 0, 0]), Read([3, 2, 1, 0]) + own, Read([1, 0, 3, 2]), Read([3, 3, 1, 0]), own];
+        });
+    }
+
+    // A carry add lists vcc before its sources (v_add_co_ci_u32 v20, vcc_lo, v12, v12, vcc_lo): the DPP lane read and
+    // the SDWA select apply to src0, not to vcc.
+    private static PixelCase CarryDppSdwa()
+    {
+        const string Program = PixelValue + """
+
+            s_mov_b32 vcc_lo, 0
+            v_add_co_ci_u32_dpp v20, vcc_lo, v12, v12, vcc_lo quad_perm:[1,0,3,2] row_mask:0xf bank_mask:0xf
+            v_lshlrev_b32 v15, 8, v12
+            s_mov_b32 vcc_lo, -1
+            v_add_co_ci_u32_sdwa v21, vcc_lo, v15, v12, vcc_lo dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:BYTE_1 src1_sel:DWORD
+            """;
+
+        return new PixelCase("carry_dpp_sdwa", Program, 2, pixel =>
+        {
+            var slot = (pixel.X & 1) | ((pixel.Y & 1) << 1);
+            var own = Value(pixel, slot);
+
+            return [Value(pixel, CrossLane.QuadPermute(slot, [1, 0, 3, 2])) + own, (own & 0xff) + own + 1];
         });
     }
 

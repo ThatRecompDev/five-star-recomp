@@ -547,10 +547,20 @@ internal sealed class LoaderHost
 
         string audio = $"audio: {_runtime.Audio.Summary}; XDsp {_runtime.XDsp.Submitted} commands";
 
-        return $"DirectStorage {_runtime.Storage.Summary()}; {pipelines}; {_runtime.D3D12X.Presenter.Presents} presents, {_runtime.D3D12X.FrameThrottle.Summary}; {_runtime.D3D12X.Residency?.Summary ?? "section windows resident"}; {_runtime.Input.Summary}; {audio}; {memory}; {MemorySnapshot.Summary()}; {WriteCombinedMemory.Summary()}; {Commit(pages, helpers)}; {CommandObjectCounts.Summary}; {Shims.D3D12X.Binding.RawBufferViews.Summary}; {Shims.D3D12X.Binding.RtStandIns.Summary}{GpuTimes()}";
+        return $"DirectStorage {_runtime.Storage.Summary()}; {pipelines}; {_runtime.D3D12X.Presenter.Presents} presents, {_runtime.D3D12X.FrameThrottle.Summary}; {_runtime.D3D12X.Residency?.Summary ?? "section windows resident"}; {_runtime.Input.Summary}; {audio}; {memory}; {MemorySnapshot.Summary()}; {WriteCombinedMemory.Summary()}; {Commit(pages, helpers)}; {CommandObjectCounts.Summary}; {Shims.D3D12X.Binding.RawBufferViews.Summary}; {Shims.D3D12X.Binding.RtStandIns.Summary}{GpuTimes()}{ViewChecks()}";
     }
 
     /// <summary>"; gpu over N frames: ..." with <c>--gpu-timings</c> (<see cref="Shims.D3D12X.DebugLayer.GpuTimings"/>), else empty.</summary>
+    private static string ViewChecks()
+    {
+        if (!Shims.D3D12X.DebugLayer.ViewLiveness.Enabled)
+        {
+            return string.Empty;
+        }
+
+        return "; " + Shims.D3D12X.DebugLayer.ViewLiveness.Summary;
+    }
+
     private string GpuTimes()
     {
         if (!Shims.D3D12X.DebugLayer.GpuTimings.Active)

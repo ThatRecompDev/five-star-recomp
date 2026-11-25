@@ -92,6 +92,7 @@ internal sealed unsafe class XboxDescriptorHeaps
         {
             // A desktop heap's descriptor: its buffer fields are kept by handle for the copies into the game's heaps.
             DesktopRecords.Note(handle, buffer);
+            Forget(handle);
 
             return handle;
         }
@@ -103,7 +104,19 @@ internal sealed unsafe class XboxDescriptorHeaps
             return Sink();
         }
 
+        Forget(desktop);
+
         return desktop;
+    }
+
+    /// <summary>With <c>--check-view-liveness</c>: the slot is written anew; the writer says what, if it knows.</summary>
+    [HotPath]
+    private static void Forget(nint handle)
+    {
+        if (DebugLayer.ViewLiveness.Enabled)
+        {
+            DebugLayer.ViewLiveness.Forget(handle);
+        }
     }
 
     /// <summary>The desktop CPU handle of the descriptor a game handle names; other handles pass through.</summary>
