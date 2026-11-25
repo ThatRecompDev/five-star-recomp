@@ -3,6 +3,7 @@
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using FiveStar.Loader.Native;
 using FiveStar.Shaders.Compilation;
 
 namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
@@ -30,6 +31,19 @@ internal sealed class CompileHost : IBackendRunner
     private const string EndedTooOften = "the compile host ended too often";
     private const string TimedOut = "the compile host did not answer in time";
     private const double BytesPerGigabyte = 1 << 30;
+
+    // JobObjectExtendedLimitInformation, sizeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION), the offset of
+    // BasicLimitInformation.LimitFlags and JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (winnt.h).
+    private const int ExtendedLimitInformation = 9;
+    private const int ExtendedLimitBytes = 144;
+    private const int LimitFlagsOffset = 16;
+    private const uint KillOnJobClose = 0x2000;
+
+    /// <summary>
+    /// The job every host is put in: it ends with the loader's last handle, however the loader ends (a kill by a memory
+    /// guard included), so no host outlives it.
+    /// </summary>
+    private static readonly Lazy<nint> HostJob = new(CreateJob);
 
     private readonly string _executable;
     private readonly string? _validator;
@@ -133,6 +147,17 @@ internal sealed class CompileHost : IBackendRunner
         }
 
         return new BackendResult(BackendVerdict.NotLowered, Ended);
+    }
+
+    private static unsafe nint CreateJob()
+    {
+        nint job = Kernel32.CreateJobObjectW(0, 0);
+        byte* limits = stackalloc byte[ExtendedLimitBytes];
+        new Span<byte>(limits, ExtendedLimitBytes).Clear();
+        *(uint*)(limits + LimitFlagsOffset) = KillOnJobClose;
+        _ = Kernel32.SetInformationJobObject(job, ExtendedLimitInformation, limits, ExtendedLimitBytes);
+
+        return job;
     }
 
     /// <summary>The current host's process id, or null; for tests.</summary>
@@ -274,6 +299,8 @@ internal sealed class CompileHost : IBackendRunner
                 {
                     return null;
                 }
+
+                _ = Kernel32.AssignProcessToJobObject(HostJob.Value, process.Handle);
 
                 return new Connection(process);
             }
