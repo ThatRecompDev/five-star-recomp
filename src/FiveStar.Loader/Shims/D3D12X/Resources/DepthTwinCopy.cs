@@ -230,6 +230,8 @@ internal static unsafe class DepthTwinCopy
                 return 0;
             }
 
+            QueueProgress.Name(pipeline, $"loader:depth-twin-copy format {format}");
+
             return pipeline;
         }
         finally

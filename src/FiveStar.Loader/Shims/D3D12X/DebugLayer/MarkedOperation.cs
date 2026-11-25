@@ -7,7 +7,7 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 
 /// <summary>What <see cref="GpuBreadcrumbs"/> keeps of a marked operation.</summary>
 [StructLayout(LayoutKind.Sequential)]
-internal struct MarkedOperation
+internal unsafe struct MarkedOperation
 {
     /// <summary>The desktop pipeline set then, or a <see cref="RecordedCommand"/> for copies and barriers.</summary>
     public nint Pipeline;
@@ -21,4 +21,10 @@ internal struct MarkedOperation
     public uint Y;
     public uint Z;
     public MarkedKind Kind;
+
+    /// <summary>The root tables of the operation's root signature: whether compute's, how many noted, their window offsets.</summary>
+    public const int MaxTables = 4;
+    public bool Compute;
+    public byte TableCount;
+    public fixed uint Tables[MaxTables];
 }

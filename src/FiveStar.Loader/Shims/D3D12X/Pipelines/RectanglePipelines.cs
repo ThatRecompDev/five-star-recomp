@@ -175,6 +175,8 @@ internal sealed unsafe class RectanglePipelines
             return 0;
         }
 
+        QueueProgress.Name(variant, $"loader:rect-list {string.Join(" + ", recipe.Programs)}");
+
         return variant;
     }
 

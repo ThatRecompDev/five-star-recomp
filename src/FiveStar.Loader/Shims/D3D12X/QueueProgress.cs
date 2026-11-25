@@ -559,7 +559,7 @@ internal static unsafe class QueueProgress
             return GpuBreadcrumbs.CommandName(pipeline);
         }
 
-        return PipelineNames.GetValueOrDefault(pipeline, $"0x{pipeline:x}");
+        return PipelineNames.GetValueOrDefault(pipeline, $"unnamed pipeline 0x{pipeline:x} (made before its name was known, or by no path that names)");
     }
 
     /// <summary>The completed value of a game fence (a wrapper or a desktop fence), as text.</summary>

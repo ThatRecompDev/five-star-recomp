@@ -187,6 +187,7 @@ internal static unsafe class UavFill
             nint pipeline = 0;
             hr = ((delegate* unmanaged<nint, nint*, Guid*, nint*, int>)ComObject.Slot(device, CreateComputePipelineSlot))(device, description, &pipelineIid, &pipeline);
             _pipeline = pipeline;
+            QueueProgress.Name(pipeline, "loader:uav-fill");
         }
 
         ComObject.Release(code);

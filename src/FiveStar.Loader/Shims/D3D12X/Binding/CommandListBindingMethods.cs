@@ -434,7 +434,7 @@ internal static unsafe class CommandListBindingMethods
 
             FlushForIndirect(self, signature);
             ListActivity.Of(self)->Indirect++;
-            GpuBreadcrumbs.BeforeIndirect(self, signature, maxCount, ArgumentAddress(arguments, argumentOffset));
+            GpuBreadcrumbs.BeforeIndirect(self, signature, maxCount, ArgumentAddress(arguments, argumentOffset), (uint)argumentOffset);
             BeforeWork(self, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind);
             var trace = ShimContext.Runtime.D3D12X.DrawTrace;
             trace?.Indirect(self, maxCount, ArgumentAddress(arguments, argumentOffset), CommandSignatures.Clampable(signature).Stride, count != 0);

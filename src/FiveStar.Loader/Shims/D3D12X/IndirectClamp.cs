@@ -319,6 +319,7 @@ internal static unsafe class IndirectClamp
             nint pipeline = 0;
             hr = ((delegate* unmanaged<nint, ComputePipelineDescription*, Guid*, nint*, int>)ComObject.Slot(device, CreateComputePipelineSlot))(device, &description, &pipelineIid, &pipeline);
             _pipeline = pipeline;
+            QueueProgress.Name(pipeline, "loader:indirect-clamp");
         }
 
         ComObject.Release(code);
