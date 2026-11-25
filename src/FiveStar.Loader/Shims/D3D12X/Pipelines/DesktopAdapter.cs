@@ -13,7 +13,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// <summary>
 /// The capabilities of the desktop device that decide which translated form of a program it runs: shader model,
 /// D3D12_OPTIONS1 wave lane counts, the D3D12_OPTIONS7 mesh-shader tier and, with mesh shaders, the wave the driver runs
-/// them in (<see cref="MeshWaveProbe"/>, measured once per device).
+/// them in (<see cref="MeshWaveProbe"/>, measured once per adapter: a device's address is reused after it is freed,
+/// so a cache by device handed a new device the measurement of an earlier one, or its failure).
 /// </summary>
 internal static unsafe class DesktopAdapter
 {
@@ -43,7 +44,7 @@ internal static unsafe class DesktopAdapter
     private const string NoMeshShaders = "NotSupported";
     private const string MeshTierPrefix = "Tier";
 
-    private static readonly Dictionary<nint, int?> MeshWaves = [];
+    private static readonly Dictionary<long, int> MeshWaves = [];
 
     public static AdapterInfo Describe(nint device)
     {
@@ -75,18 +76,26 @@ internal static unsafe class DesktopAdapter
         return new AdapterInfo(0, AdapterName, false, ShaderModel(device), waveMin, waveMax, meshTier) { MeshWaveLanes = meshWave };
     }
 
-    /// <summary>The measured mesh-shader wave of <paramref name="device"/>, probed on its first call.</summary>
+    /// <summary>The measured mesh-shader wave of <paramref name="device"/>'s adapter, probed until a probe succeeds.</summary>
     private static int? MeshWave(nint device)
     {
+        Marshal.AddRef(device);
+        using var desktop = new ID3D12Device(device);
+        long adapter = desktop.AdapterLuid;
+
         lock (MeshWaves)
         {
-            if (!MeshWaves.TryGetValue(device, out var lanes))
+            if (MeshWaves.TryGetValue(adapter, out int known))
             {
-                Marshal.AddRef(device);
-                using var desktop = new ID3D12Device(device);
-                lanes = MeshWaveProbe.Measure(desktop, DxilBackend.Compile(MeshWaveProbe.Source(), MeshWaveProbe.Profile));
-                MeshWaves[device] = lanes;
-                ShimContext.Log?.Info($"  [d3d12_xs] mesh shaders run in {Lanes(lanes)} waves (probe)");
+                return known;
+            }
+
+            int? lanes = MeshWaveProbe.Measure(desktop, DxilBackend.Compile(MeshWaveProbe.Source(), MeshWaveProbe.Profile));
+            ShimContext.Log?.Info($"  [d3d12_xs] mesh shaders run in {Lanes(lanes)} waves (probe)");
+
+            if (lanes is int measured)
+            {
+                MeshWaves[adapter] = measured;
             }
 
             return lanes;

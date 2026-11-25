@@ -14,11 +14,16 @@ internal sealed class PipelineWaits
     public static readonly TimeSpan DefaultLimit = TimeSpan.FromSeconds(60);
 
     private readonly string[] _names;
+    private readonly IReadOnlyList<string>? _skipped;
 
-    public PipelineWaits(IEnumerable<string> names, TimeSpan limit)
+    /// <param name="names">The name parts waited for.</param>
+    /// <param name="limit">How long one stand-in is waited for.</param>
+    /// <param name="skipped">The --skip-pipelines texts; null for the process's (<see cref="SkippedPipelines.Texts"/>).</param>
+    public PipelineWaits(IEnumerable<string> names, TimeSpan limit, IReadOnlyList<string>? skipped)
     {
         _names = names.Select(name => name.Trim()).Where(name => name.Length > 0).ToArray();
         Limit = limit;
+        _skipped = skipped;
     }
 
     /// <summary>The waits of stand-in sets made from now on; null for none (the default).</summary>
@@ -29,7 +34,7 @@ internal sealed class PipelineWaits
     /// <summary>The waits for a comma-separated list of name parts; null when it names none.</summary>
     public static PipelineWaits? Parse(string? list)
     {
-        var waits = new PipelineWaits((list ?? string.Empty).Split(','), DefaultLimit);
+        var waits = new PipelineWaits((list ?? string.Empty).Split(','), DefaultLimit, null);
 
         if (waits._names.Length == 0)
         {
@@ -42,7 +47,7 @@ internal sealed class PipelineWaits
     /// <summary>Whether a stand-in named <paramref name="name"/> is waited for; never one --skip-pipelines names, which stays a stand-in.</summary>
     public bool Matches(string name)
     {
-        if (SkippedPipelines.Skips(name))
+        if (SkippedPipelines.Skips(name, _skipped ?? SkippedPipelines.Texts))
         {
             return false;
         }
