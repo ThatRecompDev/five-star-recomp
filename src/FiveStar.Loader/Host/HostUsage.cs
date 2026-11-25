@@ -56,6 +56,9 @@ internal static class HostUsage
                                  DXIL backend, a quarter with dxc)
           --loop-caps <caps>     loop caps of programs made on demand: victory (4096 compute, 256 vertex/mesh, 128 pixel),
                                  default, or compute,geometry,pixel; part of the program cache identity
+          --superstep-round-budget <k>
+                                 a superstep program's group rounds at most k per wave-operation stop of its code (at
+                                 least 256): a cut before the driver's timeout culls the draw; part of the cache identity
           --host-pipelines       pipelines of more than 2 MB of DXIL are built first in a child process held to the
                                  free memory and 10 minutes; one past a limit stays a stand-in (off by default)
           --plain-supersteps     superstep forms made on demand keep every register live around one dispatch

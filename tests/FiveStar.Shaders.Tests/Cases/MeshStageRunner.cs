@@ -359,32 +359,34 @@ public sealed partial class MeshStageRunner
         """;
 
     /// <summary>Draws the barrier-loop program with <paramref name="count"/> iterations under <paramref name="caps"/>.</summary>
-    public IReadOnlyList<string> RunBarrierLoop(bool supersteps, uint count, LoopCaps caps)
+    public IReadOnlyList<string> RunBarrierLoop(bool supersteps, uint count, LoopCaps caps, int? roundsPerStop = null)
     {
         string name = supersteps ? "ms_ngg_barrier_loop_supersteps" : "ms_ngg_barrier_loop";
+        string mesh = TranslateBarrierLoop(supersteps, caps, roundsPerStop);
+        var (pixelSource, _) = PassThroughPixelShader.Build(mesh, ["param0"], flat: true);
+        var pixel = _fixture.Workbench.Compile(name + "_ps", pixelSource, "ps");
+        var bindings = new Bindings { UserSgprs = [(Primitives << 12) | Vertices, Culled, FloatBits.Of(AttributeBase), count] };
+
+        var result = _fixture.Runner.Mesh(new MeshJob(_fixture.Workbench.Compile(name, mesh, "ms"), pixel, Framebuffer.Exact(1, Size, Size), bindings, 1));
+        var image = Reference();
+
+        return ImageCheck.Compare(result, Size, Size, (x, y, _) => image[y, x]);
+    }
+
+    /// <summary>The barrier-loop program translated in the superstep or the two-phase form.</summary>
+    public string TranslateBarrierLoop(bool supersteps, LoopCaps caps, int? roundsPerStop = null)
+    {
         var source = Program.Replace("s_barrier\n", BarrierLoop + "\n", StringComparison.Ordinal);
         var assembled = _fixture.Workbench.Assemble("ms_ngg_barrier_loop", source, 64);
         var config = new ShaderConfig { Stage = HardwareStage.Ngg, WaveSize = 64, UserSgprs = 4, Ngg = new NggConfig(8, 0, 0), LdsBytes = 4 };
         var pipeline = new PipelineStateInfo { Stage = "ms", NumThreads = new ThreadGroupSize(64, 1, 1), MaxVertices = MaxOutputs, MaxPrimitives = MaxOutputs };
         var program = new ShaderProgram(ShaderStage.Mesh, assembled.Instructions, assembled.Code, ShaderSignatures.None, config, pipeline);
 
-        string mesh;
-
         if (supersteps)
         {
-            mesh = HlslTranslator.SuperstepVariant(program, new TranslationOptions(StructuredControlFlow: false, PinWaveSize: false, EmulateWaveSize: true) { Loops = caps });
-        }
-        else
-        {
-            mesh = HlslTranslator.Translate(program, new TranslationOptions(StructuredControlFlow: true, PinWaveSize: false, EmulateWaveSize: true) { Loops = caps }).Hlsl;
+            return HlslTranslator.SuperstepVariant(program, new TranslationOptions(StructuredControlFlow: false, PinWaveSize: false, EmulateWaveSize: true) { Loops = caps, RoundsPerStop = roundsPerStop });
         }
 
-        var (pixelSource, _) = PassThroughPixelShader.Build(mesh, ["param0"], flat: true);
-        var pixel = _fixture.Workbench.Compile(name + "_ps", pixelSource, "ps");
-        var bindings = new Bindings { UserSgprs = [(Primitives << 12) | Vertices, Culled, FloatBits.Of(AttributeBase), count] };
-        var result = _fixture.Runner.Mesh(new MeshJob(_fixture.Workbench.Compile(name, mesh, "ms"), pixel, Framebuffer.Exact(1, Size, Size), bindings, 1));
-        var image = Reference();
-
-        return ImageCheck.Compare(result, Size, Size, (x, y, _) => image[y, x]);
+        return HlslTranslator.Translate(program, new TranslationOptions(StructuredControlFlow: true, PinWaveSize: false, EmulateWaveSize: true) { Loops = caps }).Hlsl;
     }
 }

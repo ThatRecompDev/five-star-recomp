@@ -190,6 +190,9 @@ internal sealed record HostOptions
     /// <summary>Superstep forms made on demand carry registers by liveness; <c>--plain-supersteps</c> turns it off.</summary>
     public bool SuperstepCarry { get; set; } = true;
 
+    /// <summary>A superstep program's group rounds per wave-operation stop (<c>--superstep-round-budget</c>); null for the loop caps' bound.</summary>
+    public int? SuperstepRoundsPerStop { get; set; }
+
     /// <summary>With the debug layer, also GPU-based validation (<c>--d3d12-gpu-validation</c>).</summary>
     public bool D3D12GpuValidation { get; set; }
 

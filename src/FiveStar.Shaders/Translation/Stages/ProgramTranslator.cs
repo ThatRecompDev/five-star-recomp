@@ -30,7 +30,7 @@ internal static class ProgramTranslator
             coherent => new TranslationState(program, program.Instructions, program.Stage, false)
             {
                 EmulateWaves = true, Supersteps = true, SuperstepCarry = options.SuperstepCarry, Coherent = coherent,
-                Loops = options.Loops ?? LoopCaps.Default,
+                Loops = options.Loops ?? LoopCaps.Default, RoundsPerStop = options.RoundsPerStop,
             },
             options with { StructuredControlFlow = false });
     }

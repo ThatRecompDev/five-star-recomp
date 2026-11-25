@@ -44,7 +44,9 @@ internal static class SuperstepWriter
         var lines = new List<string> { "  vw_ss_begin(in_gi);" };
         lines.AddRange(hoisted);
         lines.Add("  uint pc = 0, pc_resume = 0, ss_steps = 0, ss_rounds = 0;");
-        lines.Add($"  const uint SS_ROUNDS = {LoopGuard.RoundsHex(state.Stage, state.Loops)};");
+        var (stops, rounds) = Cost(state);
+        lines.Insert(0, $"{TranslationOptions.SuperstepCostComment}{stops} stops, round bound {rounds}");
+        lines.Add($"  const uint SS_ROUNDS = {Hlsl.HexUint(rounds)};");
 
         if (state.SuperstepCarry)
         {
@@ -65,6 +67,7 @@ internal static class SuperstepWriter
 
         lines.AddRange(Round(state, true, PhaseOneStep));
         lines.Add($"  SetMeshOutputCounts(min(g_ms_nv, {mesh.MaxVertices}u), min(g_ms_np, {mesh.MaxPrimitives}u));");
+        lines.AddRange(mesh.InitialPrimitives());
         lines.AddRange(Round(state, false, Step));
         lines.AddRange(mesh.CutEpilogue("ss_rounds > SS_ROUNDS"));
 
@@ -99,6 +102,25 @@ internal static class SuperstepWriter
         }
 
         return mesh.StagingEpilogue().SelectMany(line => line.Split(Separators, StringSplitOptions.RemoveEmptyEntries)).ToHashSet();
+    }
+
+    /// <summary>
+    /// The program's wave-operation stops (blocks that stop at a wave operation or an s_barrier) and its round bound: the
+    /// caps' rounds, or with <see cref="TranslationState.RoundsPerStop"/> that many per stop (at least
+    /// <see cref="TranslationOptions.MinimumRounds"/>) when fewer. A correct run takes about a round per stop it passes, so a program
+    /// without loops around its wave operations needs no more than its stops.
+    /// </summary>
+    private static (long Stops, long Rounds) Cost(TranslationState state)
+    {
+        long stops = state.Blocks.Count(block => block.Lines.Any(line => line.Contains("pc = PC_WAVE", StringComparison.Ordinal) || line.Contains("pc = PC_YIELD", StringComparison.Ordinal)));
+        long rounds = state.Loops.Rounds(state.Stage);
+
+        if (state.RoundsPerStop is int perStop)
+        {
+            rounds = Math.Min(rounds, Math.Max(TranslationOptions.MinimumRounds, stops * perStop));
+        }
+
+        return (stops, rounds);
     }
 
     /// <summary>
