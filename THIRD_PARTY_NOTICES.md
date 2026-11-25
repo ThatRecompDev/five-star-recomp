@@ -91,6 +91,14 @@ load reads depends on the instruction's use (a sampler slot or a resource slot),
 indices clamped to the heaps (a view past the end to a null one, a sampler to the last), without which NVIDIA hung
 and AMD faulted; and that a raw view's first byte must be a multiple of 16. No code was copied.
 
+## ztrx
+
+https://github.com/Zettrox/ztrx (`docs/fork-ray-tracing.md`), GPL-3.0, a fork in the VIctory family. Facts from its
+notes, for docs/bvh-builder.md: the title's ray tracing is its own compute traversal with only the node test in
+hardware, its dynamic structures come from the 52 builder programs of `XboxBvhBuilder.dll`, those programs reach title
+memory by raw address, and running the builder with only some of its pipelines built wrote garbage into title memory
+and crashed the title (hence an all-or-nothing gate). No code was copied.
+
 ## XCL
 
 https://github.com/xcl-dev/xcl, GPL-2.0-only. Because that licence does not combine with ours, only facts from its
