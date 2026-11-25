@@ -9,33 +9,46 @@ namespace FiveStar.Loader.Diagnostics;
 
 /// <summary>
 /// Where a thread waits inside the loader: a stack walk stops at the first JIT frame, so a game thread blocked in a shim
-/// shows only the OS wait. Waits a game thread can reach register here (<see cref="Enter"/>), and
+/// shows only the OS wait. Every wait a game thread can reach in our code registers here (<see cref="Enter"/>), and
 /// <see cref="ThreadStacks"/> names each thread's wait and how long it has lasted; the totals per wait are kept too.
+/// A thread's wait lives in a slot made once per thread, so entering one allocates nothing (present and storage waits
+/// run every frame); a wait inside another restores the outer one when it ends.
 /// </summary>
 internal static class BlockingWaits
 {
-    private static readonly ConcurrentDictionary<uint, (string What, long Since)> Current = new();
+    private static readonly ConcurrentDictionary<uint, Slot> Slots = new();
     private static readonly ConcurrentDictionary<string, long> Totals = new(StringComparer.Ordinal);
+
+    [ThreadStatic]
+    private static Slot? _mine;
 
     /// <summary>Notes that this thread starts waiting in <paramref name="what"/>; dispose the result when it ends.</summary>
     public static Scope Enter(string what)
     {
-        uint thread = Kernel32.GetCurrentThreadId();
-        long since = Stopwatch.GetTimestamp();
-        Current[thread] = (what, since);
+        var slot = _mine ?? Register();
+        var outer = new Scope(slot, slot.What, slot.Since);
+        slot.Set(what, Stopwatch.GetTimestamp());
 
-        return new Scope(thread, what, since);
+        return outer;
     }
 
     /// <summary>The thread's wait as "waiting in X for N ms", or empty.</summary>
     public static string Describe(uint thread)
     {
-        if (!Current.TryGetValue(thread, out var wait))
+        if (!Slots.TryGetValue(thread, out var slot))
         {
             return string.Empty;
         }
 
-        return $"waiting in {wait.What} for {Stopwatch.GetElapsedTime(wait.Since).TotalMilliseconds:F0} ms";
+        string? what = slot.What;
+        long since = slot.Since;
+
+        if (what is null)
+        {
+            return string.Empty;
+        }
+
+        return $"waiting in {what} for {Stopwatch.GetElapsedTime(since).TotalMilliseconds:F0} ms";
     }
 
     /// <summary>The time spent in each wait so far, summed over every thread, longest first.</summary>
@@ -64,25 +77,57 @@ internal static class BlockingWaits
         return $"{title}: {string.Join(", ", parts)}";
     }
 
-    /// <summary>Ends a wait noted by <see cref="Enter"/>.</summary>
+    /// <summary>This thread's slot, made at its first wait (a thread id the OS reuses gets the new thread's slot).</summary>
+    private static Slot Register()
+    {
+        var slot = new Slot();
+        Slots[Kernel32.GetCurrentThreadId()] = slot;
+        _mine = slot;
+
+        return slot;
+    }
+
+    /// <summary>A thread's current wait: what (null for none) and since when; the hang watch reads it from another thread.</summary>
+    internal sealed class Slot
+    {
+        private string? _what;
+        private long _since;
+
+        public string? What => Volatile.Read(ref _what);
+
+        public long Since => Volatile.Read(ref _since);
+
+        public void Set(string? what, long since)
+        {
+            Volatile.Write(ref _since, since);
+            Volatile.Write(ref _what, what);
+        }
+    }
+
+    /// <summary>Ends a wait noted by <see cref="Enter"/>, restoring the wait it was inside of, if any.</summary>
     internal readonly struct Scope : IDisposable
     {
-        private readonly uint _thread;
-        private readonly string _what;
-        private readonly long _since;
+        private readonly Slot _slot;
+        private readonly string? _outer;
+        private readonly long _outerSince;
 
-        public Scope(uint thread, string what, long since)
+        public Scope(Slot slot, string? outer, long outerSince)
         {
-            _thread = thread;
-            _what = what;
-            _since = since;
+            _slot = slot;
+            _outer = outer;
+            _outerSince = outerSince;
         }
 
         public void Dispose()
         {
-            Current.TryRemove(_thread, out _);
-            long took = Stopwatch.GetTimestamp() - _since;
-            Totals.AddOrUpdate(_what, took, (_, total) => total + took);
+            string? what = _slot.What;
+            long took = Stopwatch.GetTimestamp() - _slot.Since;
+            _slot.Set(_outer, _outerSince);
+
+            if (what is not null)
+            {
+                Totals.AddOrUpdate(what, static (_, ticks) => ticks, static (_, total, ticks) => total + ticks, took);
+            }
         }
     }
 }

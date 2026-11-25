@@ -175,6 +175,7 @@ internal sealed unsafe class PipelineHost
             var process = host.Process;
             Volatile.Write(ref _running, host);
             var answer = Task.Run(() => Exchange(host, request, stream));
+            using var wait = Diagnostics.BlockingWaits.Enter("pipeline host build");
             bool finished = answer.Wait(timeLimit);
 
             if (!finished)

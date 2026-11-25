@@ -38,6 +38,24 @@ public sealed unsafe class D3D12XStandInPipelineTests
     }
 
     [Fact]
+    public void A_creation_that_fails_within_the_budget_hands_out_a_stand_in_that_never_builds()
+    {
+        // A held graphics pair (--skip-pipelines TransformSkinD) on a warm cache: its build fails at once; the game got
+        // 0x80004005 and its loading stalled (w69). It gets a stand-in and S_OK.
+        const string Held = "sgd1_0736b791_t32_PS_DeferredTextured_1778b45a_Wrapped.trim2 + sgd1_01cb042f_t41_MSR_VS_TransformSkinD_1778b45a_Wrapped.link-314dd11550b9";
+        var standIns = StandIns(TimeSpan.FromMinutes(1));
+        nint result = 0;
+
+        int hr = standIns.Create(() => new PipelineResult(HResult.Fail, 0), &result, Held, null);
+
+        Assert.Equal(HResult.Ok, hr);
+        Assert.NotEqual(0, result);
+        Assert.Equal(0, standIns.Desktop(result, out bool pending));
+        Assert.True(pending);
+        Assert.Equal(Held, standIns.Name(result));
+    }
+
+    [Fact]
     public void A_slow_creation_hands_out_a_stand_in_that_becomes_the_pipeline_and_releases_it()
     {
         using var memory = new NativeBlocks();
@@ -125,6 +143,36 @@ public sealed unsafe class D3D12XStandInPipelineTests
         never.Set();
         nint unnamed = other;
         Assert.True(SpinWait.SpinUntil(() => standIns.Desktop(unnamed, out _) != 0, BuildLimit));
+    }
+
+    /// <summary>
+    /// The first use of a small compute stand-in whose program takes long to make (seconds on a 15.6 GB machine, #13):
+    /// the game's thread waits no longer than the first-use budget, and the program and the build finish without it.
+    /// </summary>
+    [Fact]
+    public void A_small_compute_first_use_waits_no_longer_than_its_budget_for_a_slow_program()
+    {
+        using var memory = new NativeBlocks();
+        using var made = new ManualResetEventSlim();
+        nint pipeline = FakePipeline(memory);
+        var standIns = StandIns(TimeSpan.Zero);
+        nint result = 0;
+
+        Func<StandInUse?, Task> programs = _ => Task.Run(made.Wait);
+        Func<PendingBuild?> prepare = () => new PendingBuild(() => new PipelineResult(HResult.Ok, pipeline), Heavy: false, "small", _ => { });
+        Func<bool> programsNow = () => made.Wait(BuildLimit);
+        standIns.Waiting(programs, prepare, &result, () => { }, "small", programsNow);
+        nint standIn = result;
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        nint first = standIns.Desktop(standIn, out bool pending);
+        var waited = clock.Elapsed;
+        made.Set();
+
+        Assert.Equal((0, true), (first, pending));
+        Assert.True(waited < StandInPipelines.SmallBudget * 4, $"the first use waited {waited.TotalMilliseconds:F0} ms");
+        Assert.True(SpinWait.SpinUntil(() => standIns.Desktop(standIn, out _) != 0, BuildLimit));
+        Assert.Contains("(1 with programs made inline", standIns.Summary, StringComparison.Ordinal);
     }
 
     private static StandInPipelines StandIns(TimeSpan budget, PipelineWaits? waits = null)

@@ -21,4 +21,7 @@ internal sealed class DrawTraceList
 
     /// <summary>How often the list was reset (Reset, slots 10 and 139).</summary>
     public long Resets { get; set; }
+
+    /// <summary>The next draw's first render target is read back (a traced draw with <c>--d3d12-probe-traced</c>).</summary>
+    public bool ProbeNext { get; set; }
 }

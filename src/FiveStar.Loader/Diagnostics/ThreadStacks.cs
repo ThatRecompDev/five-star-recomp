@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Diagnostics;
-using System.Runtime;
 using System.Text;
 using FiveStar.Loader.Loading;
 using FiveStar.Loader.Native;
@@ -10,13 +9,14 @@ using FiveStar.Loader.Native;
 namespace FiveStar.Loader.Diagnostics;
 
 /// <summary>
-/// Logs the stack of every other thread of the process, threads with the same stack and name grouped. Stacks are
-/// captured inside a no-GC region, so a garbage collection cannot wait on a thread that is suspended for its walk.
+/// Logs the stack of every other thread of the process, threads with the same stack and name grouped. Each stack is a
+/// <see cref="ThreadSnapshot"/>: the thread runs again before any managed code does, so a garbage collection never
+/// waits on a thread suspended for its walk (the no-GC region used before ran out of budget while game threads
+/// allocated in shims, and a collection then froze the whole process).
 /// </summary>
 internal sealed unsafe class ThreadStacks
 {
     private const int MaxThreads = 512;
-    private const long NoGcBudget = 16L << 20;
 
     // winnt.h: THREAD_QUERY_LIMITED_INFORMATION, enough for GetThreadDescription.
     private const uint QueryLimited = 0x0800;
@@ -89,9 +89,8 @@ internal sealed unsafe class ThreadStacks
     }
 
     /// <summary>
-    /// Walks every other thread inside a no-GC region; returns the number of threads captured. One capture at a time
-    /// (the sampler and a memory-wait stall can both ask): a second no-GC region throws, and two walkers would
-    /// suspend each other.
+    /// Walks every other thread; returns the number of threads captured. One capture at a time (the sampler and a
+    /// memory-wait stall can both ask).
     /// </summary>
     private int Capture(CodeRange[] modules, uint[] ids, string[] states, ulong[] frames, int[] counts)
     {
@@ -104,46 +103,22 @@ internal sealed unsafe class ThreadStacks
     private int CaptureAlone(CodeRange[] modules, uint[] ids, string[] states, ulong[] frames, int[] counts)
     {
         uint self = Kernel32.GetCurrentThreadId();
-        bool noGc = StartNoGcRegion();
         int threads = 0;
 
-        try
+        foreach (ProcessThread thread in Process.GetCurrentProcess().Threads)
         {
-            foreach (ProcessThread thread in Process.GetCurrentProcess().Threads)
+            if ((uint)thread.Id == self || threads == MaxThreads)
             {
-                if ((uint)thread.Id == self || threads == MaxThreads)
-                {
-                    continue;
-                }
+                continue;
+            }
 
-                ids[threads] = (uint)thread.Id;
-                states[threads] = State(thread);
-                counts[threads] = ThreadStackCapture.Capture((uint)thread.Id, modules, frames.AsSpan(threads * _maxFrames, _maxFrames));
-                threads++;
-            }
-        }
-        finally
-        {
-            if (noGc && GCSettings.LatencyMode == GCLatencyMode.NoGCRegion)
-            {
-                GC.EndNoGCRegion();
-            }
+            ids[threads] = (uint)thread.Id;
+            states[threads] = State(thread);
+            counts[threads] = ThreadStackCapture.Capture((uint)thread.Id, modules, frames.AsSpan(threads * _maxFrames, _maxFrames));
+            threads++;
         }
 
         return threads;
-    }
-
-    /// <summary>A no-GC region for the walk; false when one is already in progress elsewhere, and the walk goes on without.</summary>
-    private static bool StartNoGcRegion()
-    {
-        try
-        {
-            return GC.TryStartNoGCRegion(NoGcBudget);
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
     }
 
     private static string State(ProcessThread thread)

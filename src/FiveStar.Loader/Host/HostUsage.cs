@@ -76,6 +76,8 @@ internal static class HostUsage
           --wait-pipelines <name,...>
                                  a stand-in pipeline whose name holds one of these parts is waited for (up to 60 s, the
                                  game's hang watchdog paused) when a command list first sets it, instead of skipping its work
+          --typed-image-views    image loads, gathers and stores of integer views (UINT/SINT, the stencil plane) go through
+                                 uint4/int4 declarations chosen by a class the descriptor carries; part of the cache identity
           --typeless-targets     GPU-written R8G8B8A8/B8G8R8A8/B8G8R8X8/R8 UNORM textures made typeless, so a view in
                                  their sRGB or integer member reads as the game asked (off by default)
           --kept-aliases <n>     textures retired over exactly one reused range kept alive for older descriptors (default 1)
@@ -118,6 +120,7 @@ internal static class HostUsage
           --d3d12-breadcrumbs    a GPU marker after every draw and dispatch: a stalled queue names the one it hangs in
           --watch-transient      check the game's transient-memory pool and log the first corrupted node
           --watch-pool-pages     check the game's small-block pool pages for headers its allocator did not write
+          --watch-4g-lines       log changes to the first 64 KiB after each 4 GiB line of GPU-writable game memory
           --skip-compute-chains  skip the rest of a command list's dispatches after one skipped for a stand-in
           --empty-indirect-after-skip  a command list's ExecuteIndirects after a compute dispatch skipped for a stand-in run nothing
           --retire-waits-all-queues  a submission holding the game's retire write waits for every other queue
@@ -130,6 +133,8 @@ internal static class HostUsage
           --check-null-addresses  root views, indirect argument and count buffers, bottom-of-pipe writes and buffer
                                  copies that would reach a null GPU address or read past their buffer are logged
                                  (the first 8 of each kind, with list and pipeline) and dropped
+          --depth-twins          UAVs of a depth texture's depth plane write a colour twin, copied into the depth
+                                 before the next draw that binds it (needs --mirror-table-records reach)
           --user-data-constants  draws pass their user data as root constants, not a root CBV in upload memory (needs
                                  programs made on demand)
           --trace-pool-stores    programs made on demand log their stores into the transient pool and the game heap
@@ -137,8 +142,9 @@ internal static class HostUsage
                                  stack while the heartbeat its hang watchdog checks stands still
           --d3d12-trace-draws    log what the first draws bind (pipeline, targets, vertex buffers, tables) and read
                                  their render targets back
-          --d3d12-trace-pipeline <text>  with the draw trace, also log the draws of pipelines named with <text> in
-                                 the frame after each captured present
+          --d3d12-trace-pipeline <text,...>  with the draw trace, also log the draws of pipelines named with any of the
+                                 texts in the frame after each captured present
+          --d3d12-probe-traced   those draws also read back their first render target (a float target's mean and max)
           --d3d12-trace-records <offset,...>  for those draws, the window records at these byte offsets from each
                                  user SGPR holding a window offset: dwords, the V#/T# base's map state, a V#'s first values
                                  (offset@byte: also the dword at that byte of the V#'s buffer, e.g. 0x380@0x11c)

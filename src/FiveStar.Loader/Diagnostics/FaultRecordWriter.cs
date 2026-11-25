@@ -11,7 +11,9 @@ namespace FiveStar.Loader.Diagnostics;
 
 /// <summary>
 /// Writes a fault record: the exception, the faulting image offset and the .pdata function around it, the code bytes,
-/// the registers, the native stack and the last calls through shims and unresolved stubs.
+/// the registers, the memory the registers point at, the native stack and the last calls through shims and unresolved
+/// stubs. A pointer the game read from corrupted memory then shows that memory and whose allocation it is (two world
+/// loads faulted on packed id pairs, 0x0003201100032010, read as pointers).
 /// </summary>
 internal sealed unsafe class FaultRecordWriter
 {
@@ -34,6 +36,19 @@ internal sealed unsafe class FaultRecordWriter
     private const int RegistersPerLine = 4;
     private const int RegisterNameWidth = 3;
     private const int StackDepth = 24;
+
+    /// <summary>Bytes shown at each register that points at readable memory, from 16 below it.</summary>
+    private const int PointedBytes = 48;
+    private const int PointedBefore = 16;
+
+    /// <summary>The general registers (rax to r15, not rsp): CONTEXT order up to r15, rip left out.</summary>
+    private const int GeneralRegisters = 16;
+    private const int StackPointer = 4;
+
+    /// <summary>MEM_COMMIT and the protections that can be read (winnt.h): not PAGE_NOACCESS, not PAGE_GUARD.</summary>
+    private const uint Committed = 0x1000;
+    private const uint NoAccess = 0x01;
+    private const uint Guard = 0x100;
     private const int RecentCalls = 24;
 
     private static readonly string[] RegisterNames =
@@ -65,6 +80,7 @@ internal sealed unsafe class FaultRecordWriter
         AppendCode(text, address);
 
         AppendRegisters(text, context);
+        AppendPointed(text, context);
         AppendStack(text, context);
         AppendCalls(text);
         _log.Error(text.ToString().TrimEnd());
@@ -208,6 +224,54 @@ internal sealed unsafe class FaultRecordWriter
         }
 
         text.AppendLine();
+    }
+
+    /// <summary>
+    /// For each general register pointing at committed, readable memory outside the images: the bytes around it and the
+    /// allocation holding it ("  [r13] 0x.. in allocation 0x.. (+0x..): 16 bytes before | 32 from it").
+    /// </summary>
+    private void AppendPointed(StringBuilder text, byte* context)
+    {
+        for (int i = 0; i < GeneralRegisters; i++)
+        {
+            nint value = *(nint*)(context + FirstRegisterOffset + (i * sizeof(ulong)));
+
+            if (i != StackPointer && _images.FindByAddress(value) is null)
+            {
+                string? line = Pointed(value);
+
+                if (line is not null)
+                {
+                    text.AppendLine(CultureInfo.InvariantCulture, $"  [{RegisterNames[i]}] {line}");
+                }
+            }
+        }
+    }
+
+    /// <summary>The bytes around <paramref name="address"/> and its allocation; null when they are not all readable.</summary>
+    public static string? Pointed(nint address)
+    {
+        nint start = address - PointedBefore;
+
+        if (!Readable(start) || !Readable(start + PointedBytes - 1))
+        {
+            return null;
+        }
+
+        MemoryBasicInformation info;
+        _ = Kernel32.VirtualQueryEx(Kernel32.GetCurrentProcess(), address, &info, (nuint)sizeof(MemoryBasicInformation));
+        var before = new ReadOnlySpan<byte>((void*)start, PointedBefore);
+        var from = new ReadOnlySpan<byte>((void*)address, PointedBytes - PointedBefore);
+
+        return $"0x{address:x} in allocation 0x{info.AllocationBase:x} (+0x{address - info.AllocationBase:x}): {Convert.ToHexString(before)} | {Convert.ToHexString(from)}";
+    }
+
+    private static bool Readable(nint address)
+    {
+        MemoryBasicInformation info;
+
+        return address > 0 && Kernel32.VirtualQueryEx(Kernel32.GetCurrentProcess(), address, &info, (nuint)sizeof(MemoryBasicInformation)) != 0
+            && info.State == Committed && (info.Protect & (NoAccess | Guard)) == 0 && info.Protect != 0;
     }
 
     private void AppendStack(StringBuilder text, byte* context)

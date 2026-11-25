@@ -24,8 +24,8 @@ internal sealed unsafe class XMemAllocator
     private const int AlignmentShift = 24;
     private const ulong AlignmentMask = 0x1F;
 
-    /// <summary>Alignment code n means 1 &lt;&lt; (n - 1), capped here; code 0 is the default.</summary>
-    private const int MaxAlignmentLog2 = 20;
+    /// <summary>Alignment code n means 1 &lt;&lt; (n - 1), up to 1 GiB (code 31); code 0 is the default.</summary>
+    private const int MaxAlignmentLog2 = 30;
 
     /// <summary>Never below the x64 malloc guarantee.</summary>
     private const ulong MinimumAlignment = 16;
@@ -87,7 +87,8 @@ internal sealed unsafe class XMemAllocator
             TraceAllocation();
         }
 
-        bool isVirtual = size >= LargeAllocationThreshold || ((attributes >> PageSizeShift) & PageSizeMask) != 0;
+        // A block aligned past the allocation granularity is a VirtualAlloc of its own too, on that alignment.
+        bool isVirtual = size >= LargeAllocationThreshold || ((attributes >> PageSizeShift) & PageSizeMask) != 0 || AlignmentFromAttributes(attributes) > LargeAllocationThreshold;
         nint block = AllocateBlock(size, attributes, isVirtual);
         Interlocked.Increment(ref _allocationCount);
 
@@ -189,6 +190,13 @@ internal sealed unsafe class XMemAllocator
 
     private static nint AllocateBlock(nuint size, ulong attributes, bool isVirtual)
     {
+        nuint alignment = AlignmentFromAttributes(attributes);
+
+        if (isVirtual && alignment > LargeAllocationThreshold)
+        {
+            return AlignedReservations.Allocate(Kernel32.GetCurrentProcess(), size, Win32Constants.MemReserveCommit, Win32Constants.PageReadWrite, alignment);
+        }
+
         if (isVirtual)
         {
             return Kernel32.VirtualAlloc(0, size, Win32Constants.MemReserveCommit, Win32Constants.PageReadWrite);
@@ -196,6 +204,6 @@ internal sealed unsafe class XMemAllocator
 
         nuint length = size == 0 ? 1 : size;
 
-        return (nint)NativeMemory.AlignedAlloc(length, AlignmentFromAttributes(attributes));
+        return (nint)NativeMemory.AlignedAlloc(length, alignment);
     }
 }

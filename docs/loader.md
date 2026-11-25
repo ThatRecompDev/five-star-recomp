@@ -365,6 +365,11 @@ $dump = "<your dump folder>"
 fivestar-loader --load $dump\XboxBvhBuilder.dll --load $dump\Bink2Scarlett.dll --call all --unload --log run.log
 ```
 
+A log opens with the run's identity (`RunIdentity`): the loader's build, whose version carries the commit it was built
+from, the .NET version and the whole command line, so a log says which build and which options (skipped pipelines,
+guards, the shader backend chosen) shaped what it shows. The shader backend and its validator are named again when
+the first program is made (`[d3d12_xs] programs made on demand with ...`).
+
 | Option | Meaning |
 |---|---|
 | `--load <dll>` | map an image (repeatable) |
@@ -390,6 +395,7 @@ fivestar-loader --load $dump\XboxBvhBuilder.dll --load $dump\Bink2Scarlett.dll -
 | `--d3d12-breadcrumbs` | a GPU marker before every draw and dispatch, so a stalled queue names the operation and pipeline it stopped at ([d3d12x-shim.md](d3d12x-shim.md#queue-progress)) |
 | `--watch-transient` | checks the game's transient-memory pool every 5 ms and logs the first corrupted node list with the memory around it and the queues ([debugging.md](debugging.md#transient-pool-watch)) |
 | `--watch-pool-pages` | finds the game's small-block pool pages (16 KiB, header at the page start) in its coherent graphics memory and checks their headers, and their pools' current pages, every 100 ms; a header its allocator cannot have written (an offset outside the page, a garbage next-offset, a counter that did not move forward) is logged with the page, its first bytes and every queue's executions retired since the last check ([debugging.md](debugging.md#pool-page-watch)) |
+| `--watch-4g-lines` | snapshots the first 64 KiB after every 4 GiB line inside each GPU-writable game allocation and compares them every 10 ms; a change is logged with its dword runs, old and new bytes (a run of 4 or more consecutive values is flagged as an index array) and every queue's executions retired since the last check with their last pipelines; a change with no execution retired since is the CPU's and is only counted unless it holds an index run. Two world loads faulted on records overwritten just past such a line (0x252_0000_2840, 0x157_0000_0030) with consecutive 0x3xxxx values |
 | `--watch-hang` | logs the game's main state, loading-screen flags and watchdog handler as they change, and every thread's stack while the heartbeat its 30 s hang watchdog checks stands still, with the event or semaphore each blocked thread waits on, its creator and its last signal ([debugging.md](debugging.md#hang-watchdog)) |
 | `--skip-compute-chains` | skips the rest of a command list's dispatches and ExecuteIndirects after one skipped for a stand-in (off by default; [d3d12x-pipelines.md](d3d12x-pipelines.md#stand-ins)) |
 | `--loop-caps victory\|default\|<compute>,<geometry>,<pixel>` | loop caps of programs made on demand ([shader-translation.md](shader-translation.md#loop-guard)); part of the program cache identity |
@@ -423,6 +429,7 @@ fivestar-loader --load $dump\XboxBvhBuilder.dll --load $dump\Bink2Scarlett.dll -
 | `--min-free-memory <GB>`, `--max-commit <GB>` | with `--run`: end the process (exit code 5, after a last memory map) when the machine's free physical memory drops below, or its commit charge passes, this |
 | `--section-heap-budget <GB>` | at most this much of the game's page sections opened as GPU heaps (default: what the GPU's system-memory budget leaves, [physical-memory.md](physical-memory.md#gpu-visibility)); also how a machine with less RAM is simulated |
 | `--evict-windows` | prototype, off by default: section windows are a cache over the GPU's system-memory budget. Programs made on demand report the windows they read without a heap, those open at the next present, and the least recently wanted are released for them; the game's own allocations open by 64 MiB window (ID3D12Device13) ([physical-memory.md](physical-memory.md#gpu-visibility)) |
+| `--typed-image-views` | image loads, gathers and stores of integer views (UINT/SINT, the stencil plane) go through `uint4`/`int4` declarations chosen by a component class each texture view's record carries in dword 3 ([shader-translation.md](shader-translation.md)); a d16 load of an integer view keeps the low 16 bits; an R9G9B9E5 view of a GPU-written R32_UINT texture (the light targets the game reads back in shared exponent, red only without it) gets class 3 and its loads decode the bits to RGB; part of the program cache identity (off by default) |
 | `--typeless-targets` | GPU-written R8G8B8A8, B8G8R8A8, B8G8R8X8 and R8 UNORM textures are made typeless, so a view in their sRGB or integer member (the lighting's reads of G-buffer targets) reads as the game asked rather than in the texture's format; views without a desc get the UNORM format (off by default; [gpu-resources.md](gpu-resources.md)) |
 | `--in-place-window <MB>` | the largest heap opened in place over game memory (OpenExistingHeapFromAddress; 64 to 1024 MB, a power of two, default 1024): page sections and, with ID3D12Device13, the game's own allocations larger than it open in windows of it as they are used. XCL users on NVIDIA lost the device at the world load with the game's memory open in place, less often with a 512 MB window |
 | `--reserve-gpu-system-memory <GB>` | debugging: upload buffers of this size held from device creation, so the GPU's system-memory budget is as tight as on a machine with less RAM (every system-memory allocation meets it, unlike `--section-heap-budget`); they are resident, so they take that much RAM |
@@ -436,6 +443,7 @@ fivestar-loader --load $dump\XboxBvhBuilder.dll --load $dump\Bink2Scarlett.dll -
 | `--buffer-records-heap-index` | buffer descriptor records hold the desktop heap index in dword 0 instead of the view's console base address (the behaviour before; a program that builds pointers from a V# it reads from a table then reads the descriptor window; [d3d12x-shim.md](d3d12x-shim.md)) |
 | `--typed-buffer-views` | buffer views at slots programs reach by heap index keep the game's typed or structured kind (by default they are raw, as translated programs read them; [d3d12x-shim.md](d3d12x-shim.md)) |
 | `--check-null-addresses` | debug: at record time, a root view (the user-data ring, the argument clamp's views) below 64 KiB, an ExecuteIndirect whose argument or count buffer is missing or read past its end, a bottom-of-pipe write below 64 KiB and a buffer copy with a side missing or past its end are logged (the first 8 of each kind, with list and pipeline) and dropped; names the operation behind a page fault at GPU VA 0, which DRED does not |
+| `--depth-twins` | a UAV of a depth texture's depth plane (R32_FLOAT of D32 and D32S8, R16_UNORM of D16), which the desktop refuses, writes a colour twin instead of a null view; before the next draw whose depth-stencil view is that texture, once a pass that binds the twin ran, a full-screen pass copies the twin into the depth (the tiled lighting draws each material class with depth EQUAL against what it wrote there; VIctory's depth twins, facts only). Needs `--mirror-table-records reach` to find those passes; the stencil plane is not twinned yet |
 | `--no-window-guard` | programs' stores and atomics through 32-bit pointers reach the descriptor window (by default they are dropped and counted per program, logged at each captured present; [d3d12x-shim.md](d3d12x-shim.md)) |
 | `--trace-module <dll>` | with `--run`: the call trace also wraps imports bound to this mapped image (for example `bink2scarlett.dll`) |
 | `--input-script <file>` | timed key presses added to the desktop keys and timed captures, in blocks that wait for learned screens; followed while running (below) |
@@ -455,7 +463,7 @@ entry point (the CRT startup, the static initializers, then `main`) runs on a th
   256-entry ring (`lock xadd`, only r10 and r11 touched) and jumps on.
 - **Fault reporter.** A first vectored exception handler. For a hardware exception (NTSTATUS severity error, not a
   customer code) or a breakpoint whose first 12 stack frames include a mapped image, it logs the code (and the access
-  and address of an access violation), the image RVA, the `.pdata` function around it, 16 code bytes, the registers,
+  and address of an access violation), the image RVA, the `.pdata` function around it, 16 code bytes, the registers, the 48 bytes around each register that points at readable memory with its allocation (a pointer read from overwritten memory shows what overwrote it),
   the stack and the last 24 traced calls; after 3 such records one line per fault, at most 64. It always continues the
   search, so the game's own handlers still run. Its native entry skips threads without a TLS array (exiting ones):
   managed code cannot run there. Faults it cannot see (inside coreclr or the heap manager) need `fivestar-dbg`
@@ -469,9 +477,11 @@ entry point (the CRT startup, the static initializers, then `main`) runs on a th
 record for it and ends the process with code 3 (TerminateProcess, no cleanup: the game's threads still use the shims,
 and disposing the swap chain under the presenting thread crashed in dxgi). `--trace-system` also traces imports bound to System32 (the ring then covers far\nless time). Run boots in a child process: the CRT ends the process through `exit`.
 
-**Thread sampler.** `--sample-threads` suspends each other thread in turn, reads its context and unwinds it through
-`.pdata`, then resumes it; nothing is allocated or logged while a thread is suspended, the captures run inside a no-GC
-region, and the walk stops at the first address outside a module (JIT code). Threads with the same stack are grouped;
+**Thread sampler.** `--sample-threads` takes a snapshot of each other thread in turn (`ThreadSnapshot`: a generated native routine
+suspends it, reads its context, copies its stack and resumes it without returning to managed code, so a garbage
+collection never waits on a suspended thread; holding it across our own P/Invokes froze a whole run once), then
+unwinds the copy through `.pdata`; the hang watch reads its fence-wait registers the same way.
+The walk stops at the first address outside a module (JIT code). Threads with the same stack are grouped;
 mapped frames print as `image+0xrva (fn 0xstart)`. The call counts come from the call-trace thunks, which also count
 calls (`lock inc`) and, under `--run`, wrap the GDK thunk-ABI slots. `OutputDebugString{A,W}` from mapped code is
 logged as `[debug]` (first 4096 messages).

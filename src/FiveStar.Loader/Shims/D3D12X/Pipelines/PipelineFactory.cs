@@ -117,6 +117,19 @@ internal sealed unsafe class PipelineFactory
         var deferral = Deferral(Journal?.Contains(description) ?? false, () => Journal?.Record(description));
         var lacking = Lacking(description.Shaders);
 
+        // A held pair (--skip-pipelines; ray tracing without --raytracing) by the names of all its programs, made or not:
+        // its stand-in never builds, and neither its programs nor its linked producer are made. Named by the programs it
+        // lacked only, the skipped foliage pairs had their producers linked in the compile host, where a game thread's
+        // request then waited (boots w69c and w69d).
+        string all = ProgramNames(description.Shaders);
+
+        if (SkippedPipelines.Skips(all))
+        {
+            *result = StandIns.Unbuilt(all);
+
+            return Remember(description, HResult.Ok, result, all);
+        }
+
         if (lacking is not null || PendingLink(description) is not null)
         {
             // Programs first, then the producer linked to the pixel shader when the pair needs it (ProducerLinks).
@@ -330,8 +343,19 @@ internal sealed unsafe class PipelineFactory
             built?.Invoke(pipeline);
         };
 
-        // A pipeline the cache holds from a boot with --raytracing, or from before ray-tracing pipelines were held, is not loaded.
-        if (!SkippedPipelines.Skips(names) && !RayTracingPrograms.Skips(names, RayTracingPrograms.Folder, scan: true) && Cache is not null && !HResult.Failed(Cache.Load(stream, iid, result)))
+        // A held pipeline (--skip-pipelines; ray tracing without --raytracing, by what is known and the markers: this is
+        // the game's thread, which must not read programs) is a stand-in that never builds, at once, and is not loaded
+        // from the cache. One that only its build finds held fails there, and the creation hands out a stand-in
+        // (StandInPipelines.Create): the game never gets a failure.
+        if (SkippedPipelines.Skips(names) || RayTracingPrograms.Skips(names))
+        {
+            stream.Dispose();
+            *result = StandIns.Unbuilt(names);
+
+            return HResult.Ok;
+        }
+
+        if (Cache is not null && !HResult.Failed(Cache.Load(stream, iid, result)))
         {
             stream.Dispose();
             named(*result);
@@ -411,6 +435,31 @@ internal sealed unsafe class PipelineFactory
         return lacking;
     }
 
+    /// <summary>The first extracted program name of each of <paramref name="shaders"/>, joined by " + ".</summary>
+    private string ProgramNames(IEnumerable<ShaderSource> shaders)
+    {
+        var names = new List<string>();
+
+        foreach (var source in shaders)
+        {
+            try
+            {
+                var found = _programs.Names(ProgramKeys.Prefix(source));
+
+                if (found.Count > 0)
+                {
+                    names.Add(found[0]);
+                }
+            }
+            catch (InvalidDataException)
+            {
+                // A shader without a hash prefix names no program.
+            }
+        }
+
+        return string.Join(" + ", names);
+    }
+
     /// <summary>
     /// Makes the programs of <paramref name="shaders"/> the library lacks and waits for them (the warm-up); true when
     /// none is missing now.
@@ -424,6 +473,7 @@ internal sealed unsafe class PipelineFactory
             return true;
         }
 
+        using var wait = Diagnostics.BlockingWaits.Enter("programs made on demand for a pipeline");
         var made = Task.WhenAll(lacking.Select(names => OnDemand!.Request(names, urgent: true))).GetAwaiter().GetResult();
 
         return made.All(ready => ready);
@@ -560,7 +610,9 @@ internal sealed unsafe class PipelineFactory
     /// </summary>
     public PipelineResult Build(DesktopStream stream, Guid iid, string what)
     {
-        // Before the compile budget and the driver: a held ray-tracing pipeline takes no compile slot.
+        // Before the compile budget and the driver, on a build thread (reading the console code of an unmarked program
+        // there, never on a game thread: boots w66d to w69 read them on the game's creating threads and its loading
+        // stopped): a held ray-tracing pipeline takes no compile slot.
         if (SkippedPipelines.Skips(what) || RayTracingPrograms.Skips(what, RayTracingPrograms.Folder, scan: true))
         {
             stream.Dispose();

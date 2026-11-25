@@ -115,6 +115,9 @@ internal sealed record HostOptions
     /// </summary>
     public bool PlacedTextures { get; set; } = true;
 
+    /// <summary>Integer texture views loaded, gathered and stored through integer declarations (<c>--typed-image-views</c>); part of the program cache identity.</summary>
+    public bool TypedImageViews { get; set; }
+
     /// <summary>GPU-written UNORM color textures made typeless, so views take the game's sRGB or integer member (<c>--typeless-targets</c>).</summary>
     public bool TypelessTargets { get; set; }
 
@@ -241,6 +244,9 @@ internal sealed record HostOptions
     /// <summary>Check the game's small-block pool pages for headers the CPU did not write (<c>--watch-pool-pages</c>).</summary>
     public bool WatchPoolPages { get; set; }
 
+    /// <summary>Watch the first 64 KiB after each 4 GiB line of GPU-writable game memory for changes (<c>--watch-4g-lines</c>).</summary>
+    public bool WatchFourGiBLines { get; set; }
+
     /// <summary>Follow the game's hang watchdog, main state and loading-screen flags (<c>--watch-hang</c>).</summary>
     public bool WatchHang { get; set; }
 
@@ -267,6 +273,12 @@ internal sealed record HostOptions
 
     /// <summary>Operations that would reach a null GPU address or read past their buffer are logged and dropped (<c>--check-null-addresses</c>).</summary>
     public bool CheckNullAddresses { get; set; }
+
+    /// <summary>UAVs of depth textures go to colour twins written back into the depth before draws (<c>--depth-twins</c>).</summary>
+    public bool DepthTwins { get; set; }
+
+    /// <summary>Draws the pipeline trace logs also read back their first render target (<c>--d3d12-probe-traced</c>).</summary>
+    public bool D3D12ProbeTraced { get; set; }
 
     /// <summary>Programs' stores through 32-bit pointers reach the descriptor window (<c>--no-window-guard</c>).</summary>
     public bool NoWindowGuard { get; set; }

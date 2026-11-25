@@ -161,6 +161,8 @@ internal sealed class CommandLineParser
         {
             case "--watch-transient" or "--watch-hang" or "--skip-compute-chains" or "--empty-indirect-after-skip" or "--retire-waits-all-queues" or "--no-split-at-waits" or "--user-data-constants" or "--buffer-records-heap-index" or "--typed-buffer-views" or "--check-null-addresses" or "--no-window-guard" or "--trace-pool-stores" or "--watch-pool-pages":
                 return SetWatch(option);
+            case "--watch-4g-lines":
+                return SetFourGiBLines();
             case "--screens":
                 return SetScreensFile();
             case "--audio-capture":
@@ -608,8 +610,30 @@ internal sealed class CommandLineParser
                 return true;
             case "--max-driver-compiles" or "--compile-ceiling":
                 return SetCompileLimit(option);
+            default:
+                return ApplyResources(option);
+        }
+    }
+
+    /// <summary>Texture, view and pipeline-build options.</summary>
+    private bool ApplyResources(string option)
+    {
+        switch (option)
+        {
             case "--placed-textures":
                 _options.PlacedTextures = true;
+
+                return true;
+            case "--typed-image-views":
+                _options.TypedImageViews = true;
+
+                return true;
+            case "--d3d12-probe-traced":
+                _options.D3D12ProbeTraced = true;
+
+                return true;
+            case "--depth-twins":
+                _options.DepthTwins = true;
 
                 return true;
             case "--typeless-targets":
@@ -725,6 +749,14 @@ internal sealed class CommandLineParser
     private bool SetBreadcrumbs()
     {
         _options.D3D12Breadcrumbs = true;
+
+        return true;
+    }
+
+    /// <summary><c>--watch-4g-lines</c>.</summary>
+    private bool SetFourGiBLines()
+    {
+        _options.WatchFourGiBLines = true;
 
         return true;
     }
