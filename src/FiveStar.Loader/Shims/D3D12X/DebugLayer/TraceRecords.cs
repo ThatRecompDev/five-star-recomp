@@ -76,18 +76,8 @@ internal static unsafe class TraceRecords
             return;
         }
 
-        uint last = offsets.Max(entry => entry.Offset);
-        var seen = new HashSet<uint>();
-
-        for (int sgpr = 0; sgpr < sgprs.Length; sgpr++)
+        foreach (var (sgpr, pointer) in Tables(sgprs, windowBytes, offsets))
         {
-            uint pointer = sgprs[sgpr];
-
-            if (pointer == 0 || pointer % RecordBytes != 0 || (ulong)pointer + last + RecordBytes > windowBytes || !seen.Add(pointer))
-            {
-                continue;
-            }
-
             foreach (var entry in offsets)
             {
                 var record = (uint*)(window + pointer + entry.Offset);
@@ -96,6 +86,35 @@ internal static unsafe class TraceRecords
                 AppendGameRecord(text, pointer + entry.Offset, sources.GameRecord);
             }
         }
+    }
+
+    /// <summary>
+    /// Each distinct user SGPR that is a record-aligned window offset with room for the last of <paramref name="offsets"/>:
+    /// the tables the trace prints records of, and the probe reads back from (the same ones, so both name one view).
+    /// </summary>
+    public static List<(int Sgpr, uint Pointer)> Tables(ReadOnlySpan<uint> sgprs, uint windowBytes, IReadOnlyList<TraceRecord> offsets)
+    {
+        var tables = new List<(int Sgpr, uint Pointer)>();
+
+        if (offsets.Count == 0)
+        {
+            return tables;
+        }
+
+        uint last = offsets.Max(entry => entry.Offset);
+        var seen = new HashSet<uint>();
+
+        for (int sgpr = 0; sgpr < sgprs.Length; sgpr++)
+        {
+            uint pointer = sgprs[sgpr];
+
+            if (pointer != 0 && pointer % RecordBytes == 0 && (ulong)pointer + last + RecordBytes <= windowBytes && seen.Add(pointer))
+            {
+                tables.Add((sgpr, pointer));
+            }
+        }
+
+        return tables;
     }
 
     /// <summary>The game's own record at the heap index of window offset <paramref name="offset"/>.</summary>
