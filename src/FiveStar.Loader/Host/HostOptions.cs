@@ -244,6 +244,9 @@ internal sealed record HostOptions
     /// <summary>The frame interval the frame events keep (<c>--frame-rate</c>); the game's own by default.</summary>
     public Shims.D3D12X.Present.FrameRate FrameRate { get; set; }
 
+    /// <summary>Check the bound tables' views before each draw and dispatch (<c>--check-view-liveness</c>).</summary>
+    public bool CheckViewLiveness { get; set; }
+
     /// <summary>Check the game's transient-memory pool for corrupted nodes (<c>--watch-transient</c>).</summary>
     public bool WatchTransient { get; set; }
 

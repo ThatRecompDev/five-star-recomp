@@ -20,6 +20,9 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// </summary>
 internal static unsafe class XboxDescriptorMethods
 {
+    /// <summary>D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV (d3d12.h).</summary>
+    private const int ViewHeapType = 0;
+
     public const int CreateConstantBufferViewSlot = 17;
     public const int CreateShaderResourceViewSlot = 18;
     public const int CreateUnorderedAccessViewSlot = 19;
@@ -209,7 +212,9 @@ internal static unsafe class XboxDescriptorMethods
             void* view = TargetViewDescriptions.ShaderResourceView(desktop, fitted, copy);
 
             nint destination = D3D12X.DescriptorHeaps.Destination(handle, record);
-            CreateDesktopView(self, CreateShaderResourceViewSlot, desktop, DepthViewDescriptions.ShaderResourceView(desktop, view, copy), destination);
+            void* written = DepthViewDescriptions.ShaderResourceView(desktop, view, copy);
+            CreateDesktopView(self, CreateShaderResourceViewSlot, desktop, written, destination);
+            Written(destination, desktop, written, unordered: false);
         }
         catch (Exception exception)
         {
@@ -311,6 +316,7 @@ internal static unsafe class XboxDescriptorMethods
             }
 
             create(inner, desktop, objects.Unwrap(counter), view, destination);
+            Written(destination, desktop, view, unordered: true);
         }
         catch (Exception exception)
         {
@@ -571,6 +577,7 @@ internal static unsafe class XboxDescriptorMethods
         if (sourceHeap is null)
         {
             DesktopCopy(device, count, destination, source, type);
+            CopiedViews(destination, source, count, increment, type);
 
             return;
         }
@@ -578,6 +585,7 @@ internal static unsafe class XboxDescriptorMethods
         for (uint i = 0; i < count; i++)
         {
             DesktopCopy(device, 1, destination + (nint)((ulong)i * increment), sourceHeap.Source(sourceIndex + i), type);
+            CopiedViews(destination + (nint)((ulong)i * increment), sourceHeap.Source(sourceIndex + i), 1, increment, type);
         }
     }
 
@@ -603,6 +611,7 @@ internal static unsafe class XboxDescriptorMethods
             else
             {
                 DesktopCopy(device, run, desktop, from, type);
+                CopiedViews(desktop, from, run, increment, type);
                 carried = CopyFields(heap, index + done, run, from, increment);
 
                 if (RtStandIns.Enabled)
@@ -617,6 +626,26 @@ internal static unsafe class XboxDescriptorMethods
             }
 
             done += run;
+        }
+    }
+
+    /// <summary>With <c>--check-view-liveness</c>: the view just written at <paramref name="destination"/>.</summary>
+    [HotPath]
+    private static void Written(nint destination, nint desktop, void* view, bool unordered)
+    {
+        if (ViewLiveness.Enabled)
+        {
+            ViewLiveness.Written(destination, desktop, ViewLiveness.Shape(desktop, view, unordered));
+        }
+    }
+
+    /// <summary>With <c>--check-view-liveness</c>: view descriptors copied carry what was noted of them.</summary>
+    [HotPath]
+    private static void CopiedViews(nint destination, nint source, uint count, uint increment, int type)
+    {
+        if (ViewLiveness.Enabled && type == ViewHeapType)
+        {
+            ViewLiveness.Copied(destination, source, count, increment);
         }
     }
 
