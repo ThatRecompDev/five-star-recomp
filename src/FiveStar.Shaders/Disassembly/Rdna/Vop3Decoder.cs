@@ -17,6 +17,9 @@ internal static class Vop3Decoder
     private const int TiedSources = 2;
     private const int PermlaneSelects = 3;
 
+    /// <summary>The source code of the inline constant 0, which current llvm-mc writes in the sources an instruction does not read.</summary>
+    private const int InlineZero = 0x80;
+
     public static Decoded? Decode(CodeWords code, int at)
     {
         if (!code.Has(at, Words))
@@ -51,7 +54,7 @@ internal static class Vop3Decoder
         var count = SourceCount(info, fields.Opcode);
         var words = Words;
 
-        if (fields.SourceCodes.Skip(count).Any(source => source != 0) || !ModifiersFit(info, fields, count))
+        if (fields.SourceCodes.Skip(count).Any(source => source is not (0 or InlineZero)) || !ModifiersFit(info, fields, count))
         {
             return null;
         }

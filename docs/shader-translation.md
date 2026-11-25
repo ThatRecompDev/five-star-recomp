@@ -26,7 +26,9 @@ The container is read from `<fssm folder>/../dxbc/<name>.dxbc` (see Disassembly 
 text, so the decoder prints every instruction exactly as llvm-objdump does for gfx1013 (wave64 lane masks as with
 `+wavefrontsize64`), branch targets appended as `@T0x<target>`. It also keeps the listing's quirks: a dword that is no
 instruction is `.long 0x...`, a run of 8 or more zero bytes is left out, and an instruction llvm-objdump lists with an
-alignment warning is dropped, as the listing parser drops that line. Opcode numbers and field layouts come from AMD's
+alignment warning is dropped, as the listing parser drops that line. A VOP3 source the instruction does not read
+may hold 0 or the inline constant 0 (llvm-mc 23 writes the latter, older releases the former); any other value makes the
+dword `.long`. Opcode numbers and field layouts come from AMD's
 "RDNA 2 Instruction Set Architecture" reference guide.
 
 `LlvmDisassembler` (llvm-mc wraps the bytes in an object file, llvm-objdump lists it, `ObjdumpParser` reads the
