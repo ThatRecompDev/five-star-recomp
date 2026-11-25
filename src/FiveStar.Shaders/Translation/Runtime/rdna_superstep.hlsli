@@ -14,17 +14,21 @@ static const uint PC_IDLE = 0x7ffffffeu;   // the dispatch case of a stopped thr
 #endif
 groupshared uint g_ss_x[2][VW_GROUP_THREADS * VW_SS_VALUES];
 groupshared uint g_ss_m[3][(VW_GROUP_THREADS + 31u) / 32u];
-groupshared uint g_ss_ops[3], g_ss_live[3];
+groupshared uint g_ss_ops[3], g_ss_live[3], g_ss_alloc[3];
 static uint g_ss_gi, g_ss_step, g_ss_read, g_ss_arg;
+static bool g_ss_sent, g_ss_allocated;   // this thread sent GS_ALLOC_REQ since its last step; some thread of the group has
 uint vw_ss_base() { return g_ss_gi & ~(VW_WAVE - 1u); }   // the group index of this console wave's lane 0
 void vw_ss_clear(uint b) {
     [unroll] for (uint i = 0; i < (VW_GROUP_THREADS + 31u) / 32u; i++) g_ss_m[b][i] = 0;
     g_ss_ops[b] = 0;
     g_ss_live[b] = 0;
+    g_ss_alloc[b] = 0;
 }
 void vw_ss_begin(uint gi) {
     g_ss_gi = gi;
     g_ss_step = 0;
+    g_ss_sent = false;
+    g_ss_allocated = false;
     if (gi == 0) { vw_ss_clear(0); vw_ss_clear(1); vw_ss_clear(2); }
     GroupMemoryBarrierWithGroupSync();
 }
@@ -40,8 +44,10 @@ bool vw_ss_step(inout uint pc, uint pc_resume) {
     if (g_ss_gi == 0) vw_ss_clear((b + 1u) % 3u);
     if (pc == PC_WAVE) InterlockedAdd(g_ss_ops[b], 1u);
     if (pc != PC_END) InterlockedAdd(g_ss_live[b], 1u);
+    if (g_ss_sent) { g_ss_alloc[b] = 1u; g_ss_sent = false; }
     GroupMemoryBarrierWithGroupSync();
     uint ops = g_ss_ops[b], live = g_ss_live[b];
+    g_ss_allocated = g_ss_allocated || g_ss_alloc[b] != 0u;
     g_ss_read = g_ss_step;
     g_ss_step++;
     if (pc == PC_WAVE || (pc == PC_YIELD && ops == 0u)) pc = pc_resume;
@@ -49,6 +55,9 @@ bool vw_ss_step(inout uint pc, uint pc_resume) {
 }
 // Whether this step released the threads at an s_barrier (every thread was at one or had ended).
 bool vw_ss_released() { return g_ss_ops[g_ss_read % 3u] == 0u; }
+// Whether a thread of the group sent GS_ALLOC_REQ before this step: read from the step's own buffer, so every thread
+// answers the same (a flag a thread sets after the step could reach a slower thread still reading it).
+bool vw_ss_allocated() { return g_ss_allocated; }
 uint2 vw_ss_ballot() {
     uint w = (vw_ss_base() >> 5);
     uint b = g_ss_read % 3u;
