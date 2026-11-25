@@ -32,6 +32,12 @@ internal static unsafe class ReturnAddresses
     private const byte Displacement8 = 0x50;
     private const byte Displacement32 = 0x90;
 
+    /// <summary>
+    /// Pages whose bytes can be read as code. PAGE_EXECUTE alone is not one: the loader maps execute-only sections, and
+    /// a read there faults like an uncommitted page.
+    /// </summary>
+    private const uint ReadableCode = Win32Constants.PageExecuteRead | Win32Constants.PageExecuteReadWrite | Win32Constants.PageExecuteWriteCopy;
+
     /// <summary>Up to <paramref name="count"/> return addresses into mapped images above the caller, innermost first.</summary>
     public static nint[] Scan(ImageTable images, int count)
     {
@@ -59,8 +65,9 @@ internal static unsafe class ReturnAddresses
     }
 
     /// <summary>
-    /// Whether the 6 bytes before <paramref name="value"/> are committed: an image's range has pages that are not (a section
-    /// window unmapped, a discarded section), and a read there killed a boot inside a wait.
+    /// Whether the 6 bytes before <paramref name="value"/> are committed readable code (<see cref="ReadableCode"/>): an
+    /// image's range has pages that are not (a section window unmapped, a discarded section, an execute-only section), and
+    /// a read there killed a boot inside a wait.
     /// </summary>
     internal static bool CallBytesReadable(nint value)
     {
@@ -69,7 +76,7 @@ internal static unsafe class ReturnAddresses
         ulong page = (ulong)Environment.SystemPageSize;
         bool samePage = first / page == last / page;
 
-        return GameHangWatch.IsReadable(first) && (samePage || GameHangWatch.IsReadable(last));
+        return GameHangWatch.IsReadable(first, ReadableCode) && (samePage || GameHangWatch.IsReadable(last, ReadableCode));
     }
 
     /// <summary>Whether the bytes before <paramref name="address"/> end a call instruction (6 readable bytes before it).</summary>
