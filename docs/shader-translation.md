@@ -140,6 +140,12 @@ neither half nor `m` is written, since every thread of the console wave deposits
 programs the stops fell from 1,340,858 to 406,824; none has more than 500 left (207 had before), and
 `MSNC_VS_LinearDepthSkin_f1f2249c` went from 611 to 180.
 
+One round then serves every ballot, `vw_any` and `vw_count` of the mask the last round took, until something that mask
+reads is written or the block ends (`SuperstepSplitter`): the round's mask buffer holds the whole ballot, so a ballot's
+`.y` no longer takes a round after its `.x`. `MS_VS_TransformD_c5fd36bb` (049945c2), whose pipeline the driver did not
+build in 10 minutes, went from 393 stops to 284 (1,291 to 1,073 cases); its remaining rounds are 150 readfirstlanes
+and 192 branches on "any lane" of a mask.
+
 A superstep program names its cost in its first body line, `// superstep: <stops> stops, round bound <n>` (the loader
 logs it once per program): a round is a group barrier and a run of the dispatch switch to the next stop, so a large
 program's rounds can outlast the driver's timeout well before the caps' bound (`MSNC_VS_LinearDepthSkin_f1f2249c`:
