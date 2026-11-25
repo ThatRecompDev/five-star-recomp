@@ -141,6 +141,10 @@ internal sealed class CommandLineParser
                 return SetPresentTest();
             case "--raytracing" or "--raytracing-gpu":
                 return SetRayTracing(option);
+            case "--no-rt-stand-ins":
+                _options.NoRtStandIns = true;
+
+                return true;
             case "--xdsp-convolution":
                 return SetXDspConvolution();
             case "--network":
