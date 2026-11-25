@@ -248,6 +248,9 @@ internal sealed record HostOptions
     /// <summary>GPU time per pass and queue with the sample line (<c>--gpu-timings</c>).</summary>
     public bool GpuTimings { get; set; }
 
+    /// <summary>Every how many frames the CPU frame breakdown is logged (<c>--frame-log</c>); 0 is off.</summary>
+    public int FrameLog { get; set; }
+
     /// <summary>The frame interval the frame events keep (<c>--frame-rate</c>); the game's own by default.</summary>
     public Shims.D3D12X.Present.FrameRate FrameRate { get; set; }
 

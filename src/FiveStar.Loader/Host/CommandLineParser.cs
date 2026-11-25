@@ -703,6 +703,10 @@ internal sealed class CommandLineParser
                 _options.WaitPipelines = Next();
 
                 return true;
+            case "--frame-log":
+                _options.FrameLog = Math.Max(1, int.Parse(Next(), CultureInfo.InvariantCulture));
+
+                return true;
             case "--kept-aliases":
                 _options.KeptAliases = Math.Max(0, int.Parse(Next(), CultureInfo.InvariantCulture));
 
