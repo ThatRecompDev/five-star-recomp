@@ -35,6 +35,25 @@ public sealed class DrawProbeReadbackTests
     }
 
     [Fact]
+    public void A_probe_reads_only_the_texture_the_trace_names_at_a_handle()
+    {
+        const nint Handle = 0x1000;
+        const nint Texture = 0x2000;
+        const int ShaderResource = 0xC0;
+        var views = new TracedViews();
+
+        views.Write(Handle, "SRV of 0x2000 2304x576 format 54", Texture, ShaderResource);
+        Assert.True(views.TryTexture(Handle, out var texture));
+        Assert.Equal((Texture, ShaderResource), texture);
+
+        // An unwrapped SRV over the same handle: the trace shows it, and the probe no longer reads the old texture.
+        views.Write(Handle, "SRV of 0x3000 60x34 format 54");
+        Assert.True(views.TryText(Handle, out string text));
+        Assert.Equal("SRV of 0x3000 60x34 format 54", text);
+        Assert.False(views.TryTexture(Handle, out _));
+    }
+
+    [Fact]
     public void A_mapped_readback_summarizes_and_converts_as_a_managed_copy_did()
     {
         // BGRA rows 16 bytes apart (12 bytes of texels, 4 of padding): one blue pixel at (2, 0), one red at (0, 1).
