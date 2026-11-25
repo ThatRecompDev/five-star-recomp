@@ -78,6 +78,7 @@ internal sealed unsafe class GameHangWatch
         ulong beat = 0;
         double beatAt = 0;
         int dumps = 0;
+        var waitsAtBeat = BlockingWaits.Snapshot();
 
         while (true)
         {
@@ -105,6 +106,7 @@ internal sealed unsafe class GameHangWatch
                 beat = current;
                 beatAt = now;
                 dumps = 0;
+                waitsAtBeat = BlockingWaits.Snapshot();
 
                 continue;
             }
@@ -115,7 +117,8 @@ internal sealed unsafe class GameHangWatch
             }
 
             dumps++;
-            _log.Info($"{Prefix}{now:F1} s: heartbeat still for {now - beatAt:F1} s; {BlockingWaits.Summary()}; {_counters()}");
+            string stall = BlockingWaits.Summary("loader waits since the heartbeat last moved, all threads", BlockingWaits.Snapshot(), waitsAtBeat);
+            _log.Info($"{Prefix}{now:F1} s: heartbeat still for {now - beatAt:F1} s; {stall}; {BlockingWaits.Summary()}; {_counters()}");
             _stacks.Log(_log, Prefix);
             LogFenceWaits();
         }
