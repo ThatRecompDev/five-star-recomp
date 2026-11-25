@@ -46,6 +46,9 @@ internal static unsafe class GpuTimings
     private const int TakeTries = 16;
     private const int CollectMilliseconds = 50;
     private const int PassesShown = 10;
+
+    /// <summary>The name suffix of a recording's last pass when later passes had no query left and were added to it.</summary>
+    private const string RestSuffix = " +rest";
     private const double MillisecondsPerSecond = 1000.0;
 
     /// <summary>A pipeline name is up to two programs joined by " + "; a program's name is sgd1_hash_t32_name_hash_Wrapped.</summary>
@@ -71,6 +74,7 @@ internal static unsafe class GpuTimings
     private static int _next;
     private static long _untimed;
     private static long _stale;
+    private static long _overflowed;
     private static long _reportedPresents;
     private static int _collecting;
 
@@ -168,10 +172,18 @@ internal static unsafe class GpuTimings
             return;
         }
 
-        bool begins = times.Used == 0 || (Switches(times, kind, pipeline) && times.Used < QueriesPerBlock - 1);
+        bool switches = times.Used == 0 || Switches(times, kind, pipeline);
 
-        if (!begins)
+        if (!switches)
         {
+            return;
+        }
+
+        // Past the block's last pass, later work extends it: its name says so (Overflow).
+        if (times.Used == QueriesPerBlock - 1)
+        {
+            times.Overflow = true;
+
             return;
         }
 
@@ -217,7 +229,7 @@ internal static unsafe class GpuTimings
     /// <summary>What the recording's Close resolved: its block and generation, and each pass's first pipeline.</summary>
     private static void Freeze(ListTimes times)
     {
-        times.Closed = new ClosedRecording(times.Block, Generations[times.Block], times.Pipelines[..times.Used]);
+        times.Closed = new ClosedRecording(times.Block, Generations[times.Block], times.Pipelines[..times.Used], times.Overflow);
     }
 
     /// <summary>
@@ -271,7 +283,7 @@ internal static unsafe class GpuTimings
             QueueBusy.Clear();
         }
 
-        text.Append(CultureInfo.InvariantCulture, $"; {Interlocked.Exchange(ref _untimed, 0)} recordings without a free block, {Interlocked.Exchange(ref _stale, 0)} read after their block was reused");
+        text.Append(CultureInfo.InvariantCulture, $"; {Interlocked.Exchange(ref _untimed, 0)} recordings without a free block, {Interlocked.Exchange(ref _stale, 0)} read after their block was reused, {Interlocked.Exchange(ref _overflowed, 0)} with more than {QueriesPerBlock - 1} passes (the last named \"{RestSuffix.Trim()}\" holds the rest)");
 
         return text.ToString();
     }
@@ -364,9 +376,21 @@ internal static unsafe class GpuTimings
                 }
             }
 
+            if (recording.Overflow)
+            {
+                Interlocked.Increment(ref _overflowed);
+            }
+
             for (int i = 0; i < passes; i++)
             {
-                var key = (submission.Queue, PassName(Name(recording.Pipelines[i])));
+                string pass = PassName(Name(recording.Pipelines[i]));
+
+                if (recording.Overflow && i == passes - 1)
+                {
+                    pass += RestSuffix;
+                }
+
+                var key = (submission.Queue, pass);
                 PassMilliseconds[key] = PassMilliseconds.GetValueOrDefault(key) + Milliseconds(values[i + 1] - values[i], submission.Frequency);
             }
 
@@ -426,6 +450,7 @@ internal static unsafe class GpuTimings
         public int Used;
         public int Kind;
         public bool Boundary;
+        public bool Overflow;
         public ClosedRecording? Closed;
 
         public nint[] Pipelines { get; } = new nint[QueriesPerBlock];
@@ -437,12 +462,13 @@ internal static unsafe class GpuTimings
             Used = 0;
             Kind = 0;
             Boundary = false;
+            Overflow = false;
             Closed = null;
         }
     }
 
-    /// <summary>A closed recording's block (and its generation then) and the first pipeline of each pass.</summary>
-    private sealed record ClosedRecording(int Block, int Generation, nint[] Pipelines);
+    /// <summary>A closed recording's block (and its generation then), the first pipeline of each pass, and whether its last pass holds the work past the block's passes.</summary>
+    private sealed record ClosedRecording(int Block, int Generation, nint[] Pipelines, bool Overflow);
 
     private readonly record struct Submission(int Queue, ulong Frequency, nint Fence, ulong Value, ClosedRecording Recording);
 }
