@@ -472,9 +472,11 @@ entry point (the CRT startup, the static initializers, then `main`) runs on a th
 record for it and ends the process with code 3 (TerminateProcess, no cleanup: the game's threads still use the shims,
 and disposing the swap chain under the presenting thread crashed in dxgi). `--trace-system` also traces imports bound to System32 (the ring then covers far\nless time). Run boots in a child process: the CRT ends the process through `exit`.
 
-**Thread sampler.** `--sample-threads` suspends each other thread in turn, reads its context and unwinds it through
-`.pdata`, then resumes it; nothing is allocated or logged while a thread is suspended, the captures run inside a no-GC
-region, and the walk stops at the first address outside a module (JIT code). Threads with the same stack are grouped;
+**Thread sampler.** `--sample-threads` takes a snapshot of each other thread in turn (`ThreadSnapshot`: a generated native routine
+suspends it, reads its context, copies its stack and resumes it without returning to managed code, so a garbage
+collection never waits on a suspended thread; holding it across our own P/Invokes froze a whole run once), then
+unwinds the copy through `.pdata`; the hang watch reads its fence-wait registers the same way.
+The walk stops at the first address outside a module (JIT code). Threads with the same stack are grouped;
 mapped frames print as `image+0xrva (fn 0xstart)`. The call counts come from the call-trace thunks, which also count
 calls (`lock inc`) and, under `--run`, wrap the GDK thunk-ABI slots. `OutputDebugString{A,W}` from mapped code is
 logged as `[debug]` (first 4096 messages).
