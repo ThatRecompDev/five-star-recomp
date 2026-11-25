@@ -40,8 +40,9 @@ flowchart LR
 
 - **Registry** (`GpuTextureRegistry`): textures sorted by console address over the span of their XG layout; lookups
   take no lock. A texture registered over an overlapping range retires the old one. Of those over the same range (other
-  views of the same memory, or a streaming slot reused) the newest two keep their reference until shutdown, since
-  descriptors written earlier may still name them, and older ones are released 30 presents later; any other is
+  views of the same memory, or a streaming slot reused) the newest keeps its reference until shutdown, since
+  descriptors written earlier may still name it (`--kept-aliases <n>`, default 1; it was 2, a second texture of video
+  memory per reused slot charged to commit, while a placed texture's heap range stays mapped after release anyway), and older ones are released 30 presents later; any other is
   released 8 presents later (the memory went to something else), and either only once every queue has finished the work
   it had submitted when the texture was retired (its shim fence), so no list still on the GPU can sample it. The grace
   was 600 and 120 presents without the fences; boot w36 held 4,905 retired textures, their video memory charged to
