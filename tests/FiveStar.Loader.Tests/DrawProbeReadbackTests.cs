@@ -27,7 +27,11 @@ public sealed class DrawProbeReadbackTests
             BitConverter.TryWriteBytes(texel.AsSpan(i * sizeof(float)), values[i]);
         }
 
-        Assert.Equal("; float mean (12.5, 12.5, 12.5, 1), max (12.5, 12.5, 12.5, 1)", DrawProbes.FloatSummary(texel, 16, 1, 1, 2));
+        Assert.Equal("; float mean (12.5, 12.5, 12.5, 1), max (12.5, 12.5, 12.5, 1), min (12.5, 12.5, 12.5, 1)", DrawProbes.FloatSummary(texel, 16, 1, 1, 2));
+
+        // R16_FLOAT (the scattering distance volume), slices read one below the other: 0, 2, 4, 6 over two rows of two.
+        byte[] halves = [.. new[] { (Half)0, (Half)2, (Half)4, (Half)6 }.SelectMany(value => BitConverter.GetBytes(value))];
+        Assert.Equal("; float mean (3), max (6), min (0)", DrawProbes.FloatSummary(halves, 4, 2, 2, 54));
         Assert.Equal(string.Empty, DrawProbes.FloatSummary(texel, 16, 1, 1, Bgra8Unorm));
 
         Assert.True(DrawTrace.MatchesFilter("sgd1_06e1f075_t32_PS_CalculateExposure_396dfccc_Wrapped", "PassthroughComposite, CalculateExposure"));
