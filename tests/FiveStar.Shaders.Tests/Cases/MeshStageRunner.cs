@@ -28,6 +28,10 @@ public sealed partial class MeshStageRunner
     public const string FallbackRoot = "msfb_ngg_strips_rootdesc";
     public const string FallbackOverflow = "msfb_overflow_dropped";
 
+    /// <summary>The program with the mesh launch payload (TranslationOptions.MeshPayload): drawn without the stage, and through the fallback.</summary>
+    public const string Payload = "ms_ngg_payload";
+    public const string PayloadFallback = "msfb_ngg_payload";
+
     /// <summary>
     /// The program without the ds_bpermute round trip, with an SGPR the vertex region writes but nothing reads after
     /// it, and the culled primitive's index taken with v_readfirstlane inside the primitive region: WARP's 4-lane waves
@@ -191,7 +195,7 @@ public sealed partial class MeshStageRunner
         _fixture = fixture;
     }
 
-    public static IReadOnlyList<string> Variants => [Native, FallbackTable, FallbackRoot, FallbackOverflow, Supersteps, SuperstepFallback, SuperstepCarry];
+    public static IReadOnlyList<string> Variants => [Native, FallbackTable, FallbackRoot, FallbackOverflow, Supersteps, SuperstepFallback, SuperstepCarry, Payload, PayloadFallback];
 
     /// <summary>Draws a variant; <paramref name="direct"/> compiles a native mesh shader with the DXIL backend.</summary>
     public IReadOnlyList<string> Run(string variant, bool direct = false)
@@ -205,7 +209,7 @@ public sealed partial class MeshStageRunner
         var bindings = new Bindings { UserSgprs = [(Primitives << 12) | Vertices, Culled, FloatBits.Of(AttributeBase), lanes] };
         var image = Reference();
 
-        if (variant is Native or Windows or Supersteps or SuperstepCarry or FirstLane or FirstLaneSplit)
+        if (variant is Native or Windows or Supersteps or SuperstepCarry or FirstLane or FirstLaneSplit or Payload)
         {
             var result = _fixture.Runner.Mesh(new MeshJob(_fixture.Workbench.Compile(variant, mesh, "ms", direct), pixel, framebuffer, bindings, 1));
 
@@ -346,6 +350,11 @@ public sealed partial class MeshStageRunner
             var options = new TranslationOptions(StructuredControlFlow: false, PinWaveSize: false, EmulateWaveSize: true) { SuperstepCarry = variant == SuperstepCarry };
 
             return HlslTranslator.SuperstepVariant(program, options);
+        }
+
+        if (variant is Payload or PayloadFallback)
+        {
+            return ShaderWorkbench.TranslateMeshPayload(program);
         }
 
         return ShaderWorkbench.Translate(program);
