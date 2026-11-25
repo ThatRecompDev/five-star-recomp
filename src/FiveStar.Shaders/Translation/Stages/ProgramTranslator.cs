@@ -55,6 +55,8 @@ internal static class ProgramTranslator
 
         if (state.Supersteps)
         {
+            // Every wave operation is a group round in this form: those whose result nothing reads go first.
+            DeadWaveOperations.Remove(state.Blocks, SuperstepWriter.Pinned(state, new MeshDeclarations(state)));
             var splitter = new SuperstepSplitter();
             var blocks = splitter.Split(state.Blocks);
             state.Blocks.Clear();
