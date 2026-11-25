@@ -155,15 +155,17 @@ internal sealed unsafe class FaultReporter
         return NativeLibrary.GetExport(NativeLibrary.Load("ntdll.dll"), "RtlPcToFileHeader");
     }
 
-    /// <summary>The base of a loaded module, 0 when it is not loaded.</summary>
+    /// <summary>
+    /// The base of a loaded module, 0 when it is not loaded. GetModuleHandleW never loads: a bare name given to a load
+    /// would search the current folder and PATH, where a planted coreclr.dll or clrjit.dll (absent from a NativeAOT
+    /// build) would run.
+    /// </summary>
     private static nint ModuleBase(string name)
     {
-        if (NativeLibrary.TryLoad(name, out nint module))
+        fixed (char* text = name)
         {
-            return module;
+            return Kernel32.GetModuleHandleW(text);
         }
-
-        return 0;
     }
 
     [UnmanagedCallersOnly]

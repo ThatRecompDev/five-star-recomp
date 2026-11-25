@@ -171,7 +171,7 @@ internal static class CompileHostServer
 
         if (result.Verdict == BackendVerdict.Compiled)
         {
-            var target = Path.Combine(make.Folder, make.Name + DxilExtension);
+            var target = FiveStar.Shaders.Cache.PlainFileName.Inside(make.Folder, make.Name + DxilExtension);
 
             if (!string.Equals(request.DxilPath, target, StringComparison.OrdinalIgnoreCase))
             {

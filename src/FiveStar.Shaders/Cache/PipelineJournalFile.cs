@@ -67,9 +67,22 @@ public static class PipelineJournalFile
                 using var reader = new BinaryReader(new MemoryStream(record));
                 var count = reader.ReadByte() == ComputeKind ? 1 : reader.ReadInt32();
 
+                // Each shader takes at least its length: a count or length past the record is damage.
+                if (count < 0 || count > record.Length / sizeof(int))
+                {
+                    continue;
+                }
+
                 for (var shader = 0; shader < count; shader++)
                 {
-                    var prefix = reader.ReadBytes(reader.ReadInt32());
+                    var length = reader.ReadInt32();
+
+                    if (length < 0 || length > reader.BaseStream.Length - reader.BaseStream.Position)
+                    {
+                        break;
+                    }
+
+                    var prefix = reader.ReadBytes(length);
 
                     if (seen.Add(Convert.ToHexString(prefix)))
                     {
@@ -77,7 +90,7 @@ public static class PipelineJournalFile
                     }
                 }
             }
-            catch (EndOfStreamException)
+            catch (Exception exception) when (exception is EndOfStreamException or ArgumentException or FormatException)
             {
                 // A damaged record names nothing.
             }

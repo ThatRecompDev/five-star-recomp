@@ -97,7 +97,8 @@ internal sealed class EventPipeSession : IDisposable
 
     private static NamedPipeClientStream Connect()
     {
-        var pipe = new NamedPipeClientStream(".", PipePrefix + Environment.ProcessId, PipeDirection.InOut);
+        // Identification only: a server squatting on the pipe name learns who connected but cannot act as this process.
+        var pipe = new NamedPipeClientStream(".", PipePrefix + Environment.ProcessId, PipeDirection.InOut, PipeOptions.None, System.Security.Principal.TokenImpersonationLevel.Identification);
         pipe.Connect(ConnectMilliseconds);
 
         return pipe;
