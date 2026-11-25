@@ -131,7 +131,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs" or "--gpu-timings":
                 return SetBreadcrumbs(option);
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--capture-when-world" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
                 return SetTraceDraws(option);
             case "--capture-dir":
                 return SetCaptureDirectory();
@@ -928,6 +928,11 @@ internal sealed class CommandLineParser
         if (option == "--d3d12-watch-limit")
         {
             _options.D3D12WatchLimit = int.TryParse(Next(), out int limit) && limit > 0 ? limit : throw new CommandLineException("--d3d12-watch-limit takes a positive count");
+        }
+
+        if (option == "--capture-when-world")
+        {
+            _options.CaptureWhenWorld = true;
         }
 
         if (option == "--d3d12-dump-targets")
