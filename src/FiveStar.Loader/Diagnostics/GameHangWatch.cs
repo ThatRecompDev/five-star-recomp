@@ -48,25 +48,25 @@ internal sealed unsafe class GameHangWatch
 
     private readonly ThreadStacks _stacks;
     private readonly Func<string> _counters;
-    private readonly Func<ulong, string> _fenceCell;
+    private readonly Func<ulong, ulong, string> _fenceWait;
     private readonly LoaderLog _log;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
-    private GameHangWatch(ImageTable images, Func<string> counters, Func<ulong, string> fenceCell, LoaderLog log)
+    private GameHangWatch(ImageTable images, Func<string> counters, Func<ulong, ulong, string> fenceWait, LoaderLog log)
     {
         _stacks = new ThreadStacks(images, MaxFrames);
         _counters = counters;
-        _fenceCell = fenceCell;
+        _fenceWait = fenceWait;
         _log = log;
     }
 
     /// <summary>
     /// Starts the watch thread. <paramref name="counters"/> gives the loader counters logged with stacks,
-    /// <paramref name="fenceCell"/> the fence whose completed-value cell is at an address.
+    /// <paramref name="fenceWait"/> the fence whose completed-value cell is at an address and the work a wait on it for a value depends on.
     /// </summary>
-    public static void Start(ImageTable images, Func<string> counters, Func<ulong, string> fenceCell, LoaderLog log)
+    public static void Start(ImageTable images, Func<string> counters, Func<ulong, ulong, string> fenceWait, LoaderLog log)
     {
-        var watch = new GameHangWatch(images, counters, fenceCell, log);
+        var watch = new GameHangWatch(images, counters, fenceWait, log);
         var thread = new Thread(watch.Run) { IsBackground = true, Name = "fivestar hang watch" };
         thread.Start();
         log.Info($"{Prefix}watching the game's heartbeat, main state and loading-screen flags");
@@ -137,7 +137,7 @@ internal sealed unsafe class GameHangWatch
                 continue;
             }
 
-            _log.Info($"{Prefix}  thread {thread.Id} waits at 0x144fb0ad0 for {target} in cell 0x{cell:x} (now {*(ulong*)cell}); {_fenceCell(cell)}");
+            _log.Info($"{Prefix}  thread {thread.Id} waits at 0x144fb0ad0 for {target} in cell 0x{cell:x} (now {*(ulong*)cell}); {_fenceWait(cell, target)}");
         }
     }
 
