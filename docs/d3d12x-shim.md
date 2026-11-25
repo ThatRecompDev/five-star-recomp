@@ -324,7 +324,12 @@ B5G6R5, B5G5R5A1 or B4G4R4A4 take a substitute format; see [gpu-resources.md](gp
 **Allocation info (slots 25, 108).** A texture desc in a console layout (0x100 + swizzle mode), or with layout
 UNKNOWN and none of ALLOW_RENDER_TARGET, ALLOW_DEPTH_STENCIL, ALLOW_UNORDERED_ACCESS, gets the XG layout's size and
 alignment ([xg.md](xg.md); UNKNOWN takes the suggested mode), as the console reports it, not the desktop driver's
-(`ConsoleAllocationSizes`; other descs, or a query mixing them, keep the desktop answer). The game sizes streamed
+(`ConsoleAllocationSizes`). So does a single-sample render target, depth target or UAV texture with layout UNKNOWN:
+the game places those in its 2.2 GiB graphics heap at the size slot 108 answers (0x140abfad0), while the shim backs
+them with desktop textures of their own. AMD's driver (RX 7800 XT) adds its compression metadata, 0x1330000 bytes for
+a 2560x1440 depth target where XG gives 0xb40000; with the desktop sizes the heap held 2050 MB of its 2199 MB after
+boot and the story load stopped on a 46 MiB request (the allocator's fatal path, 0x142219650). Buffers, multisampled
+textures, or a query mixing them keep the desktop answer. The game sizes streamed
 textures without size fields in their header this way (0x1451fb8f3 through 0x140343e80, desc built without a
 layout), stores the size in 4 KiB units in its streaming table (0x149c3e1d0, 0x38-byte entries, words +0x18 offsets
 and +0x20 sizes) and reads exactly that many bytes from the archive (0x1443c4850); the archive's compressed chunks

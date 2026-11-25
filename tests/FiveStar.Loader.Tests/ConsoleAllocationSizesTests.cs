@@ -15,6 +15,11 @@ public sealed unsafe class ConsoleAllocationSizesTests
     private const int Rgba16Unorm = 11;
     private const int ConsoleFlags = 0x300000;
     private const int AllowRenderTarget = 1;
+    private const int AllowDepthStencil = 2;
+    private const int AllowUnorderedAccess = 4;
+    private const int D16S8 = 118;
+    private const uint Msaa4 = 4;
+    private const ulong DepthTargetXgBytes = 0xb40000;
     private const int Rgba8Unorm = 28;
     private const ulong RenderTargetRegion = 64ul << 20;
     private const ulong RegionSlack = 2ul << 20;
@@ -53,7 +58,24 @@ public sealed unsafe class ConsoleAllocationSizesTests
         Assert.Equal(0x4000ul, result.Size);
 
         desc.Flags |= AllowRenderTarget;
+        Assert.True(ConsoleAllocationSizes.TryApply(&desc, 1, &result, null));
+        Assert.True(ConsoleAllocationSizes.TryCommittedTextureSize(&desc, out ulong targetSize));
+        Assert.Equal(targetSize, result.Size);
+
+        desc.SampleCount = Msaa4;
         Assert.False(ConsoleAllocationSizes.TryApply(&desc, 1, &result, null));
+    }
+
+    [Fact]
+    public void A_depth_target_gets_its_xg_size_and_not_the_desktop_metadata()
+    {
+        // The 2560x1440 D16S8 depth targets the game places in its graphics heap: an RX 7800 XT answers 0x1330000
+        // bytes, XG 0xb40000 (the heap ran out at the story load with the desktop sizes).
+        var desc = new ResourceDescription { Dimension = Texture2D, Width = 2560, Height = 1440, DepthOrArraySize = 1, MipLevels = 1, Format = D16S8, SampleCount = 1, Flags = ConsoleFlags | AllowDepthStencil | AllowUnorderedAccess };
+        ResourceAllocationInfo result = default;
+
+        Assert.True(ConsoleAllocationSizes.TryApply(&desc, 1, &result, null));
+        Assert.Equal(DepthTargetXgBytes, result.Size);
     }
 
     [Fact]
