@@ -16,6 +16,10 @@ public static class BvhCases
     private const int RecordDwords = 12;
     private const uint Untouched = 0x12345678;
 
+    /// <summary>What a node misses with under FIVESTAR_BVH_MISS: a triangle t_num inf over t_denom 1, a box no child.</summary>
+    private static readonly uint[] TriangleMiss = [0x7f800000u, 0x3f800000u, 0u, 0u];
+    private static readonly uint[] BoxMiss = [uint.MaxValue, uint.MaxValue, uint.MaxValue, uint.MaxValue];
+
     private const string LoadProgram = """
         v_mul_u32_u24_e32 v1, 48, v41
         global_load_dwordx4 v[2:5], v1, s[8:9]
@@ -50,6 +54,41 @@ public static class BvhCases
         return All().Single(testCase => testCase.Name == name);
     }
 
+    /// <summary>
+    /// The mixed queries against a BVH base whose memory is garbage, for programs made with FIVESTAR_BVH_MISS (no
+    /// acceleration structure built): every box node reports no child (all invalid), every triangle node no hit
+    /// (t_num inf, t_denom 1), whatever the nodes hold.
+    /// </summary>
+    public static ComputeCase Garbage()
+    {
+        var queries = BvhQueries.Mixed(9);
+        var memory = BvhScene.Build();
+        var random = new Random(63);
+        int words = memory.Words().Length;
+
+        for (var index = BvhScene.Base / 4; index < words; index++)
+        {
+            memory.WriteWord(4 * index, (uint)random.NextInt64(uint.MaxValue));
+        }
+
+        var options = new Options();
+        var records = queries.SelectMany(query => Record(query, options, 0)).ToArray();
+
+        for (var index = 0; index < records.Length; index++)
+        {
+            memory.WriteWord(4 * index, records[index]);
+        }
+
+        var miss = queries.Select(Miss).ToList();
+
+        return new ComputeCase("bvh_garbage_miss", Program(options), 4, thread => [.. miss[thread.Id].Select(Expected.Exact)])
+        {
+            SecondDescriptor = BvhReference.Descriptor(BvhScene.Base, options.Sort, options.Grow, options.ReturnBarycentrics),
+            User = [0, 0, 0, 0],
+            Buffers = [new BufferResource(0, memory.Words(), Writable: false)],
+        };
+    }
+
     private static ComputeCase Make(string name, List<BvhQuery> queries, Options options)
     {
         var memory = BvhScene.Build();
@@ -80,6 +119,17 @@ public static class BvhCases
         }
 
         return [.. expected[thread.Id].Select(Expected.Exact)];
+    }
+
+    /// <summary>The result of a query's node under FIVESTAR_BVH_MISS: node types 0 to 3 are triangles.</summary>
+    private static uint[] Miss(BvhQuery query)
+    {
+        if ((query.Node & 7u) < 4u)
+        {
+            return TriangleMiss;
+        }
+
+        return BoxMiss;
     }
 
     /// <summary>One query as 12 dwords: node (+ node_hi for bvh64), extent, origin, direction and inverse direction (a16: packed f16).</summary>

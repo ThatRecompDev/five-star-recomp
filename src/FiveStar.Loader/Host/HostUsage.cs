@@ -36,6 +36,8 @@ internal static class HostUsage
           --section-heap-budget <GB>
                                  at most this much of the game's page sections backed on the GPU (default: what
                                  the GPU's system-memory budget leaves); the rest opens as it is used, or reads as zeros
+          --in-place-window <MB> the largest heap opened in place over game memory (64 to 1024, a power of two; default
+                                 1024): larger sections and the game's own allocations open in windows of it as used
           --evict-windows        prototype: section windows the address map needs open when programs report reading
                                  them and the least recently wanted are released for them (programs made on demand)
           --reserve-gpu-system-memory <GB>

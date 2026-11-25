@@ -163,11 +163,19 @@ uint4 bvh_triangle_node(uint addr, uint type, bool return_ij, float3 org, float3
 }
 
 // tdesc = T# words; node_lo/node_hi = node pointer (node_hi = 0 for the 32-bit form); returns the 4 result dwords.
+// FIVESTAR_BVH_MISS (the loader without --raytracing, which builds no acceleration structure): every node misses, read
+// nothing: a box node has no child to visit (all invalid), a triangle node no hit (t_num inf, t_denom 1), so the
+// game's traversal loops end at once instead of following child pointers out of title memory.
 uint4 bvh_intersect_ray(uint4 tdesc, uint node_lo, uint node_hi, float extent, float3 org, float3 dir, float3 inv_dir) {
     uint type = node_lo & 7u;
+#ifdef FIVESTAR_BVH_MISS
+    if (type < 4u) return uint4(0x7f800000u, 0x3f800000u, 0u, 0u);
+    return uint4(BVH_INVALID, BVH_INVALID, BVH_INVALID, BVH_INVALID);
+#else
     uint addr = (tdesc.x << 8) + ((node_lo & ~7u) << 3);
     if (type >= 6u) return uint4(BVH_INVALID, BVH_INVALID, BVH_INVALID, BVH_INVALID);   // instance / user node
     if (type >= 4u)
         return bvh_box_node(addr, type == 4u, extent, org, inv_dir, (tdesc.y >> 23) & 0xffu, (tdesc.y >> 31) != 0);
     return bvh_triangle_node(addr, type, ((tdesc.w >> 24) & 1u) != 0, org, dir);
+#endif
 }

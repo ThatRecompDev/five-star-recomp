@@ -32,7 +32,7 @@ internal sealed class BodyWriter
         "    uint ms_live = g_ms_live[ms_step % 3u];",
         "    ms_step++;",
         "    if (ms_live == 0u) break;",
-        $"    if (ms_step > {LoopGuard.RoundsHex(_state.Stage, _state.Loops)}) break;",
+        $"    if (ms_step > {LoopGuard.RoundsHex(_state.Stage, _state.Loops)}) {{ if (in_gi == 0) ss_cap_hit(1u); break; }}",
         "    if (pc != PC_END) pc = pc_resume;",
     ];
 

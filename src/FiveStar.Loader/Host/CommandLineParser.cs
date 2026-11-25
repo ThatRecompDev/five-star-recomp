@@ -564,6 +564,10 @@ internal sealed class CommandLineParser
                 _options.SectionHeapBudget = Gigabytes(Next());
 
                 return true;
+            case "--in-place-window":
+                _options.InPlaceWindowMegabytes = ulong.Parse(Next(), CultureInfo.InvariantCulture);
+
+                return true;
             case "--evict-windows":
                 _options.EvictWindows = true;
 

@@ -8,6 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- MeshWaveProbe's source; its callers compile it with the DXIL backend. -->
+    <EmbeddedResource Include="Probes/mesh_wave_probe.hlsl" LogicalName="FiveStar.Graphics.Probes.mesh_wave_probe.hlsl" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Vortice.Direct3D12" />
     <PackageReference Include="Vortice.DXGI" />
   </ItemGroup>

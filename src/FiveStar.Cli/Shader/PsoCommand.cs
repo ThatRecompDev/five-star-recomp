@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FiveStar.Cli.Graphics;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -74,6 +75,17 @@ internal static class PsoCommand
         return Success;
     }
 
+    /// <summary>The measured mesh-shader wave (MeshWaveProbe), or nothing when it was not measured.</summary>
+    private static string MeshWave(AdapterInfo adapter)
+    {
+        if (adapter.MeshWaveLanes is null)
+        {
+            return string.Empty;
+        }
+
+        return $" ({adapter.MeshWaveLanes}-lane mesh waves)";
+    }
+
     /// <summary>Creates the pending pipelines on the adapter within the limits of the arguments; false when the device was removed.</summary>
     internal static bool Sweep(AdapterInfo adapter, bool debug, int jobs, string folder, CommandArguments arguments, PsoLog log, List<PsoTarget> pending)
     {
@@ -109,7 +121,7 @@ internal static class PsoCommand
 
     private static int ListAdapters()
     {
-        foreach (var adapter in AdapterCatalog.List())
+        foreach (var adapter in MeasuredAdapters.List())
         {
             var kind = string.Empty;
 
@@ -124,7 +136,7 @@ internal static class PsoCommand
                 continue;
             }
 
-            Console.WriteLine($"{adapter.Index}  {adapter.Name}{kind}: SM {adapter.ShaderModel}, wave lanes {adapter.WaveLaneCountMin}-{adapter.WaveLaneCountMax}, mesh {adapter.MeshShaderTier}");
+            Console.WriteLine($"{adapter.Index}  {adapter.Name}{kind}: SM {adapter.ShaderModel}, wave lanes {adapter.WaveLaneCountMin}-{adapter.WaveLaneCountMax}, mesh {adapter.MeshShaderTier}{MeshWave(adapter)}");
         }
 
         return Success;
@@ -136,7 +148,7 @@ internal static class PsoCommand
     /// </summary>
     internal static AdapterInfo SelectAdapter(string? choice)
     {
-        var adapters = AdapterCatalog.List().Where(adapter => adapter.ShaderModel is not null).ToList();
+        var adapters = MeasuredAdapters.List().Where(adapter => adapter.ShaderModel is not null).ToList();
         AdapterInfo? selected;
 
         if (choice is null)

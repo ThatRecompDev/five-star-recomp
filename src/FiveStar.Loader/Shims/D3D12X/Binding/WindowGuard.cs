@@ -14,7 +14,9 @@ namespace FiveStar.Loader.Shims.D3D12X.Binding;
 /// prelude (FIVESTAR_WINDOW_GUARD) drops it and counts it in slot <c>id &amp; 1023</c> of a table past the room for view
 /// records: {program id (<see cref="MeshProbe.Id"/> of its name, FIVESTAR_PROGRAM_ID), drops}; an atomic goes to the
 /// sink dword after the table. At every captured present the programs that dropped stores since the last are logged.
-/// Such stores come from pointers built from a V# base that holds a heap index, and from 32-bit table pointers.
+/// Such stores come from pointers built from a V# base that holds a heap index, and from 32-bit table pointers. A cap
+/// table follows (<see cref="CapDefine"/>): per program {id, threads past the superstep block cap, groups past the
+/// round bound}, logged likewise, so a program whose loop runs to the caps (a garbage trip count) is named.
 /// </summary>
 internal static unsafe class WindowGuard
 {
@@ -27,8 +29,14 @@ internal static unsafe class WindowGuard
     /// <summary>The table's window offset: right past the room for view records.</summary>
     public const uint Base = DescriptorWindow.RecordsEnd;
 
-    /// <summary>The table and the sink, padded to 256 bytes.</summary>
-    public const uint RegionBytes = 0x2100;
+    /// <summary>The define of the cap table's window offset (rdna_prelude.hlsli, ss_cap_hit).</summary>
+    public const string CapDefine = "FIVESTAR_CAP_TABLE";
+
+    /// <summary>The cap table's offset from <see cref="Base"/>: past the store table and its sink.</summary>
+    public const uint CapOffset = 0x2100;
+
+    /// <summary>The store table, its sink and the cap table (4 dwords a slot).</summary>
+    public const uint RegionBytes = CapOffset + (Slots * CapSlotDwords * sizeof(uint));
 
     /// <summary>Window bytes the guard needs.</summary>
     public const uint Bytes = Base + RegionBytes;
@@ -37,10 +45,17 @@ internal static unsafe class WindowGuard
 
     /// <summary>A slot: the program id, then its drops.</summary>
     private const uint SlotDwords = 2;
+
+    /// <summary>A cap slot: the program id, threads past the block cap, groups past the round bound, unused.</summary>
+    private const uint CapSlotDwords = 4;
+    private const int BlockDword = 1;
+    private const int RoundDword = 2;
     private const int Shown = 12;
     private const string Prefix = "  [window guard] ";
 
     private static readonly uint[] Reported = new uint[Slots];
+    private static readonly uint[] ReportedBlocks = new uint[Slots];
+    private static readonly uint[] ReportedRounds = new uint[Slots];
     private static Dictionary<uint, string>? _names;
 
     /// <summary>Whether programs made on demand drop their stores into the window.</summary>
@@ -50,7 +65,7 @@ internal static unsafe class WindowGuard
     public static ProgramIndex? Index { get; set; }
 
     /// <summary>The mode define (<see cref="Pipelines.ProgramProducer.ModeHeader"/>).</summary>
-    public static string Header => $"#define {Define} {Base}u\n";
+    public static string Header => $"#define {Define} {Base}u\n#define {CapDefine} {Base + CapOffset}u\n";
 
     /// <summary>The define of <paramref name="name"/>'s id, for a program made with the guard (its header holds <see cref="Define"/>).</summary>
     public static string ProgramHeader(string header, string name)
@@ -104,6 +119,60 @@ internal static unsafe class WindowGuard
         }
 
         log.Info(text.ToString());
+    }
+
+    /// <summary>
+    /// Logs the programs that ran into the superstep caps since the last report: threads past the block cap and groups
+    /// past the round bound, by name; nothing when none did. The GPU is idle.
+    /// </summary>
+    public static void ReportCaps(long present, LoaderLog log)
+    {
+        byte* window = ShimContext.Runtime.D3D12X.Bindings.Window.Data;
+
+        if (!Enabled || window == null)
+        {
+            return;
+        }
+
+        var hits = CapHits((uint*)(window + Base + CapOffset), ReportedBlocks, ReportedRounds);
+
+        if (hits.Count == 0)
+        {
+            return;
+        }
+
+        var names = Names();
+        var text = new StringBuilder($"{Prefix}present {present}: {hits.Count} programs ran into the superstep caps:");
+
+        foreach (var (id, blocks, rounds) in hits.OrderByDescending(hit => hit.Blocks + hit.Rounds).Take(Shown))
+        {
+            text.Append($"\n{Prefix}  {names.GetValueOrDefault(id, $"program 0x{id:x8}")}: {blocks} threads past the block cap, {rounds} groups past the round bound");
+        }
+
+        log.Warn(text.ToString());
+    }
+
+    /// <summary>
+    /// The programs of the cap <paramref name="table"/> whose counts grew since <paramref name="blocks"/> and
+    /// <paramref name="rounds"/> (the counts last seen, updated): {id, new block-cap threads, new round-bound groups}.
+    /// </summary>
+    public static List<(uint Id, uint Blocks, uint Rounds)> CapHits(uint* table, uint[] blocks, uint[] rounds)
+    {
+        var hits = new List<(uint Id, uint Blocks, uint Rounds)>();
+
+        for (uint slot = 0; slot < Slots; slot++)
+        {
+            uint* entry = table + (slot * CapSlotDwords);
+            var (block, round) = (entry[BlockDword] - blocks[slot], entry[RoundDword] - rounds[slot]);
+            (blocks[slot], rounds[slot]) = (entry[BlockDword], entry[RoundDword]);
+
+            if (block != 0 || round != 0)
+            {
+                hits.Add((entry[0], block, round));
+            }
+        }
+
+        return hits;
     }
 
     private static Dictionary<uint, string> Names()
