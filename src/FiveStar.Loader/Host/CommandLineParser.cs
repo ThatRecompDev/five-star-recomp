@@ -582,6 +582,10 @@ internal sealed class CommandLineParser
                 _options.PlacedTextures = true;
 
                 return true;
+            case "--typeless-targets":
+                _options.TypelessTargets = true;
+
+                return true;
             case "--committed-textures":
                 _options.PlacedTextures = false;
 

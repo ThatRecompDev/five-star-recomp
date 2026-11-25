@@ -8,7 +8,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// <summary>
 /// Render-target, UAV and shader-resource view descs in a format whose render targets have a substitute
 /// (<see cref="TargetFormats"/>), rewritten into a caller's stack copy when the desktop resource was made in the
-/// substitute; any other desc passes unchanged. Only those formats cost a GetDesc. A UAV of a texture the desktop made
+/// substitute; any other desc passes unchanged, and a missing one on a texture <see cref="TypelessTargets"/> made typeless gets its whole-resource desc. Only those formats cost a GetDesc. A UAV of a texture the desktop made
 /// without ALLOW_UNORDERED_ACCESS becomes a null view.
 /// </summary>
 internal static unsafe class TargetViewDescriptions
@@ -30,13 +30,13 @@ internal static unsafe class TargetViewDescriptions
     [HotPath]
     public static void* RenderTargetView(nint resource, void* description, byte* copy)
     {
-        return Patched(resource, description, copy, RenderTargetViewSize, false);
+        return Patched(resource, description, copy, RenderTargetViewSize, false, false);
     }
 
     [HotPath]
     public static void* UnorderedAccessView(nint resource, void* description, byte* copy)
     {
-        return Patched(resource, description, copy, UnorderedAccessViewSize, false);
+        return Patched(resource, description, copy, UnorderedAccessViewSize, false, true);
     }
 
     /// <summary>
@@ -75,12 +75,23 @@ internal static unsafe class TargetViewDescriptions
     [HotPath]
     public static void* ShaderResourceView(nint resource, void* description, byte* copy)
     {
-        return Patched(resource, description, copy, DepthViewDescriptions.ShaderResourceViewSize, true);
+        return Patched(resource, description, copy, DepthViewDescriptions.ShaderResourceViewSize, true, false);
     }
 
     [HotPath]
-    private static void* Patched(nint resource, void* description, byte* copy, int size, bool shaderView)
+    private static void* Patched(nint resource, void* description, byte* copy, int size, bool shaderView, bool unordered)
     {
+        // A view without a desc of a texture made typeless (--typeless-targets) takes the format it was created in.
+        if (description == null && TypelessTargets.Enabled)
+        {
+            void* whole = TypelessTargets.WholeView(resource, copy, size, shaderView, unordered);
+
+            if (whole != null)
+            {
+                return whole;
+            }
+        }
+
         if (description == null || resource == 0 || !TargetFormats.HasSubstitute(*(int*)description))
         {
             return description;
