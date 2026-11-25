@@ -84,6 +84,18 @@ a ballot pair for every mask write and an any for every SCC, most never read.
 | `CS_RaytracingResolve` (wave32) | 1.57 MB | 1.06 MB (-32%) | 36.5 s, 8.4 GB -> 26.2 s, 3.6 GB |
 | `CS_ScreenProbes_ActivateProbes` (wave64) | 9.98 MB | 8.50 MB (-15%) | over 50 GB either way |
 
+Ported from VIctory's fork (`opt.rs`, THIRD_PARTY_NOTICES.md): `BranchFacts` (in the blocks only one side of a
+conditional branch reaches, its condition is that side's constant, and so are both terms of an `and` that held,
+neither of an `or` that did not, the bit an `xor` with a constant flips and the opposite comparison of the same
+operands); in `Simplifier` joins of the same values from the same blocks, nested selects on one condition, `select c,
+true, false`, a bit widened and tested against 0, casts there and back; in `ConstantFolding` `x | ~0`, `x & x`,
+`x - x`, `x ^ x` and comparisons of float constants; in `ValueNumbering` integer sums, products and bit operations
+either way round, loads from constant tables as pure, and loads from local or shared memory matched later in their
+block until a write. On nine programs (two mesh pairs in both forms, a pixel, two large compute) instructions fell
+about 2%, blocks 5 to 19% and phis 3 to 14% (`CS_RaytracingResolve`: 183,934 to 179,585 instructions, 13,295 to
+10,817 blocks); the RTX 4090's pipeline builds took the same time within noise (the w32 `TransformD` 182 to 177 s,
+`CS_RaytracingResolve` 24 to 25 s), and the backend's own compile time did not change measurably.
+
 All five pass dxil.dll validation. What is left is mostly the wave emulation's control flow: in the cascade program
 73,515 phis (about 6 operands each) and 124,610 blocks, which neither pass touches.
 
