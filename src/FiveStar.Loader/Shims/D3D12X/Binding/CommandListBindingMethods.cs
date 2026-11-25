@@ -641,6 +641,8 @@ internal static unsafe class CommandListBindingMethods
 
         if (DepthTwinCopy.Record(d3d12x.Objects.DesktopDevice, self->Inner, twin, view, format, state, table))
         {
+            DepthTwinLog.InList(true, twin);
+
             return true;
         }
 
