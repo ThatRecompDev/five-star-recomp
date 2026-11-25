@@ -59,6 +59,10 @@ public sealed class CompileBudgetTests
         Assert.Equal(CompileBudget.Estimate(3L << 20, 0), CompileBudget.Estimate(3L << 20, Nvidia));
         Assert.InRange(CompileBudget.Estimate(2_883_584, Nvidia), 6.4 * Gigabyte, 8 * Gigabyte);
 
+        // In game the 1.25 to 2.25 MB mesh + pixel pipelines peaked at 19 to 37.5 GB on average and at most from 1.5 MB.
+        Assert.InRange(CompileBudget.Estimate(3L << 19, Amd), 29 * Gigabyte, 31 * Gigabyte);
+        Assert.True(CompileBudget.Estimate(7L << 18, Amd) >= 37 * Gigabyte);
+
         // The 12 MB ScreenProbes program would need more than a 64 GB machine has free.
         Assert.Equal(48 * Gigabyte, CompileBudget.Estimate(12L << 20, Amd));
     }

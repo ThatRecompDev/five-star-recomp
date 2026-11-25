@@ -12,11 +12,24 @@ internal sealed class PipelineBuild
     private int _claimed;
     private int _urgent;
 
-    public PipelineBuild(Func<PipelineResult> create, bool urgent)
+    private StandInUse? _use;
+
+    public PipelineBuild(Func<PipelineResult> create, bool urgent, StandInUse? use)
     {
         Create = create;
         _urgent = urgent ? 1 : 0;
+        _use = use;
     }
+
+    /// <summary>How much the game misses the stand-in this build replaces; null for a build with none (yet).</summary>
+    public StandInUse? Use
+    {
+        get => Volatile.Read(ref _use);
+        set => Volatile.Write(ref _use, value);
+    }
+
+    /// <summary>The build's place among urgent ones: higher first (<see cref="StandInUse.Score"/>).</summary>
+    public long Score => Use?.Score ?? 0;
 
     public Func<PipelineResult> Create { get; }
 
