@@ -87,6 +87,16 @@ it is not built the list sets nothing and drops its draws, dispatches and Execut
 SetPipelineState (counted in the sample summary). A derive (slot 55) from a stand-in uses the description kept
 under the stand-in's address; the rectangle-list variant is made from the built pipeline.
 
+**Waiting by name.** `--wait-pipelines <part,...>` waits instead of skipping for a stand-in whose name holds one of the
+parts (case-insensitive): at its first SetPipelineState the recording thread waits for the build, which the first use
+made urgent, up to 60 s (`PipelineWaits`), so a frame that must be whole, such as the G-buffer of a cutscene's first
+world frames, is drawn whole. The game's hang watchdog is paused meanwhile (`WatchdogPause`: the flag 0x1471b6330 the
+game itself sets around long work, its earlier value put back afterwards). Past the limit the stand-in stays, its work
+is skipped as without the option, and it is not waited for again; each wait is logged once per name and counted in the
+sample summary (`waited for by name`). A mesh pipeline's compile can take minutes and 7 to 9 GB, so name only what the
+frame needs. A stand-in is named by its programs; one waiting only for a pair's linked producer by both programs and
+`(linked producer)`.
+
 Memory while builds wait (a cold story load queues thousands):
 
 | Item | Rule |

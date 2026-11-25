@@ -55,6 +55,7 @@ internal static class HostComposition
 
         Shims.D3D12X.Resources.PlacedTextureHeaps.Enabled = options.PlacedTextures;
         Shims.D3D12X.Resources.GpuTextureRegistry.KeptAliases = options.KeptAliases;
+        Shims.D3D12X.Pipelines.PipelineWaits.Current = Shims.D3D12X.Pipelines.PipelineWaits.Parse(options.WaitPipelines);
         Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
 
         Shims.D3D12X.DebugLayer.DrawCensus.Passes = options.CensusPasses;

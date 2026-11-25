@@ -92,12 +92,56 @@ public sealed unsafe class D3D12XStandInPipelineTests
         Assert.Equal((1, 1), (Volatile.Read(ref builds), uses));
     }
 
-    private static StandInPipelines StandIns(TimeSpan budget)
+    [Fact]
+    public void A_stand_in_named_by_wait_pipelines_is_waited_for_at_its_first_use_up_to_the_limit()
+    {
+        using var memory = new NativeBlocks();
+        using var gate = new ManualResetEventSlim();
+        using var never = new ManualResetEventSlim();
+        nint pipeline = FakePipeline(memory);
+
+        var standIns = StandIns(TimeSpan.Zero, new PipelineWaits(["deferredtextured", "skin"], TimeSpan.FromMilliseconds(300)));
+        nint named = 0;
+        nint other = 0;
+        nint late = 0;
+
+        // A G-buffer pair whose build ends 100 ms after its first use, one not named, and a named one past the limit.
+        standIns.Deferred(() => Slow(gate, pipeline), &named, "DeferredTextured_ps + TransformD_vs (linked producer)", null, heavy: false, () => OpenLater(gate));
+        standIns.Deferred(() => Slow(gate, pipeline), &other, "Particles_cs", null, heavy: false, () => { });
+        standIns.Deferred(() => Slow(never, pipeline), &late, "Skin_vs", null, heavy: false, () => { });
+
+        Assert.Equal(pipeline, standIns.Desktop(named, out bool pending));
+        Assert.False(pending);
+        Assert.Equal(0, standIns.Desktop(late, out pending));
+        Assert.True(pending);
+
+        // Neither one past the limit nor one not named is waited for.
+        var again = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Equal(0, standIns.Desktop(late, out _));
+        Assert.Equal(0, standIns.Desktop(other, out _));
+        Assert.True(again.ElapsedMilliseconds < 200);
+        Assert.Contains("2 waited for by name (1 past the limit)", standIns.Summary, StringComparison.Ordinal);
+
+        never.Set();
+        nint unnamed = other;
+        Assert.True(SpinWait.SpinUntil(() => standIns.Desktop(unnamed, out _) != 0, BuildLimit));
+    }
+
+    private static StandInPipelines StandIns(TimeSpan budget, PipelineWaits? waits = null)
     {
         var builds = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
         builds.Start();
 
-        return new StandInPipelines(budget, builds, builds, new OnceLog(new LoaderLog(new StringWriter(), null, false)));
+        return new StandInPipelines(budget, builds, builds, new OnceLog(new LoaderLog(new StringWriter(), null, false))) { Waits = waits };
+    }
+
+    private static void OpenLater(ManualResetEventSlim gate)
+    {
+        new Thread(() =>
+        {
+            Thread.Sleep(100);
+            gate.Set();
+        }).Start();
     }
 
     private static PipelineResult Slow(ManualResetEventSlim gate, nint pipeline)
