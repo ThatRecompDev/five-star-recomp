@@ -110,9 +110,52 @@ internal sealed class CompileHost : IBackendRunner
 
     public BackendResult Run(CompileRequest request)
     {
+        var answer = Ask((writer, id) => CompileHostProtocol.WriteCompile(writer, id, Thread.CurrentThread.Priority, request), out var why);
+
+        if (answer is null && why is null)
+        {
+            return _here.Run(request);
+        }
+
+        if (answer is null)
+        {
+            return new BackendResult(BackendVerdict.NotLowered, why!);
+        }
+
+        if (answer.Kind == HostAnswerKind.Failed)
+        {
+            return new BackendResult(BackendVerdict.NotLowered, answer.Text);
+        }
+
+        return new BackendResult(answer.Verdict, answer.Text);
+    }
+
+    /// <summary>
+    /// The host's answer to a make (translate, pick the form, compile): null when there is no host or it did not answer
+    /// (the loader then makes the program itself; a host that ended on the request may have ended because of it, so
+    /// the loader compiles that one with dxc).
+    /// </summary>
+    public HostAnswer? Make(MakeRequest request, out bool hostEnded)
+    {
+        var answer = Ask((writer, id) => CompileHostProtocol.WriteMake(writer, id, Thread.CurrentThread.Priority, request), out var why);
+        hostEnded = why is not null;
+
+        return answer;
+    }
+
+    /// <summary>
+    /// Sends a request and waits for its answer; null with <paramref name="why"/> null when there is no host (work in
+    /// this process), or with why set when the host ended on it, did not answer in time or ended too often.
+    /// </summary>
+    private HostAnswer? Ask(Action<BinaryWriter, int> write, out string? why)
+    {
+        why = null;
+
         if (Volatile.Read(ref _ends) >= EndsTolerated)
         {
-            return new BackendResult(BackendVerdict.NotLowered, EndedTooOften);
+            why = EndedTooOften;
+
+            return null;
         }
 
         for (var attempt = 0; attempt < StartAttempts; attempt++)
@@ -121,32 +164,37 @@ internal sealed class CompileHost : IBackendRunner
 
             if (connection is null)
             {
-                return _here.Run(request);
+                return null;
             }
 
-            var (result, delivery) = connection.Send(Interlocked.Increment(ref _nextId), request, _answerLimit);
+            var (answer, delivery) = connection.Send(Interlocked.Increment(ref _nextId), write, _answerLimit);
 
             if (delivery == Delivery.Answered)
             {
-                return result!;
+                return answer;
             }
 
             if (delivery == Delivery.TimedOut)
             {
                 Interlocked.Increment(ref _timeouts);
+                why = TimedOut;
 
-                return new BackendResult(BackendVerdict.NotLowered, TimedOut);
+                return null;
             }
 
-            // A host that ended while compiling the request may have ended because of it: dxc takes it. One that had
-            // ended before is replaced.
+            // A host that ended while serving the request may have ended because of it. One that had ended before is
+            // replaced.
             if (delivery == Delivery.Ended)
             {
-                return new BackendResult(BackendVerdict.NotLowered, Ended);
+                why = Ended;
+
+                return null;
             }
         }
 
-        return new BackendResult(BackendVerdict.NotLowered, Ended);
+        why = Ended;
+
+        return null;
     }
 
     private static unsafe nint CreateJob()
@@ -239,7 +287,7 @@ internal sealed class CompileHost : IBackendRunner
     {
         private readonly Process _process;
         private readonly Lock _writing = new();
-        private readonly ConcurrentDictionary<int, TaskCompletionSource<BackendResult?>> _pending = new();
+        private readonly ConcurrentDictionary<int, TaskCompletionSource<HostAnswer?>> _pending = new();
         private volatile bool _alive = true;
         private volatile bool _answered;
         private long _lastAnswer;
@@ -316,9 +364,9 @@ internal sealed class CompileHost : IBackendRunner
         /// The answer to one request and how it went. A request not answered within <paramref name="limit"/> is given
         /// up; when the host answered nothing since it was sent, the host is wedged and is ended.
         /// </summary>
-        public (BackendResult? Result, Delivery Delivery) Send(int id, CompileRequest request, TimeSpan limit)
+        public (HostAnswer? Answer, Delivery Delivery) Send(int id, Action<BinaryWriter, int> write, TimeSpan limit)
         {
-            var answer = new TaskCompletionSource<BackendResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var answer = new TaskCompletionSource<HostAnswer?>(TaskCreationOptions.RunContinuationsAsynchronously);
             _pending[id] = answer;
 
             if (!_alive && _pending.TryRemove(id, out _))
@@ -333,7 +381,7 @@ internal sealed class CompileHost : IBackendRunner
                 lock (_writing)
                 {
                     using var writer = new BinaryWriter(_process.StandardInput.BaseStream, System.Text.Encoding.UTF8, leaveOpen: true);
-                    CompileHostProtocol.WriteRequest(writer, id, Thread.CurrentThread.Priority, request);
+                    write(writer, id);
                 }
             }
             catch (IOException)
@@ -371,7 +419,7 @@ internal sealed class CompileHost : IBackendRunner
             {
                 while (true)
                 {
-                    var (id, result) = CompileHostProtocol.ReadResult(reader);
+                    var (id, result) = CompileHostProtocol.ReadAnswer(reader);
                     _answered = true;
                     Interlocked.Exchange(ref _lastAnswer, Stopwatch.GetTimestamp());
 

@@ -4,6 +4,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using FiveStar.Loader.Shims.D3D12X.Pipelines;
+using FiveStar.Loader.Tests.Support;
 using FiveStar.Shaders.Compilation;
 using Xunit;
 
@@ -79,6 +80,33 @@ public sealed partial class CompileHostTests
 
             Assert.Equal(BackendVerdict.Compiled, host.Run(Request(work.FullName, "after")).Verdict);
             Assert.StartsWith("compile host: 2 started, 1 ended, 1 requests not answered in time", host.Summary, StringComparison.Ordinal);
+        }
+        finally
+        {
+            work.Delete(recursive: true);
+        }
+    }
+
+    [OnDemandFact]
+    public void A_host_makes_a_real_program_translation_included()
+    {
+        var work = Directory.CreateTempSubdirectory("fivestar-compile-host-");
+
+        try
+        {
+            var source = PipelineFactAttribute.ShaderFolder!;
+            var path = Directory.EnumerateFiles(source, "*VfxNoisePerlinCS*.fssm").Order(StringComparer.Ordinal).First();
+            var name = Path.GetFileNameWithoutExtension(path);
+            FiveStar.Shaders.Translation.RuntimeIncludes.WriteTo(work.FullName);
+
+            var adapter = new FiveStar.Graphics.AdapterInfo(0, "test", false, "6.8", 32, 32, "Tier1");
+            var host = new CompileHost(Loader(), null, CompileHost.AnswerLimit);
+            var answer = host.Make(new MakeRequest(name, source, work.FullName, adapter), out bool ended);
+
+            Assert.False(ended);
+            Assert.NotNull(answer);
+            Assert.Equal(HostAnswerKind.Compiled, answer.Kind);
+            Assert.True(File.Exists(Path.Combine(work.FullName, name + ".dxil")));
         }
         finally
         {

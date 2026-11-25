@@ -127,11 +127,68 @@ internal sealed class ProgramProducer
         return new ProgramForm(name, new CompileRequest(Path.Combine(_folder, source), hlsl, profile, slow), null);
     }
 
+    /// <summary>
+    /// The compile host that makes programs whole, translation included (<see cref="MakeInHost"/>), the backend compiler
+    /// whose counts it keeps and the adapter; null makes them in this process.
+    /// </summary>
+    public ProgramHosting? Hosting { get; init; }
+
+    /// <summary>
+    /// Makes the program in the compile host: translated, its form picked and compiled there, so the translator's
+    /// allocations stay out of this process too. See <see cref="HostedMake"/> for what comes back.
+    /// </summary>
+    public HostedMake MakeInHost(string name)
+    {
+        if (Hosting is null || DebugLayer.PoolStoreTrace.Enabled)
+        {
+            return HostedMake.Here;
+        }
+
+        var answer = Hosting.Host.Make(new MakeRequest(name, _programs, _folder, Hosting.Adapter), out bool hostEnded);
+
+        if (answer is null || answer.Kind == HostAnswerKind.Failed)
+        {
+            return new HostedMake(false, hostEnded, null, null);
+        }
+
+        if (answer.Kind == HostAnswerKind.Refused)
+        {
+            return new HostedMake(true, false, answer.Text, null);
+        }
+
+        Hosting.Backend.Count((BackendVerdict)answer.Kind);
+
+        if (answer.Kind == HostAnswerKind.Compiled)
+        {
+            return new HostedMake(true, false, null, null);
+        }
+
+        var slow = answer.Hlsl.Length > _compiler.Options.LargeSourceLength || _slow.Contains(answer.Source);
+        var request = new CompileRequest(Path.Combine(_folder, answer.Source), answer.Hlsl, answer.Profile, slow);
+
+        return new HostedMake(true, false, null, new ProgramForm(name, request, null));
+    }
+
     /// <summary>Compiles a prepared form into <c>&lt;name&gt;.dxil</c>; null when it did, else why not.</summary>
     public string? Compile(ProgramForm form)
     {
+        return Compile(form, dxcOnly: false);
+    }
+
+    /// <summary>The same; with <paramref name="dxcOnly"/> the hosted backend's fallback (dxc) compiles it, the backend having refused it or ended on it.</summary>
+    public string? Compile(ProgramForm form, bool dxcOnly)
+    {
         var request = form.Request!;
-        var outcome = _compiler.Compile(request, _compiler.Options.CompileTimeout);
+        CompileOutcome outcome;
+
+        if (dxcOnly && Hosting is not null)
+        {
+            outcome = Hosting.Backend.Fallback(request, _compiler.Options.CompileTimeout, "dxc only");
+        }
+        else
+        {
+            outcome = _compiler.Compile(request, _compiler.Options.CompileTimeout);
+        }
 
         if (!outcome.Succeeded)
         {
