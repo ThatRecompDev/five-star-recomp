@@ -96,6 +96,27 @@ public sealed class ThreadStackCaptureTests
         Assert.True(captures > 0, $"{captures} captures in 3 s");
     }
 
+    [Fact]
+    public void The_calling_thread_is_not_read_and_does_not_suspend_itself()
+    {
+        var modules = Modules();
+        int count = -1;
+        bool found = true;
+        var self = new Thread(() =>
+        {
+            uint id = Kernel32.GetCurrentThreadId();
+            count = ThreadStackCapture.Capture(id, modules, new ulong[Frames]);
+            found = ThreadStackCapture.FrameRegisters(id, modules, new CodeRange(0, ulong.MaxValue), out _, out _);
+        }) { IsBackground = true };
+
+        self.Start();
+
+        // A thread that suspended itself never returns, and it kept the gate every other capture waits on.
+        Assert.True(self.Join(TimeSpan.FromSeconds(10)), "the capture of the calling thread did not return");
+        Assert.Equal(0, count);
+        Assert.False(found);
+    }
+
     private static CodeRange[] Modules()
     {
         return [.. Process.GetCurrentProcess().Modules.Cast<ProcessModule>()

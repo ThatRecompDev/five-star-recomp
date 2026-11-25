@@ -482,7 +482,8 @@ and disposing the swap chain under the presenting thread crashed in dxgi). `--tr
 **Thread sampler.** `--sample-threads` takes a snapshot of each other thread in turn (`ThreadSnapshot`: a generated native routine
 suspends it, reads its context, copies its stack and resumes it without returning to managed code, so a garbage
 collection never waits on a suspended thread; holding it across our own P/Invokes froze a whole run once), then
-unwinds the copy through `.pdata`; the hang watch reads its fence-wait registers the same way.
+unwinds the copy through `.pdata`; the hang watch reads its fence-wait registers the same way. The calling thread is
+never captured: suspending itself, it would never resume.
 The walk stops at the first address outside a module (JIT code). Threads with the same stack are grouped;
 mapped frames print as `image+0xrva (fn 0xstart)`. The call counts come from the call-trace thunks, which also count
 calls (`lock inc`) and, under `--run`, wrap the GDK thunk-ABI slots. `OutputDebugString{A,W}` from mapped code is
