@@ -476,6 +476,14 @@ internal sealed class LoaderHost
     private string SampledCounters()
     {
         string pipelines = _runtime.D3D12X.Pipelines?.Summary ?? "pipeline slots off";
+
+        var prebuild = Shims.D3D12X.Pipelines.JournalPrebuild.Current;
+
+        if (prebuild is not null)
+        {
+            pipelines += "; " + prebuild.Summary;
+        }
+
         long pages = _runtime.XMemPhysical.LivePages * (long)XMemPhysicalMemory.PageSize;
         string memory = ProcessMemory.Summary(_runtime.XMem.LiveBytes, pages);
         ulong? gpuSystem = null;
