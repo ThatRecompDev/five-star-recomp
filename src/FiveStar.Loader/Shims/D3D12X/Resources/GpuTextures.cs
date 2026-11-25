@@ -48,7 +48,7 @@ internal sealed unsafe class GpuTextures : IDisposable
         _log = log;
     }
 
-    public GpuTextureRegistry Registry { get; } = new();
+    public GpuTextureRegistry Registry { get; } = GpuTextureRegistry.OfQueues();
 
     public GpuResourceCounters Counters { get; } = new();
 
