@@ -24,4 +24,10 @@ internal sealed class DrawTraceList
 
     /// <summary>The next draw's first render target is read back (a traced draw with <c>--d3d12-probe-traced</c>).</summary>
     public bool ProbeNext { get; set; }
+
+    /// <summary>The texture SRVs of the traced records are read back after the traced Dispatch just recorded.</summary>
+    public bool ProbeDispatch { get; set; }
+
+    /// <summary>The list recorded traced work since it was last submitted: its submission names the queue.</summary>
+    public bool Traced { get; set; }
 }

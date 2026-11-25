@@ -825,6 +825,12 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   such as `FVertexCxform`) come long after its first 32. With `--d3d12-probe-traced` each of those draws also reads
   back its first render target; a float target (R32G32B32A32, R16G16B16A16, R32) also reports each channel's mean and
   largest value as stored, which the RGBA8 summary clamps (the exposure texel, the lit HDR). A traced ExecuteIndirect also reads back, before it runs, each texture its `--d3d12-trace-records` offsets of the first table name by heap index, a desktop SRV or a console-address (slot 70) texture alike (its inputs as it will see them; block-compressed formats are copied but not summarized).
+  Compute work is traced the same way: a Dispatch or compute ExecuteIndirect matches by its compute pipeline's
+  program names (a compute pipeline has no rectangle-list description; it used to show as "unknown", and Dispatch was
+  not traced at all) and logs its group counts or argument records, the compute user SGPRs (not the graphics ones)
+  and the records of the tables they point at; with `--d3d12-probe-traced` a traced Dispatch reads back those
+  records' textures right after it (what its UAVs wrote). Each list that recorded traced work names, when the game
+  submits it, the queue it went to (`list 0x... with traced work submitted on queue #n`).
 - `--d3d12-trace-records <offset,...>` adds to each of those draws the window records at these byte offsets from every
   user SGPR holding a record-aligned window offset (a descriptor pointer the game passes as a root constant, which the
   tables do not show): the record dwords, a T#'s base and its address-map state, a V#'s base (or the heap index it

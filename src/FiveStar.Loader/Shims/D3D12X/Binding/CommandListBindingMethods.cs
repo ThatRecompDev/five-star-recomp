@@ -396,8 +396,12 @@ internal static unsafe class CommandListBindingMethods
             ListActivity.Of(self)->Dispatches++;
             GpuBreadcrumbs.Before(self, MarkedKind.Dispatch, x, y, z);
             BeforeWork(self, true);
+
+            var trace = ShimContext.Runtime.D3D12X.DrawTrace;
+            trace?.Dispatch(self, x, y, z);
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDispatch))(inner, x, y, z);
+            trace?.AfterDispatch(self);
 
             if (RtStandIns.Enabled)
             {
@@ -437,7 +441,7 @@ internal static unsafe class CommandListBindingMethods
             GpuBreadcrumbs.BeforeIndirect(self, signature, maxCount, ArgumentAddress(arguments, argumentOffset), (uint)argumentOffset);
             BeforeWork(self, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind);
             var trace = ShimContext.Runtime.D3D12X.DrawTrace;
-            trace?.Indirect(self, maxCount, ArgumentAddress(arguments, argumentOffset), CommandSignatures.Clampable(signature).Stride, count != 0);
+            trace?.Indirect(self, maxCount, ArgumentAddress(arguments, argumentOffset), CommandSignatures.Clampable(signature).Stride, count != 0, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind);
 
             var objects = ShimContext.Runtime.D3D12X.Objects;
             nint inner = self->Inner;
