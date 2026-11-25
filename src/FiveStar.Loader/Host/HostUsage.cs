@@ -118,6 +118,7 @@ internal static class HostUsage
           --d3d12-skip <i:n,...> D3D12.X slots that do nothing (list:51, queue:35, device:n), to bisect GPU faults
           --d3d12-trace-queues   log the first queue submissions, signals and waits (cross-queue protocol)
           --d3d12-breadcrumbs    a GPU marker after every draw and dispatch: a stalled queue names the one it hangs in
+          --gpu-timings          GPU time per pass and queue (timestamp queries), logged with the sample line
           --watch-transient      check the game's transient-memory pool and log the first corrupted node
           --watch-pool-pages     check the game's small-block pool pages for headers its allocator did not write
           --watch-4g-lines       log changes to the first 64 KiB after each 4 GiB line of GPU-writable game memory

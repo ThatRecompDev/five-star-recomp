@@ -317,6 +317,7 @@ internal static unsafe class CommandListBindingMethods
             Flush(self, false);
             ListActivity.Of(self)->Draws++;
             GpuBreadcrumbs.Before(self, MarkedKind.Draw, vertices, instances, 0);
+            GpuTimings.Work((nint)self, self->Inner, false, ListActivity.Of(self)->Pipeline);
 
             ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
             ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, vertices, instances);
@@ -349,6 +350,7 @@ internal static unsafe class CommandListBindingMethods
             Flush(self, false);
             ListActivity.Of(self)->Draws++;
             GpuBreadcrumbs.Before(self, MarkedKind.Draw, indices, instances, 0);
+            GpuTimings.Work((nint)self, self->Inner, false, ListActivity.Of(self)->Pipeline);
 
             ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
             ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, indices, instances);
@@ -376,6 +378,7 @@ internal static unsafe class CommandListBindingMethods
             Flush(self, true);
             ListActivity.Of(self)->Dispatches++;
             GpuBreadcrumbs.Before(self, MarkedKind.Dispatch, x, y, z);
+            GpuTimings.Work((nint)self, self->Inner, true, ListActivity.Of(self)->Pipeline);
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDispatch))(inner, x, y, z);
 
@@ -415,6 +418,7 @@ internal static unsafe class CommandListBindingMethods
             FlushForIndirect(self, signature);
             ListActivity.Of(self)->Indirect++;
             GpuBreadcrumbs.BeforeIndirect(self, signature, maxCount, ArgumentAddress(arguments, argumentOffset));
+            GpuTimings.Work((nint)self, self->Inner, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind, ListActivity.Of(self)->Pipeline);
             var trace = ShimContext.Runtime.D3D12X.DrawTrace;
             trace?.Indirect(self, maxCount, ArgumentAddress(arguments, argumentOffset), CommandSignatures.Clampable(signature).Stride, count != 0);
 
