@@ -131,10 +131,11 @@ internal sealed partial class BufferEmitter
         var store = op.Contains("store", StringComparison.Ordinal);
 
         var address = BufferAddress.Build(_operands, a[Address], resource, a[SOffset], modifiers);
-        var inRange = BufferAddress.InRange(BufferAddress.Range(_operands, a[Address], resource, a[SOffset], modifiers), 0);
+        var format = _operands.SnapOne(code);
+        var range = BufferAddress.Range(_operands, a[Address], resource, a[SOffset], modifiers);
+        var inRange = BufferAddress.InRange((range.Offset, $"fmt_limit({range.Limit}, {format})"), 0);
         var view = BufferAddress.View(_operands, resource, store, address);
         var byteAddress = $"{view}.y";
-        var format = _operands.SnapOne(code);
         var swizzle = _operands.SnapOne(dword3);
 
         if (store)
