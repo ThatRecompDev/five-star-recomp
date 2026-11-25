@@ -23,4 +23,25 @@ public sealed class SkippedPipelinesTests
         Assert.Null(SkippedPipelines.Match(skin, []));
         Assert.Null(SkippedPipelines.Match(skin, SkippedPipelines.Parse("lineardepthskin")));
     }
+
+    [Fact]
+    public void A_skipped_pipeline_is_not_waited_for()
+    {
+        const string skinned = "sgd1_0736b791_t32_PS_DeferredTextured_3030dd5f_Wrapped.trim2 + sgd1_01cb042f_t41_MSNC_VS_TransformSkinD_a1cf5e50_Wrapped.link-314dd11550b9";
+        const string plain = "sgd1_07a9003b_t32_PS_DeferredTextured_c5fd36bb_Wrapped.trim2 + sgd1_02055286_t41_MS_VS_TransformD_c5fd36bb_Wrapped.link-377bf6b314e8";
+        var waits = PipelineWaits.Parse("DeferredTextured")!;
+        var before = SkippedPipelines.Texts;
+
+        try
+        {
+            SkippedPipelines.Texts = SkippedPipelines.Parse("TransformSkinD");
+
+            Assert.False(waits.Matches(skinned));
+            Assert.True(waits.Matches(plain));
+        }
+        finally
+        {
+            SkippedPipelines.Texts = before;
+        }
+    }
 }
