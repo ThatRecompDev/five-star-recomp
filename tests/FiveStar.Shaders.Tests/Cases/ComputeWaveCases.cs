@@ -124,7 +124,54 @@ public static class ComputeWaveCases
             .Append(MaskHighHalfPathCase())
             .Concat(Variants("cs_mask_on_taken_path", MaskOnTakenPathCase))
             .Concat(Variants("cs_integer_on_taken_path", IntegerOnTakenPathCase))
-            .Concat(Variants("cs_mask_after_integer", MaskAfterIntegerCase));
+            .Concat(Variants("cs_mask_after_integer", MaskAfterIntegerCase))
+            .Append(MergePathLoopCase());
+    }
+
+    // GpuParticleSort~CS_GpuSorting_Sort's merge-path search: a divergent loop whose lanes leave at different trips. The
+    // back edge restores EXEC from the mask saved before a v_cmpx and the loop mask, a lane leaves through v_cmpx and
+    // s_andn2_b64 of the loop mask, and the branch back reads the SCC of that s_andn2 (any lane left in either half).
+    // Lane t of a wave runs (t & 7) + 1 trips, or (t & 7) + 33 in its upper half, so the high half leaves last.
+    private static ComputeCase MergePathLoopCase()
+    {
+        const string Program = """
+            v_and_b32_e32 v1, 7, v0
+            v_add_nc_u32_e32 v1, 1, v1
+            v_and_b32_e32 v4, 63, v0
+            v_cmp_le_u32_e64 s[56:57], 32, v4
+            v_cndmask_b32_e64 v3, 0, 32, s[56:57]
+            v_add_nc_u32_e32 v1, v1, v3
+            v_mov_b32_e32 v2, 0
+            s_mov_b64 s[54:55], exec
+            s_mov_b64 s[52:53], exec
+            s_mov_b64 s[50:51], exec
+            .Lloop:
+            s_and_b64 exec, s[50:51], s[52:53]
+            v_add_nc_u32_e32 v2, 1, v2
+            v_add_nc_u32_e32 v1, -1, v1
+            s_mov_b64 s[50:51], exec
+            v_cmpx_eq_u32_e32 0, v1
+            s_andn2_b64 s[52:53], s[52:53], exec
+            s_cbranch_scc1 .Lloop
+            s_mov_b64 exec, s[54:55]
+            v_mov_b32_e32 v20, v2
+            """;
+
+        static uint Trips(ComputeThread thread)
+        {
+            uint lane = (uint)thread.Id % 64;
+
+            uint trips = (lane & 7) + 1;
+
+            if (lane >= 32)
+            {
+                trips += 32;
+            }
+
+            return trips;
+        }
+
+        return new ComputeCase("cs_merge_path_loop", Program, 1, thread => [Trips(thread)]) { Wave = 64 };
     }
 
     // A loop's back-edge block (s_and exec, s[12:13], s[80:81]) reads the saveexec mask of the loop's end, but the
