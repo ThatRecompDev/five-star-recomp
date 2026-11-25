@@ -202,6 +202,9 @@ CS_SkyRadianceCache the cause was the translator: the loop's back edge read its 
 earlier load left (above, lane masks), so lanes still in the loop fell out of EXEC and never left it. With that fixed,
 `depth_pyramid~CS_InitDepthPyramidWithCpuOcclusion3x3` runs its loops as written and reaches the guard: dwords 2 and
 3 of its first constant buffer are 0, so its row and column bounds are `v_rcp` of 0 (+inf, converted to 0xffffffff).
+`MS_VS_PropFoliageDeferred_7cf79608` ran into the superstep round bound (boots w71 to w74b) for the same kind of reason:
+its loop ends a lane with `v_cmpx_eq_u32_sdwa s31, v85 src1_sel:BYTE_0` (counter == the count in byte 0), and the SDWA
+emitter took the first operand of a v_cmpx for a destination, so it compared the whole dword and the lane never left.
 
 `s_getpc; s_add_u32/s_sub_u32; s_addc_u32/s_subb_u32; s_setpc` on one register pair is a long branch and becomes a
 static branch to the `s_getpc` address + 4 + C. Other `s_setpc`/`s_swappc` (indirect jumps) are not supported, except
