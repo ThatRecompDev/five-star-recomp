@@ -170,6 +170,11 @@ set. A cold boot's grew from 5 to 12.6 GB after the story load step for step wit
 It is charged to commit but not backed by RAM, so the sample summary names it inside private bytes, and the compile
 ceiling leaves it out.
 
+**Commit by category.** Each sample line splits private bytes (`CommitAccounting`): the video memory mirror
+(write-combined, of it the placed texture heaps), the managed heap's commit, the game memory buffers' spans, and the
+rest, the driver's and native memory, beside the running compiles' expected arenas. Outside private bytes it gives the
+XMem pages (pagefile-backed sections, of them the spans section heaps are open over) and the helper processes.
+
 ## Unknown
 
 - Whether ntdll keeps honouring `PEB.NtGlobalFlag` set at the create-process event in later Windows releases (checked
