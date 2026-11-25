@@ -113,6 +113,11 @@ internal sealed unsafe class ShaderVisibleHeap
             WriteRecord(index + i, desktop + i, buffer);
         }
 
+        if (Resources.DepthTwins.Any)
+        {
+            Resources.DepthTwins.Overwritten(index, count);
+        }
+
         nint start = _desktopStart + (nint)((ulong)desktop * Increment);
 
         // The desktop descriptors are about to be rewritten: a stand-in fill must not take one for the UAV it was.
@@ -166,6 +171,8 @@ internal sealed unsafe class ShaderVisibleHeap
     [HotPath]
     public void CopyRecords(uint destination, uint source, uint count)
     {
+        Resources.DepthTwins.Overwritten(destination, count);
+
         Buffer.MemoryCopy(Record(source), Record(destination), (ulong)(Count - destination) * Increment, (ulong)count * Increment);
         Mirror(destination, count);
     }
@@ -174,6 +181,8 @@ internal sealed unsafe class ShaderVisibleHeap
     [HotPath]
     public void CopyRecords(uint destination, ShaderVisibleHeap source, uint sourceIndex, uint count)
     {
+        Resources.DepthTwins.Overwritten(destination, count);
+
         Buffer.MemoryCopy(source.Record(sourceIndex), Record(destination), (ulong)(Count - destination) * Increment, (ulong)count * Increment);
         Mirror(destination, count);
     }

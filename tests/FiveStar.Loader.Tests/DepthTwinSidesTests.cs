@@ -76,6 +76,60 @@ public sealed unsafe class DepthTwinSidesTests : IDisposable
         Run(computeWriter: true);
     }
 
+    [WarpFact]
+    public void A_prelude_reads_the_twin_through_its_own_view_after_the_game_reused_the_twins_slot()
+    {
+        const float Decoy = 0.9994f;
+
+        DepthTwinCopy.Detach();
+        DepthTwins.Detach();
+        DepthTwinPrelude.Detach();
+
+        using var gpu = GpuDevice.CreateWarp(debugLayer: false);
+        var device = gpu.Device;
+        using var setup = new CommandContext(device);
+        using var arena = new ResourceArena(device);
+        using var views = device.CreateDescriptorHeap(new Vortice.Direct3D12.DescriptorHeapDescription(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 1, DescriptorHeapFlags.ShaderVisible));
+        using var targets = device.CreateDescriptorHeap(new Vortice.Direct3D12.DescriptorHeapDescription(DescriptorHeapType.DepthStencilView, 1));
+
+        var description = Vortice.Direct3D12.ResourceDescription.Texture2D(Format.R32_Typeless, Size, Size, 1, 1, flags: ResourceFlags.AllowDepthStencil);
+        using var depth = device.CreateCommittedResource(HeapType.Default, description, ResourceStates.DepthWrite, new ClearValue(Format.D32_Float, 1.0f, 0));
+        device.CreateDepthStencilView(depth, new DepthStencilViewDescription { Format = Format.D32_Float, ViewDimension = DepthStencilViewDimension.Texture2D }, targets.GetCPUDescriptorHandleForHeapStart());
+        setup.List.ClearDepthStencilView(targets.GetCPUDescriptorHandleForHeapStart(), ClearFlags.Depth, 1.0f, 0);
+        setup.ExecuteAndWait();
+
+        var twin = Twin(device, depth, description, views);
+        using var writer = Writer(device, views, compute: false);
+        Assert.False(DepthTwinSides.UseTwin(401, twin));
+        var copies = new List<DepthTwinSides.Copy>();
+
+        DepthTwinSides.Plan(401, copies);
+        Assert.True(DepthTwinPrelude.Run(device.NativePointer, setup.Queue.NativePointer, copies));
+        setup.Queue.ExecuteCommandList(writer.List);
+        setup.ExecuteAndWait();
+
+        // The game writes another view, of a texture holding 0.9994, where the twin's UAV was.
+        using var decoy = device.CreateCommittedResource(HeapType.Default, Vortice.Direct3D12.ResourceDescription.Texture2D(Format.R32_Float, Size, Size, 1, 1, flags: ResourceFlags.AllowUnorderedAccess), ResourceStates.UnorderedAccess);
+        device.CreateUnorderedAccessView(decoy, null, new UnorderedAccessViewDescription { Format = Format.R32_Float, ViewDimension = UnorderedAccessViewDimension.Texture2D }, views.GetCPUDescriptorHandleForHeapStart());
+        setup.List.SetDescriptorHeaps(1, new[] { views });
+        Assert.True(UavFill.Record(device.NativePointer, setup.List.NativePointer, views.GetGPUDescriptorHandleForHeapStart().Ptr, 0, new UavView((int)Format.R32_Float, UavViews.Texture2D, Size, Size, 1), new FillValue(Decoy, Decoy, Decoy, 0)));
+        setup.ExecuteAndWait();
+
+        Assert.False(DepthTwinSides.UsePlane(402, twin, (int)Format.D32_Float));
+        var readback = arena.ReadbackBuffer(Pitch * Size);
+        using var reader = Reader(device, depth, readback);
+
+        copies.Clear();
+        DepthTwinSides.Plan(402, copies);
+        Assert.True(DepthTwinPrelude.Run(device.NativePointer, setup.Queue.NativePointer, copies));
+        setup.Queue.ExecuteCommandList(reader.List);
+        setup.ExecuteAndWait();
+
+        Assert.All(Floats(readback), value => Assert.Equal(Written, value));
+        Assert.Equal(1, DepthTwinPrelude.ToTwin);
+        Assert.Equal(1, DepthTwinPrelude.ToPlane);
+    }
+
     /// <summary>
     /// A reader (a copy of the depth plane) recorded before a writer (a fill of the twin), submitted after it: the reader
     /// sees what the writer wrote, through the prelude's copy into the plane.
