@@ -339,6 +339,12 @@ internal static unsafe class CommandListBindingMethods
                 return;
             }
 
+            // A rectangle-list draw whose variant still builds is skipped (bound otherwise).
+            if (ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self))
+            {
+                return;
+            }
+
             if (DepthTwins.Any)
             {
                 CopyTwin(self);
@@ -349,7 +355,6 @@ internal static unsafe class CommandListBindingMethods
             GpuBreadcrumbs.Before(self, MarkedKind.Draw, vertices, instances, 0);
             BeforeWork(self, false);
 
-            ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
             ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, vertices, instances);
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, uint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDrawInstanced))(inner, vertices, instances, firstVertex, firstInstance);
@@ -372,6 +377,12 @@ internal static unsafe class CommandListBindingMethods
                 return;
             }
 
+            // A rectangle-list draw whose variant still builds is skipped (bound otherwise).
+            if (ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self))
+            {
+                return;
+            }
+
             if (DepthTwins.Any)
             {
                 CopyTwin(self);
@@ -382,7 +393,6 @@ internal static unsafe class CommandListBindingMethods
             GpuBreadcrumbs.Before(self, MarkedKind.Draw, indices, instances, 0);
             BeforeWork(self, false);
 
-            ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
             ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, indices, instances);
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, uint, uint, uint, int, uint, void>)ComObject.Slot(inner, DesktopDrawIndexedInstanced))(inner, indices, instances, firstIndex, baseVertex, firstInstance);
@@ -592,7 +602,7 @@ internal static unsafe class CommandListBindingMethods
 
         if (rectangles->Topology == PrimitiveTopologies.RectangleList)
         {
-            ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
+            _ = ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
         }
     }
 

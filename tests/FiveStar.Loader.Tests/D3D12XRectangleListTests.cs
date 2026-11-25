@@ -21,7 +21,8 @@ namespace FiveStar.Loader.Tests;
 
 /// <summary>
 /// A console rectangle-list draw through the D3D12.X slots (25 SetPipelineState, 20 topology 17, 12 DrawInstanced) on
-/// the default adapter: three vertices cover the whole rectangle, and the fourth corner's colour is extrapolated.
+/// the default adapter: the first draw is skipped while the variant builds off the drawing thread; then three vertices
+/// cover the whole rectangle, and the fourth corner's colour is extrapolated.
 /// </summary>
 public sealed unsafe class D3D12XRectangleListTests
 {
@@ -78,6 +79,12 @@ public sealed unsafe class D3D12XRectangleListTests
             using (desktop)
             {
                 nint pipeline = Pipelines(test, folder.FullName, vertexName);
+                // The first draw starts the variant's build off this thread and is skipped: nothing is drawn.
+                var skipped = Draw(device, desktop, pipeline, test.Runtime.D3D12X.Bindings.Root);
+                Assert.All(skipped, pixel => Assert.Equal(0u, pixel));
+                Assert.Equal(1, test.Runtime.D3D12X.Rectangles.WhileBuilding);
+                Assert.True(test.Runtime.D3D12X.Rectangles.Pipelines!.WaitBuilt(pipeline, TimeSpan.FromMinutes(1)));
+
                 var pixels = Draw(device, desktop, pipeline, test.Runtime.D3D12X.Bindings.Root);
 
                 // The middle half is covered (all four quarters, the extrapolated one included), the border is not.
