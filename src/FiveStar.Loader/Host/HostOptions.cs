@@ -121,6 +121,9 @@ internal sealed record HostOptions
     /// <summary>Integer texture views loaded, gathered and stored through integer declarations (<c>--typed-image-views</c>); part of the program cache identity.</summary>
     public bool TypedImageViews { get; set; }
 
+    /// <summary>R9G9B9E5 views of R32_UINT light read a shadow the texels are copied into (on; <c>--no-shared-exponent-copies</c> leaves the decode to the programs).</summary>
+    public bool SharedExponentCopies { get; set; } = true;
+
     /// <summary>
     /// With <c>--typed-image-views</c>: the programs whose 2D samples filter shared-exponent light themselves, by name part
     /// (<c>--shared-exponent-programs &lt;text,...&gt;</c>; TranslationOptions.SharedExponentPrograms). By default the indirect

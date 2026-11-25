@@ -168,9 +168,10 @@ internal sealed partial class VectorCompareEmitter
 
     private static string? Condition(string condition, bool isFloat, string x, string y)
     {
-        // lg is the ordered not-equal (false on NaN); HLSL != is unordered.
-        var orderedNotEqual = isFloat ? $"({x} < {y} || {x} > {y})" : $"{x} != {y}";
-        var unorderedEqual = isFloat ? $"!({x} < {y} || {x} > {y})" : $"!({x} != {y})";
+        // lg is the ordered not-equal (false on NaN); HLSL != is unordered. Written with isnan, not as lt || gt, which
+        // dxc folds into fcmp one: the AMD driver runs that as unordered (victory-fork 51f1627).
+        var orderedNotEqual = isFloat ? $"({x} != {y} && !isnan({x}) && !isnan({y}))" : $"{x} != {y}";
+        var unorderedEqual = isFloat ? $"!({x} != {y} && !isnan({x}) && !isnan({y}))" : $"!({x} != {y})";
 
         return condition switch
         {

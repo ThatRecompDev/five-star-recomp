@@ -196,7 +196,7 @@ internal sealed partial class HalfPrecisionEmitter
             "sqrt" => "sqrt({0})",
             "exp" => "exp2({0})",
             "log" => "log2({0})",
-            "fract" => "frac({0})",
+            "fract" => "fract_f16({0})",
             "floor" => "floor({0})",
             "ceil" => "ceil({0})",
             "trunc" => "trunc({0})",

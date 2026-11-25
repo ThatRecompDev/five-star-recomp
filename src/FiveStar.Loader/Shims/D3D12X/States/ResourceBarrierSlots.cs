@@ -76,6 +76,11 @@ internal static unsafe class ResourceBarrierSlots
                 Restore(inner, states);
             }
 
+            if (Resources.SharedExponentAliases.Any)
+            {
+                Resources.SharedExponentAliases.Closed(inner);
+            }
+
             GpuBreadcrumbs.Close(self);
             GpuTimings.BeforeClose((nint)self, inner);
 
@@ -114,7 +119,7 @@ internal static unsafe class ResourceBarrierSlots
                 Aliasing(objects, list, barrier);
                 break;
             default:
-                Uav(list, objects.Unwrap(barrier->Resource));
+                GameUav(list, objects.Unwrap(barrier->Resource));
                 break;
         }
     }
@@ -160,6 +165,11 @@ internal static unsafe class ResourceBarrierSlots
             Uav(list, resource);
 
             return;
+        }
+
+        if (Resources.SharedExponentAliases.Any)
+        {
+            Resources.SharedExponentAliases.Used(list, resource);
         }
 
         int home = wrapper->HomeState;
@@ -224,6 +234,18 @@ internal static unsafe class ResourceBarrierSlots
             AliasingAfter = objects.Unwrap(barrier->AliasingAfter),
         };
         BarrierWriter.Write(list, &copy);
+    }
+
+    /// <summary>The game's UAV barrier: its resource was written, so a shadow of it copies again (<see cref="Resources.SharedExponentAliases"/>).</summary>
+    [HotPath]
+    private static void GameUav(nint list, nint resource)
+    {
+        if (Resources.SharedExponentAliases.Any)
+        {
+            Resources.SharedExponentAliases.Used(list, resource);
+        }
+
+        Uav(list, resource);
     }
 
     /// <summary>A UAV barrier on the desktop <paramref name="resource"/>; 0 orders every UAV access.</summary>
