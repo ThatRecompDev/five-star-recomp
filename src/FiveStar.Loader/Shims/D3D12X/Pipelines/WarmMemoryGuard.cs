@@ -84,6 +84,11 @@ internal static unsafe class WarmMemoryGuard
     }
 
     /// <summary>The machine's free physical memory.</summary>
+    public static ulong TotalPhysical()
+    {
+        return Status().TotalPhysical;
+    }
+
     public static ulong AvailablePhysical()
     {
         return Status().AvailablePhysical;

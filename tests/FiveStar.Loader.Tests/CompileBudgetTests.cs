@@ -64,6 +64,35 @@ public sealed class CompileBudgetTests
     }
 
     [Fact]
+    public void A_compile_past_the_machines_memory_is_recorded_unbuildable_once_per_vendor_and_driver()
+    {
+        // The 12 MB ScreenProbes program on AMD (48 GB) cannot build on 32 or 48 GB; it can on 64 GB.
+        long probes = CompileBudget.Estimate(12L << 20, CompileBudget.AmdVendorId);
+        Assert.False(CompileBudget.Buildable(probes, 32UL * Gigabyte));
+        Assert.False(CompileBudget.Buildable(probes, 48UL * Gigabyte));
+        Assert.True(CompileBudget.Buildable(probes, 64UL * Gigabyte));
+
+        string path = Path.Combine(Path.GetTempPath(), $"unbuildable-{Guid.NewGuid():n}.txt");
+
+        try
+        {
+            UnbuildablePipelines.Open(path);
+            Assert.True(UnbuildablePipelines.Add("abc"));
+            Assert.False(UnbuildablePipelines.Add("abc"));
+
+            // A record of another driver does not count; this adapter's survives a new boot.
+            File.AppendAllText(path, UnbuildablePipelines.Record("def", 0x10DE, 1) + Environment.NewLine);
+            UnbuildablePipelines.Open(path);
+            Assert.Equal(1, UnbuildablePipelines.Count);
+        }
+        finally
+        {
+            UnbuildablePipelines.Open(null);
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Heavy_compiles_run_one_at_a_time_and_while_the_game_loads_only_when_urgent()
     {
         // The carry form of the foliage pipeline: 2.84 MB of DXIL.
