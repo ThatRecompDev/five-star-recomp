@@ -106,6 +106,14 @@ internal sealed class StatementTransfer
         var old = _state.Get(target);
         var (exact, held) = (0u, 0u);
 
+        if (_state.Get(WindowNames.Active).Full)
+        {
+            // Every lane is active: every lane takes the value, as an unguarded write.
+            _state.Set(target, fact with { Kind = MaskKind.Other });
+
+            return;
+        }
+
         if (_state.Get(WindowNames.Active).IsExact)
         {
             (exact, held) = (fact.Held & old.Exact, fact.Held & old.Held);

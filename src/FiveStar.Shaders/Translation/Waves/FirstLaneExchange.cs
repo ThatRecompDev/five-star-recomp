@@ -3,6 +3,7 @@
 
 using System.Text.RegularExpressions;
 using FiveStar.Shaders.Translation.Core;
+using FiveStar.Shaders.Translation.Structure;
 
 namespace FiveStar.Shaders.Translation.Waves;
 
@@ -18,28 +19,25 @@ namespace FiveStar.Shaders.Translation.Waves;
 /// </summary>
 internal static partial class FirstLaneExchange
 {
-    /// <summary>The instructions to exchange (address to site), or none when the analysis passes without them or cannot use them.</summary>
-    public static Dictionary<long, int> Sites(TranslationState state)
+    /// <summary>Whether the program can take exchanges: a two-phase mesh program in the emulated (window) form.</summary>
+    public static bool Applies(TranslationState state)
+    {
+        return state.Stage == ShaderStage.Mesh && state.MeshYield && state.EmulateWaves && !state.FastWaves && !state.Supersteps;
+    }
+
+    /// <summary>
+    /// The instructions to exchange (address to site), and those of the mesh thread id that need none (address to the
+    /// console's value: under a full EXEC its first lane is the console wave's first thread).
+    /// </summary>
+    public static (Dictionary<long, int> Sites, Dictionary<long, string> Direct) Sites(TranslationState state)
     {
         var sites = new Dictionary<long, int>();
-
-        if (state.Stage != ShaderStage.Mesh || !state.MeshYield || !state.EmulateWaves || state.FastWaves || state.Supersteps)
-        {
-            return sites;
-        }
-
-        var analysis = new WindowAnalysis(state.Blocks, state.Prologue, state.MeshThreads);
-
-        if (analysis.Check() is null)
-        {
-            return sites;
-        }
-
+        var direct = new Dictionary<long, string>();
         var entries = new WindowAnalysis(state.Blocks, state.Prologue, state.MeshThreads).EntryFacts();
 
         if (entries is null)
         {
-            return sites;
+            return (sites, direct);
         }
 
         var starts = state.Blocks.Select(block => (long)block.Address).Order().ToList();
@@ -68,13 +66,113 @@ internal static partial class FirstLaneExchange
                 continue;
             }
 
+            var lineIndexes = Enumerable.Range(0, block.Lines.Count).Where(index => FirstLanePattern().IsMatch(block.Lines[index])).ToList();
+
             foreach (var ordinal in ordinals)
             {
-                sites[reads[ordinal].Address] = sites.Count;
+                var id = ThreadId(state, block, lineIndexes[ordinal]);
+
+                if (id is not null)
+                {
+                    direct[reads[ordinal].Address] = id;
+                }
+                else
+                {
+                    sites[reads[ordinal].Address] = sites.Count;
+                }
             }
         }
 
-        return sites;
+        return (sites, direct);
+    }
+
+    /// <summary>
+    /// The console's first-lane value of the readfirstlane at <paramref name="line"/> of <paramref name="site"/> when its
+    /// value holds the mesh thread id from the prologue (<c>in_gid.x * N + in_gi</c>), written by no line on any path
+    /// to it: the console wave's first thread's id; else null.
+    /// </summary>
+    private static string? ThreadId(TranslationState state, CodeBlock site, int line)
+    {
+        var name = FirstLanePattern().Match(site.Lines[line]).Groups["x"].Value;
+        var prologue = state.Prologue.Select(text => ThreadIdPattern().Match(text)).FirstOrDefault(match => match.Success && match.Groups["name"].Value == name);
+        var written = new Regex($@"(?<![\w.]){Regex.Escape(name)}\s*=(?!=)");
+
+        if (prologue is null || site.Lines.Take(line).Any(written.IsMatch)
+            || Before(state, site.Address).Any(address => state.Blocks.First(block => block.Address == address).Lines.Any(written.IsMatch)))
+        {
+            return null;
+        }
+
+        return $"(in_gid.x * {prologue.Groups["n"].Value}u + (in_gi & ~(VW_WAVE - 1u)))";
+    }
+
+    /// <summary>
+    /// Whether every hardware wave of a console wave meets every exchange in the same round. A window falls a round behind
+    /// only by skipping a region that holds a yield (after GS_ALLOC_REQ, <see cref="SkipRegion"/>), so no exchange may lie
+    /// in a region windows decide for themselves (<see cref="WindowAnalysis.Divergent"/>) or after one holding a yield.
+    /// </summary>
+    public static bool Converged(TranslationState state, WindowAnalysis analysis)
+    {
+        var graph = new FlowGraph(state.Blocks);
+        var behind = new HashSet<int>();
+        var pending = new Stack<int>();
+
+        foreach (var block in state.Blocks.Where(block => analysis.Divergent.Contains(block.Address) && block.Exit.Kind == BlockExitKind.Yield))
+        {
+            pending.Push(block.Address);
+        }
+
+        while (pending.Count > 0)
+        {
+            var address = pending.Pop();
+
+            if (!behind.Add(address) || graph.NodeAt(address) is not int node)
+            {
+                continue;
+            }
+
+            foreach (var next in graph.Successors[node].Where(next => next != graph.End))
+            {
+                pending.Push(state.Blocks[next].Address);
+            }
+
+            if (state.Blocks[node].Exit.Kind == BlockExitKind.Yield && state.Blocks[node].Exit.Target is long resume)
+            {
+                pending.Push((int)resume);
+            }
+        }
+
+        return !state.Blocks.Any(block => (analysis.Divergent.Contains(block.Address) || behind.Contains(block.Address))
+            && block.Lines.Any(line => line.Contains("vw_first_put(", StringComparison.Ordinal)));
+    }
+
+    /// <summary>The blocks on a path to <paramref name="address"/> (it too, when a loop leads back to it).</summary>
+    private static HashSet<int> Before(TranslationState state, int address)
+    {
+        var predecessors = state.Blocks.ToDictionary(block => block.Address, _ => new List<int>());
+
+        foreach (var block in state.Blocks)
+        {
+            foreach (var target in new[] { block.Exit.Target, block.Exit.Next }.OfType<long>().Where(target => predecessors.ContainsKey((int)target)))
+            {
+                predecessors[(int)target].Add(block.Address);
+            }
+        }
+
+        var seen = new HashSet<int>();
+        var pending = new Stack<int>(predecessors[address]);
+
+        while (pending.Count > 0)
+        {
+            var next = pending.Pop();
+
+            if (seen.Add(next))
+            {
+                predecessors[next].ForEach(pending.Push);
+            }
+        }
+
+        return seen;
     }
 
     /// <summary>The ordinals (among the block's readfirstlanes) of those under a full EXEC, before GS_ALLOC_REQ, of a value not equal on every lane.</summary>
@@ -112,4 +210,7 @@ internal static partial class FirstLaneExchange
 
     [GeneratedRegex(@"^\s*[A-Za-z_]\w* = readfirstlane\((?<x>[A-Za-z_]\w*), active\);\s*$")]
     private static partial Regex FirstLanePattern();
+
+    [GeneratedRegex(@"^\s*(?<name>[A-Za-z_]\w*) = \(in_gid\.x \* (?<n>\d{1,6})u \+ in_gi\);\s*$")]
+    private static partial Regex ThreadIdPattern();
 }

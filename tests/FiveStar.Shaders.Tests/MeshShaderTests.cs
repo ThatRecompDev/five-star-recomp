@@ -65,6 +65,8 @@ public sealed class MeshShaderTests : IClassFixture<WarpFixture>
 
         Assert.StartsWith("// program wave 64; console results on hardware waves >= 4 lanes\n", hlsl, StringComparison.Ordinal);
         Assert.Contains("vw_first_put(0u, ms_step, v41)", hlsl, StringComparison.Ordinal);
+        Assert.DoesNotContain("vw_first_put(1u", hlsl, StringComparison.Ordinal);
+        Assert.Contains("s51 = (in_gid.x * 64u + (in_gi & ~(VW_WAVE - 1u)));", hlsl, StringComparison.Ordinal);
 
         var mismatches = runner.Run(variant);
 
