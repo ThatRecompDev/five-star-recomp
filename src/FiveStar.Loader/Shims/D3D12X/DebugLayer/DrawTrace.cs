@@ -62,6 +62,7 @@ internal sealed unsafe class DrawTrace
     private const int IncrementSlot = 15;
 
     private readonly ConcurrentDictionary<nint, string> _views = new();
+    private readonly ConcurrentDictionary<nint, (nint Resource, int Home)> _shaderViews = new();
     private readonly ConcurrentDictionary<nint, ulong> _constantBuffers = new();
     private readonly ConcurrentDictionary<nint, (nint Resource, int Home)> _targetViews = new();
     private readonly ConcurrentDictionary<nint, (int Game, int View)> _viewFormats = new();
@@ -133,8 +134,15 @@ internal sealed unsafe class DrawTrace
     }
 
     /// <summary>Slot 18 wrote a view of desktop <paramref name="resource"/> at <paramref name="handle"/>.</summary>
-    public void ShaderResourceView(nint resource, nint handle)
+    public void ShaderResourceView(nint resource, nint handle, nint wrapper = 0)
     {
+        var game = _d3d12.Objects.AsResource(wrapper);
+
+        if (resource != 0 && game != null)
+        {
+            _shaderViews[handle] = (resource, game->HomeState);
+        }
+
         string text = resource == 0 ? "SRV of null" : $"SRV of 0x{resource:x} {Describe(resource)}";
         View(handle, text);
     }
@@ -344,6 +352,49 @@ internal sealed unsafe class DrawTrace
 
         _log.Info(text.ToString());
         _indirectProbes[(nint)list] = 0;
+
+        if (ProbeTraced)
+        {
+            ProbeRecords(list, state);
+        }
+    }
+
+    /// <summary>
+    /// With <see cref="ProbeTraced"/>, before a traced ExecuteIndirect runs: each texture SRV the
+    /// <c>--d3d12-trace-records</c> offsets of its first table name by heap index is read back as the draw will see it.
+    /// </summary>
+    private void ProbeRecords(XboxObject* list, DrawTraceList state)
+    {
+        var window = _d3d12.Bindings.Window;
+        uint table = CommandListBindings.Of(list)->Graphics[0];
+
+        if (window.Data == null || window.ViewHeap == 0)
+        {
+            return;
+        }
+
+        nint device = _d3d12.Objects.DesktopDevice;
+        uint increment = ((delegate* unmanaged<nint, int, uint>)ComObject.Slot(device, IncrementSlot))(device, ViewHeapType);
+        nint start = DesktopCalls.HeapCpuStart(window.ViewHeap);
+
+        foreach (var entry in TraceRecords.Offsets)
+        {
+            if (table + entry.Offset + DescriptorWindow.ViewRecordBytes > DescriptorWindow.NullTableBase)
+            {
+                continue;
+            }
+
+            uint? index = DepthUavs.HeapIndex((uint*)(window.Data + table + entry.Offset));
+
+            if (!index.HasValue || !_shaderViews.TryGetValue(start + (nint)((ulong)index.Value * increment), out var view))
+            {
+                continue;
+            }
+
+            int current = _d3d12.ListStates.Find(list)?.Current(view.Resource, view.Home) ?? view.Home;
+            string label = $"record +0x{entry.Offset:x} (texture 0x{view.Resource:x} {Describe(view.Resource)})";
+            _probes.Record(device, list->Inner, view.Resource, current, label, (nint)list, state.Resets);
+        }
     }
 
     /// <summary>After a traced ExecuteIndirect: its first two render targets and its depth target are read back in the list.</summary>
