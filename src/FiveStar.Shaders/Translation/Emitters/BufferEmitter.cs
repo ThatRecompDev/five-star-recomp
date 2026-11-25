@@ -23,6 +23,8 @@ internal sealed partial class BufferEmitter
     private const int BytesPerDword = 4;
     private const int Vec4 = 4;
     private const int LayoutShift = 8;
+    private const int HalfShift = 16;
+    private const int HalvesPerRegister = 2;
 
     private static readonly IReadOnlyDictionary<string, int> DwordCounts = new Dictionary<string, int>
     {
@@ -129,6 +131,7 @@ internal sealed partial class BufferEmitter
         var dword3 = _operands.Read(resource, FormatDword);
         var code = op.StartsWith("tbuffer", StringComparison.Ordinal) ? InstructionFormat(modifiers) : $"buf_code({dword3})";
         var store = op.Contains("store", StringComparison.Ordinal);
+        var half = HalfData(op);
 
         var address = BufferAddress.Build(_operands, a[Address], resource, a[SOffset], modifiers);
         var format = _operands.SnapOne(code);
@@ -145,8 +148,7 @@ internal sealed partial class BufferEmitter
 
             for (var component = 0; component < Vec4; component++)
             {
-                var value = component < count ? _operands.Read(a[Data], component) : "0u";
-                data.Add(value);
+                data.Add(StoredComponent(a[Data], component, count, half, format));
             }
 
             _state.Emit($"  if (active && {inRange}) FmtStore({view}.x, {byteAddress}, {format}, uint4({string.Join(", ", data)}), {count}u);");
@@ -157,10 +159,84 @@ internal sealed partial class BufferEmitter
         var name = $"_fmt{_state.NextTemporary()}";
         _state.Emit($"  uint4 {name} = select({inRange}, fmt_swizzle(FmtLoad({view}.x, {byteAddress}, {format}), {swizzle}, {format}), uint4(0u, 0u, 0u, 0u));");
 
+        if (half != HalfKind.None)
+        {
+            WriteHalves(a[Data], name, count, half, format);
+
+            return;
+        }
+
         for (var component = 0; component < count; component++)
         {
             _operands.Write(a[Data], $"{name}.{"xyzw"[component]}", component);
         }
+    }
+
+    /// <summary>
+    /// The d16 forms (<c>_d16_</c>, <c>_d16_hi_</c> in the opcode): components travel as 16-bit halves, two per VGPR, low
+    /// half first; <c>_d16_hi_x</c> uses the high half. Float and normalized formats as f16, integer formats as their low
+    /// 16 bits (prelude fmt_half / fmt_unhalf).
+    /// </summary>
+    private static HalfKind HalfData(string op)
+    {
+        if (op.Contains("_d16_hi_", StringComparison.Ordinal))
+        {
+            return HalfKind.High;
+        }
+
+        if (op.Contains("_d16_", StringComparison.Ordinal))
+        {
+            return HalfKind.Low;
+        }
+
+        return HalfKind.None;
+    }
+
+    /// <summary>A d16 load's halves into their VGPRs; a half without a partner keeps the other half of its VGPR, as gfx10 does.</summary>
+    private void WriteHalves(Operand data, string loaded, int count, HalfKind half, string format)
+    {
+        for (var component = 0; component < count; component += HalvesPerRegister)
+        {
+            var register = Register(data, component / HalvesPerRegister);
+            var low = $"fmt_half({loaded}.{"xyzw"[component]}, {format})";
+
+            if (half == HalfKind.High)
+            {
+                _operands.WriteHalf(register, low, high: true);
+            }
+            else if (component + 1 < count)
+            {
+                _operands.Write(register, $"({low} | (fmt_half({loaded}.{"xyzw"[component + 1]}, {format}) << 16))");
+            }
+            else
+            {
+                _operands.WriteHalf(register, low, high: false);
+            }
+        }
+    }
+
+    /// <summary>A store's component: a whole VGPR, or a d16 half widened back to the format's register form.</summary>
+    private string StoredComponent(Operand data, int component, int count, HalfKind half, string format)
+    {
+        if (component >= count)
+        {
+            return "0u";
+        }
+
+        if (half == HalfKind.None)
+        {
+            return _operands.Read(data, component);
+        }
+
+        var register = _operands.Read(Register(data, component / HalvesPerRegister));
+        var shift = half == HalfKind.High || component % HalvesPerRegister == 1 ? HalfShift : 0;
+
+        return $"fmt_unhalf(({register} >> {shift}) & 0xffffu, {format})";
+    }
+
+    private static Operand Register(Operand data, int index)
+    {
+        return data with { Low = data.Low + index, High = data.Low + index, Text = $"v{data.Low + index}" };
     }
 
     private static string InstructionFormat(InstructionModifiers modifiers)

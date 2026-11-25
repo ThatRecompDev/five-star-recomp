@@ -199,6 +199,22 @@ read 0; the mesh probe of `MS_VS_Transform_PositionOnly` found one format load o
 Per access, `buf_limit` gives the end the dwords must fit under and `buf_offset` the checked offset (soffset counts
 for raw V#s). Each dword then costs one compare (`buf_fits`); formatted accesses check the element's first dword.
 The shim's records carry the OOB_SELECT of their view's kind (raw 3, structured 0, typed and constant buffers 1).
+
+Audit against the GFX10 rules, per access kind (the corpus's 25,885 programs as a census; `ComputeBufferRuleCases` has
+a WARP case per rule):
+
+- Dword loads and stores (`buffer_load/store_dword*`, most of the corpus's vector buffer accesses): each dword is
+  checked on its own, so a dwordx2 whose second dword passes the stride keeps its first. The hardware measurements
+  behind the table were of single dwords; whether OOB_SELECT 0 checks a multi-dword access whole is not measured.
+- soffset counts for raw V#s only; a structured access checks its VGPR and instruction offset against the stride.
+- Format accesses check the format's element (above); their d16 forms (`buffer_load_format_d16_x`, `_d16_xyzw`,
+  `buffer_store_format_d16_xyzw`: 1,156 instructions) carry halves, two per VGPR: an integer format's low 16 bits,
+  any other format as f16 (`fmt_half`, `fmt_unhalf`); `_d16_x` and `_d16_xyz` keep the other half of their last VGPR.
+  Before, they were read and written as one component per VGPR, clobbering the VGPRs after them.
+- Atomics are one dword each (no `_x2` forms in the corpus: they and byte or short buffer accesses are refused).
+- `s_buffer_load` checks each dword's start against `sbuf_limit` and ignores OOB_SELECT.
+- Swizzled V#s (ADD_TID_ENABLE, the index stride) are not modelled: the driver's rings use them, the game's V#s do
+  not set them as far as traced.
 `s_buffer_load` compares its whole offset with `sbuf_limit`: num_records in bytes for stride 0, else num_records ×
 stride.
 

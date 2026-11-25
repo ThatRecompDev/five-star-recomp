@@ -44,6 +44,7 @@ public sealed class MeshProbeTests : IClassFixture<WarpFixture>
         Assert.True(mismatches.Count == 0, string.Join("\n", mismatches.Take(8)));
         var record = Assert.Single(records);
 
+        Assert.True(record.Whole);
         Assert.Equal((Id, (uint)sites.Count), (record.Id, record.Sites));
         Assert.Equal((18u, 16u, Allocation), (record.Vertices, record.Primitives, record.Allocation));
         Assert.Equal((1u, 1u << 5), (record.Culled, record.CullMask));
