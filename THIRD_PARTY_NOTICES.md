@@ -75,6 +75,12 @@ changes were a source of mechanisms, each written anew in our design:
 
 Its `console_insn*.rs` files are GPL-2.0-only code from XCL and were not used. No code was copied.
 
+VIctory's issues and pull requests were leads too (facts only, each checked against our translator): that
+uninitialised or out-of-range mesh primitives hung NVIDIA's mesh pipeline (#587, which initialises them all and bounds
+the outputs; our direct exports now do the same, docs/shader-translation.md), that wave64 mesh programs run as two
+32-lane waves on NVIDIA (#778, #1216, #2176), and that the fog apply pass `CS_ApplyCombinedDeferred` multiplies the
+lit HDR by a transmittance input another pass writes, so a missing writer erases the lighting (#2045).
+
 ## victory-fork
 
 https://github.com/fxceless/victory-fork, revision `a26859fc5f512e0db0d7522d3da821c038378ab7`, GPL-3.0, a fork of VIctory

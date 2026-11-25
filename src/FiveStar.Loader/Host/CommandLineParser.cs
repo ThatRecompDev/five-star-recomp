@@ -207,7 +207,7 @@ internal sealed class CommandLineParser
                 _options.Dxc = Path.GetFullPath(Next());
 
                 return true;
-            case "--shader-jobs" or "--loop-caps" or "--force-cull-none" or "--skip-pipelines" or "--plain-supersteps" or "--host-pipelines":
+            case "--shader-jobs" or "--loop-caps" or "--force-cull-none" or "--skip-pipelines" or "--plain-supersteps" or "--host-pipelines" or "--superstep-round-budget":
                 return SetShaderJobs(option);
             case "--shader-backend":
                 return SetShaderBackend();
@@ -274,6 +274,13 @@ internal sealed class CommandLineParser
         if (option == "--force-cull-none")
         {
             _options.ForceCullNone = Next();
+
+            return true;
+        }
+
+        if (option == "--superstep-round-budget")
+        {
+            _options.SuperstepRoundsPerStop = int.Parse(Next(), CultureInfo.InvariantCulture);
 
             return true;
         }

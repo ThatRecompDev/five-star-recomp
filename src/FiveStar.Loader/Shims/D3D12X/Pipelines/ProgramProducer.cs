@@ -153,6 +153,7 @@ internal sealed class ProgramProducer
         }
 
         hlsl = Probed(name, hlsl);
+        NoteCost(name, hlsl);
 
         if (hlsl.Length == 0)
         {
@@ -327,6 +328,25 @@ internal sealed class ProgramProducer
         File.WriteAllText(Path.ChangeExtension(dxilPath, ".log"), outcome.Error, Encoding.UTF8);
 
         return $"link {ProgramStatus.CompileFailure}: {DxcCompiler.FirstError(outcome.Error)}";
+    }
+
+    /// <summary>
+    /// A superstep program's cost, once: its wave-operation stops and its round bound (SuperstepWriter's comment). A round
+    /// is a group barrier and a run of the dispatch switch, so stops x rounds tells a program that may outlast the
+    /// driver's timeout (w33: MSNC_VS_LinearDepthSkin_f1f2249c, 1,218 stops, DEVICE_HUNG on its first dispatch).
+    /// </summary>
+    private static void NoteCost(string name, string hlsl)
+    {
+        int at = hlsl.IndexOf(FiveStar.Shaders.Translation.TranslationOptions.SuperstepCostComment, StringComparison.Ordinal);
+
+        if (at < 0)
+        {
+            return;
+        }
+
+        int start = at + FiveStar.Shaders.Translation.TranslationOptions.SuperstepCostComment.Length;
+        int end = hlsl.IndexOf('\n', start);
+        ShimContext.Runtime.D3D12X.Warnings.Warn($"superstep-{name}", $"[d3d12_xs] superstep program {name}: {hlsl[start..end]}");
     }
 
     /// <summary>A --probe-pipeline program's source with the probe code (empty when it cannot take it); any other as it is.</summary>

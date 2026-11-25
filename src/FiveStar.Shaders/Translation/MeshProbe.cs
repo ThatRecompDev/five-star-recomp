@@ -313,7 +313,7 @@ public static partial class MeshProbe
     [GeneratedRegex(@"float4 (?<name>\w+) : SV_Position\b", RegexOptions.IgnoreCase)]
     private static partial Regex PositionPattern();
 
-    [GeneratedRegex(@"prims\[in_gi\]\.cull = \((_?p) >> 31\) != 0;")]
+    [GeneratedRegex(@"prims\[in_gi\]\.cull = \((_?p) >> 31\) != 0(?: \|\| any\(_i >= _n\))?;")]
     private static partial Regex CullPattern();
 
     /// <summary>A pixel program's SV_Position parameter of main.</summary>
