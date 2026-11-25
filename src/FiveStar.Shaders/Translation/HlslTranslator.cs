@@ -106,7 +106,9 @@ public static partial class HlslTranslator
 
     /// <summary>
     /// Adds [WaveSize(n)] (compute only in SM 6.7) when the program reads other lanes by lane number. A wave64 program
-    /// whose group has at most 32 threads never has lanes 32..63, so it gets the wave32 pin every GPU offers.
+    /// whose group has at most 32 threads never has lanes 32..63, so it gets the wave32 pin every GPU offers. A wave32
+    /// program with any wave operation gets it too: a wider hardware wave holds two console waves, whose masks hold 32
+    /// lanes, so lanes 32..63 read their bit from the half the console does not have (a loop on such a mask never ends).
     /// </summary>
     private static string PinWaveSize(string hlsl, int? waveSize, int groupThreads)
     {
@@ -114,7 +116,7 @@ public static partial class HlslTranslator
 
         var entry = hlsl.IndexOf(EntryAttribute, StringComparison.Ordinal);
 
-        if (waveSize is null || entry < 0 || WaveUsageAnalyzer.Dependence(hlsl) != WaveDependence.LaneIndexed)
+        if (waveSize is null || entry < 0)
         {
             return hlsl;
         }
@@ -124,6 +126,13 @@ public static partial class HlslTranslator
         if (pin == Wave64 && groupThreads <= Wave32)
         {
             pin = Wave32;
+        }
+
+        var dependence = WaveUsageAnalyzer.Dependence(hlsl);
+
+        if (dependence != WaveDependence.LaneIndexed && (dependence == WaveDependence.Agnostic || pin != Wave32))
+        {
+            return hlsl;
         }
 
         return hlsl.Insert(entry, $"[WaveSize({pin})]\n");
