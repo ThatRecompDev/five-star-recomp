@@ -26,6 +26,8 @@ internal sealed unsafe class PipelineHost
     /// </summary>
     private const double NearLimit = 0.75;
 
+    private const double BytesPerGigabyte = 1L << 30;
+
     /// <summary>The most a host may take: about four times the plain foliage pipeline's 6.8 GB on NVIDIA, the AMD estimate's cap.</summary>
     private const long NvidiaMemoryCap = 24L << 30;
     private const long AmdMemoryCap = 48L << 30;
@@ -44,6 +46,7 @@ internal sealed unsafe class PipelineHost
     private const uint ProcessMemoryLimit = 0x100;
 
     private readonly string _executable;
+    private HostProcess? _running;
     private int _built;
     private int _killed;
     private int _failed;
@@ -75,8 +78,28 @@ internal sealed unsafe class PipelineHost
         return Math.Clamp(free, MinimumMemoryLimit, cap);
     }
 
-    /// <summary>Hosts that built their pipeline, that were ended at a limit, and that failed otherwise.</summary>
-    public string Summary => $"pipeline host: {Volatile.Read(ref _built)} built, {Volatile.Read(ref _killed)} past a limit, {Volatile.Read(ref _failed)} failed";
+    /// <summary>Hosts that built their pipeline, that were ended at a limit, and that failed otherwise, and the running one's memory.</summary>
+    public string Summary => $"pipeline host: {Volatile.Read(ref _built)} built, {Volatile.Read(ref _killed)} past a limit, {Volatile.Read(ref _failed)} failed, {PrivateBytes / BytesPerGigabyte:F1} GB private";
+
+    /// <summary>The private bytes of the host compiling now; 0 without one.</summary>
+    public long PrivateBytes
+    {
+        get
+        {
+            var host = Volatile.Read(ref _running);
+
+            try
+            {
+                host?.Process.Refresh();
+
+                return host?.Process.PrivateMemorySize64 ?? 0;
+            }
+            catch (InvalidOperationException)
+            {
+                return 0;
+            }
+        }
+    }
 
     /// <summary>
     /// Builds <paramref name="stream"/> in a host held to <paramref name="memoryLimit"/> bytes and
@@ -150,6 +173,7 @@ internal sealed unsafe class PipelineHost
             }
 
             var process = host.Process;
+            Volatile.Write(ref _running, host);
             var answer = Task.Run(() => Exchange(host, request, stream));
             bool finished = answer.Wait(timeLimit);
 
@@ -173,6 +197,7 @@ internal sealed unsafe class PipelineHost
         }
         finally
         {
+            Volatile.Write(ref _running, null);
             host?.Dispose();
 
             if (job != 0)

@@ -19,6 +19,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 internal sealed class PipelineBuildQueue
 {
     private const int PauseMilliseconds = 2000;
+    private const int GiveBackPauseMilliseconds = 250;
 
     // One thread in this many also takes creations no command list waits for.
     private const int SpeculativeShare = 2;
@@ -180,9 +181,10 @@ internal sealed class PipelineBuildQueue
             WaitForRoom();
             var build = Take(speculative);
 
-            if (build.Claim())
+            // A creation given back waits its turn again; a short pause keeps a thread with only those from spinning.
+            if (build.Claim() && Execute(build, build.Urgent))
             {
-                Execute(build, build.Urgent);
+                Thread.Sleep(GiveBackPauseMilliseconds);
             }
         }
     }
@@ -225,20 +227,37 @@ internal sealed class PipelineBuildQueue
         }
     }
 
-    /// <summary>Runs a build; an urgent one goes before the others in the driver compile budget (<see cref="CompileBudget"/>).</summary>
-    private void Execute(PipelineBuild build, bool urgent)
+    /// <summary>
+    /// Runs a build; an urgent one goes before the others in the driver compile budget (<see cref="CompileBudget"/>). One
+    /// no command list waits for does not wait there: it goes back to the queue (<see cref="CompileBudget.GiveBack"/>),
+    /// so the thread is free for urgent ones; true when it went back.
+    /// </summary>
+    private bool Execute(PipelineBuild build, bool urgent)
     {
         Interlocked.Increment(ref _running);
-        var previous = CompileBudget.Urgent;
+        var (previous, giveBack) = (CompileBudget.Urgent, CompileBudget.GiveBack);
         CompileBudget.Urgent = urgent;
+        CompileBudget.GiveBack = !urgent;
 
         try
         {
-            build.Done.SetResult(build.Create());
+            var result = build.Create();
+
+            if (result.Hr == HResult.Pending)
+            {
+                build.Release();
+                Add(build, build.Urgent);
+
+                return true;
+            }
+
+            build.Done.SetResult(result);
+
+            return false;
         }
         finally
         {
-            CompileBudget.Urgent = previous;
+            (CompileBudget.Urgent, CompileBudget.GiveBack) = (previous, giveBack);
             Interlocked.Decrement(ref _running);
         }
     }
