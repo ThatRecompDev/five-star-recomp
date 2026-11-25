@@ -501,14 +501,15 @@ logged as `[debug]` (first 4096 messages).
 
 **Input script.** `--input-script` lines are `<seconds> <key> [hold <s>] [repeat <n> every <s>]`, times from loader
 start or from the start of their screen block (below; `+<s>`: that long after the previous line), keys named as in the input config, `#` a comment. A scripted key counts as held on the desktop, so the keyboard
-and the keyboard-and-mouse gamepad both see it (`Space` is A). The game reads input only through its own GameInput
+and the keyboard-and-mouse gamepad both see it (`Space` is A). `PadA`, `PadB`, `PadX`, `PadY`, `PadMenu` and `PadView`
+press that gamepad button alone, with no keyboard key (the game may take `Space` from both devices and act twice). The game reads input only through its own GameInput
 calls; a press while it does not poll has no effect. `<seconds> capture` reads back the next present at that time
 (with `--capture-dir`, [d3d12x-shim.md](d3d12x-shim.md#debug-layer)); `<seconds> cursor <dx> <dy> [hold <s>] [repeat …]`
 moves the cursor dx, dy pixels a second for the hold time, which the keyboard-and-mouse gamepad turns into the right
 stick (full at 1000). [first-run.input](first-run.input) answers the first-run screens. The loader follows the file while the game
 runs: every 250 ms it reloads it when its write time changed, so lines appended with later times drive the game
 interactively (the log names each reload with the loader time; captures already due at a reload are skipped). The
-mouse needs no script: the real cursor's motion reaches the keyboard-and-mouse gamepad's right stick.
+real keyboard and mouse are left out while a script runs unless `--allow-real-input` is given or F9 hands them back.
 
 **Screen blocks.** A line `screen <name>` starts a block whose times count from the moment the screen `<name>` shows,
 not from loader start; the lines before the first one are block 0. Blocks begin in order: while a block waits, the

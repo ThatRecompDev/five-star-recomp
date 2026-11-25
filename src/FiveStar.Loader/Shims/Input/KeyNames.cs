@@ -22,6 +22,14 @@ internal static class KeyNames
     private const int Control = 0x11;
     private const int Alt = 0x12;
 
+    /// <summary>
+    /// Unassigned virtual keys (0x88-0x8F in WinUser.h) that stand for virtual gamepad buttons in an input script:
+    /// PadA, PadB, PadX, PadY, PadMenu, PadView. They press the button alone, without a keyboard key, and no keyboard
+    /// reading carries them.
+    /// </summary>
+    public const int FirstPadKey = 0x88;
+    public const int LastPadKey = 0x8F;
+
     private const int FirstFunctionKey = 0x70;
     private const int FunctionKeyCount = 24;
     private const string HexPrefix = "0x";
@@ -34,6 +42,15 @@ internal static class KeyNames
         ("Left", 0x25), ("Up", 0x26), ("Right", 0x27), ("Down", 0x28), ("Insert", 0x2D), ("Delete", 0x2E),
         ("ScrollLock", 0x91), ("LeftShift", 0xA0), ("RightShift", 0xA1), ("LeftCtrl", 0xA2), ("RightCtrl", 0xA3),
         ("LeftAlt", 0xA4), ("RightAlt", 0xA5),
+        ("PadA", FirstPadKey), ("PadB", FirstPadKey + 1), ("PadX", FirstPadKey + 2), ("PadY", FirstPadKey + 3),
+        ("PadMenu", FirstPadKey + 4), ("PadView", FirstPadKey + 5),
+    ];
+
+    /// <summary>The virtual gamepad button each pad key presses, from <see cref="FirstPadKey"/> on.</summary>
+    public static readonly uint[] PadButtons =
+    [
+        GameInputLayout.GamepadA, GameInputLayout.GamepadB, GameInputLayout.GamepadX, GameInputLayout.GamepadY,
+        GameInputLayout.GamepadMenu, GameInputLayout.GamepadView,
     ];
 
     private static readonly FrozenDictionary<string, int> Names = BuildNames();
@@ -65,7 +82,7 @@ internal static class KeyNames
     [HotPath]
     public static bool IsKeyboardKey(int virtualKey)
     {
-        if (virtualKey <= MouseButton5)
+        if (virtualKey <= MouseButton5 || (virtualKey >= FirstPadKey && virtualKey <= LastPadKey))
         {
             return false;
         }

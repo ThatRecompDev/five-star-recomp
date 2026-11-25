@@ -37,6 +37,20 @@ public sealed unsafe class GameInputTests
     }
 
     [Fact]
+    public void A_script_pad_key_presses_its_button_without_a_keyboard_key()
+    {
+        var config = InputConfigFile.Defaults();
+        var keys = new PressedKeys();
+        int padA = KeyNames.Parse("PadA")!.Value;
+        keys.Set(padA, true);
+
+        var state = VirtualGamepad.Map(config, keys, 0, 0, 0.016f);
+
+        Assert.Equal(0x4u, state.Buttons);
+        Assert.False(KeyNames.IsKeyboardKey(padA));
+    }
+
+    [Fact]
     public void Mouse_speed_moves_the_right_stick_and_saturates()
     {
         var config = InputConfigFile.Parse(["mouse-sensitivity 2", "mouse-curve 1"]);
