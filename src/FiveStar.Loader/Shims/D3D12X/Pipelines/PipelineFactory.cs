@@ -30,6 +30,10 @@ internal sealed unsafe class PipelineFactory
 
     private const int MegabyteShift = 20;
 
+    /// <summary>D3D12_RASTERIZER_DESC.CullMode and D3D12_CULL_MODE_NONE (d3d12.h).</summary>
+    private const int CullModeOffset = 4;
+    private const int NoCulling = 1;
+
     private readonly object _gate = new();
     private readonly object _heavy = new();
     private readonly nint _device2;
@@ -202,8 +206,28 @@ internal sealed unsafe class PipelineFactory
         }
 
         var names = string.Join(" + ", programs.Select(program => program.Name));
+        desktop = CullNone(desktop, names);
 
         return new PipelineRecipe(DesktopPipelineBuilder.GraphicsStream(_device2, _rootSignature, desktop, programs), desktop, programs, names);
+    }
+
+    /// <summary>
+    /// <c>--force-cull-none &lt;text&gt;</c>: pipelines whose programs' names hold the text cull no faces, to rule the
+    /// emitted triangles' winding in or out when a pass draws nothing. Null for none.
+    /// </summary>
+    public static string? CullNoneFor { get; set; }
+
+    private static GraphicsPipelineDescription CullNone(GraphicsPipelineDescription description, string names)
+    {
+        if (CullNoneFor is null || !names.Contains(CullNoneFor, StringComparison.Ordinal))
+        {
+            return description;
+        }
+
+        byte[] rasterizer = [.. description.Rasterizer];
+        BitConverter.TryWriteBytes(rasterizer.AsSpan(CullModeOffset), NoCulling);
+
+        return description with { Rasterizer = rasterizer };
     }
 
     /// <summary>The desktop stream of a compute description; null when its shader has no translation.</summary>

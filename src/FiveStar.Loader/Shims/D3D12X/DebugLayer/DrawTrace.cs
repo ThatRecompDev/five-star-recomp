@@ -41,6 +41,9 @@ internal sealed unsafe class DrawTrace
     /// <summary>Draws matching <see cref="PipelineFilter"/> logged per traced frame.</summary>
     private const int FilterDraws = 64;
 
+    /// <summary>The largest high dword of a console GPU address (48-bit addresses).</summary>
+    private const uint MaxAddressHigh = 0xFFFF;
+
     /// <summary>Argument records logged for a traced ExecuteIndirect.</summary>
     private const uint IndirectRecordsShown = 4;
 
@@ -248,6 +251,7 @@ internal sealed unsafe class DrawTrace
         AppendTargets(text, state);
         text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x}");
         AppendUserData(text, CommandListBindings.Of(list));
+        AppendPointers(text, CommandListBindings.Of(list));
         _log.Info(text.ToString());
         _indirectProbes[(nint)list] = 0;
     }
@@ -516,10 +520,41 @@ internal sealed unsafe class DrawTrace
         }
     }
 
+    /// <summary>
+    /// User SGPR pairs that hold a console GPU address (high dword 1 to 0xFFFF): whether the address map has a desktop
+    /// page there (a program reading through an unmapped page gets zeros) and the first dwords.
+    /// </summary>
+    private void AppendPointers(StringBuilder text, CommandListBindings* bindings)
+    {
+        for (int i = 0; i + 1 < UserDwordsShown; i++)
+        {
+            uint high = bindings->Graphics[i + 1];
+
+            if (high == 0 || high > MaxAddressHigh)
+            {
+                continue;
+            }
+
+            ulong address = bindings->Graphics[i] | ((ulong)high << DwordBits);
+            text.Append($"\n      sgprs {i}-{i + 1} 0x{address:x}: {MapState(address)}");
+        }
+    }
+
+    /// <summary>Whether <paramref name="address"/> has a desktop page in the address map.</summary>
+    private string MapState(ulong address)
+    {
+        if (_d3d12.GameMemory.TryTranslate(address, out ulong desktop))
+        {
+            return $"mapped (desktop 0x{desktop:x})";
+        }
+
+        return "UNMAPPED: the GPU reads zeros there";
+    }
+
     /// <summary>A root CBV, SRV or UAV: its console address and the first dwords there.</summary>
     private void AppendRootAddress(StringBuilder text, uint parameter, ulong address)
     {
-        text.Append($"\n      root descriptor {parameter} at 0x{address:x}:");
+        text.Append($"\n      root descriptor {parameter} at 0x{address:x}, {MapState(address)}:");
         var data = (uint*)_memory.Find(address, ConstantsShown * sizeof(uint));
 
         if (data == null)

@@ -167,6 +167,9 @@ internal sealed record HostOptions
     /// <summary>DRED alone (auto-breadcrumbs, page faults, the removal report), without the slow debug layer (<c>--d3d12-dred</c>).</summary>
     public bool D3D12Dred { get; set; }
 
+    /// <summary>Pipelines whose programs' names hold this text cull no faces (<c>--force-cull-none &lt;text&gt;</c>).</summary>
+    public string? ForceCullNone { get; set; }
+
     /// <summary>Loop caps of programs made on demand (<c>--loop-caps victory|default|compute,geometry,pixel</c>); null for the translator's own.</summary>
     public FiveStar.Shaders.Translation.Core.LoopCaps? LoopCaps { get; set; }
 
