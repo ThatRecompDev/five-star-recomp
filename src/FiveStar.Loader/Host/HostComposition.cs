@@ -122,7 +122,7 @@ internal static class HostComposition
             Shims.D3D12X.DebugLayer.PoolStoreTrace.Enabled = options.TracePoolStores;
             Shims.D3D12X.Binding.UserDataConstants.Enabled = options.UserDataConstants;
             Shims.D3D12X.Binding.WindowFeedback.Enabled = options.EvictWindows;
-            OnDemandStart.Translation = FiveStar.Shaders.Compilation.CorpusOptions.DefaultTranslation with { Loops = options.LoopCaps, SuperstepCarry = options.SuperstepCarry, RoundsPerStop = options.SuperstepRoundsPerStop, FastWaves = options.FastWaves, TypedImageViews = options.TypedImageViews, SharedExponentPrograms = options.SharedExponentPrograms };
+            OnDemandStart.Translation = OnDemandTranslation(options, root);
             folders = folders with { OnDemand = OnDemandStart.Begin(root, options.Dxc, options.DxcBackend, options.ShaderJobs, out var message), OnDemandNote = message };
         }
 
@@ -145,6 +145,21 @@ internal static class HostComposition
         }
 
         return folders with { Index = ProgramIndexLoad.Start(folders.Programs!) };
+    }
+
+    /// <summary>
+    /// The translation of programs made on demand. Programs earlier boots saw sampling shared-exponent light
+    /// (Binding.SharedExponentSamplers, listed in the program cache <paramref name="root"/>) join --shared-exponent-programs.
+    /// </summary>
+    private static FiveStar.Shaders.Translation.TranslationOptions OnDemandTranslation(HostOptions options, string root)
+    {
+        IReadOnlyList<string> sharedExponent = [.. options.SharedExponentPrograms, .. Shims.D3D12X.Binding.SharedExponentSamplers.Load(root)];
+
+        return FiveStar.Shaders.Compilation.CorpusOptions.DefaultTranslation with
+        {
+            Loops = options.LoopCaps, SuperstepCarry = options.SuperstepCarry, RoundsPerStop = options.SuperstepRoundsPerStop, FastWaves = options.FastWaves,
+            TypedImageViews = options.TypedImageViews, SharedExponentPrograms = sharedExponent,
+        };
     }
 
     /// <summary>--work-dir, or the work folder beside the loader.</summary>

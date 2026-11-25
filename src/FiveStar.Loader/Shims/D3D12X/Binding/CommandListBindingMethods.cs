@@ -887,6 +887,9 @@ internal static unsafe class CommandListBindingMethods
     {
         var bindings = CommandListBindings.Of(self);
         MirrorReach(self, bindings, compute);
+        uint* userData = compute ? bindings->Compute : bindings->Graphics;
+        SharedExponentSamplers.Check(RectangleListState.Of(self)->Pipeline, userData, ShimContext.Runtime.D3D12X.Bindings.Window.Data);
+
         var ring = Bindings.Ring;
         int root = compute ? bindings->ComputeRoot : bindings->GraphicsRoot;
         int dirty = compute ? bindings->ComputeDirty : bindings->GraphicsDirty;
