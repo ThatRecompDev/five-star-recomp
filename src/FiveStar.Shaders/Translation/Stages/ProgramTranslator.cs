@@ -54,6 +54,8 @@ internal static class ProgramTranslator
             Run(state);
         }
 
+        state = Exchanged(state, () => create(mixed));
+
         if (state.Supersteps)
         {
             // Every wave operation is a group round in this form: those whose result every lane already holds, and
@@ -84,6 +86,31 @@ internal static class ProgramTranslator
         var emitter = new ProgramEmitter(state, new OutputWriter(state), mesh, body);
 
         return emitter.Emit();
+    }
+
+    /// <summary>
+    /// A two-phase mesh program the window analysis holds back for a readfirstlane of per-lane values: translated again
+    /// with those exchanged through groupshared memory (Waves.FirstLaneExchange), kept when the analysis then passes.
+    /// </summary>
+    private static TranslationState Exchanged(TranslationState state, Func<TranslationState> create)
+    {
+        var sites = FirstLaneExchange.Sites(state);
+
+        if (sites.Count == 0)
+        {
+            return state;
+        }
+
+        var exchanged = create();
+        exchanged.FirstLaneExchanges = sites;
+        Run(exchanged);
+
+        if (new WindowAnalysis(exchanged.Blocks, exchanged.Prologue, exchanged.MeshThreads).Check() is null)
+        {
+            return exchanged;
+        }
+
+        return state;
     }
 
     private static void Run(TranslationState state)

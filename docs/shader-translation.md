@@ -194,6 +194,16 @@ whole console waves because `readfirstlane` takes a per-lane value: TransformD r
 (GS_ALLOC_REQ's m0, and every lane's export test) from the first lane's meshlet record, indexed per lane by instance,
 equal across the wave only by the data.
 
+A two-phase mesh program the window analysis holds back that way now exchanges those values instead
+(`FirstLaneExchange`): a v_readfirstlane under a full EXEC before GS_ALLOC_REQ becomes a deposit by console lane 0
+into groupshared memory, a yield to the group's barrier step and a read of lane 0's value by every thread of the
+console wave (slots alternate with the step's parity). It is kept only when the analysis then passes, and the result is
+the console's whether the windows' own first lanes agree or not, so no runtime check or second body is needed. In
+every 4th mesh program 255 of the 625 with a floor of 64 drop to 4, each with 3 exchanges (the thread id and the two
+counts), for three group barriers in place of the superstep form; their native DXIL grows 9 to 29% (12 sampled), but is
+smaller than the superstep form 32-lane GPUs compiled before in 11 of 12 (TransformD 018ec975: 105 KB native and
+140 KB superstep, now 117 KB native only).
+
 A superstep program names its cost in its first body line, `// superstep: <stops> stops, round bound <n>` (the loader
 logs it once per program): a round is a group barrier and a run of the dispatch switch to the next stop, so a large
 program's rounds can outlast the driver's timeout well before the caps' bound (`MSNC_VS_LinearDepthSkin_f1f2249c`:

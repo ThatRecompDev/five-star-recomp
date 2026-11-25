@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Five Star Recomp contributors.
+// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Shaders.Tests.Cases;
@@ -51,6 +51,22 @@ public sealed class MeshShaderTests : IClassFixture<WarpFixture>
         Assert.StartsWith("// program wave 64; console results on hardware waves >= 4 lanes\n", runner.Translate(MeshStageRunner.Windows), StringComparison.Ordinal);
 
         var mismatches = runner.Run(MeshStageRunner.Windows);
+
+        Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
+    }
+
+    [WarpTheory]
+    [InlineData(MeshStageRunner.FirstLane)]
+    [InlineData(MeshStageRunner.FirstLaneSplit)]
+    public void Counts_read_from_the_first_lane_are_exchanged_so_the_program_runs_on_narrower_waves(string variant)
+    {
+        var runner = new MeshStageRunner(_fixture);
+        var hlsl = runner.Translate(variant);
+
+        Assert.StartsWith("// program wave 64; console results on hardware waves >= 4 lanes\n", hlsl, StringComparison.Ordinal);
+        Assert.Contains("vw_first_put(0u, ms_step, v41)", hlsl, StringComparison.Ordinal);
+
+        var mismatches = runner.Run(variant);
 
         Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
     }

@@ -230,7 +230,7 @@ internal sealed partial class ProgramEmitter
     private string MeshEntry(List<string> lines)
     {
         var declarations = _state.MeshYield ? MeshDeclarations.DirectDeclarations() : _mesh.StagingDeclarations(_outputs.OutputRegisters());
-        lines.Insert(lines.IndexOf(OutStruct), declarations);
+        lines.Insert(lines.IndexOf(OutStruct), declarations + _mesh.FirstLaneDeclarations());
 
         if (!_state.Outputs.Contains("pos0"))
         {
