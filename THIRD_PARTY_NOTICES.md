@@ -39,6 +39,10 @@ object layout (state written up to +0x564) were leads for docs/d3d12x-shim.md, c
 executable. Its CopyPageMappingsBatchX (`crates/victory-gpu/src/queue.rs`) gave the name and argument layouts of
 queue slot 31 (docs/physical-memory.md); the implementation is our own. No code was copied.
 
+Revision `13f91caee25f2fdf2c062be5f7a27f058e51cbca`: the export patch table of a pixel program's stage data and the use of its
+32_ABGR slot (`crates/victory-shader/src/native.rs`, `NativeProgram::patched_code` and `ps_io`) are ported in
+`src/FiveStar.Shaders/Hardware/ExportPatches.cs`, which names the source in its header.
+
 Its command-list table named the console copy slots (CopyMemoryToMemoryX, CopyTextureRegionX, CopyResourceX; docs/d3d12x-shim.md),
 and its rule that a texture the host GPU copied into keeps the host's contents was the lead for `GpuTexture.CopiedInto`
 (docs/gpu-resources.md). Its report that dead-code removal and constant folding cut its host instruction count by

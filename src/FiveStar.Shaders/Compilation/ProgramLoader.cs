@@ -69,6 +69,13 @@ public sealed class ProgramLoader
     private ShaderProgram Build(string programPath, byte[] bytes, ShaderConfig config, ShaderStage stage)
     {
         var code = FssmHeader.ProgramCode(bytes);
+
+        // A pixel program exports its 32-bit values as the console's driver patches it for a 32-bit format (ExportPatches).
+        if (stage == ShaderStage.Pixel)
+        {
+            code = ExportPatches.Apply(bytes, code);
+        }
+
         var instructions = _disassembler.Disassemble(code, config.WaveSize ?? Wave64);
         var signatures = ShaderSignatures.None;
         PipelineStateInfo? pipelineState = null;
