@@ -629,10 +629,12 @@ internal static unsafe class XboxDescriptorMethods
         }
     }
 
-    /// <summary>With <c>--check-view-liveness</c>: the view just written at <paramref name="destination"/>.</summary>
+    /// <summary>The view just written at <paramref name="destination"/>: its dimension checked, and with <c>--check-view-liveness</c> noted.</summary>
     [HotPath]
     private static void Written(nint destination, nint resource, nint desktop, void* view, bool unordered)
     {
+        ViewDimensions.Check(desktop, view, unordered);
+
         if (ViewLiveness.Noting)
         {
             var game = D3D12X.Objects.AsResource(resource);
