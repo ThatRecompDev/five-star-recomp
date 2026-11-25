@@ -305,7 +305,7 @@ internal sealed unsafe class PipelineFactory
             built?.Invoke(pipeline);
         };
 
-        if (Cache is not null && !HResult.Failed(Cache.Load(stream, iid, result)))
+        if (!SkippedPipelines.Skips(names) && Cache is not null && !HResult.Failed(Cache.Load(stream, iid, result)))
         {
             stream.Dispose();
             named(*result);
@@ -521,6 +521,13 @@ internal sealed unsafe class PipelineFactory
     /// </summary>
     public PipelineResult Build(DesktopStream stream, Guid iid, string what)
     {
+        if (SkippedPipelines.Skips(what))
+        {
+            stream.Dispose();
+
+            return new PipelineResult(HResult.Fail, 0);
+        }
+
         if (!MayStartHere(stream.ShaderBytes, out bool entered))
         {
             return new PipelineResult(HResult.Pending, 0);
