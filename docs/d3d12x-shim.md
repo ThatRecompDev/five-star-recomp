@@ -131,7 +131,9 @@ frames ([Present](#present)).
 
 The game asks slot 73 for desktop ID3D12GraphicsCommandList (`5b160d0f-...`) in one place and for
 `c3827890-4024-474c-98cf-645b51dc4874`, not a desktop IID, in the others. Close is slot 9 as on the desktop.
-Slots 131 and 132 (X-only) take (register offset, value, 0, mask 0xFFFFFFFFFF00): register writes.
+Slots 131 and 132 (X-only) take (register offset, value, 0, mask 0xFFFFFFFFFF00): register writes. Other ports name 131
+FlushGpuCacheRangeX, 132 FlushShaderCacheRangeX and 69 FlushPipelineX (newer layout); all three are a global UAV
+barrier here (`CacheFlushSlots`, as XCL does; stubs before), which only orders work, harmless for register writes.
 
 Most commands are recorded inline: the game compares the list's write pointer (+0x18) with a limit (+0x28 before
 draws, +0x30 otherwise), writes PM4 packets itself when there is room, and calls the vtable slot only when there is
