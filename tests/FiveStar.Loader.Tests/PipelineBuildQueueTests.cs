@@ -83,6 +83,13 @@ public sealed class PipelineBuildQueueTests
     }
 
     [Fact]
+    public void The_warm_up_reports_what_is_left_and_the_rate()
+    {
+        Assert.Equal("300/1200 after 00:10:00, 900 left at 0.50/s (about 00:30:00)", PipelineWarmup.Progress(300, 1200, TimeSpan.FromMinutes(10)));
+        Assert.Equal("0/10 after 00:00:00, 10 left at 0.00/s (about unknown)", PipelineWarmup.Progress(0, 10, TimeSpan.Zero));
+    }
+
+    [Fact]
     public void Urgent_creations_go_by_the_frames_then_the_draws_their_stand_ins_missed()
     {
         var queue = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
