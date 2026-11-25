@@ -144,7 +144,7 @@ internal sealed class OnDemandPrograms : IProgramLibrary
 
             if (!job.Done.IsCompleted)
             {
-                Run(job);
+                Run(job, inline: true);
             }
 
             if (job.Done.IsCompletedSuccessfully && job.Done.Result)
@@ -187,14 +187,17 @@ internal sealed class OnDemandPrograms : IProgramLibrary
 
         if (job.Queue(urgent))
         {
-            _workers.Queue(() => Run(job), urgent, () => job.Score);
+            _workers.Queue(() => Run(job, inline: false), urgent, () => job.Score);
         }
 
         return job.Done;
     }
 
-    /// <summary>On a worker: translates the program, then compiles it here or on the heavy thread.</summary>
-    private void Run(ProgramJob job)
+    /// <summary>
+    /// Translates the program, then compiles it here or on the heavy thread: on a worker, or <paramref name="inline"/>
+    /// on a game thread, then in this process only.
+    /// </summary>
+    private void Run(ProgramJob job, bool inline)
     {
         if (!job.Start())
         {
@@ -220,7 +223,10 @@ internal sealed class OnDemandPrograms : IProgramLibrary
                 return;
             }
 
-            var hosted = _producer.MakeInHost(job.Name);
+            // On a game thread (a small program made at its first use), never through the compile host: its requests
+            // wait behind the host's other work up to two minutes, and the game's main thread waited there while the host
+            // linked a foliage producer (boots w69c and w69d stayed on the black loading screen with a warm cache).
+            var hosted = inline ? HostedMake.Here : _producer.MakeInHost(job.Name);
 
             if (hosted.Hosted && hosted.Dxc is null)
             {
