@@ -42,6 +42,28 @@ public sealed class CompileBudgetTests
     }
 
     [Fact]
+    public void AMD_estimates_grow_quadratically_and_cover_the_isolated_peaks_of_issue_19()
+    {
+        const uint Amd = CompileBudget.AmdVendorId;
+        const uint Nvidia = 0x10DE;
+
+        // Isolated peaks on an RX 7800 XT: 0.48 MB 1.0 GB, 1.5 MB 4.9 GB, 2.9 MB 17.2 GB, 5.0 MB over 30 GB.
+        (double Megabytes, double Gigabytes)[] measured = [(0.48, 1.0), (1.5, 4.9), (2.9, 17.2), (5.0, 30)];
+
+        foreach (var (megabytes, gigabytes) in measured)
+        {
+            Assert.True(CompileBudget.Estimate((long)(megabytes * (1 << 20)), Amd) > gigabytes * Gigabyte);
+        }
+
+        // NVIDIA stays linear: the carry-form foliage pipeline (2.75 MB) took 6.4 GB alone.
+        Assert.Equal(CompileBudget.Estimate(3L << 20, 0), CompileBudget.Estimate(3L << 20, Nvidia));
+        Assert.InRange(CompileBudget.Estimate(2_883_584, Nvidia), 6.4 * Gigabyte, 8 * Gigabyte);
+
+        // The 12 MB ScreenProbes program would need more than a 64 GB machine has free.
+        Assert.Equal(48 * Gigabyte, CompileBudget.Estimate(12L << 20, Amd));
+    }
+
+    [Fact]
     public void Heavy_compiles_run_one_at_a_time_and_while_the_game_loads_only_when_urgent()
     {
         // The carry form of the foliage pipeline: 2.84 MB of DXIL.

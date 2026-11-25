@@ -10,7 +10,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// <summary>
 /// Admits driver compiles by what they will take (docs/d3d12x-pipelines.md#stand-ins): the NVIDIA compiler grows a
 /// doubling arena per pipeline (1, 2, 4, 8 GB) for minutes, so six mesh-shader pipelines of 1 to 3 MB of DXIL that
-/// started together took 50 GB. Each compile is expected to take <see cref="Estimate"/>; a new one starts only while
+/// started together took 50 GB. Each compile is expected to take <see cref="Estimate(long)"/>; a new one starts only while
 /// free physical memory and commit cover the reserves, the new estimate and what the running ones are still expected
 /// to take (their whole estimates). Compiles of less than
 /// <see cref="TinyShaderBytes"/> of DXIL are counted but never wait, so a small compute pipeline made on the game's
@@ -70,6 +70,18 @@ internal static unsafe class CompileBudget
     /// 6.4 GB, and the largest forms sampled are under 3 MB.
     /// </summary>
     private const long MaximumEstimate = 16L << 30;
+
+    /// <summary>AMD's PCI vendor id; its driver's compile memory grows about quadratically (<see cref="Estimate(long, uint)"/>).</summary>
+    public const uint AmdVendorId = 0x1002;
+
+    private const double AmdLinearGigabytes = 4;
+    private const double AmdSquareGigabytes = 2;
+
+    /// <summary>
+    /// The most an AMD compile is expected to take: a 5 MB program is past it, so on a 64 GB machine it starts only
+    /// with 52 GB free (one of 12 MB did not build on 64 GB at all).
+    /// </summary>
+    private const long AmdMaximumEstimate = 48L << 30;
     private const int PauseMilliseconds = 500;
     private const double BytesPerGigabyte = 1L << 30;
     private const double BytesPerMegabyte = 1L << 20;
@@ -80,6 +92,7 @@ internal static unsafe class CompileBudget
     private static readonly Queue<long> GrowthSamples = new();
     private static readonly Lazy<Timer> GrowthSampler = new(() => new Timer(_ => SampleGrowth(), null, TimeSpan.Zero, GrowthInterval));
     private static long _growthAllowance;
+    private static uint _vendorId;
     private static readonly ConcurrentDictionary<BuildMeasure, byte> Measures = new();
     private static readonly Lazy<Timer> Sampler = new(() => new Timer(_ => Sample(), null, SampleInterval, SampleInterval));
 
@@ -230,7 +243,7 @@ internal static unsafe class CompileBudget
 
     /// <summary>
     /// Ends a measure and logs a compile of <see cref="TinyShaderBytes"/> or more: its DXIL, estimate, the private
-    /// peak over its start, its time and the compiles running when it started (calibration data for <see cref="Estimate"/>).
+    /// peak over its start, its time and the compiles running when it started (calibration data for <see cref="Estimate(long)"/>).
     /// </summary>
     public static void Measured(BuildMeasure measure, string what)
     {
@@ -261,10 +274,36 @@ internal static unsafe class CompileBudget
         }
     }
 
-    /// <summary>The driver memory a compile of <paramref name="shaderBytes"/> of DXIL is expected to take.</summary>
+    /// <summary>The driver memory a compile of <paramref name="shaderBytes"/> of DXIL is expected to take on this adapter.</summary>
     public static long Estimate(long shaderBytes)
     {
-        return Math.Clamp(shaderBytes * BytesPerShaderByte, MinimumEstimate, MaximumEstimate);
+        return Estimate(shaderBytes, Volatile.Read(ref _vendorId));
+    }
+
+    /// <summary>
+    /// The estimate on an adapter of <paramref name="vendorId"/> (PCI vendor id): linear for NVIDIA and others
+    /// (<see cref="BytesPerShaderByte"/>), quadratic for AMD (issue #19, an RX 7800 XT with Adrenalin 32.0.32029: one
+    /// compute program cut to 0.48, 1.5, 2.9 and 5.0 MB of DXIL peaked at 1.0, 4.9, 17.2 and over 30 GB alone; in game,
+    /// with others running, 0.48 MB passed 10 GB). <see cref="AmdLinearGigabytes"/> × MB + <see cref="AmdSquareGigabytes"/>
+    /// × MB² gives 2.4, 10.5, 28 and 70 GB there, about twice the isolated peaks as the NVIDIA rate is.
+    /// </summary>
+    public static long Estimate(long shaderBytes, uint vendorId)
+    {
+        if (vendorId != AmdVendorId)
+        {
+            return Math.Clamp(shaderBytes * BytesPerShaderByte, MinimumEstimate, MaximumEstimate);
+        }
+
+        double megabytes = shaderBytes / BytesPerMegabyte;
+        double gigabytes = (AmdLinearGigabytes * megabytes) + (AmdSquareGigabytes * megabytes * megabytes);
+
+        return Math.Clamp((long)(gigabytes * BytesPerGigabyte), MinimumEstimate, AmdMaximumEstimate);
+    }
+
+    /// <summary>Sets the adapter whose driver compiles (its PCI vendor id); call when the device is created.</summary>
+    public static void UseAdapter(uint vendorId)
+    {
+        Volatile.Write(ref _vendorId, vendorId);
     }
 
     /// <summary>Waits until the compile may start, then counts it; pair with <see cref="Exit"/>.</summary>
