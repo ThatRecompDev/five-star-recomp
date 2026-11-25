@@ -21,10 +21,25 @@ internal sealed partial class BufferEmitter
     private const int SOffset = 3;
     private const int FormatDword = 3;
     private const int BytesPerDword = 4;
+    private const int ByteBits = 8;
+    private const int ShortBits = 16;
+    private const int DwordBits = 32;
+
     private const int Vec4 = 4;
     private const int LayoutShift = 8;
     private const int HalfShift = 16;
     private const int HalvesPerRegister = 2;
+
+    /// <summary>The bits of the sub-dword loads.</summary>
+    private static readonly IReadOnlyDictionary<string, int> SubDwordBits = new Dictionary<string, int>
+    {
+        ["ubyte"] = ByteBits,
+        ["sbyte"] = ByteBits,
+        ["ushort"] = ShortBits,
+        ["sshort"] = ShortBits,
+        ["byte"] = ByteBits,
+        ["short"] = ShortBits,
+    };
 
     private static readonly IReadOnlyDictionary<string, int> DwordCounts = new Dictionary<string, int>
     {
@@ -83,10 +98,26 @@ internal sealed partial class BufferEmitter
         _operands = operands;
     }
 
-    /// <summary>buffer_load_dword* / buffer_store_dword*.</summary>
+    /// <summary>buffer_load_dword* / buffer_store_dword*, and the byte and short loads.</summary>
     public void Translate(string op, IReadOnlyList<Operand> a, InstructionModifiers modifiers)
     {
-        if (!DwordCounts.TryGetValue(op[(op.LastIndexOf('_') + 1)..], out var count))
+        var suffix = op[(op.LastIndexOf('_') + 1)..];
+
+        if (op.StartsWith("buffer_load_", StringComparison.Ordinal) && SubDwordBits.TryGetValue(suffix, out var bits))
+        {
+            LoadSubDword(suffix, bits, a, modifiers);
+
+            return;
+        }
+
+        if (op.StartsWith("buffer_store_", StringComparison.Ordinal) && SubDwordBits.TryGetValue(suffix, out bits))
+        {
+            StoreSubDword(bits, a, modifiers);
+
+            return;
+        }
+
+        if (!DwordCounts.TryGetValue(suffix, out var count))
         {
             throw new UnsupportedProgramException(op);
         }
@@ -117,6 +148,47 @@ internal sealed partial class BufferEmitter
             var inRange = BufferAddress.InRange(range, dword * BytesPerDword);
             _state.Emit($"  if (active && {inRange}) {{ TRACE_VSTORE({_operands.Read(resource, 0)}, {_operands.Read(resource, 1)}, {address} + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); BufStore({target}.x, {target}.y + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); }}");
         }
+    }
+
+    /// <summary>
+    /// buffer_load_ubyte, _sbyte, _ushort and _sshort: the dword holding the access, shifted to its byte and masked,
+    /// sign-extended for the signed forms; 0 when the access's bytes do not fit the range (prelude buf_fits_bytes).
+    /// The XboxBvhBuilder programs read 16-bit indices this way.
+    /// </summary>
+    private void LoadSubDword(string suffix, int bits, IReadOnlyList<Operand> a, InstructionModifiers modifiers)
+    {
+        var resource = a[Resource];
+        var address = BufferAddress.Build(_operands, a[Address], resource, a[SOffset], modifiers);
+        var range = BufferAddress.Range(_operands, a[Address], resource, a[SOffset], modifiers);
+        var writable = resource.Kind == OperandKind.Scalar && WrittenResources().Contains(resource.Low);
+        var view = BufferAddress.View(_operands, resource, writable, address);
+
+        var function = writable ? "BufLoadRW" : "BufLoad";
+        var value = $"(({function}({view}.x, {view}.y) >> (({view}.y & 3u) * 8u)) & {Hlsl.HexUint((1L << bits) - 1)})";
+
+        if (suffix.StartsWith('s'))
+        {
+            value = $"asuint(asint({value} << {DwordBits - bits}) >> {DwordBits - bits})";
+        }
+
+        _operands.Write(a[Data], $"select(buf_fits_bytes({range.Offset}, {bits / ByteBits}u, {range.Limit}), {value}, 0u)");
+    }
+
+    /// <summary>
+    /// buffer_store_byte and _short: the access's bits of the dword holding it, cleared then set with two atomics, so
+    /// lanes that store the other bytes of the same dword do not undo each other; dropped out of range.
+    /// </summary>
+    private void StoreSubDword(int bits, IReadOnlyList<Operand> a, InstructionModifiers modifiers)
+    {
+        var resource = a[Resource];
+        var address = BufferAddress.Build(_operands, a[Address], resource, a[SOffset], modifiers);
+        var range = BufferAddress.Range(_operands, a[Address], resource, a[SOffset], modifiers);
+        var view = BufferAddress.View(_operands, resource, true, address);
+
+        var mask = Hlsl.HexUint((1L << bits) - 1);
+        var name = $"_sb{_state.NextTemporary()}";
+        _state.Emit($"  if (active && buf_fits_bytes({range.Offset}, {bits / ByteBits}u, {range.Limit})) {{ RWByteAddressBuffer {name} = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot({view}.x))]; "
+            + $"uint {name}s = ({view}.y & 3u) * 8u; {name}.InterlockedAnd({view}.y & ~3u, ~({mask} << {name}s)); {name}.InterlockedOr({view}.y & ~3u, ({_operands.Read(a[Data])} & {mask}) << {name}s); }}");
     }
 
     /// <summary>buffer_load/store_format_* and tbuffer_load/store_format_*.</summary>

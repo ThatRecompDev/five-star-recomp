@@ -53,6 +53,33 @@ internal sealed unsafe class BvhBuilderService
     /// <summary>Whether the console DLL's CPU paths are used (<c>--raytracing</c>); off by default.</summary>
     public bool Enabled { get; set; }
 
+    /// <summary><c>--raytracing-gpu</c>: the shipped constructor runs for an inventory of its pipelines (<see cref="BvhBuilderInventory"/>).</summary>
+    public bool GpuInventory { get; set; }
+
+    /// <summary>
+    /// With <see cref="GpuInventory"/>: runs the shipped constructor on the game's object, its pipelines answered by
+    /// stand-ins never built, and logs them by their CS container's offset in the module and size.
+    /// </summary>
+    public void Inventory(nint self, nint device, byte morton)
+    {
+        bool ran = false;
+        var pipelines = BvhBuilderInventory.During(() => ran = _console.Construct(self, device, morton));
+
+        if (!ran)
+        {
+            _log.Warn("[bvh] --raytracing-gpu: the shipped constructor is missing; no inventory");
+
+            return;
+        }
+
+        _log.Info($"[bvh] --raytracing-gpu: the shipped constructor ran and asked for {pipelines.Count} compute pipelines (stand-ins, never built; no builder program runs)");
+
+        foreach (var (bytecode, length, root) in pipelines)
+        {
+            _log.Info($"[bvh]   CS container at module +0x{bytecode - _console.ImageBase:x}, 0x{length:x} bytes, root signature 0x{root:x}");
+        }
+    }
+
     public void Note(string call)
     {
         _once.Warn(call, $"[bvh] XboxBvhBuilder::{call}: stubbed, no acceleration structure written");

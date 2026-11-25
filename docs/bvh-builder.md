@@ -27,13 +27,15 @@ over Morton codes, treelet optimisation, a BVH4 pass, refits and compaction.
 
 ## Offline inventory (2026-11-25, translate and compile for wave32)
 
-42 of the 52 programs translate and compile; 10 refuse on instructions the translator lacks: `buffer_load_ushort` (3),
-`global_atomic_fmax` (3), `global_atomic_sub` (3) and `global_atomic_fmin` (1). VIctory's fork reached 49 of 52 after
-adding byte and 16-bit buffer accesses and float min/max atomics by address (facts only, THIRD_PARTY_NOTICES.md).
+42 of the 52 programs translated and compiled at first; 10 refused on `buffer_load_ushort` (3), `global_atomic_fmax`
+(3), `global_atomic_sub` (3) and `global_atomic_fmin` (1), and one more then on `buffer_store_short`. With those (byte
+and short buffer loads and stores, atomic sub, and float min and max ordered as integers, WARP cases
+`cs_buffer_subdword`, `cs_buffer_subdword_store` and `cs_atomic_sub_fminmax`) all 52 translate and compile.
+VIctory's fork reached 49 of 52 after adding the same kinds of access (facts only, THIRD_PARTY_NOTICES.md).
 
 ## How we would run it
 
-1. Translate all 52 (the four instructions above), and check them against the ISA model on WARP.
+1. Translate all 52 (done offline), and check the builder's stages against the ISA model on WARP.
 2. Run the real constructor with our device: slot 62 makes each program through the usual program path, with its
    pipeline a stand-in until the driver is done.
 3. Bind the builder's entry points to the DLL again (with `--raytracing-gpu`), so it records its dispatches on the
@@ -53,6 +55,15 @@ adding byte and 16-bit buffer accesses and float min/max atomics by address (fac
   cost is unmeasured.
 - The CPU path and the GPU path writing the same structure must not both run: one owner per structure.
 - Driver compile time for 52 more pipelines at the first build.
+
+## Inventory (`--raytracing-gpu`)
+
+The shipped constructor runs on the game's object with our device (`BvhBuilderInventory`): every compute pipeline it
+asks for through slot 62 while it runs is logged (its CS container's offset in the module and size, its root
+signature) and answered with a stand-in that is never built, so it completes and no builder program runs. The
+builder's entry points stay ours (the CPU paths with `--raytracing`, nothing without). A boot with it says which
+device slots the constructor uses besides 62 and whether it completes on our device; a native exception in it would
+end the process, which is why it is a separate flag.
 
 ## First step
 
