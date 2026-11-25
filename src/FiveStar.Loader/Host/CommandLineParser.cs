@@ -675,6 +675,10 @@ internal sealed class CommandLineParser
                 _options.TypedImageViews = true;
 
                 return true;
+            case "--shared-exponent-programs":
+                _options.SharedExponentPrograms = Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+                return true;
             case "--d3d12-probe-traced":
                 _options.D3D12ProbeTraced = true;
 

@@ -54,4 +54,26 @@ public sealed record TranslationOptions(bool StructuredControlFlow, bool PinWave
     /// A d16 load of an integer view keeps the low 16 bits of each value instead of converting a float.
     /// </summary>
     public bool TypedImageViews { get; init; }
+
+    /// <summary>
+    /// With <see cref="TypedImageViews"/>: a 2D sample also filters shared-exponent light (class 3, R9G9B9E5 in an R32_UINT
+    /// texture) itself (<c>se_sample</c>). Each sample site then grows by eight texel loads and their decode, which made
+    /// the sample-heavy programs' DXIL up to 8x and their dxc compiles 2-4x longer, so a program takes it only when its name
+    /// contains one of <see cref="SharedExponentPrograms"/> (<see cref="ForProgram"/>).
+    /// </summary>
+    public bool SharedExponentSamples { get; init; }
+
+    /// <summary>Name parts of the programs that take <see cref="SharedExponentSamples"/>; none by default.</summary>
+    public IReadOnlyList<string> SharedExponentPrograms { get; init; } = [];
+
+    /// <summary>These options for program <paramref name="name"/>: <see cref="SharedExponentSamples"/> when its name is listed.</summary>
+    public TranslationOptions ForProgram(string name)
+    {
+        if (!TypedImageViews || !SharedExponentPrograms.Any(part => name.Contains(part, StringComparison.Ordinal)))
+        {
+            return this;
+        }
+
+        return this with { SharedExponentSamples = true };
+    }
 }

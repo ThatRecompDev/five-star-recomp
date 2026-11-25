@@ -24,6 +24,9 @@ public sealed class TranslationCache
     private const string VariantReasonProperty = "w32Reason";
 
     private readonly CacheFolder _folder;
+    /// <summary>The bytes a shared-exponent sampling translation adds to its key.</summary>
+    private static readonly byte[] SharedExponentVariant = "se_sample"u8.ToArray();
+
     private readonly byte[] _identity;
     private int _hits;
     private int _misses;
@@ -57,7 +60,11 @@ public sealed class TranslationCache
         return ContentHash.OfText(files, llvm.Cpu, options.ToString());
     }
 
-    public string Key(string programPath)
+    /// <summary>
+    /// The key of a program: the identity, its FSSM and container bytes, and whether it filters shared-exponent light
+    /// itself (TranslationOptions.SharedExponentSamples, chosen per program by name).
+    /// </summary>
+    public string Key(string programPath, bool sharedExponentSamples = false)
     {
         var container = ProgramLoader.ContainerPath(programPath);
         byte[] containerBytes = [];
@@ -67,7 +74,9 @@ public sealed class TranslationCache
             containerBytes = File.ReadAllBytes(container);
         }
 
-        return ContentHash.Of(_identity, File.ReadAllBytes(programPath), containerBytes);
+        byte[] variant = sharedExponentSamples ? SharedExponentVariant : [];
+
+        return ContentHash.Of(_identity, File.ReadAllBytes(programPath), containerBytes, variant);
     }
 
     /// <summary>The cached translation of a program under its name, or null.</summary>

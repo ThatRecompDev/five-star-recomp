@@ -27,8 +27,9 @@ public sealed class TypedImageViewsTests
     [Fact]
     public void Integer_views_are_read_and_written_through_integer_declarations_chosen_by_the_class_in_dword_3()
     {
-        string typed = Translate(typedViews: true);
-        string plain = Translate(typedViews: false);
+        string typed = Translate(typedViews: true, sampled: false);
+        string sampled = Translate(typedViews: true, sampled: true);
+        string plain = Translate(typedViews: false, sampled: false);
 
         Assert.Contains("Texture2D<uint4> _tex", typed, StringComparison.Ordinal);
         Assert.Contains("Texture2D<int4> _tex", typed, StringComparison.Ordinal);
@@ -37,22 +38,29 @@ public sealed class TypedImageViewsTests
         Assert.Contains("& 0xffffu, f32tof16", typed, StringComparison.Ordinal);
         Assert.Contains("RWTexture2D<uint4> _uav", typed, StringComparison.Ordinal);
 
-        // A sample filters through its float4 declaration, and a shared-exponent view (class 3) through se_sample over a
-        // uint4 one; without the option nothing changes.
-        Assert.Equal(3, System.Text.RegularExpressions.Regex.Count(typed, "Texture2D<uint4> _tex"));
-        Assert.Contains("== 3u) _img", typed, StringComparison.Ordinal);
-        Assert.Contains("se_sample(", typed, StringComparison.Ordinal);
+        // A sample filters through its float4 declaration; a program listed for shared-exponent samples (class 3) also
+        // through se_sample over a uint4 one, an unlisted one not (each sample site grows by its texel loads). Without the
+        // option nothing changes.
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Count(typed, "Texture2D<uint4> _tex"));
+        Assert.DoesNotContain("se_sample(", typed, StringComparison.Ordinal);
+
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Count(sampled, "Texture2D<uint4> _tex"));
+        Assert.Contains("== 3u) _img", sampled, StringComparison.Ordinal);
+        Assert.Contains("se_sample(", sampled, StringComparison.Ordinal);
         Assert.DoesNotContain("<uint4>", plain, StringComparison.Ordinal);
         Assert.DoesNotContain("<int4>", plain, StringComparison.Ordinal);
     }
 
-    private static string Translate(bool typedViews)
+    private static string Translate(bool typedViews, bool sampled)
     {
         var instructions = Program.Select((text, index) => new Instruction(index * 8, 8, text)).ToList();
         var compute = new ComputeConfig { Rsrc2 = 0, ScratchEnable = false, GroupSizeEnable = false, ThreadIdComponentCount = 1, LdsBlocks = 0, NumThreads = new ThreadGroupSize(64, 1, 1), GroupIdSgprs = [] };
         var config = new ShaderConfig { Stage = HardwareStage.Compute, WaveSize = 64, UserSgprs = 12, Compute = compute };
         var program = new ShaderProgram(ShaderStage.Compute, instructions, new byte[instructions.Count * 8], ShaderSignatures.None, config, null);
-        var options = new TranslationOptions(StructuredControlFlow: true, PinWaveSize: true, EmulateWaveSize: true) { TypedImageViews = typedViews };
+        var options = new TranslationOptions(StructuredControlFlow: true, PinWaveSize: true, EmulateWaveSize: true) { TypedImageViews = typedViews, SharedExponentPrograms = ["listed"] };
+
+        var name = sampled ? "listed_program" : "other_program";
+        options = options.ForProgram(name);
 
         return HlslTranslator.Translate(program, options).Hlsl;
     }
