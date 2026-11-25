@@ -46,20 +46,24 @@ internal sealed class SdwaEmitter
     public void Translate(string op, IReadOnlyList<Operand> a, InstructionModifiers modifiers)
     {
         var sources = a.ToList();
+        var compare = op.StartsWith("v_cmp", StringComparison.Ordinal);
 
-        if (sources.Count > Source0)
+        // A compare's sources are its last two operands: v_cmpx has no destination (s31, v85 is src0, src1).
+        var (source0, source1) = compare ? (a.Count - PairDwords, a.Count - 1) : (Source0, Source1);
+
+        if (source0 >= 0 && sources.Count > source0)
         {
-            sources[Source0] = Select(a, Source0, modifiers.Value("src0_sel"), modifiers);
+            sources[source0] = Select(a, source0, modifiers.Value("src0_sel"), modifiers);
         }
 
-        if (sources.Count > Source1)
+        if (sources.Count > source1)
         {
-            sources[Source1] = Select(a, Source1, modifiers.Value("src1_sel"), modifiers);
+            sources[source1] = Select(a, source1, modifiers.Value("src1_sel"), modifiers);
         }
 
         var destinationSelect = modifiers.Value("dst_sel") ?? "DWORD";
 
-        if (op.StartsWith("v_cmp", StringComparison.Ordinal) || destinationSelect == "DWORD")
+        if (compare || destinationSelect == "DWORD")
         {
             _valu.Translate(op, sources, modifiers.Filter(SdwaKeys, keep: false));
 
