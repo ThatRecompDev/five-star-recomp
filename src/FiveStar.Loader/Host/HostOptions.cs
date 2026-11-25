@@ -268,6 +268,9 @@ internal sealed record HostOptions
     /// <summary>Operations that would reach a null GPU address or read past their buffer are logged and dropped (<c>--check-null-addresses</c>).</summary>
     public bool CheckNullAddresses { get; set; }
 
+    /// <summary>UAVs of depth textures go to colour twins written back into the depth before draws (<c>--depth-twins</c>).</summary>
+    public bool DepthTwins { get; set; }
+
     /// <summary>Programs' stores through 32-bit pointers reach the descriptor window (<c>--no-window-guard</c>).</summary>
     public bool NoWindowGuard { get; set; }
 
