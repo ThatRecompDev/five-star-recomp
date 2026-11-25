@@ -19,8 +19,8 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// </summary>
 internal static unsafe class PoolStoreTrace
 {
-    /// <summary>The ring's window offset: past the most view records the window holds (rdna_prelude TRACE_BASE).</summary>
-    public const uint TraceBase = DescriptorWindow.ViewBase + (DescriptorWindow.MaxViews * DescriptorWindow.ViewRecordBytes);
+    /// <summary>The ring's window offset: past the room for view records and the window guard (rdna_prelude TRACE_BASE).</summary>
+    public const uint TraceBase = WindowGuard.Bytes;
 
     private const uint HeaderBytes = 256;
     private const uint Entries = 65536;

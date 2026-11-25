@@ -63,7 +63,7 @@ uint2 ptr_add(uint lo, uint hi, uint u, int s) {
 // heap indices from + 112; entries of {program id, address lo or byte offset, address hi or heap index | kind << 31,
 // value} from + 256. TRACE_BASE is DescriptorWindow.TraceBase.
 #ifdef FIVESTAR_STORE_TRACE
-static const uint TRACE_BASE = 0x01e94800u;
+static const uint TRACE_BASE = 0x04012100u;
 static const uint TRACE_ENTRIES = 65536u;
 void trace_entry(uint lo, uint hi, uint v) {
     RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
@@ -105,6 +105,21 @@ void TRACE_VSTORE(uint d0, uint d1, uint off, uint v) {   // a buffer store thro
     }
 #endif
 }
+// ---- Window guard (the loader's default; FIVESTAR_WINDOW_GUARD is the byte offset of its table in the window): a
+// store or atomic through a 32-bit pointer (high dword 0) would land in the descriptor window, whose records and debug
+// rings programs never write. It is dropped (an atomic goes to the sink after the table) and counted in slot
+// FIVESTAR_PROGRAM_ID & 1023 of the table: {program id, drops}.
+#ifdef FIVESTAR_WINDOW_GUARD
+#ifndef FIVESTAR_PROGRAM_ID
+#define FIVESTAR_PROGRAM_ID 0u
+#endif
+void window_guard_count() {
+    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    uint slot = FIVESTAR_WINDOW_GUARD + (FIVESTAR_PROGRAM_ID & 1023u) * 8u;
+    m.Store(slot, FIVESTAR_PROGRAM_ID);
+    m.InterlockedAdd(slot + 4u, 1u);
+}
+#endif
 uint PtrLoad(uint lo, uint hi, uint off) {   // off is signed (a dword offset or an SMEM offset)
     uint2 a = ptr_add(lo, hi, 0u, asint(off));
     if (hi == 0u) return MemLoad(a.x, 0u);
@@ -114,14 +129,22 @@ uint PtrLoad(uint lo, uint hi, uint off) {   // off is signed (a dword offset or
 }
 void PtrStore(uint lo, uint hi, uint off, uint v) {
     uint2 a = ptr_add(lo, hi, 0u, asint(off));
+#ifdef FIVESTAR_WINDOW_GUARD
+    if (hi == 0u) { window_guard_count(); return; }
+#else
     if (hi == 0u) { MemStore(a.x, 0u, v); return; }
+#endif
     TRACE_ADDR(a.x, a.y, v);
     uint2 p = gpu_page(a.x, a.y);
     RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(p.x + 1u)];
     b.Store(p.y & ~3u, v);
 }
 uint2 gpu_rw(uint lo, uint hi) {   // (RW heap index, byte address) of a pointer, for atomics
+#ifdef FIVESTAR_WINDOW_GUARD
+    if (hi == 0u) { window_guard_count(); return uint2(GPU_MEM_HEAP + 1u, FIVESTAR_WINDOW_GUARD + 1024u * 8u); }
+#else
     if (hi == 0u) return uint2(GPU_MEM_HEAP + 1u, lo);
+#endif
     uint2 p = gpu_page(lo, hi);
     return uint2(p.x + 1u, p.y);
 }// An access's view: (heap index, byte offset of base + off in it); rw takes the UAV of a game-memory base. Dword1

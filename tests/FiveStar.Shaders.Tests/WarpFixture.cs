@@ -30,13 +30,13 @@ public sealed class WarpFixture : IDisposable
     {
     }
 
-    /// <summary>A fixture whose programs and runs take the user SGPRs as <paramref name="userData"/> says.</summary>
-    internal WarpFixture(UserDataBinding userData)
+    /// <summary>A fixture whose programs and runs take the user SGPRs as <paramref name="userData"/> says, their sources starting with <paramref name="defines"/>.</summary>
+    internal WarpFixture(UserDataBinding userData, string defines = "")
     {
         UserData = userData;
 
         _folder = new Lazy<string>(() => Directory.CreateTempSubdirectory("fivestar-warp-").FullName);
-        _workbench = new Lazy<ShaderWorkbench>(() => new ShaderWorkbench(ShaderToolchain.Find(), _folder.Value) { Header = UserDataBindings.Header(userData) });
+        _workbench = new Lazy<ShaderWorkbench>(() => new ShaderWorkbench(ShaderToolchain.Find(), _folder.Value) { Header = UserDataBindings.Header(userData) + defines });
         _device = new Lazy<WarpDevice>(() => new WarpDevice());
         _pixelLanes = new Lazy<PixelContext[]>(() => ProbePixels("fullscreen_vs.hlsl"));
         _halfCoverageLanes = new Lazy<PixelContext[]>(() => ProbePixels("half_vs.hlsl"));

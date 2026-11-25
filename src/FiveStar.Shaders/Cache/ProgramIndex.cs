@@ -29,6 +29,9 @@ public sealed class ProgramIndex
         }
     }
 
+    /// <summary>The names of the programs indexed.</summary>
+    public IEnumerable<string> Names => _stages.Keys;
+
     /// <summary>Gets the number of programs indexed.</summary>
     public int Count => _stages.Count;
 

@@ -458,7 +458,12 @@ flowchart LR
   the heap index are logged (no console address, no map or table coverage, a UAV over another resource), with XMem or
   not and slot-127 committed or not. A record with an address keeps the desktop index in dword 4 (the shim's copies to desktop heaps); the
   window mirror holds it in dword 4 for every record (the debug readers). `--buffer-records-heap-index` keeps the heap
-  index in every record.- **CPU-only view heaps** take title memory too (the game creates eleven of 3,128 descriptors and copies their
+  index in every record.- **Window guard** (`WindowGuard`, on unless `--no-window-guard`). The window holds room for 2,097,152 view records
+  (the game's main heap has 1,245,184; the regions past the records started after 1,000,000 before, so the shim's
+  mirror of records 1,000,000 and up wrote into the store-trace ring, the window flags and the mesh probe's ring), then
+  the guard's table, the store-trace ring, the window flags and the mesh probe's ring. A program's store or atomic
+  through a 32-bit pointer would land in the window; the prelude drops it (an atomic goes to a sink) and counts it per
+  program (`FIVESTAR_PROGRAM_ID`), and each captured present logs the programs that did since the last.- **CPU-only view heaps** take title memory too (the game creates eleven of 3,128 descriptors and copies their
   32-byte records into its per-draw tables itself, 0x144d9efc0). Their records name descriptors of the desktop
   shader-visible heap: every view written into one takes the next descriptors of a ring of 16 remap pages
   (`DescriptorRing`, 65,536 descriptors), so a record copied earlier keeps naming the view it copied until the ring
