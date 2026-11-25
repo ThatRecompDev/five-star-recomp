@@ -457,6 +457,7 @@ the first program is made (`[d3d12_xs] programs made on demand with ...`).
 | `--no-window-guard` | programs' stores and atomics through 32-bit pointers reach the descriptor window (by default they are dropped and counted per program, logged at each captured present; [d3d12x-shim.md](d3d12x-shim.md)) |
 | `--trace-module <dll>` | with `--run`: the call trace also wraps imports bound to this mapped image (for example `bink2scarlett.dll`) |
 | `--input-script <file>` | timed key presses added to the desktop keys and timed captures, in blocks that wait for learned screens; followed while running (below) |
+| `--allow-real-input` | with `--input-script`, the real keyboard, mouse buttons and cursor reach the game beside the script. Off by default (`--script-input-only`): the game sees the scripted keys alone and a cursor fixed where the real one was when the script took over (moved only by `cursor` lines), so a hand on the mouse cannot move a menu's focus; F9 hands the real keyboard and mouse back and takes them away again, and F8 (the teach key) works either way. The wheel is not read in any case |
 | `--screens <file>` | the screens the input script learned (below); default `%LOCALAPPDATA%\FiveStar\screens.txt` |
 
 The output lists the images, an import table per image and module, the totals and the exports. Tests:
@@ -500,14 +501,15 @@ logged as `[debug]` (first 4096 messages).
 
 **Input script.** `--input-script` lines are `<seconds> <key> [hold <s>] [repeat <n> every <s>]`, times from loader
 start or from the start of their screen block (below; `+<s>`: that long after the previous line), keys named as in the input config, `#` a comment. A scripted key counts as held on the desktop, so the keyboard
-and the keyboard-and-mouse gamepad both see it (`Space` is A). The game reads input only through its own GameInput
+and the keyboard-and-mouse gamepad both see it (`Space` is A). `PadA`, `PadB`, `PadX`, `PadY`, `PadMenu` and `PadView`
+press that gamepad button alone, with no keyboard key (the game may take `Space` from both devices and act twice). The game reads input only through its own GameInput
 calls; a press while it does not poll has no effect. `<seconds> capture` reads back the next present at that time
 (with `--capture-dir`, [d3d12x-shim.md](d3d12x-shim.md#debug-layer)); `<seconds> cursor <dx> <dy> [hold <s>] [repeat …]`
 moves the cursor dx, dy pixels a second for the hold time, which the keyboard-and-mouse gamepad turns into the right
 stick (full at 1000). [first-run.input](first-run.input) answers the first-run screens. The loader follows the file while the game
 runs: every 250 ms it reloads it when its write time changed, so lines appended with later times drive the game
 interactively (the log names each reload with the loader time; captures already due at a reload are skipped). The
-mouse needs no script: the real cursor's motion reaches the keyboard-and-mouse gamepad's right stick.
+real keyboard and mouse are left out while a script runs unless `--allow-real-input` is given or F9 hands them back.
 
 **Screen blocks.** A line `screen <name>` starts a block whose times count from the moment the screen `<name>` shows,
 not from loader start; the lines before the first one are block 0. Blocks begin in order: while a block waits, the
