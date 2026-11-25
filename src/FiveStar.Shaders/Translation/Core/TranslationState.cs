@@ -163,6 +163,9 @@ internal sealed class TranslationState
     /// <summary>The program starts with a call into the driver's vertex fetch subroutine.</summary>
     public bool UsesFetchShader { get; set; }
 
+    /// <summary>Superstep form: group rounds per wave-operation stop (<see cref="TranslationOptions.RoundsPerStop"/>); null for the caps' bound.</summary>
+    public int? RoundsPerStop { get; init; }
+
     /// <summary>The address of the instruction being translated.</summary>
     public int Address { get; set; }
 

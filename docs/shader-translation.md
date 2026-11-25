@@ -129,6 +129,24 @@ so a garbage trip count held the group: w31's ExecuteIndirect DispatchMesh(4, 1,
 rounds. Every thread counts the same rounds, so all leave on the same one. A program cut off there culls its primitives
 (`MeshDeclarations.CutEpilogue`), so nothing it never wrote is drawn; WARP's rasterizer crashed on such outputs.
 
+A direct-export mesh program (two-phase or superstep) starts every primitive of its count culled right after
+SetMeshOutputCounts, and an export culls a primitive whose indices pass the vertex count and keeps them inside it:
+uninitialised or out-of-range primitives hung NVIDIA's mesh pipeline (VIctory #587).
+
+The superstep form first drops the wave operations whose result nothing reads (`DeadWaveOperations`: a ballot into an
+SGPR half or an scc write that is dead after it, by liveness over the block graph), after reading a lane's own bit of a
+ballot from the mask bool it took (`BallotBits`: `lane_bit(lo, hi)` of `vw_ballot(m).x` and `.y` is `m` while
+neither half nor `m` is written, since every thread of the console wave deposits its bit). Over the 8,765 mesh
+programs the stops fell from 1,340,858 to 406,824; none has more than 500 left (207 had before), and
+`MSNC_VS_LinearDepthSkin_f1f2249c` went from 611 to 180.
+
+A superstep program names its cost in its first body line, `// superstep: <stops> stops, round bound <n>` (the loader
+logs it once per program): a round is a group barrier and a run of the dispatch switch to the next stop, so a large
+program's rounds can outlast the driver's timeout well before the caps' bound (`MSNC_VS_LinearDepthSkin_f1f2249c`:
+1,218 stops, a 1.27 MB DXIL, DEVICE_HUNG on its first DispatchMesh(4, 1, 1) on the RTX 4090).
+`TranslationOptions.RoundsPerStop` (the loader's `--superstep-round-budget <k>`, off by default) bounds the rounds at
+k per stop (at least 256) when that is lower; a program cut there culls its draw.
+
 Lower caps cut correct programs short, not only runaways. In the 25,908-program corpus 4,816 of 12,067 pixel programs
 have loops, 1,251 of them ten or more, whose iterations all count against one cap; 1,944 of 2,689 compute programs and
 1,366 mesh programs have loops. No static trip count is known for most of them (their bounds are loaded data), so

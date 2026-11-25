@@ -39,6 +39,11 @@ object layout (state written up to +0x564) were leads for docs/d3d12x-shim.md, c
 executable. Its CopyPageMappingsBatchX (`crates/victory-gpu/src/queue.rs`) gave the name and argument layouts of
 queue slot 31 (docs/physical-memory.md); the implementation is our own. No code was copied.
 
+Its command-list table named the console copy slots (CopyMemoryToMemoryX, CopyTextureRegionX, CopyResourceX; docs/d3d12x-shim.md),
+and its rule that a texture the host GPU copied into keeps the host's contents was the lead for `GpuTexture.CopiedInto`
+(docs/gpu-resources.md). Its report that dead-code removal and constant folding cut its host instruction count by
+about 43% led to the DXIL backend's folding and value numbering (docs/dxil-backend.md). The code is our own.
+
 Its audio modules were leads for the loader's audio (docs/audio-runtime.md): the xapu.dll command and 0x50-byte result
 layout (identity echo, samples written, the first-frame and frame-count fields), the note that the game's mixer sleeps
 about 4 ms per 5.3 ms block and needs millisecond timers (and that Windows 11 drops them for a hidden window unless
@@ -75,6 +80,12 @@ changes were a source of mechanisms, each written anew in our design:
 
 Its `console_insn*.rs` files are GPL-2.0-only code from XCL and were not used. No code was copied.
 
+VIctory's issues and pull requests were leads too (facts only, each checked against our translator): that
+uninitialised or out-of-range mesh primitives hung NVIDIA's mesh pipeline (#587, which initialises them all and bounds
+the outputs; our direct exports now do the same, docs/shader-translation.md), that wave64 mesh programs run as two
+32-lane waves on NVIDIA (#778, #1216, #2176), and that the fog apply pass `CS_ApplyCombinedDeferred` multiplies the
+lit HDR by a transmittance input another pass writes, so a missing writer erases the lighting (#2045).
+
 ## victory-fork
 
 https://github.com/fxceless/victory-fork, revision `a26859fc5f512e0db0d7522d3da821c038378ab7`, GPL-3.0, a fork of VIctory
@@ -84,6 +95,14 @@ spaces each based at 0, a table's value is its handle minus the start of its own
 load reads depends on the instruction's use (a sampler slot or a resource slot), not on the address; descriptor
 indices clamped to the heaps (a view past the end to a null one, a sampler to the last), without which NVIDIA hung
 and AMD faulted; and that a raw view's first byte must be a multiple of 16. No code was copied.
+
+## ztrx
+
+https://github.com/Zettrox/ztrx (`docs/fork-ray-tracing.md`), GPL-3.0, a fork in the VIctory family. Facts from its
+notes, for docs/bvh-builder.md: the title's ray tracing is its own compute traversal with only the node test in
+hardware, its dynamic structures come from the 52 builder programs of `XboxBvhBuilder.dll`, those programs reach title
+memory by raw address, and running the builder with only some of its pipelines built wrote garbage into title memory
+and crashed the title (hence an all-or-nothing gate). No code was copied.
 
 ## XCL
 

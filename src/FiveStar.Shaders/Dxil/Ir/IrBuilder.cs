@@ -28,23 +28,54 @@ public sealed class IrBuilder
     /// <summary>The block instructions go to.</summary>
     public BasicBlock Block { get; set; }
 
+    /// <summary>Whether results known while lowering are written as constants or operands (<see cref="ConstantFolding"/>).</summary>
+    public bool Fold { get; init; } = true;
+
     public Value Binary(BinaryOp op, Value left, Value right)
     {
+        var folded = Fold ? ConstantFolding.Binary(Module, op, left, right) : null;
+
+        if (folded is not null)
+        {
+            return folded;
+        }
+
         return Append(new Instruction(Opcode.Binary, left.Type, Block, BinaryOperands) { Code = (int)op }, left, right);
     }
 
     public Value Cast(CastOp op, Value value, IrType to)
     {
+        var folded = Fold ? ConstantFolding.Cast(Module, op, value, to) : null;
+
+        if (folded is not null)
+        {
+            return folded;
+        }
+
         return Append(new Instruction(Opcode.Cast, to, Block, 1) { Code = (int)op }, value);
     }
 
     public Value Compare(Predicate predicate, Value left, Value right)
     {
+        var folded = Fold ? ConstantFolding.Compare(Module, predicate, left, right) : null;
+
+        if (folded is not null)
+        {
+            return folded;
+        }
+
         return Append(new Instruction(Opcode.Compare, Types.Bool, Block, BinaryOperands) { Code = (int)predicate }, left, right);
     }
 
     public Value Select(Value condition, Value whenTrue, Value whenFalse)
     {
+        var folded = Fold ? ConstantFolding.Select(condition, whenTrue, whenFalse) : null;
+
+        if (folded is not null)
+        {
+            return folded;
+        }
+
         return Append(new Instruction(Opcode.Select, whenTrue.Type, Block, TernaryOperands), condition, whenTrue, whenFalse);
     }
 

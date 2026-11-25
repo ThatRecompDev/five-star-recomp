@@ -190,6 +190,9 @@ internal sealed record HostOptions
     /// <summary>Superstep forms made on demand carry registers by liveness; <c>--plain-supersteps</c> turns it off.</summary>
     public bool SuperstepCarry { get; set; } = true;
 
+    /// <summary>A superstep program's group rounds per wave-operation stop (<c>--superstep-round-budget</c>); null for the loop caps' bound.</summary>
+    public int? SuperstepRoundsPerStop { get; set; }
+
     /// <summary>With the debug layer, also GPU-based validation (<c>--d3d12-gpu-validation</c>).</summary>
     public bool D3D12GpuValidation { get; set; }
 
@@ -246,6 +249,12 @@ internal sealed record HostOptions
 
     /// <summary>Pipelines whose draws the trace also logs after each captured present (<c>--d3d12-trace-pipeline</c>).</summary>
     public string? D3D12TracePipeline { get; set; }
+
+    /// <summary>Passes held while a producer is missing this frame (<c>--hold-passes consumer=producer|...;...</c>).</summary>
+    public string? HoldPasses { get; set; }
+
+    /// <summary>Passes whose draws clear their targets to a colour instead (<c>--stub-passes pass=r,g,b,a;...</c>).</summary>
+    public string? StubPasses { get; set; }
 
     /// <summary>Texts whose pipelines and targets every census lists in full (<c>--census-passes</c>, with the draw trace).</summary>
     public IReadOnlyList<string> CensusPasses { get; set; } = [];

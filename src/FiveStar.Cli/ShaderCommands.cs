@@ -24,6 +24,7 @@ internal static class ShaderCommands
     [
         "usage: fivestar shader <command> [arguments]",
         "  extract <shaders.rpf> <out>            write <out>/dxbc/*.dxbc (+ _manifest.tsv) and <out>/fssm/*.fssm",
+        "  embedded <module> <out>                write the bare containers a module embeds (XboxBvhBuilder.dll's builder programs)",
         "        [--exe <game exe>]               also the programs the executable embeds",
         "  disasm <program.fssm> [--count N]      list the program's instructions (address, size, text)",
         "  decode-check <fssm-folder>             disassemble every program in-process and with LLVM, report differences",
@@ -66,6 +67,8 @@ internal static class ShaderCommands
             {
                 case "extract":
                     return Extract(rest);
+                case "embedded":
+                    return Embedded(rest);
                 case "disasm":
                     return Disassemble(rest);
                 case "decode-check":
@@ -140,6 +143,18 @@ internal static class ShaderCommands
         {
             return Failure;
         }
+
+        return Success;
+    }
+
+    private static int Embedded(IReadOnlyList<string> args)
+    {
+        if (args.Count != TwoPaths)
+        {
+            throw new ArgumentException("embedded <module> <out>");
+        }
+
+        Console.WriteLine($"programs {ShaderArchiveExtractor.ExtractModule(args[0], args[1])}");
 
         return Success;
     }
