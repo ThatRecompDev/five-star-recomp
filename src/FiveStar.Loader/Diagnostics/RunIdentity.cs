@@ -16,8 +16,21 @@ internal static class RunIdentity
     {
         var assembly = typeof(RunIdentity).Assembly;
         string build = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
-        string arguments = string.Join(' ', Environment.GetCommandLineArgs().Skip(1));
+        string arguments = Redact(string.Join(' ', Environment.GetCommandLineArgs().Skip(1)));
 
         return $"build {build}; .NET {Environment.Version}; command line: {arguments}";
+    }
+
+    /// <summary>The command line with the user's profile folder written as %USERPROFILE%: logs get posted publicly.</summary>
+    public static string Redact(string text)
+    {
+        string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        if (profile.Length == 0)
+        {
+            return text;
+        }
+
+        return text.Replace(profile, "%USERPROFILE%", StringComparison.OrdinalIgnoreCase);
     }
 }
