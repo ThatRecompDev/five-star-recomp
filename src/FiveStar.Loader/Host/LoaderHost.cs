@@ -475,6 +475,8 @@ internal sealed class LoaderHost
     /// <summary>The loader counters each thread sample logs.</summary>
     private string SampledCounters()
     {
+        Shims.D3D12X.Binding.WindowGuard.ReportCaps(_runtime.D3D12X.Presenter.Presents, _log);
+
         string pipelines = _runtime.D3D12X.Pipelines?.Summary ?? "pipeline slots off";
 
         var prebuild = Shims.D3D12X.Pipelines.JournalPrebuild.Current;

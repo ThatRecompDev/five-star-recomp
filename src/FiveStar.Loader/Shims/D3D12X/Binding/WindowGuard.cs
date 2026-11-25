@@ -56,6 +56,7 @@ internal static unsafe class WindowGuard
     private static readonly uint[] Reported = new uint[Slots];
     private static readonly uint[] ReportedBlocks = new uint[Slots];
     private static readonly uint[] ReportedRounds = new uint[Slots];
+    private static readonly object CapGate = new();
     private static Dictionary<uint, string>? _names;
 
     /// <summary>Whether programs made on demand drop their stores into the window.</summary>
@@ -123,7 +124,9 @@ internal static unsafe class WindowGuard
 
     /// <summary>
     /// Logs the programs that ran into the superstep caps since the last report: threads past the block cap and groups
-    /// past the round bound, by name; nothing when none did. The GPU is idle.
+    /// past the round bound, by name; nothing when none did. Called at captured presents (the GPU idle) and at every
+    /// thread sample (the GPU running: counts as they stand, the rest reported next time), so a boot that never reaches
+    /// a capture still names its runaway programs.
     /// </summary>
     public static void ReportCaps(long present, LoaderLog log)
     {
@@ -134,7 +137,18 @@ internal static unsafe class WindowGuard
             return;
         }
 
-        var hits = CapHits((uint*)(window + Base + CapOffset), ReportedBlocks, ReportedRounds);
+        ReportCaps((uint*)(window + Base + CapOffset), present, log);
+    }
+
+    /// <summary>The report of <see cref="ReportCaps(long, LoaderLog)"/> from the cap <paramref name="table"/>; the presenter and the sampler take turns.</summary>
+    public static void ReportCaps(uint* table, long present, LoaderLog log)
+    {
+        List<(uint Id, uint Blocks, uint Rounds)> hits;
+
+        lock (CapGate)
+        {
+            hits = CapHits(table, ReportedBlocks, ReportedRounds);
+        }
 
         if (hits.Count == 0)
         {
@@ -177,14 +191,17 @@ internal static unsafe class WindowGuard
 
     private static Dictionary<uint, string> Names()
     {
+        // Built whole before it is published: the presenter and the sampler both read it.
         if (_names is null && Index is not null)
         {
-            _names = [];
+            var names = new Dictionary<uint, string>();
 
             foreach (var name in Index.Names)
             {
-                _names[MeshProbe.Id(DebugLayer.MeshProbes.Source(name))] = DebugLayer.MeshProbes.Source(name);
+                names[MeshProbe.Id(DebugLayer.MeshProbes.Source(name))] = DebugLayer.MeshProbes.Source(name);
             }
+
+            _names = names;
         }
 
         return _names ?? [];
