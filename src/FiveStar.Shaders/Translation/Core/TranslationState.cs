@@ -193,6 +193,12 @@ internal sealed class TranslationState
     /// <summary>The program reads its own code bytes (s_getpc_b64 pointers).</summary>
     public bool UsesCode { get; set; }
 
+    /// <summary>A per-lane load reads the code's data words (CodeLoadLane, <see cref="CodeData"/>).</summary>
+    public bool UsesCodeLanes { get; set; }
+
+    /// <summary>The instructions translated so far (blocks reached from the entry, long jumps included).</summary>
+    public HashSet<Instruction> Translated { get; } = [];
+
     public bool UsesBvh { get; set; }
 
     public bool UsesLds { get; set; }
