@@ -40,7 +40,7 @@ public sealed unsafe class D3D12XGpuResourceTests
     {
         using var test = TestRuntime.Create();
         var device = new XboxDevice(test);
-        var registry = new GpuTextureRegistry();
+        var registry = GpuTextureRegistry.OfQueues();
 
         // Streamed: B takes part of A's memory. Aliased: C is another texture over exactly B's range.
         registry.Register(Texture(test, device, 0x10000));
@@ -57,11 +57,35 @@ public sealed unsafe class D3D12XGpuResourceTests
     }
 
     [Fact]
+    public void A_retired_texture_waits_for_the_work_the_queues_had_submitted_when_it_was_retired()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        ulong[] submitted = [5, 9];
+        ulong[] completed = [5, 8];
+        var registry = new GpuTextureRegistry(() => submitted, () => completed);
+
+        registry.Register(Texture(test, device, 0x10000));
+        registry.Register(Texture(test, device, 0x10800));
+
+        // Past the grace, but queue 2 has not finished value 9: kept; then it has.
+        registry.Advance(GpuTextureRegistry.GraceFrames);
+        Assert.Equal(0, registry.Released);
+        completed = [5, 9];
+        registry.Advance(GpuTextureRegistry.GraceFrames + 1);
+        Assert.Equal(1, registry.Released);
+
+        Assert.True(GpuTextureRegistry.Finished([], []));
+        Assert.False(GpuTextureRegistry.Finished([1, 2], [1]));
+        registry.Dispose();
+    }
+
+    [Fact]
     public void Older_textures_over_one_range_are_released_after_the_longer_grace_and_the_newest_two_kept()
     {
         using var test = TestRuntime.Create();
         var device = new XboxDevice(test);
-        var registry = new GpuTextureRegistry();
+        var registry = GpuTextureRegistry.OfQueues();
 
         // A streaming slot reused four times: three retired over exactly its range, the oldest past the two kept.
         for (int i = 0; i < 4; i++)
@@ -96,6 +120,29 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.Equal(0, heaps.Create(device, &description, ShaderResourceState, null, out nint second));
         Assert.StartsWith("placed textures: 1 live in 1 heaps", heaps.Summary, StringComparison.Ordinal);
         FiveStar.Loader.Native.ComObject.Release(second);
+    }
+
+    [Fact]
+    public void A_shared_heap_that_stays_empty_goes_back_but_one_empty_heap_stays()
+    {
+        using var test = TestRuntime.Create();
+        _ = new XboxDevice(test);
+        nint device = test.Runtime.D3D12X.Objects.DesktopDevice;
+        var heaps = new PlacedTextureHeaps { EmptyMilliseconds = 0 };
+
+        // Five 64 MB textures: four fill the first 256 MB heap, the fifth starts a second.
+        var description = new ResourceDescription { Dimension = Texture2D, Width = 4096, Height = 4096, DepthOrArraySize = 1, MipLevels = 1, Format = Rgba8Unorm, SampleCount = 1 };
+        var textures = new List<nint>();
+
+        for (int i = 0; i < 5; i++)
+        {
+            Assert.Equal(0, heaps.Create(device, &description, ShaderResourceState, null, out nint texture));
+            textures.Add(texture);
+        }
+
+        Assert.Contains("live in 2 heaps (0.5 GB, 0.3 GB used)", heaps.Summary, StringComparison.Ordinal);
+        textures.ForEach(texture => FiveStar.Loader.Native.ComObject.Release(texture));
+        Assert.Contains("0 live in 1 heaps (0.2 GB, 0.0 GB used), 1 empty heaps returned", heaps.Summary, StringComparison.Ordinal);
     }
 
     [Fact]
