@@ -6,6 +6,9 @@ namespace FiveStar.Loader.Native;
 /// <summary>x64 TEB offsets, addressed through gs (public ntdll symbols for TEB; winternl.h).</summary>
 internal static class ThreadEnvironmentBlock
 {
+    /// <summary>NT_TIB.StackBase: the end (highest address) of the thread's stack.</summary>
+    public const int StackBase = 0x08;
+
     /// <summary>TEB.ThreadLocalStoragePointer: the implicit-TLS block array compiled code reads as gs:[58h].</summary>
     public const int ThreadLocalStoragePointer = 0x58;
 
