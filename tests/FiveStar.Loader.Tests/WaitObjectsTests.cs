@@ -15,6 +15,7 @@ namespace FiveStar.Loader.Tests;
 public sealed unsafe class WaitObjectsTests
 {
     private const string Prefix = "  [hang] ";
+    private const uint DuplicateSameAccess = 2;
 
     [Fact]
     public void A_blocked_wait_names_its_event_and_its_last_signal()
@@ -39,7 +40,7 @@ public sealed unsafe class WaitObjectsTests
 
             var report = WaitObjects.Report(new ImageTable(), Prefix, 0);
             Assert.Contains($"(no timeout) on handle 0x{never:x}: manual-reset event made by thread {Kernel32.GetCurrentThreadId()}", report, StringComparison.Ordinal);
-            Assert.Contains("never signaled", report, StringComparison.Ordinal);
+            Assert.Contains("never signaled; waiting at no game frame found", report, StringComparison.Ordinal);
 
             // The signal is recorded with its thread, and the wait ends.
             WaitObjects.Signaled(never);
@@ -53,6 +54,43 @@ public sealed unsafe class WaitObjectsTests
             WaitObjects.Closed(released);
             _ = Kernel32.CloseHandle(never);
             _ = Kernel32.CloseHandle(released);
+        }
+    }
+
+    [Fact]
+    public void A_wait_on_a_thread_handle_names_the_thread_it_joins()
+    {
+        nint thread = Kernel32.GetCurrentThread();
+        nint handle = 0;
+        Assert.NotEqual(0, Kernel32.DuplicateHandle(Kernel32.GetCurrentProcess(), thread, Kernel32.GetCurrentProcess(), &handle, 0, 0, DuplicateSameAccess));
+
+        try
+        {
+            WaitObjects.Waiting(handle, uint.MaxValue);
+            var report = WaitObjects.Report(new ImageTable(), Prefix, 0);
+            WaitObjects.Done();
+
+            Assert.Contains($"on handle 0x{handle:x}: the handle of thread {Kernel32.GetCurrentThreadId()} (waiting for it to end)", report, StringComparison.Ordinal);
+        }
+        finally
+        {
+            _ = Kernel32.CloseHandle(handle);
+        }
+    }
+
+    /// <summary>Return addresses are told from other stack values by the call that ends right before them.</summary>
+    [Theory]
+    [InlineData(new byte[] { 0x90, 0xE8, 1, 2, 3, 4 }, true)]
+    [InlineData(new byte[] { 0xFF, 0x15, 1, 2, 3, 4 }, true)]
+    [InlineData(new byte[] { 0xFF, 0x93, 1, 2, 3, 4 }, true)]
+    [InlineData(new byte[] { 0x90, 0x90, 0x90, 0xFF, 0x50, 8 }, true)]
+    [InlineData(new byte[] { 0x90, 0x90, 0x90, 0x41, 0xFF, 0xD2 }, true)]
+    [InlineData(new byte[] { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x57 }, false)]
+    public void A_stack_value_counts_as_a_return_address_only_after_a_call(byte[] before, bool call)
+    {
+        fixed (byte* bytes = before)
+        {
+            Assert.Equal(call, ReturnAddresses.AfterCall(bytes + before.Length));
         }
     }
 }

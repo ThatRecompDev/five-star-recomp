@@ -244,6 +244,9 @@ internal sealed record HostOptions
     /// <summary>Check the game's small-block pool pages for headers the CPU did not write (<c>--watch-pool-pages</c>).</summary>
     public bool WatchPoolPages { get; set; }
 
+    /// <summary>Watch the first 64 KiB after each 4 GiB line of GPU-writable game memory for changes (<c>--watch-4g-lines</c>).</summary>
+    public bool WatchFourGiBLines { get; set; }
+
     /// <summary>Follow the game's hang watchdog, main state and loading-screen flags (<c>--watch-hang</c>).</summary>
     public bool WatchHang { get; set; }
 

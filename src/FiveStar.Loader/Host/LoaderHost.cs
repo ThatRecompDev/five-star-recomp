@@ -374,10 +374,7 @@ internal sealed class LoaderHost
         Shims.D3D12X.ListSplits.Enabled = _options.SplitAtWaits;
         Diagnostics.UnmanagedGuard.LogTo(_log.Error);
 
-        if (_options.WatchPoolPages)
-        {
-            Shims.D3D12X.DebugLayer.PoolPageWatch.Start(_log);
-        }
+        StartPageWatches();
 
         if (_options.SectionHeapBudget != 0)
         {
@@ -403,6 +400,20 @@ internal sealed class LoaderHost
     }
 
     /// <summary>The memory map (<c>--memory-map</c>) and the memory limits (<c>--min-free-memory</c>, <c>--max-commit</c>).</summary>
+    /// <summary><c>--watch-pool-pages</c> and <c>--watch-4g-lines</c>.</summary>
+    private void StartPageWatches()
+    {
+        if (_options.WatchPoolPages)
+        {
+            Shims.D3D12X.DebugLayer.PoolPageWatch.Start(_log);
+        }
+
+        if (_options.WatchFourGiBLines)
+        {
+            Shims.D3D12X.DebugLayer.FourGiBLineWatch.Start(_log);
+        }
+    }
+
     /// <summary>Pipeline and binding options the D3D12.X shim reads as static settings.</summary>
     private void ApplyBindingOptions()
     {

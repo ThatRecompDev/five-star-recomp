@@ -14,14 +14,17 @@ namespace FiveStar.Loader.Shims;
 /// </summary>
 internal static unsafe partial class WaitObjectShims
 {
-    /// <summary>The shims, as "module!symbol" for <see cref="ShimTable.Disable"/>.</summary>
     /// <summary>WAIT_FAILED.</summary>
     private const uint WaitFailed = 0xFFFFFFFF;
 
+    /// <summary>CREATE_EVENT_MANUAL_RESET.</summary>
+    private const uint ManualResetFlag = 1;
+
+    /// <summary>The shims, as "module!symbol" for <see cref="ShimTable.Disable"/>.</summary>
     public static readonly string[] Names =
     [
-        "*!CreateEventW", "*!CreateEventA", "*!CreateSemaphoreExW", "*!SetEvent", "*!ReleaseSemaphore", "*!CloseHandle",
-        "*!WaitForSingleObject", "*!WaitForSingleObjectEx",
+        "*!CreateEventW", "*!CreateEventA", "*!CreateEventExW", "*!CreateSemaphoreW", "*!CreateSemaphoreExW", "*!SetEvent",
+        "*!ReleaseSemaphore", "*!CloseHandle", "*!WaitForSingleObject", "*!WaitForSingleObjectEx",
     ];
 
     [Shim("*", "CreateEventW", SetsLastError = true)]
@@ -59,6 +62,46 @@ internal static unsafe partial class WaitObjectShims
         catch (Exception exception)
         {
             UnmanagedGuard.Caught(exception, "WaitObjectShims.CreateEventA");
+
+            return default;
+        }
+    }
+
+    [Shim("*", "CreateEventExW", SetsLastError = true)]
+    [UnmanagedCallersOnly]
+    private static nint CreateEventExW(nint security, char* name, uint flags, uint access)
+    {
+        try
+        {
+            nint handle = Kernel32.CreateEventExW(security, name, flags, access);
+            ShimContext.Runtime.LastError.Set(Marshal.GetLastPInvokeError());
+            WaitObjects.Created(handle, EventKind((int)(flags & ManualResetFlag)));
+
+            return handle;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WaitObjectShims.CreateEventExW");
+
+            return default;
+        }
+    }
+
+    [Shim("*", "CreateSemaphoreW", SetsLastError = true)]
+    [UnmanagedCallersOnly]
+    private static nint CreateSemaphoreW(nint security, int initial, int maximum, char* name)
+    {
+        try
+        {
+            nint handle = Kernel32.CreateSemaphoreW(security, initial, maximum, name);
+            ShimContext.Runtime.LastError.Set(Marshal.GetLastPInvokeError());
+            WaitObjects.Created(handle, $"semaphore (initial {initial}, maximum {maximum})");
+
+            return handle;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WaitObjectShims.CreateSemaphoreW");
 
             return default;
         }
