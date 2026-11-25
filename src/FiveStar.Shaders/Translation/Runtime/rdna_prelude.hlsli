@@ -72,7 +72,7 @@ uint2 ptr_add(uint lo, uint hi, uint u, int s) {
 // heap indices from + 112; entries of {program id, address lo or byte offset, address hi or heap index | kind << 31,
 // value} from + 256. TRACE_BASE is DescriptorWindow.TraceBase.
 #ifdef FIVESTAR_STORE_TRACE
-static const uint TRACE_BASE = 0x04012100u;
+static const uint TRACE_BASE = 0x04016100u;
 static const uint TRACE_ENTRIES = 65536u;
 void trace_entry(uint lo, uint hi, uint v) {
     RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
@@ -128,6 +128,19 @@ void window_guard_count() {
     m.Store(slot, FIVESTAR_PROGRAM_ID);
     m.InterlockedAdd(slot + 4u, 1u);
 }
+#endif
+// ---- Superstep caps (with the window guard, FIVESTAR_CAP_TABLE is the byte offset of its table in the window): a
+// thread that ran out of blocks (kind 0) or a group that ran out of rounds (kind 1, counted by thread 0) is counted
+// in slot FIVESTAR_PROGRAM_ID & 1023: {program id, threads past the block cap, groups past the round bound, 0}.
+#ifdef FIVESTAR_CAP_TABLE
+void ss_cap_hit(uint kind) {
+    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    uint slot = FIVESTAR_CAP_TABLE + (FIVESTAR_PROGRAM_ID & 1023u) * 16u;
+    m.Store(slot, FIVESTAR_PROGRAM_ID);
+    m.InterlockedAdd(slot + 4u + kind * 4u, 1u);
+}
+#else
+void ss_cap_hit(uint kind) {}
 #endif
 uint PtrLoad(uint lo, uint hi, uint off) {   // off is signed (a dword offset or an SMEM offset)
     uint2 a = ptr_add(lo, hi, 0u, asint(off));

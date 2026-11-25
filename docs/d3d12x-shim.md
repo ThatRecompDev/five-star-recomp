@@ -482,7 +482,12 @@ flowchart LR
   mirror of records 1,000,000 and up wrote into the store-trace ring, the window flags and the mesh probe's ring), then
   the guard's table, the store-trace ring, the window flags and the mesh probe's ring. A program's store or atomic
   through a 32-bit pointer would land in the window; the prelude drops it (an atomic goes to a sink) and counts it per
-  program (`FIVESTAR_PROGRAM_ID`), and each captured present logs the programs that did since the last.- **CPU-only view heaps** take title memory too (the game creates eleven of 3,128 descriptors and copies their
+  program (`FIVESTAR_PROGRAM_ID`), and each captured present logs the programs that did since the last. A cap table
+  follows (`FIVESTAR_CAP_TABLE`, 1,024 slots of {program id, threads past the superstep block cap, groups past the
+  round bound}, the two-phase form's barrier bound counted with the rounds): each captured present warns with the
+  programs that ran into the caps since the last, so a loop fed a garbage trip count is named (LinearDepthSkin's layer
+  loop in w49). The store-trace ring starts after it (`TRACE_BASE` 0x04016100).
+- **CPU-only view heaps** take title memory too (the game creates eleven of 3,128 descriptors and copies their
   32-byte records into its per-draw tables itself, 0x144d9efc0). Their records name descriptors of the desktop
   shader-visible heap: every view written into one takes the next descriptors of a ring of 16 remap pages
   (`DescriptorRing`, 65,536 descriptors), so a record copied earlier keeps naming the view it copied until the ring
