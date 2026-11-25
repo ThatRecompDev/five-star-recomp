@@ -19,8 +19,11 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// starts while the private bytes of the process (less its write-combined memory) and the compile host, the running
 /// ones' remaining need and its own
 /// estimate would pass <see cref="CeilingBytes"/> (off by default); one always may when none runs, so builds go on.
-/// The physical reserve is the larger of 6 GB and the game's own RAM-backed growth over the last minute
-/// (<see cref="GrowthAllowance"/>), so compiles leave the game what it is about to take. Compiles of more than
+/// The physical reserve is 4 GB plus half the game's RAM-backed growth over the last minute, at most 4 GB more
+/// (<see cref="GrowthAllowance"/>), so compiles leave the game part of what it is about to take. An urgent compile (a
+/// command list or a game thread waits: a stand-in the game shows) needs only the 4 GB floor and its own estimate,
+/// not the reserve for growth nor the running compiles' estimates; boot w21 held build threads 236 s in all by 175 s
+/// with 11 to 15 GB free, behind a 7 GB estimate of one running compile and a reserve of up to 10 GB. Compiles of more than
 /// <see cref="HeavyShaderBytes"/> run one at a time, and wait while the game loads (<see cref="LoadWindow"/>) unless a
 /// game thread or a command list waits for them. Program work waits
 /// while the compile host is large (<see cref="RoomForPrograms"/>), in a boot and in the warm-up alike. A cold boot to 450 s reached 40 GB
@@ -44,12 +47,11 @@ internal static unsafe class CompileBudget
     /// </summary>
     public const long HeavyShaderBytes = 2L << 20;
 
-    /// <summary>The least physical memory compiles leave free.</summary>
-    public const long MinimumPhysicalReserve = 6L << 30;
+    /// <summary>The least physical memory compiles leave free: the boot guard kills below 4 GB.</summary>
+    public const long MinimumPhysicalReserve = 4L << 30;
 
-    /// <summary>Bounds of the game's expected growth (<see cref="GrowthAllowance"/>).</summary>
-    public const long MinimumGrowth = 2L << 30;
-    public const long MaximumGrowth = 10L << 30;
+    /// <summary>The most the game's expected growth adds to the reserve (<see cref="GrowthAllowance"/>).</summary>
+    public const long MaximumGrowth = 4L << 30;
 
     /// <summary>
     /// Driver memory expected per byte of DXIL. Boot v3 measured 101 compiles of 256 KB to 1.94 MB (the private peak
@@ -77,7 +79,7 @@ internal static unsafe class CompileBudget
     private static readonly TimeSpan GrowthSpan = TimeSpan.FromSeconds(60);
     private static readonly Queue<long> GrowthSamples = new();
     private static readonly Lazy<Timer> GrowthSampler = new(() => new Timer(_ => SampleGrowth(), null, TimeSpan.Zero, GrowthInterval));
-    private static long _growthAllowance = MinimumGrowth;
+    private static long _growthAllowance;
     private static readonly ConcurrentDictionary<BuildMeasure, byte> Measures = new();
     private static readonly Lazy<Timer> Sampler = new(() => new Timer(_ => Sample(), null, SampleInterval, SampleInterval));
 
@@ -137,16 +139,19 @@ internal static unsafe class CompileBudget
     /// <summary>Whether the game is in its load window (the loading screen is up, or the boot is young); none by default.</summary>
     public static Func<bool> LoadWindow { get; set; } = static () => false;
 
-    /// <summary>The game's expected RAM-backed growth: its growth over the last minute, within 2 and 10 GB.</summary>
+    /// <summary>
+    /// What the game's growth adds to the reserve: half its RAM-backed growth over the last minute (the load grows
+    /// fastest, and compiles running count in it too), at most <see cref="MaximumGrowth"/>.
+    /// </summary>
     public static long GrowthAllowance(long grownOverMinute)
     {
-        return Math.Clamp(grownOverMinute, MinimumGrowth, MaximumGrowth);
+        return Math.Clamp(grownOverMinute >> 1, 0, MaximumGrowth);
     }
 
-    /// <summary>The physical memory compiles leave free: at least 6 GB, else the game's expected growth.</summary>
+    /// <summary>The physical memory compiles leave free: 4 GB and the game's expected growth.</summary>
     public static long PhysicalReserve(long growthAllowance)
     {
-        return Math.Max(MinimumPhysicalReserve, growthAllowance);
+        return MinimumPhysicalReserve + growthAllowance;
     }
 
     /// <summary>Whether a compile of <paramref name="shaderBytes"/> waits for the load window to end.</summary>
@@ -367,9 +372,12 @@ internal static unsafe class CompileBudget
             // ones counted as done and seven ran at once; boot w11b's working set rose by 20 GB in 30 s.
             long remaining = _expected;
 
-            long reserve = PhysicalReserve(Interlocked.Read(ref _growthAllowance));
+            if (urgent)
+            {
+                remaining = 0;
+            }
 
-            if (!tiny && !Room(estimate, WarmMemoryGuard.AvailablePhysical(), WarmMemoryGuard.CommitAvailable(), remaining, reserve))
+            if (!tiny && !Room(estimate, WarmMemoryGuard.AvailablePhysical(), WarmMemoryGuard.CommitAvailable(), remaining, CurrentReserve(urgent)))
             {
                 return false;
             }
@@ -394,6 +402,17 @@ internal static unsafe class CompileBudget
 
             return true;
         }
+    }
+
+    /// <summary>The physical reserve now: an urgent compile (a stand-in the game shows) needs only the floor.</summary>
+    private static long CurrentReserve(bool urgent)
+    {
+        if (urgent)
+        {
+            return MinimumPhysicalReserve;
+        }
+
+        return PhysicalReserve(Interlocked.Read(ref _growthAllowance));
     }
 
     /// <summary>
