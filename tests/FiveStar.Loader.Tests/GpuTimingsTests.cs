@@ -57,9 +57,12 @@ public sealed class GpuTimingsTests
         using var fence = device.CreateFence(1);
         nint list = context.List.NativePointer;
 
-        // Dispatches of one pipeline are one pass; another compute pipeline, new targets and a draw begin the next.
+        // Dispatches of one pipeline are one pass; another compute pipeline, new targets and a draw begin the next, and a
+        // split at a memory wait ends the pass before it (the queue waits there, not in the tracing pass).
         GpuTimings.Work(List, list, compute: true, Culling);
         GpuTimings.Work(List, list, compute: true, Culling);
+        GpuTimings.Work(List, list, compute: true, Tracing);
+        GpuTimings.Split(List, list);
         GpuTimings.Work(List, list, compute: true, Tracing);
 
         GpuTimings.Targets(List);
@@ -74,6 +77,7 @@ public sealed class GpuTimingsTests
         Assert.Contains("queue #1 busy ", report, StringComparison.Ordinal);
         Assert.Contains("(meshlet_culling~CS_Cull ", report, StringComparison.Ordinal);
         Assert.Contains("sr_tracing~CS_Trace ", report, StringComparison.Ordinal);
+        Assert.Contains("(memory wait) ", report, StringComparison.Ordinal);
         Assert.Contains("PS_Light ", report, StringComparison.Ordinal);
         Assert.DoesNotContain("VS_Light", report, StringComparison.Ordinal);
 
