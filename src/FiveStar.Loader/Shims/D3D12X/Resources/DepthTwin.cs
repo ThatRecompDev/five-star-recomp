@@ -43,8 +43,14 @@ internal sealed class DepthTwin(nint depth, nint twin, int format, uint width, u
     /// <summary>The desktop CPU handle of the twin's UAV in the shader-visible view heap; 0 before the game makes one.</summary>
     public nint ViewHandle { get; set; }
 
-    /// <summary>The shader-visible view heap <see cref="ViewHandle"/> is in, which a prelude copy into the plane binds.</summary>
+    /// <summary>The shader-visible view heap <see cref="ViewHandle"/> is in.</summary>
     public nint ViewHeap { get; set; }
+
+    /// <summary>The game heap index of the twin's UAV; a view written there later is not the twin's.</summary>
+    public uint ViewIndex { get; set; }
+
+    /// <summary>The twin's own UAV in the prelude's heap (<see cref="DepthTwinPrelude"/>); -1 before the first prelude copy.</summary>
+    public int PreludeSlot { get; set; } = -1;
 
     /// <summary>The format of the depth-stencil view a list drew with last (the copy into the plane writes through one); 0 before.</summary>
     public int DepthFormat { get; set; }

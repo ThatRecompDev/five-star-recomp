@@ -133,6 +133,28 @@ internal static unsafe class DepthTwins
         Indices.Clear();
     }
 
+    /// <summary>
+    /// Views were written at game heap indices <paramref name="first"/> to <paramref name="first"/> + <paramref name="count"/>:
+    /// a twin's UAV that was there is gone (the game reuses heap indices), so its index no longer names the twin and the
+    /// twin's handle no longer reads it.
+    /// </summary>
+    [HotPath]
+    public static void Overwritten(uint first, uint count)
+    {
+        if (Indices.IsEmpty)
+        {
+            return;
+        }
+
+        for (uint index = first; index < first + count; index++)
+        {
+            if (Indices.TryRemove(index, out var twin) && twin.ViewIndex == index)
+            {
+                twin.ViewHandle = 0;
+            }
+        }
+    }
+
     /// <summary>The depth plane's twin of a desktop depth texture; null without one.</summary>
     public static DepthTwin? Of(nint depth)
     {
@@ -176,6 +198,7 @@ internal static unsafe class DepthTwins
     {
         twin.ViewHandle = handle;
         twin.ViewHeap = ShimContext.Runtime.D3D12X.Bindings.Window.ViewHeap;
+        twin.ViewIndex = index;
         Indices[index] = twin;
     }
 

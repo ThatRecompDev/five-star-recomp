@@ -629,6 +629,8 @@ internal static unsafe class CommandListBindingMethods
 
         if (twin.ViewHandle == 0 || (ListReplayState.Of(self)->Set & ListReplayState.HeapsBit) == 0)
         {
+            DepthTwinSides.PlaneLeftBehind((nint)self, twin);
+
             return false;
         }
 
@@ -637,7 +639,14 @@ internal static unsafe class CommandListBindingMethods
         ulong table = DesktopCalls.HeapGpuStart(heap) + (ulong)(twin.ViewHandle - DesktopCalls.HeapCpuStart(heap));
         int state = d3d12x.ListStates.For(self).Current(twin.Depth, twin.Home);
 
-        return DepthTwinCopy.Record(d3d12x.Objects.DesktopDevice, self->Inner, twin, view, format, state, table);
+        if (DepthTwinCopy.Record(d3d12x.Objects.DesktopDevice, self->Inner, twin, view, format, state, table))
+        {
+            return true;
+        }
+
+        DepthTwinSides.PlaneLeftBehind((nint)self, twin);
+
+        return false;
     }
 
     /// <summary>After the argument clamp's dispatch: the list's compute root signature, user data and pipeline again.</summary>

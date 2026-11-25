@@ -3,7 +3,6 @@
 
 using System.Runtime.InteropServices;
 using FiveStar.Loader.Native;
-using FiveStar.Loader.Shims.D3D12X.Binding;
 using Vortice.Direct3D12;
 
 namespace FiveStar.Loader.Shims.D3D12X.Resources;
@@ -29,11 +28,28 @@ internal static unsafe class DepthTwinPrelude
     private static ID3D12CommandQueue? _queue;
     private static ID3D12Fence? _order;
     private static ID3D12Fence? _done;
+    private static ID3D12DescriptorHeap? _views;
+    private static uint _increment;
+    private static uint _slots;
     private static ulong _orderValue;
     private static ulong _doneValue;
 
+    /// <summary>Twins the prelude's own view heap holds a UAV of.</summary>
+    private const uint ViewSlots = 256;
+
+    /// <summary>Preludes logged one by one; after them every <see cref="LogEvery"/>-th.</summary>
+    private const long LoggedFirst = 32;
+    private const long LogEvery = 1000;
+
     /// <summary>Preludes run so far.</summary>
     public static long Count { get; private set; }
+
+    /// <summary>Copies the preludes recorded: the plane into the twin, the twin into the plane, and copies left out.</summary>
+    public static long ToTwin { get; private set; }
+
+    public static long ToPlane { get; private set; }
+
+    public static long Skipped { get; private set; }
 
     /// <summary>
     /// Runs <paramref name="copies"/> before the next work submitted to the game's desktop queue <paramref name="gameQueue"/>;
@@ -60,6 +76,7 @@ internal static unsafe class DepthTwinPrelude
             prelude.List.Close();
             Submit(gameQueue, prelude);
             Count++;
+            Log(gameQueue, copies);
 
             return true;
         }
@@ -78,11 +95,20 @@ internal static unsafe class DepthTwinPrelude
             Free.Clear();
             Running.Clear();
             _queue?.Dispose();
+            _views?.Dispose();
+
             _order?.Dispose();
             _done?.Dispose();
             _device?.Dispose();
 
             _queue = null;
+            _views = null;
+            _slots = 0;
+
+            ToTwin = 0;
+            ToPlane = 0;
+            Skipped = 0;
+
             _order = null;
             _done = null;
             _device = null;
@@ -104,6 +130,9 @@ internal static unsafe class DepthTwinPrelude
         _order = _device.CreateFence(0);
         _done = _device.CreateFence(0);
         _queue.Name = "loader:depth-twin-prelude";
+
+        _views = _device.CreateDescriptorHeap(new Vortice.Direct3D12.DescriptorHeapDescription(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, ViewSlots, DescriptorHeapFlags.ShaderVisible));
+        _increment = _device.GetDescriptorHandleIncrementSize(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
 
         return true;
     }
@@ -143,20 +172,79 @@ internal static unsafe class DepthTwinPrelude
 
         if (!copy.ToPlane)
         {
-            DepthTwinFill.Record(device, list, twin, twin.Home, ~0);
+            if (DepthTwinFill.Record(device, list, twin, twin.Home, ~0))
+            {
+                ToTwin++;
+            }
+            else
+            {
+                Skipped++;
+            }
 
             return;
         }
 
-        if (twin.ViewHandle == 0 || twin.ViewHeap == 0 || twin.DepthFormat == 0)
+        ToPlane++;
+
+        if (twin.DepthFormat == 0 || !Slot(twin))
+        {
+            Skipped++;
+
+            return;
+        }
+
+        // The twin is read through a view of ours: the game may have written another view where the twin's was.
+        nint heap = _views!.NativePointer;
+        ((delegate* unmanaged<nint, uint, nint*, void>)ComObject.Slot(list, DepthTwinCopy.SetDescriptorHeapsSlot))(list, 1, &heap);
+        ulong table = _views.GetGPUDescriptorHandleForHeapStart().Ptr + ((ulong)twin.PreludeSlot * _increment);
+        DepthTwinCopy.Record(device, list, twin, 0, twin.DepthFormat, twin.Home, table);
+    }
+
+    /// <summary>The twin's UAV in the prelude's own heap, made at its first copy; false when the heap is full.</summary>
+    private static bool Slot(DepthTwin twin)
+    {
+        if (twin.PreludeSlot >= 0)
+        {
+            return true;
+        }
+
+        if (_slots == ViewSlots)
+        {
+            return false;
+        }
+
+        Marshal.AddRef(twin.Twin);
+        using var resource = new ID3D12Resource(twin.Twin);
+        var handle = _views!.GetCPUDescriptorHandleForHeapStart() + (int)(_slots * _increment);
+        var view = new UnorderedAccessViewDescription { Format = (Vortice.DXGI.Format)twin.Format, ViewDimension = UnorderedAccessViewDimension.Texture2D };
+        _device!.CreateUnorderedAccessView(resource, null, view, handle);
+
+        twin.PreludeSlot = (int)_slots;
+        _slots++;
+
+        return true;
+    }
+
+    /// <summary>The first preludes one by one, then every <see cref="LogEvery"/>-th, with the copies by direction and twin.</summary>
+    private static void Log(nint gameQueue, List<DepthTwinSides.Copy> copies)
+    {
+        if (Count > LoggedFirst && Count % LogEvery != 0)
         {
             return;
         }
 
-        nint heap = twin.ViewHeap;
-        ((delegate* unmanaged<nint, uint, nint*, void>)ComObject.Slot(list, DepthTwinCopy.SetDescriptorHeapsSlot))(list, 1, &heap);
-        ulong table = DesktopCalls.HeapGpuStart(heap) + (ulong)(twin.ViewHandle - DesktopCalls.HeapCpuStart(heap));
-        DepthTwinCopy.Record(device, list, twin, 0, twin.DepthFormat, twin.Home, table);
+        string what = string.Join(", ", copies.Select(copy => $"{Direction(copy)} (twin 0x{copy.Twin.Twin:x} format {copy.Twin.Format} of depth 0x{copy.Twin.Depth:x}, {copy.Twin.Width}x{copy.Twin.Height})"));
+        ShimContext.Log?.Info($"  [d3d12_xs] depth twins: prelude {Count} before queue 0x{gameQueue:x}: {what}; so far {ToTwin} plane->twin, {ToPlane} twin->plane, {Skipped} left out");
+    }
+
+    private static string Direction(DepthTwinSides.Copy copy)
+    {
+        if (copy.ToPlane)
+        {
+            return "twin->plane";
+        }
+
+        return "plane->twin";
     }
 
     /// <summary>The game's queue: signals where its work ends; ours waits, runs the prelude, signals; the game's waits.</summary>

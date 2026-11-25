@@ -98,6 +98,16 @@ internal static class DepthTwinSides
         }
     }
 
+    /// <summary>
+    /// The copy <see cref="UsePlane"/> asked <paramref name="list"/> for could not be recorded (the twin's view is gone or
+    /// no view heap is set): the plane stays behind, for the next list's prelude.
+    /// </summary>
+    public static void PlaneLeftBehind(nint list, DepthTwin twin)
+    {
+        var use = Lists.GetOrAdd(list, _ => new ListSides()).For(twin);
+        use.PlaneIsBehind = true;
+    }
+
     /// <summary>Forgets what <paramref name="list"/> noted (it was reset without being submitted).</summary>
     public static void Forget(nint list)
     {
