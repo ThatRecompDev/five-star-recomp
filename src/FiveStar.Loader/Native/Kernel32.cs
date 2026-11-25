@@ -179,6 +179,25 @@ internal static unsafe class Kernel32
     [DllImport(Library, SetLastError = true)]
     public static extern nint CreateEventW(nint security, int manualReset, int initialState, char* name);
 
+    [DllImport(Library, SetLastError = true)]
+    public static extern nint CreateEventA(nint security, int manualReset, int initialState, byte* name);
+
+    [DllImport(Library, SetLastError = true)]
+    public static extern nint CreateSemaphoreExW(nint security, int initial, int maximum, char* name, uint flags, uint access);
+
+    [DllImport(Library, SetLastError = true)]
+    public static extern int SetEvent(nint handle);
+
+    [DllImport(Library, SetLastError = true)]
+    public static extern int ReleaseSemaphore(nint handle, int count, int* previous);
+
+    [DllImport(Library, SetLastError = true)]
+    public static extern uint WaitForSingleObjectEx(nint handle, uint milliseconds, int alertable);
+
+    /// <summary>RtlCaptureStackBackTrace: the return addresses of the calling thread, innermost first.</summary>
+    [DllImport(Library)]
+    public static extern ushort RtlCaptureStackBackTrace(uint skip, uint count, nint* frames, uint* hash);
+
     /// <summary>GetFileInformationByHandle: <paramref name="information"/> is a BY_HANDLE_FILE_INFORMATION.</summary>
     [DllImport(Library, SetLastError = true)]
     public static extern int GetFileInformationByHandle(nint file, void* information);

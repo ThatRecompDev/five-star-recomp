@@ -38,6 +38,15 @@ internal sealed class LoaderHost
 
     public int Run()
     {
+        // The wait-object shims cost a managed call on every wait; only the hang watch reads what they record.
+        if (!_options.WatchHang)
+        {
+            foreach (string shim in WaitObjectShims.Names)
+            {
+                _runtime.Shims.Disable(shim);
+            }
+        }
+
         foreach (string spec in _options.DisabledShims)
         {
             if (!_runtime.Shims.Disable(spec))
