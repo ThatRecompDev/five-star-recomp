@@ -134,6 +134,12 @@ internal sealed unsafe class PipelineFactory
                 what = $"{string.Join(" + ", Loadable(description)?.Select(program => program.Name) ?? [])} (linked producer)";
             }
 
+            // A pipeline --skip-pipelines names makes no programs or producer: its build fails at once (Build).
+            if (SkippedPipelines.Skips(what))
+            {
+                work = _ => Task.CompletedTask;
+            }
+
             var waiting = StandIns.Waiting(work, () => Prepared(PrepareGraphics(description), wanted), result, deferral, what);
 
             return Remember(description, waiting, result, "programs made on demand");
