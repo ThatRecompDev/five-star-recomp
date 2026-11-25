@@ -40,6 +40,9 @@ internal static unsafe class GpuBreadcrumbs
     private const int WriteBufferImmediateSlot = 66;
     private const int MarkerOut = 2;
 
+    /// <summary>What a list stopped part way says (<see cref="Describe"/>).</summary>
+    public const string StoppedMark = "STOPPED at operation";
+
     private static bool _enabled;
     private static ID3D12Resource? _buffer;
     private static uint* _markers;
@@ -232,7 +235,7 @@ internal static unsafe class GpuBreadcrumbs
             operation = Operation(recording->Marked + index, pipelineName);
         }
 
-        return string.Create(CultureInfo.InvariantCulture, $"{name}: STOPPED at operation {index} (the work before it is done), {operation}");
+        return string.Create(CultureInfo.InvariantCulture, $"{name}: {StoppedMark} {index} (the work before it is done), {operation}");
     }
 
     /// <summary>The list's current recording, begun here when the list was created recording (no Reset); null when off.</summary>
