@@ -747,10 +747,13 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   64 draws whose pipeline name holds the text, without probes: a frame's UI draws (`sgd2_` Scaleform programs such as
   `FVertexCxform`) come long after its first 32.
 - `--probe-pipeline <text>` makes the mesh programs whose name holds the text with probe code (`MeshProbe`,
-  `MeshProbes`): every load site (a buffer load's range check and load, a pointer load) marks itself when its range
-  check fails, it reads an unmapped page of the address map or a record naming no descriptor, and at the end of each
-  group thread 0 appends {group, the counts it gave SetMeshOutputCounts, culled primitives, vertex 0's position, the
-  three site masks} to a ring in the descriptor window past the window flags. The program index names such a program
+  `MeshProbes`), in any of its forms (two-phase, staged, the superstep form of the wave32 variant): every load site (a
+  buffer, formatted or pointer load with the range check before it, an s_buffer_load's compare included) marks itself
+  when its range check fails, it reads an unmapped page of the address map or a record naming no descriptor, and thread
+  0 notes the register each site's line loads the first time and m0 at GS_ALLOC_REQ. At the end of each group thread 0
+  appends {group, the counts it gave SetMeshOutputCounts, m0, culled primitives, vertex 0's position, the three site
+  masks, the values of sites 0 to 31, the number of sites} to a ring in the descriptor window past the window flags, so
+  a count of 0 shows whether its load read 0 from memory or failed its check. The program index names such a program
   `<name>.probe-<ring offset>`, so its DXIL, links and pipelines are cache entries of their own and the other programs
   stay warm. At each captured present the records since the last are summed up per program, each flagged site with its
   text (kept as `<name>.sites.txt` beside the DXIL).

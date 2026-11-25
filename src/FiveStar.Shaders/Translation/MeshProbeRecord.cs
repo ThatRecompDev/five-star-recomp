@@ -6,9 +6,10 @@ namespace FiveStar.Shaders.Translation;
 /// <summary>
 /// What a probed mesh group wrote (<see cref="MeshProbe"/>, rdna_prelude probe_end): the program's id, its group, the
 /// vertex and primitive counts it gave SetMeshOutputCounts (before the clamp to the declared maximum), its culled
-/// primitives (count, and which of primitives 0 to 31), vertex 0's position when written, and per mask the load sites
-/// (bit = site, 31 for any past it) whose range check failed, that read an unmapped page of the address map, or that
-/// read through a record naming no descriptor.
+/// primitives (count, and which of primitives 0 to 31), vertex 0's position when written, per mask the load sites (bit =
+/// site, 31 for any past it) whose range check failed, that read an unmapped page of the address map, or that read
+/// through a record naming no descriptor, the register each of sites 0 to 31 loaded the first time on thread 0 (null
+/// when its line ran on no thread 0 or loads no register), m0 at GS_ALLOC_REQ and the program's number of load sites.
 /// </summary>
 public readonly record struct MeshProbeRecord(
     uint Id,
@@ -22,9 +23,13 @@ public readonly record struct MeshProbeRecord(
     uint Unmapped,
     uint NullRecord)
 {
-    public const int Dwords = 16;
+    public const int Dwords = 64;
+
+    /// <summary>Sites with a noted value: 0 to 31.</summary>
+    public const int ValueSites = 32;
 
     private const int PositionWritten = 1;
+    private const int AllocationNoted = 2;
     private const int GroupX = 1;
     private const int GroupY = 2;
     private const int GroupZ = 3;
@@ -40,18 +45,46 @@ public readonly record struct MeshProbeRecord(
     private const int RangeWord = 13;
     private const int UnmappedWord = 14;
     private const int NullRecordWord = 15;
+    private const int ValuesWord = 16;
+    private const int ValuesMaskWord = 48;
+    private const int AllocationWord = 49;
+    private const int SitesWord = 50;
 
-    /// <summary>A record from its 16 dwords: id, group x y z, vertices, primitives, culled, cull mask, position x y z w, flags, masks.</summary>
+    /// <summary>The register each of sites 0 to 31 loaded the first time on thread 0; null where none was noted.</summary>
+    public IReadOnlyList<uint?> Values { get; init; } = [];
+
+    /// <summary>m0 at GS_ALLOC_REQ (vertices in bits 0-11, primitives in 12-23); null when the group never asked.</summary>
+    public uint? Allocation { get; init; }
+
+    /// <summary>The program's number of load sites.</summary>
+    public uint Sites { get; init; }
+
+    /// <summary>A record from its <see cref="Dwords"/> dwords (rdna_prelude probe_end).</summary>
     public static MeshProbeRecord Read(ReadOnlySpan<uint> words)
     {
         (float X, float Y, float Z, float W)? position = null;
+        uint? allocation = null;
+        var values = new uint?[ValueSites];
 
         if ((words[FlagsWord] & PositionWritten) != 0)
         {
             position = (Float(words, PositionX), Float(words, PositionY), Float(words, PositionZ), Float(words, PositionW));
         }
 
-        return new MeshProbeRecord(
+        if ((words[FlagsWord] & AllocationNoted) != 0)
+        {
+            allocation = words[AllocationWord];
+        }
+
+        for (int site = 0; site < ValueSites; site++)
+        {
+            if ((words[ValuesMaskWord] & (1u << site)) != 0)
+            {
+                values[site] = words[ValuesWord + site];
+            }
+        }
+
+        var record = new MeshProbeRecord(
             words[0],
             (words[GroupX], words[GroupY], words[GroupZ]),
             words[VerticesWord],
@@ -62,6 +95,8 @@ public readonly record struct MeshProbeRecord(
             words[RangeWord],
             words[UnmappedWord],
             words[NullRecordWord]);
+
+        return record with { Values = values, Allocation = allocation, Sites = words[SitesWord] };
     }
 
     private static float Float(ReadOnlySpan<uint> words, int at)

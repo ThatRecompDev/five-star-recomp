@@ -8,13 +8,15 @@ using System.Text.RegularExpressions;
 namespace FiveStar.Shaders.Translation;
 
 /// <summary>
-/// A translated mesh program with probe code (rdna_prelude.hlsli, FIVESTAR_MESH_PROBE): every load site (a
-/// <c>buf_fits</c>, <c>BufLoad</c>, <c>BufLoadRW</c> or <c>PtrLoad</c> call; a buffer load's range check and load share
-/// one) calls the probe form with its site number, which marks the site in a per-thread mask when its range check fails,
-/// it reads through an unmapped page of the address map, or through a record naming no descriptor. Vertex 0's position
-/// and the culled primitives are noted as they are written, and at the end of the group thread 0 appends a
-/// <see cref="MeshProbeRecord"/> to a ring in the GPU-memory window. The same line in both phases of a two-phase
-/// program gets the same site numbers. Site 31 also stands for every site past it.
+/// A translated mesh program, in any of its forms (two-phase, staged or superstep), with probe code (rdna_prelude.hlsli,
+/// FIVESTAR_MESH_PROBE): every load site (a <c>BufLoad</c>, <c>BufLoadRW</c>, <c>FmtLoad</c> or <c>PtrLoad</c> call, with
+/// the range check before it: <c>buf_fits</c>, or the compare of an s_buffer_load) calls the probe form with its site
+/// number, which marks the site in a per-thread mask when its range check fails, it reads through an unmapped page of
+/// the address map, or through a record naming no descriptor. The register a site's line loads is noted the first time
+/// on thread 0, m0 at GS_ALLOC_REQ (from which the vertex and primitive counts come), vertex 0's position and the culled
+/// primitives as they are written, and at the end of the group thread 0 appends a <see cref="MeshProbeRecord"/> to a ring
+/// in the GPU-memory window. The same line in both phases of a program gets the same site numbers. Site 31 also stands
+/// for every site past it.
 /// </summary>
 public static partial class MeshProbe
 {
@@ -31,7 +33,9 @@ public static partial class MeshProbe
 
     private const string MeshEntry = "out vertices Out verts[";
     private const string GroupStart = "g_ms_nv = 0; g_ms_np = 0; g_ms_alloc = 0; }";
+    private const string Allocation = "g_ms_alloc = 1; }";
     private const string BufferCheck = "buf_fits";
+    private const string ScalarCheck = "sbuf_fits";
     private const string ProbePrefix = "probe_";
     private const int MaxSiteText = 160;
     private const uint FnvOffset = 2166136261;
@@ -75,9 +79,10 @@ public static partial class MeshProbe
 
         text = text[..end] + "  probe_end(in_gid, in_gi, g_ms_nv, g_ms_np);\n" + text[end..];
         text = text.Insert(start + GroupStart.Length, " probe_begin(in_gi);");
+        text = text.Replace(Allocation, "g_ms_alloc = 1; probe_alloc(s_m0); }", StringComparison.Ordinal);
         text = NotePosition(text);
         text = CullPattern().Replace(text, "$0 probe_cull(in_gi, ($1 >> 31) != 0);");
-        var defines = string.Create(CultureInfo.InvariantCulture, $"#define {Define} {id}u\n#define {Define}_BASE {ringOffset}u\n");
+        var defines = string.Create(CultureInfo.InvariantCulture, $"#define {Define} {id}u\n#define {Define}_BASE {ringOffset}u\n#define {Define}_SITES {sites.Count}u\n");
 
         return (defines + text, sites);
     }
@@ -113,7 +118,10 @@ public static partial class MeshProbe
         return text.Replace("verts[in_gi] = o;", $"verts[in_gi] = o; if (in_gi == 0u) probe_position(o.{member});", StringComparison.Ordinal);
     }
 
-    /// <summary>Each load call as its probe form with a site number; equal lines get equal numbers.</summary>
+    /// <summary>
+    /// Each load call as its probe form with a site number, an s_buffer_load's compare as a check; equal lines get equal
+    /// numbers. A line that loads a register notes its value under the line's first site.
+    /// </summary>
     private static string NumberSites(string body, List<string> sites)
     {
         var known = new Dictionary<string, List<int>>(StringComparer.Ordinal);
@@ -121,7 +129,8 @@ public static partial class MeshProbe
 
         for (int i = 0; i < lines.Length; i++)
         {
-            var key = lines[i].Trim();
+            var line = ScalarCheckPattern().Replace(lines[i], $"select({ScalarCheck}(${{cond}}), ${{load}}(");
+            var key = line.Trim();
 
             if (!LoadPattern().IsMatch(key))
             {
@@ -130,25 +139,46 @@ public static partial class MeshProbe
 
             if (!known.TryGetValue(key, out var numbers))
             {
-                numbers = LineSites(lines[i], sites);
+                numbers = LineSites(line, sites);
                 known[key] = numbers;
             }
 
-            int next = 0;
-            string? previous = null;
-            lines[i] = LoadPattern().Replace(lines[i], call =>
+            lines[i] = Number(line, numbers);
+            var register = RegisterPattern().Match(line);
+
+            if (register.Success && numbers.Count > 0)
             {
-                var name = call.Groups["name"].Value;
-
-                // A buffer load's check and load are one site: the load takes the number of the check before it.
-                int site = previous == BufferCheck && name != BufferCheck ? numbers[next - 1] : numbers[next++];
-                previous = name;
-
-                return string.Create(CultureInfo.InvariantCulture, $"{ProbePrefix}{name}({site}u, ");
-            });
+                lines[i] += string.Create(CultureInfo.InvariantCulture, $" probe_value({numbers[0]}u, {register.Groups["reg"].Value});");
+            }
         }
 
         return string.Join('\n', lines);
+    }
+
+    private static string Number(string line, List<int> numbers)
+    {
+        int next = 0;
+        string? previous = null;
+
+        return LoadPattern().Replace(line, call =>
+        {
+            var name = call.Groups["name"].Value;
+            int site;
+
+            // A load's check and load are one site: the load takes the number of the check before it.
+            if (IsCheck(previous) && !IsCheck(name))
+            {
+                site = numbers[next - 1];
+            }
+            else
+            {
+                site = numbers[next++];
+            }
+
+            previous = name;
+
+            return string.Create(CultureInfo.InvariantCulture, $"{ProbePrefix}{name}({site}u, ");
+        });
     }
 
     /// <summary>New site numbers for the sites of one line, with their text.</summary>
@@ -161,7 +191,7 @@ public static partial class MeshProbe
         {
             var name = call.Groups["name"].Value;
 
-            if (previous == BufferCheck && name != BufferCheck)
+            if (IsCheck(previous) && !IsCheck(name))
             {
                 previous = name;
 
@@ -174,6 +204,11 @@ public static partial class MeshProbe
         }
 
         return numbers;
+    }
+
+    private static bool IsCheck(string? name)
+    {
+        return name is BufferCheck or ScalarCheck;
     }
 
     /// <summary>A call's text up to its closing parenthesis (shortened).</summary>
@@ -201,8 +236,16 @@ public static partial class MeshProbe
         return text.ToString();
     }
 
-    [GeneratedRegex(@"\b(?<name>buf_fits|BufLoadRW|BufLoad|PtrLoad)\(")]
+    [GeneratedRegex(@"\b(?<name>sbuf_fits|buf_fits|BufLoadRW|BufLoad|FmtLoad|PtrLoad)\(")]
     private static partial Regex LoadPattern();
+
+    /// <summary>An s_buffer_load dword: <c>select(offset + k &lt; limit, BufLoad(...), 0u)</c>.</summary>
+    [GeneratedRegex(@"select\((?<cond>[^,()]+ < [^,()]+), (?<load>BufLoadRW|BufLoad)\(")]
+    private static partial Regex ScalarCheckPattern();
+
+    /// <summary>A line that sets a register: <c>s4 = ...;</c> or <c>if (active) v2 = ...;</c>.</summary>
+    [GeneratedRegex(@"^\s*(?:if \(active\) )?(?<reg>[sv]\d+) = [^;]*;\s*$")]
+    private static partial Regex RegisterPattern();
 
     [GeneratedRegex(@"^#include ""[^""]+""[^\n]*\n", RegexOptions.Multiline)]
     private static partial Regex IncludePattern();
