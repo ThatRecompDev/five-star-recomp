@@ -23,15 +23,16 @@ internal static unsafe class RtStandIns
     private const int IncrementSlot = 15;
     private const int ViewHeapType = 0;
 
-    private static readonly (string Name, FillValue Value, bool AfterRun)[] Rules =
+    private static readonly (string Name, FillValue Value, bool AfterRun, string Stands)[] Rules =
     [
-        ("shadowmask~CS_TraceShadowRays", new FillValue(1, 1, 1, uint.MaxValue), false),
-        ("rtdirectionalshadows~", new FillValue(1, 1, 1, uint.MaxValue), false),
-        ("CS_PPR_Raytrace", new FillValue(0, 0, 0, 0), false),
-        ("CS_ScreenProbes_TemporalResolve", FillValue.Shared(AmbientLevel), true),
+        ("shadowmask~CS_TraceShadowRays", new FillValue(1, 1, 1, uint.MaxValue), false, "ray-traced shadow mask written fully lit"),
+        ("rtdirectionalshadows~", new FillValue(1, 1, 1, uint.MaxValue), false, "ray-traced directional shadows written fully lit"),
+        ("CS_PPR_Raytrace", new FillValue(0, 0, 0, 0), false, "planar reflections written black"),
+        ("CS_ScreenProbes_TemporalResolve", FillValue.Shared(AmbientLevel), true, "screen-probe light overwritten with grey 0.6 after it runs"),
     ];
 
     private static readonly ConcurrentDictionary<nint, int> RuleOfPipeline = new();
+    private static readonly long[] FilledByRule = new long[Rules.Length];
     private static long _filled;
 
     /// <summary>The grey of the screen-probe light stand-in (VIctory's 0.6).</summary>
@@ -42,6 +43,22 @@ internal static unsafe class RtStandIns
 
     /// <summary>UAVs filled so far.</summary>
     public static long Filled => Interlocked.Read(ref _filled);
+
+    /// <summary>The sample line: UAVs each rule filled so far, or that none was.</summary>
+    public static string Summary
+    {
+        get
+        {
+            var used = Enumerable.Range(0, Rules.Length).Where(rule => Interlocked.Read(ref FilledByRule[rule]) != 0).ToList();
+
+            if (used.Count == 0)
+            {
+                return "ray-tracing stand-ins: none filled";
+            }
+
+            return "ray-tracing stand-ins (approximate): " + string.Join(", ", used.Select(rule => $"{Rules[rule].Name} {Interlocked.Read(ref FilledByRule[rule])} UAVs"));
+        }
+    }
 
     /// <summary>The rule for a pipeline name, or -1.</summary>
     public static int RuleOf(string name)
@@ -56,7 +73,7 @@ internal static unsafe class RtStandIns
 
         if (rule >= 0)
         {
-            Fill(list, Rules[rule].Value);
+            Fill(list, rule, name);
         }
     }
 
@@ -72,13 +89,17 @@ internal static unsafe class RtStandIns
 
         if (rule >= 0 && Rules[rule].AfterRun)
         {
-            Fill(list, Rules[rule].Value);
+            Fill(list, rule, QueueProgress.PipelineName(pipeline));
         }
     }
 
-    /// <summary>Writes <paramref name="value"/> over the texture UAVs of the list's compute tables, then sets the list's compute state again.</summary>
-    private static void Fill(XboxObject* list, FillValue value)
+    /// <summary>
+    /// Writes rule <paramref name="rule"/>'s value over the texture UAVs of the list's compute tables, then sets the
+    /// list's compute state again. The first fill of each rule is logged with the pipeline <paramref name="name"/>.
+    /// </summary>
+    private static void Fill(XboxObject* list, int rule, string name)
     {
+        var value = Rules[rule].Value;
         var runtime = ShimContext.Runtime.D3D12X;
         var bindings = CommandListBindings.Of(list);
         var layout = bindings->ComputeLayout;
@@ -107,6 +128,12 @@ internal static unsafe class RtStandIns
 
         Barrier(inner);
         Interlocked.Add(ref _filled, filled);
+
+        if (Interlocked.Add(ref FilledByRule[rule], filled) == filled)
+        {
+            ShimContext.Log?.Warn($"[d3d12_xs] ray-tracing stand-in (approximate, not the pass's result; --no-rt-stand-ins turns it off): {name}: {Rules[rule].Stands}");
+        }
+
         CommandListBindingMethods.RestoreCompute(list);
     }
 
