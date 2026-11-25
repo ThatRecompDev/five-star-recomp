@@ -52,6 +52,18 @@ public sealed class RdnaDecoderTests
         Assert.Equal(text, Assert.Single(new RdnaDecoder().Disassemble(code, waveSize)).Text);
     }
 
+    /// <summary>
+    /// llvm-mc 23 writes the inline constant 0 into the source a VOP3 compare does not read (d4c40028 02020084, where
+    /// older releases wrote 0): llvm-objdump lists it as the same compare.
+    /// </summary>
+    [Fact]
+    public void An_unread_vop3_source_may_be_the_inline_zero()
+    {
+        byte[] code = [0x28, 0x00, 0xC4, 0xD4, 0x84, 0x00, 0x02, 0x02];
+
+        Assert.Equal("v_cmp_gt_u32_e64 s40, 4, v0", Assert.Single(new RdnaDecoder().Disassemble(code, Wave32)).Text);
+    }
+
     /// <summary>The smallest programs of each stage of the dump decode exactly as with llvm-mc/llvm-objdump.</summary>
     [LlvmProgramTheory]
     [InlineData(8)]

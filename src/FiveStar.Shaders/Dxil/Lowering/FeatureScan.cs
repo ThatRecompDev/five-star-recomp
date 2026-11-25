@@ -85,6 +85,12 @@ public static class FeatureScan
             return Choice.Of(sampler, ShaderFlagBits.SamplerDescriptorHeapIndexing, ShaderFlagBits.ResourceDescriptorHeapIndexing);
         }
 
+        // A 64-bit atomic on a texel (the backend makes no other): its resource comes from the descriptor heap.
+        if (operation is DxOpCode.AtomicBinOp or DxOpCode.AtomicCompareExchange && instruction.Type.Kind == IrTypeKind.Integer && instruction.Type.Bits == sizeof(long) * BitsPerByte)
+        {
+            return ShaderFlagBits.AtomicInt64OnTypedResource | ShaderFlagBits.AtomicInt64OnHeapResource;
+        }
+
         if (WaveOperations.Contains(operation))
         {
             return ShaderFlagBits.WaveOps;

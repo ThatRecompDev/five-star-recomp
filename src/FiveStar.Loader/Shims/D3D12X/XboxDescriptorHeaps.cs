@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Diagnostics;
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.Binding;
@@ -54,6 +55,9 @@ internal sealed unsafe class XboxDescriptorHeaps
     private HeapRecords _viewRecords;
     private nint _viewDesktopStart;
     private nint _sink;
+    private long _tableBinds;
+    private long _tableTicks;
+    private long _reachMirrors;
 
     public XboxDescriptorHeaps(XboxObjects objects, TitleMemoryHooks hooks, DescriptorWindow window, GameMemoryViews memoryViews, LoaderLog log, OnceLog warnings)
     {
@@ -160,8 +164,39 @@ internal sealed unsafe class XboxDescriptorHeaps
             return DescriptorWindow.NullTableBase;
         }
 
-        return heap.Table(index, extent);
+        long started = Stopwatch.GetTimestamp();
+        uint table = heap.Table(index, extent);
+        Interlocked.Add(ref _tableTicks, Stopwatch.GetTimestamp() - started);
+        Interlocked.Increment(ref _tableBinds);
+
+        return table;
     }
+
+    /// <summary>
+    /// Mirrors <paramref name="records"/> view records from the table at window offset <paramref name="windowOffset"/>
+    /// (a user SGPR's table pointer, <see cref="Binding.TableReaches"/>); ignored outside the view records.
+    /// </summary>
+    [HotPath]
+    public void MirrorTable(uint windowOffset, uint records)
+    {
+        var views = _views;
+
+        if (views is null || windowOffset >= DescriptorWindow.NullTableBase || windowOffset % DescriptorWindow.ViewRecordBytes != 0)
+        {
+            return;
+        }
+
+        uint index = (windowOffset - DescriptorWindow.ViewBase) / DescriptorWindow.ViewRecordBytes;
+
+        if (index < views.Count)
+        {
+            views.Table(index, records);
+            Interlocked.Increment(ref _reachMirrors);
+        }
+    }
+
+    /// <summary>Table binds so far and the time their mirroring took (<see cref="ShaderVisibleHeap.Table"/>).</summary>
+    public string TableSummary => $"{Volatile.Read(ref _tableBinds)} table binds mirrored in {Stopwatch.GetElapsedTime(0, Volatile.Read(ref _tableTicks)).TotalMilliseconds:F0} ms, {Volatile.Read(ref _reachMirrors)} tables mirrored further at draws for programs' reach";
 
     /// <summary>The desktop sink for views no desktop descriptor is left for (warned once).</summary>
     [HotPath]

@@ -358,8 +358,7 @@ internal sealed class LoaderHost
         Shims.D3D12X.DebugLayer.DrawTrace.DumpTargets = _options.D3D12DumpTargets;
         Shims.D3D12X.DebugLayer.TraceRecords.Offsets = _options.D3D12TraceRecords;
 
-        Shims.D3D12X.Pipelines.PipelineFactory.CullNoneFor = _options.ForceCullNone;
-        Shims.D3D12X.Pipelines.SkippedPipelines.Texts = _options.SkipPipelines;
+        ApplyBindingOptions();
 
         Shims.D3D12X.RetireWaits.Enable(_options.RetireWaitsAllQueues, _log);
         Shims.D3D12X.ListSplits.Enabled = _options.SplitAtWaits;
@@ -394,6 +393,15 @@ internal sealed class LoaderHost
     }
 
     /// <summary>The memory map (<c>--memory-map</c>) and the memory limits (<c>--min-free-memory</c>, <c>--max-commit</c>).</summary>
+    /// <summary>Pipeline and binding options the D3D12.X shim reads as static settings.</summary>
+    private void ApplyBindingOptions()
+    {
+        Shims.D3D12X.Pipelines.PipelineFactory.CullNoneFor = _options.ForceCullNone;
+        Shims.D3D12X.Pipelines.SkippedPipelines.Texts = _options.SkipPipelines;
+        Shims.D3D12X.Binding.DescriptorWindow.MinTableRecords = _options.MirrorTableRecords;
+        Shims.D3D12X.Binding.TableReaches.Enabled = _options.MirrorTableReach;
+    }
+
     private void StartMemoryWatch()
     {
         var map = new MemoryMap(_runtime.Images, _runtime.XMem, _runtime.XMemPhysical, _log);

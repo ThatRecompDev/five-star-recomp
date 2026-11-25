@@ -239,8 +239,33 @@ internal sealed unsafe class DrawTrace
     private void AppendWindowRecords(StringBuilder text, CommandListBindings* bindings)
     {
         var graphics = new ReadOnlySpan<uint>(bindings->Graphics, UserDwordsShown);
-        var sources = new TraceRecordSources(MapState, (address, bytes) => (nint)_memory.Find(address, (ulong)bytes), GameRecord);
+        var sources = new TraceRecordSources(MapState, (address, bytes) => (nint)_memory.Find(address, (ulong)bytes), GameRecord, TextureState);
         TraceRecords.Append(text, _d3d12.Bindings.Window.Data, DescriptorWindow.NullTableBase, graphics, TraceRecords.Offsets, sources);
+    }
+
+    /// <summary>How the texture registered at <paramref name="address"/> got its texels: GPU-written, copied into, or uploaded from memory.</summary>
+    private string TextureState(ulong address)
+    {
+        var texture = _d3d12.Textures.Registry.Find(address);
+
+        if (texture is null)
+        {
+            return "no texture registered there";
+        }
+
+        string source = $"from memory, hash 0x{texture.UploadedHash:x}";
+
+        if (texture.GpuWritten)
+        {
+            source = "GPU-written";
+        }
+
+        if (texture.CopiedInto)
+        {
+            source += ", copied into";
+        }
+
+        return $"texture 0x{texture.Desktop:x} at 0x{texture.Address:x} fmt {texture.DesktopFormat}, {source}";
     }
 
     /// <summary>The game's own view-heap record behind window offset <paramref name="windowOffset"/>; 0 past its heap.</summary>

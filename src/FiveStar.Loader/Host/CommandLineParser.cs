@@ -207,7 +207,7 @@ internal sealed class CommandLineParser
                 _options.Dxc = Path.GetFullPath(Next());
 
                 return true;
-            case "--shader-jobs" or "--loop-caps" or "--force-cull-none" or "--skip-pipelines" or "--plain-supersteps" or "--host-pipelines" or "--superstep-round-budget":
+            case "--shader-jobs" or "--loop-caps" or "--force-cull-none" or "--skip-pipelines" or "--mirror-table-records" or "--plain-supersteps" or "--host-pipelines" or "--superstep-round-budget":
                 return SetShaderJobs(option);
             case "--shader-backend":
                 return SetShaderBackend();
@@ -250,6 +250,11 @@ internal sealed class CommandLineParser
     /// </summary>
     private bool SetShaderJobs(string option)
     {
+        if (option == "--mirror-table-records")
+        {
+            return SetMirrorTableRecords(Next());
+        }
+
         if (option == "--skip-pipelines")
         {
             _options.SkipPipelines = Shims.D3D12X.Pipelines.SkippedPipelines.Parse(Next());
@@ -293,6 +298,19 @@ internal sealed class CommandLineParser
         }
 
         _options.ShaderJobs = int.Parse(Next(), CultureInfo.InvariantCulture);
+
+        return true;
+    }
+
+    /// <summary>--mirror-table-records reach, full or a count.</summary>
+    private bool SetMirrorTableRecords(string value)
+    {
+        _options.MirrorTableReach = value.Equals("reach", StringComparison.OrdinalIgnoreCase);
+
+        if (!_options.MirrorTableReach)
+        {
+            _options.MirrorTableRecords = Shims.D3D12X.Binding.DescriptorWindow.ParseTableRecords(value) ?? throw new ArgumentException("--mirror-table-records takes reach, full or a count from 1 to 1024");
+        }
 
         return true;
     }

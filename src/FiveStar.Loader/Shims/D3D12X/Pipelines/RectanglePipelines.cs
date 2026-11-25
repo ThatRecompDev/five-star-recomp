@@ -69,7 +69,18 @@ internal sealed unsafe class RectanglePipelines
             return;
         }
 
-        _recipes[pipeline] = new RectangleRecipe(description, [.. programs.Select(program => program.Name)], vertex.Name);
+        var kept = programs.Where(program => Derived(program.Name)).ToDictionary(program => program.Name, StringComparer.Ordinal);
+        _recipes[pipeline] = new RectangleRecipe(description, [.. programs.Select(program => program.Name)], vertex.Name, kept);
+    }
+
+    /// <summary>
+    /// A program made from another on demand (a linked producer or a trimmed pixel program), which the library cannot
+    /// read again by name: without it, every tiled-lighting pipeline (VS_TiledLighting linked to its TL_PS) drew its
+    /// rectangles as triangles, half of each tile.
+    /// </summary>
+    public static bool Derived(string name)
+    {
+        return name.Contains(".link-", StringComparison.Ordinal) || name.Contains(".trim", StringComparison.Ordinal);
     }
 
     /// <summary>The programs, input layout and target formats of a remembered pipeline, for traces; null when unknown.</summary>
@@ -132,7 +143,7 @@ internal sealed unsafe class RectanglePipelines
 
         foreach (var name in recipe.Programs)
         {
-            var program = _programs.Load(name);
+            var program = recipe.Kept.GetValueOrDefault(name) ?? _programs.Load(name);
 
             if (program is null)
             {

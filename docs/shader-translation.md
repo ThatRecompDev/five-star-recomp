@@ -26,7 +26,9 @@ The container is read from `<fssm folder>/../dxbc/<name>.dxbc` (see Disassembly 
 text, so the decoder prints every instruction exactly as llvm-objdump does for gfx1013 (wave64 lane masks as with
 `+wavefrontsize64`), branch targets appended as `@T0x<target>`. It also keeps the listing's quirks: a dword that is no
 instruction is `.long 0x...`, a run of 8 or more zero bytes is left out, and an instruction llvm-objdump lists with an
-alignment warning is dropped, as the listing parser drops that line. Opcode numbers and field layouts come from AMD's
+alignment warning is dropped, as the listing parser drops that line. A VOP3 source the instruction does not read
+may hold 0 or the inline constant 0 (llvm-mc 23 writes the latter, older releases the former); any other value makes the
+dword `.long`. Opcode numbers and field layouts come from AMD's
 "RDNA 2 Instruction Set Architecture" reference guide.
 
 `LlvmDisassembler` (llvm-mc wraps the bytes in an object file, llvm-objdump lists it, `ObjdumpParser` reads the
@@ -55,7 +57,14 @@ Prints the program, code block and instruction counts and the first difference o
   loop's end, while its last write in program order is an `s_buffer_load`) would be read in the wrong form, so a first
   translation finds such registers and the second keeps them in their integer variables: each mask write also sets
   them with a ballot, and mask reads test them with `lane_bit` (cases `cs_mask_on_taken_path`,
-  `cs_integer_on_taken_path`). On wave64 the high dword of every mask is set this way too.
+  `cs_integer_on_taken_path`). On wave64 the high dword of every mask is set this way too. The first translation
+  records, per block, the form each read assumed and each write left (`MaskForms`); `MaskFormAnalysis` carries the
+  forms each register may hold from block to block along the branches (registers not yet written are integers) and
+  keeps only those a read may reach in the other form. A register used as an integer in one part of a program and as
+  a mask in another stays a plain bool (`cs_mask_after_integer`). Before, any register ever used both ways was kept in
+  its integer variables: on `CS_ScreenProbes_ActivateProbes` (wave64) that was 33 of its 34 masks; now one is (s0,
+  also a `s_getpc`/`s_setpc` address), and its HLSL goes from 32,393 `vw_ballot` and 20,976 `lane_bit` to
+  17,411 and 2,167.
 - SCC is the bool `scc`, set by compares, logic, carries and shifts as the hardware does.
 - Registers read before any write are hardware inputs, assigned in a prologue (rules in [fssm.md](fssm.md)); a read
   outside the input layout is 0.
@@ -280,7 +289,7 @@ The other memory paths, the same way (opcodes counted in the corpus):
 - Image atomics with dmask 0x3 (0xf for cmpswap) are 64-bit: `image_atomic_umax v[0:1], ... dmask:0x3` on an
   R32G32_UINT texel (974 instructions) is a max of the 64-bit value v1:v0. They were translated as 32-bit atomics on
   the low dword; they are `uint64_t` typed atomics now (SM 6.6, the device's AtomicInt64OnTypedResource), on the
-  R32G32_UINT view. The DXIL backend refuses 64-bit texels, so dxc compiles those programs (`cs_image_atomic_64`).
+  R32G32_UINT view. The DXIL backend lowers them as an i64 `atomicBinOp` on a uint64_t texture, with the shader flags for 64-bit atomics on typed and descriptor-heap resources, as dxc does (`cs_image_atomic_64`; 679 alpha-prepass programs of the corpus); other 64-bit texel access it refuses.
 - LDS byte and short accesses and their d16 forms (`ds_read_u16`, `ds_read_u16_d16_hi`, `ds_write_b16`,
   `ds_write_b16_d16_hi`: 110 instructions) read and write the right half (`cs_lds_d16_hi`); `global_load_ushort` (6) too.
 - Image loads and samples read every texture as `float4`, and their d16 forms pack `f32tof16` of it. An integer

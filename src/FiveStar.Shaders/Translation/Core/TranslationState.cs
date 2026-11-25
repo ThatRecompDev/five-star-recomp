@@ -135,6 +135,9 @@ internal sealed class TranslationState
     /// <summary>SGPRs used as integers (written, or read while not a mask) somewhere in the program.</summary>
     public HashSet<RegisterKey> IntegerUses { get; } = [];
 
+    /// <summary>The form each block reads and leaves its SGPRs in (Stages.MaskFormAnalysis).</summary>
+    public MaskForms Forms { get; } = new();
+
     /// <summary>
     /// SGPRs that are a lane mask on some paths and an integer on others (found by a first translation): their mask
     /// writes also set the integer variables and every read uses those, so a read is right whichever path ran
