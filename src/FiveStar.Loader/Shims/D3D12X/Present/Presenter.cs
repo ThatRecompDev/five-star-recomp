@@ -489,6 +489,11 @@ internal sealed unsafe class Presenter : IDisposable
 
     private void Failed(int hr)
     {
+        if (DeviceLoss.IsRemoval(hr))
+        {
+            DeviceLoss.Noticed($"a present failed with {HResult.Format(hr)}");
+        }
+
         _warnings.Warn($"present-{hr:x8}", $"[present] IDXGISwapChain::Present failed: {HResult.Format(hr)}");
     }
 

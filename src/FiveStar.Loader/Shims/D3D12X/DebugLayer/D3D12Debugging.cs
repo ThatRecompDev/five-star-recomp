@@ -129,6 +129,7 @@ internal sealed unsafe class D3D12Debugging : IDisposable
         }
 
         _log.Error($"[d3d12-debug] device removed: reason {HResult.Format(RemovedReason())}");
+        DeviceLoss.Noticed("the debug layer's removal event");
         Messages.Drain();
         DredReport.Write(_device, _log);
     }

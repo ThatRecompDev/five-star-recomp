@@ -167,7 +167,8 @@ any case (`QueueProgress`), so this costs nothing until a stall. The game's code
 | `gpu memory` | QueryVideoMemoryInfo per adapter: local and non-local usage and budget |
 
 A walk of 200,000 to 300,000 regions takes 0.4 to 1 s. `--min-free-memory <GB>` and `--max-commit <GB>` poll the machine
-every 0.25 s and end the process with a last map (exit code 5).
+every 0.25 s and end the process with a last map (exit code 5). A removed desktop device ends the process too (`DeviceLoss`, exit code 6): at the first sign (a queue fence reading
+UINT64_MAX, a present failing with a removal code, the debug layer's removal event) new submissions are dropped and, s later, after the removal reports are written, the process ends. After w80's removal the game went on until commit about 106 GB; on a 16 GB machine that is a swap storm.
 
 **Story load, before the compile budget** (RTX 4090, 64 GB, programs on demand): private 17 GB at 47 s, 26 GB at 96 s,
 54 GB at 147 s, 60 GB at 165 s; the growth is anonymous memory in power-of-two regions, almost fully committed (8 GB,
