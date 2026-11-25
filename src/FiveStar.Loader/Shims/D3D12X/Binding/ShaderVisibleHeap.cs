@@ -113,7 +113,15 @@ internal sealed unsafe class ShaderVisibleHeap
             WriteRecord(index + i, desktop + i, buffer);
         }
 
-        return _desktopStart + (nint)((ulong)desktop * Increment);
+        nint start = _desktopStart + (nint)((ulong)desktop * Increment);
+
+        // The desktop descriptors are about to be rewritten: a stand-in fill must not take one for the UAV it was.
+        if (RtStandIns.Enabled)
+        {
+            UavViews.Forget(start, count, Increment);
+        }
+
+        return start;
     }
 
     /// <summary>The desktop CPU handle of the descriptor the record at <paramref name="index"/> names.</summary>

@@ -70,6 +70,7 @@ internal static unsafe class QueueProgress
         {
             PipelineNames[pipeline] = names;
             Binding.TableReaches.Register(pipeline, names);
+            Binding.RtStandIns.Named(pipeline, names);
         }
     }
 
