@@ -78,9 +78,13 @@ public sealed unsafe class WaitObjectsTests
         }
     }
 
-    /// <summary>A stack value inside an image's range is only read when the call bytes before it are committed.</summary>
-    [Fact]
-    public void A_value_after_an_uncommitted_page_is_not_read()
+    /// <summary>A stack value inside an image's range is only read when the call bytes before it are committed readable code.</summary>
+    [Theory]
+    [InlineData(Win32Constants.PageExecuteRead, true)]
+    [InlineData(Win32Constants.PageExecuteReadWrite, true)]
+    [InlineData(Win32Constants.PageExecute, false)]
+    [InlineData(Win32Constants.PageReadWrite, false)]
+    public void A_value_after_a_page_that_is_not_readable_code_is_not_read(uint protection, bool read)
     {
         int page = Environment.SystemPageSize;
         nint region = Kernel32.VirtualAlloc(0, (nuint)(page * 2), Win32Constants.MemReserve, Win32Constants.PageReadWrite);
@@ -88,11 +92,11 @@ public sealed unsafe class WaitObjectsTests
 
         try
         {
-            Assert.NotEqual(0, Kernel32.VirtualAlloc(region + page, (nuint)page, Win32Constants.MemCommit, Win32Constants.PageReadWrite));
+            Assert.NotEqual(0, Kernel32.VirtualAlloc(region + page, (nuint)page, Win32Constants.MemCommit, protection));
 
             Assert.False(ReturnAddresses.CallBytesReadable(region + 16));
             Assert.False(ReturnAddresses.CallBytesReadable(region + page + 2));
-            Assert.True(ReturnAddresses.CallBytesReadable(region + page + 16));
+            Assert.Equal(read, ReturnAddresses.CallBytesReadable(region + page + 16));
         }
         finally
         {

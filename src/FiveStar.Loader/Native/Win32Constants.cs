@@ -20,6 +20,7 @@ internal static class Win32Constants
     public const uint PageExecute = 0x10;
     public const uint PageExecuteRead = 0x20;
     public const uint PageExecuteReadWrite = 0x40;
+    public const uint PageExecuteWriteCopy = 0x80;
     public const uint PageGuard = 0x100;
 
     /// <summary>The x64 page size (winnt.h PAGE_SIZE on AMD64).</summary>
