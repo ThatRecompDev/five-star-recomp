@@ -78,11 +78,18 @@ internal static class KeyNames
         throw new FormatException($"unknown key name '{name}'");
     }
 
+    /// <summary>Whether a virtual key is an input script's pad key (<see cref="FirstPadKey"/>).</summary>
+    [HotPath]
+    public static bool IsPadKey(int virtualKey)
+    {
+        return virtualKey >= FirstPadKey && virtualKey <= LastPadKey;
+    }
+
     /// <summary>Whether a virtual key belongs in a keyboard reading: not a mouse button and not a side-less modifier.</summary>
     [HotPath]
     public static bool IsKeyboardKey(int virtualKey)
     {
-        if (virtualKey <= MouseButton5 || (virtualKey >= FirstPadKey && virtualKey <= LastPadKey))
+        if (virtualKey <= MouseButton5 || IsPadKey(virtualKey))
         {
             return false;
         }

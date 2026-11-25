@@ -281,13 +281,18 @@ internal sealed class InputScript
         return new CursorPosition((long)x, (long)y);
     }
 
-    /// <summary>Marks the scripted keys held at <paramref name="seconds"/> as down.</summary>
+    /// <summary>Marks the scripted keys held at <paramref name="seconds"/> as down; with <paramref name="padOnly"/>, the pad keys alone.</summary>
     [HotPath]
-    public void Apply(PressedKeys keys, double seconds)
+    public void Apply(PressedKeys keys, double seconds, bool padOnly = false)
     {
         for (int i = 0; i < Presses.Count; i++)
         {
             var press = Presses[i];
+
+            if (padOnly && !KeyNames.IsPadKey(press.Key))
+            {
+                continue;
+            }
 
             if (TryTime(press.Block, press.Start, out double at) && seconds >= at && seconds < at + press.Hold)
             {

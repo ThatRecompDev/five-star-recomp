@@ -9,6 +9,15 @@ internal interface IDesktopSource
     /// <summary>Fills <paramref name="keys"/> with every virtual key held now, mouse buttons included.</summary>
     void ReadKeys(PressedKeys keys);
 
+    /// <summary>
+    /// Fills <paramref name="keys"/> with the keys the virtual gamepad maps to buttons: the held keys, but an input
+    /// script's keys only through its pad keys (PadA and the rest), so a scripted key reaches the game once.
+    /// </summary>
+    void ReadPadKeys(PressedKeys keys)
+    {
+        ReadKeys(keys);
+    }
+
     /// <summary>The cursor position in screen pixels; the shim turns its changes into mouse motion.</summary>
     CursorPosition ReadCursor();
 

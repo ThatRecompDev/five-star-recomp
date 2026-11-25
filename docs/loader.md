@@ -502,8 +502,8 @@ logged as `[debug]` (first 4096 messages).
 
 **Input script.** `--input-script` lines are `<seconds> <key> [hold <s>] [repeat <n> every <s>]`, times from loader
 start or from the start of their screen block (below; `+<s>`: that long after the previous line), keys named as in the input config, `#` a comment. A scripted key counts as held on the desktop, so the keyboard
-and the keyboard-and-mouse gamepad both see it (`Space` is A). `PadA`, `PadB`, `PadX`, `PadY`, `PadMenu` and `PadView`
-press that gamepad button alone, with no keyboard key (the game may take `Space` from both devices and act twice). The game reads input only through its own GameInput
+and the keyboard-and-mouse gamepad's bindings never see it (the game read a key bound to both twice: a check box ticked on and off). `PadA`, `PadB`, `PadX`, `PadY`, `PadMenu` and `PadView`
+press that gamepad button alone. Script only, the cursor is parked once in the top right corner, off the menus. The game reads input only through its own GameInput
 calls; a press while it does not poll has no effect. `<seconds> capture` reads back the next present at that time
 (with `--capture-dir`, [d3d12x-shim.md](d3d12x-shim.md#debug-layer)); `<seconds> cursor <dx> <dy> [hold <s>] [repeat …]`
 moves the cursor dx, dy pixels a second for the hold time, which the keyboard-and-mouse gamepad turns into the right
