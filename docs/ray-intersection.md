@@ -73,6 +73,13 @@ The warm-up, the journal's pre-builds and the cache go through the same build an
 but the passes running, still lost the device about 100 s after the world loaded; with these pipelines skipped boots
 ran 300 to 600 s. VIctory holds such pipelines until its builder has run (its PR #2311; facts only). Programs of `--translated-dir` have no marker and are not held back.
 
+Some programs only serve ray tracing but trace no rays. They are held by name (`RayTracingPrograms.ServesRays`):
+- the `bvh_` groups (`bvh_skinning`, `bvh_skinning_smh`) skin geometry for structures that are never built;
+- `CS_RaytracingResolve` shades the hits of rays that are never traced;
+- `rtdirectionalshadows` feeds and upsamples the held distant-shadow traces.
+
+Boot w70e held only the tracing programs and lost the device after the world loaded. w71 also skipped these and survived the world load.
+
 
 The loader builds no acceleration structure without `--raytracing` (XboxBvhBuilder builds nothing), so programs it
 makes on demand define `FIVESTAR_BVH_MISS` (`BvhMiss`, part of the program cache identity): every node misses and
