@@ -12,6 +12,9 @@ public interface IBackendRunner
     /// <summary>Whether dxil.dll's validator checks every container.</summary>
     bool Validates { get; }
 
+    /// <summary>What else the output depends on (the LLVM post-pass, <see cref="LlvmPostPass"/>); empty for none.</summary>
+    string PostPass => string.Empty;
+
     /// <summary>Compiles one request; the DXIL is written only when the verdict is <see cref="BackendVerdict.Compiled"/>.</summary>
     BackendResult Run(CompileRequest request);
 }
