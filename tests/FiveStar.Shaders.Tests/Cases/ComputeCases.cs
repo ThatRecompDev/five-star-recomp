@@ -8,7 +8,7 @@ public static class ComputeCases
 {
     public static IEnumerable<ComputeCase> All()
     {
-        return ComputeGroupCases.All().Concat(ComputeWaveCases.All()).Concat(ComputeMemoryCases.All()).Concat(ComputeBufferRuleCases.All());
+        return ComputeGroupCases.All().Concat(ComputeWaveCases.All()).Concat(ComputeMemoryCases.All()).Concat(ComputeBufferRuleCases.All()).Concat(ComputeImageCases.All());
     }
 
     public static IEnumerable<ComputeCase> FullWave()

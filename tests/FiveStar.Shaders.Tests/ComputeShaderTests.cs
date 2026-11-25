@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FiveStar.Shaders.Dxil;
 using FiveStar.Shaders.Tests.Cases;
 using FiveStar.Shaders.Tests.Toolchain;
 using Xunit;
@@ -23,6 +24,10 @@ public sealed class ComputeShaderTests : IClassFixture<WarpFixture>
     }
 
     public static TheoryData<string> Cases => [.. ComputeCases.All().Select(testCase => testCase.Name)];
+
+    public static TheoryData<string> BackendCases => [.. ComputeCases.All().Where(testCase => !testCase.DxcOnly).Select(testCase => testCase.Name)];
+
+    public static TheoryData<string> DxcOnlyCases => [.. ComputeCases.All().Where(testCase => testCase.DxcOnly).Select(testCase => testCase.Name)];
 
     public static TheoryData<string> FullWaveCases => [.. ComputeCases.FullWave().Select(testCase => testCase.Name)];
 
@@ -68,12 +73,20 @@ public sealed class ComputeShaderTests : IClassFixture<WarpFixture>
     }
 
     [WarpTheory]
-    [MemberData(nameof(Cases))]
+    [MemberData(nameof(BackendCases))]
     public void The_dxil_backend_computes_what_the_isa_defines(string name)
     {
         var mismatches = new ComputeCaseRunner(_fixture).RunDirect(ComputeCases.Find(name));
 
         Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
+    }
+
+    /// <summary>What the backend cannot lower right it refuses, so the loader compiles it with dxc.</summary>
+    [WarpTheory]
+    [MemberData(nameof(DxcOnlyCases))]
+    public void The_dxil_backend_refuses_what_it_cannot_lower(string name)
+    {
+        Assert.Throws<DxilBackendException>(() => new ComputeCaseRunner(_fixture).RunDirect(ComputeCases.Find(name)));
     }
 
     [WarpTheory]

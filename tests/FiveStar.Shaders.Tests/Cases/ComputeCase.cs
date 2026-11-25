@@ -38,9 +38,15 @@ public sealed record ComputeCase(string Name, string Program, int Outputs, Func<
 
     public IReadOnlyList<BufferResource> Buffers { get; init; } = [];
 
+    /// <summary>Textures at their heap slots; a writable one is read back for <see cref="Check"/> under its slot.</summary>
+    public IReadOnlyList<TextureResource> Textures { get; init; } = [];
+
     public int LdsBytes { get; init; }
 
     public bool Raw { get; init; }
+
+    /// <summary>The DXIL backend refuses the program (dxc compiles it in the loader), so it has no backend run.</summary>
+    public bool DxcOnly { get; init; }
 
     /// <summary>Needs a PC wave as wide as the AMD wave (WARP runs 4 lanes, so these are skipped there).</summary>
     public bool FullWave { get; init; }

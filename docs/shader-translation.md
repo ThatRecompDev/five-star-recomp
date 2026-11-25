@@ -218,6 +218,19 @@ a WARP case per rule):
 `s_buffer_load` compares its whole offset with `sbuf_limit`: num_records in bytes for stride 0, else num_records ×
 stride.
 
+The other memory paths, the same way (opcodes counted in the corpus):
+
+- Image atomics with dmask 0x3 (0xf for cmpswap) are 64-bit: `image_atomic_umax v[0:1], ... dmask:0x3` on an
+  R32G32_UINT texel (974 instructions) is a max of the 64-bit value v1:v0. They were translated as 32-bit atomics on
+  the low dword; they are `uint64_t` typed atomics now (SM 6.6, the device's AtomicInt64OnTypedResource), on the
+  R32G32_UINT view. The DXIL backend refuses 64-bit texels, so dxc compiles those programs (`cs_image_atomic_64`).
+- LDS byte and short accesses and their d16 forms (`ds_read_u16`, `ds_read_u16_d16_hi`, `ds_write_b16`,
+  `ds_write_b16_d16_hi`: 110 instructions) read and write the right half (`cs_lds_d16_hi`); `global_load_ushort` (6) too.
+- Image loads and samples read every texture as `float4`, and their d16 forms pack `f32tof16` of it. An integer
+  texture read with d16 (1,500 `image_load ... d16`, format unknown statically: the T# records hold only the heap
+  index) would need the integer's low 16 bits instead; not changed.
+- `s_load` and `global_load` look every dword up at its own address, so a load across a page reaches each page.
+
 soffset matters: the meshlet culling kernels (`CS_BatchCullBatchCSMeshlets` and its siblings) take argument slots with
 `buffer_atomic_add v4, off, s[44:47], s11 glc`, addressing only through soffset (ThatRecompDev/five-star-recomp#3).
 Loads use `select`, not `?:`. HLSL 2021 short-circuits `?:`, and the branches around each load raised dxc time by

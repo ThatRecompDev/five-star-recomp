@@ -77,7 +77,7 @@ public sealed class ComputeCaseRunner
         var shader = Build(testCase, variant, direct);
         uint[] user = [.. ComputeCase.Descriptor(ComputeCase.OutputHeap), .. testCase.SecondDescriptor, .. testCase.User, .. new uint[ComputeCase.UserSgprCount]];
         var output = new BufferResource(ComputeCase.OutputHeap, [.. Enumerable.Repeat(testCase.Fill, testCase.TotalThreads * testCase.Outputs)], Writable: true);
-        var bindings = new Bindings { UserSgprs = user[..ComputeCase.UserSgprCount], Buffers = [output, .. testCase.Buffers] };
+        var bindings = new Bindings { UserSgprs = user[..ComputeCase.UserSgprCount], Buffers = [output, .. testCase.Buffers], Textures = testCase.Textures };
         var (x, y, z) = testCase.Groups;
         var result = _fixture.Runner.Compute(new ComputeJob(shader, x, y, z, bindings));
 
@@ -88,7 +88,10 @@ public sealed class ComputeCaseRunner
             wave = testCase.Wave;
         }
 
-        return Compare(testCase, result.Buffers, wave);
+        // Writable textures are read back beside the buffers, by heap slot, for Check.
+        var written = result.Buffers.Concat(result.Textures).ToDictionary(pair => pair.Key, pair => pair.Value);
+
+        return Compare(testCase, written, wave);
     }
 
     private byte[] Build(ComputeCase testCase, Func<ShaderProgram, string>? variant, bool direct)
