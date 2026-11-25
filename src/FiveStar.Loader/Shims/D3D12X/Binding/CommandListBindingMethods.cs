@@ -994,6 +994,11 @@ internal static unsafe class CommandListBindingMethods
             DepthTwins.MarkWriters(self, data, ShimContext.Runtime.D3D12X.Bindings.Window.Data, entries);
         }
 
+        if (SharedExponentAliases.Any)
+        {
+            SharedExponentAliases.BeforeWork(self->Inner, ShimContext.Runtime.D3D12X.ListStates.For(self), data, ShimContext.Runtime.D3D12X.Bindings.Window.Data, entries);
+        }
+
         var heaps = ShimContext.Runtime.D3D12X.DescriptorHeaps;
 
         foreach (var entry in entries)

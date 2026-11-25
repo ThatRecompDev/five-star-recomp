@@ -17,6 +17,7 @@ public static class PixelValuCases
             Transcendental(),
             SinLargeArgument(),
             RoundLdexp(),
+            NanRules(),
             Modifiers(),
             HalfArithmetic(),
             HalfInlineConstants(),
@@ -161,6 +162,24 @@ public static class PixelValuCases
              F(-1), F(-1), IsaFloat.Ldexp(1.5, 3), IsaFloat.Ldexp(Math.Pow(2, -100), 200), IsaFloat.Ldexp(1.5, -2),
              IsaFloat.RoundNearestEven(-0.5), IsaFloat.Fract(V(0xAEDBE6FF))],
             F(-1.25), F(2.5), F(3.5), F(-2.5), F(Math.Pow(2, -100)), F(1.5), F(-0.5), 0xAEDBE6FF);
+    }
+
+    // RDNA2 with NaN and near 1.0 (victory-fork 36eb0b4, 2e5001c, 51f1627): med3 with a NaN is the minimum (5, NaN, 3
+    // gives 3, not 5); lg is false against a NaN; fract_f16 of a tiny negative half is 0x3bff, not 1.0; fract(NaN) is NaN.
+    private static PixelCase NanRules()
+    {
+        const string Program = """
+            v_mov_b32 v10, s1
+            v_mov_b32 v11, 1.0
+            v_mov_b32 v22, 0
+            v_med3_f32 v20, s0, v10, s2
+            v_cmp_lg_f32_e32 vcc_lo, s0, v10
+            v_cndmask_b32_e32 v21, 0, v11, vcc_lo
+            v_fract_f16_e32 v22, s3
+            v_fract_f32_e32 v23, s1
+            """;
+
+        return PixelCase.Uniform("nan_rules", Program, [F(3), 0u, 0x3BFFu, Expected.Nan], F(5), FloatBits.QuietNan, F(3), 0x8400);
     }
 
     // omod / clamp / abs / neg source modifiers; the cndmask selector is an integer SGPR.
