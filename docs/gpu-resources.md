@@ -44,7 +44,9 @@ flowchart LR
   descriptors written earlier may still name it (`--kept-aliases <n>`, default 1; it was 2, a second texture of video
   memory per reused slot charged to commit, while a placed texture's heap range stays mapped after release anyway), and older ones are released 30 presents later; any other is
   released 8 presents later (the memory went to something else), and either only once every queue has finished the work
-  it had submitted when the texture was retired (its shim fence), so no list still on the GPU can sample it. The grace
+  it had submitted when its grace ended (its shim fences; taken when the grace ends, not only at the retire, so a list
+  recorded before the retire and submitted during the grace is waited for too), so no list still on the GPU can sample it; the
+  release itself runs outside the registry's lock. The grace
   was 600 and 120 presents without the fences; boot w36 held 4,905 retired textures, their video memory charged to
   commit, when commit reached its limit. Keeping them all was a leak: in the
   opening cutscene the game streams textures through the same memory, about 45,000 were made in 7 minutes, and once
