@@ -22,10 +22,10 @@ public sealed class LoopCapsTests
         Assert.Equal(256 * 256, caps.DispatchSteps(ShaderStage.Mesh));
         Assert.Equal(256, caps.Rounds(ShaderStage.Mesh));
 
-        // The default caps bound a mesh program's dispatch blocks at 2^20, its superstep blocks at 2^16 and its group rounds at 2^12; compute keeps 2^24 blocks.
+        // The default caps bound a mesh program's dispatch blocks at 2^20, its superstep blocks at 2^13 and its group rounds at 2^12; compute keeps 2^24 blocks.
         Assert.Equal(1L << 20, LoopCaps.Default.DispatchSteps(ShaderStage.Mesh));
         Assert.Equal(1L << 12, LoopCaps.Default.Rounds(ShaderStage.Mesh));
-        Assert.Equal(1L << 16, LoopCaps.Default.SuperstepSteps(ShaderStage.Mesh));
+        Assert.Equal(1L << 13, LoopCaps.Default.SuperstepSteps(ShaderStage.Mesh));
         Assert.Equal(LoopGuard.DispatchSteps, LoopCaps.Default.DispatchSteps(ShaderStage.Compute));
     }
 
