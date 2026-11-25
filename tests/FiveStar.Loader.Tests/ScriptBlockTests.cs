@@ -102,8 +102,27 @@ public sealed class ScriptBlockTests
         var learned = ScreenSignature.Of(Frame(checkedBox: false, scrolled: 0), Width, Height);
         var scrolled = ScreenSignature.Of(Frame(checkedBox: false, scrolled: 200), Width, Height);
 
-        Assert.Null(matcher.Seen(script.Blocks[1], 1, scrolled, learned, 0, beforePress: false));
-        Assert.NotNull(matcher.Seen(script.Blocks[1], 1, scrolled, learned, 0, beforePress: false));
+        Assert.Null(matcher.Seen(script.Blocks[1], 1, scrolled, learned, 0, beforePress: false, 0));
+        Assert.NotNull(matcher.Seen(script.Blocks[1], 1, scrolled, learned, 0, beforePress: false, 0.25));
+    }
+
+    [Fact]
+    public void A_settling_block_begins_once_its_screen_stayed_still()
+    {
+        var script = InputScript.Parse(["screen terms 0 settle 1 settle-region 0 0 23 26"]);
+        var matcher = new BlockMatcher();
+        var learned = ScreenSignature.Of(Frame(checkedBox: false, scrolled: 0), Width, Height);
+        var fading = ScreenSignature.Of(Frame(checkedBox: true, scrolled: 0), Width, Height);
+
+        // Shown at 10.25 s; the left half still changes at 10.5 s, then stays still; the right half (scrolling text) does not count.
+        Assert.Null(matcher.Seen(script.Blocks[1], 1, learned, learned, 0, beforePress: false, 10));
+        Assert.Null(matcher.Seen(script.Blocks[1], 1, learned, learned, 0, beforePress: false, 10.25));
+        Assert.Null(matcher.Seen(script.Blocks[1], 1, fading, learned, 0, beforePress: false, 10.5));
+        Assert.Null(matcher.Seen(script.Blocks[1], 1, ScreenSignature.Of(Frame(checkedBox: true, scrolled: 300), Width, Height), learned, 0, beforePress: false, 11.25));
+        Assert.NotNull(matcher.Seen(script.Blocks[1], 1, fading, learned, 0, beforePress: false, 11.5));
+
+        Assert.Equal(1.0, script.Blocks[1].Settle);
+        Assert.Equal(new CellRegion(0, 0, 23, 26), script.Blocks[1].SettleRegion);
     }
 
     [Fact]
@@ -121,7 +140,7 @@ public sealed class ScriptBlockTests
         int block = script.WaitingBlock;
         var signature = ScreenSignature.Of(frame, Width, Height);
 
-        return matcher.Seen(script.Blocks[block], block, signature, null, 0, !script.Pressed(block - 1, seconds));
+        return matcher.Seen(script.Blocks[block], block, signature, null, 0, !script.Pressed(block - 1, seconds), seconds);
     }
 
     /// <summary>Whether a press of <paramref name="key"/> is held at <paramref name="seconds"/>.</summary>
