@@ -12,13 +12,14 @@ namespace FiveStar.Shaders.Tests.Cases;
 /// <summary>
 /// A 128-thread wave64 NGG group (two console waves) whose results need whole console waves: two v_readfirstlanes under
 /// EXEC (lanes above thread 40: thread 41 in wave 0, 64 in wave 1; one step in the superstep form), v_readlane of lane 63, a ballot count, and in wave 1
-/// only (an SCC branch on the wave index) a region that windows above thread 71 skip with a v_readlane of lane 5 in it.
-/// Each thread stores the four values. The superstep form runs it on WARP's 4-lane waves.
+/// only (an SCC branch on the wave index) a region that windows above thread 71 skip with a v_readlane of lane 5 in it;
+/// then three wave operations whose result every lane already holds (UniformWaveOperations). Each thread stores seven
+/// values. The superstep form runs it on WARP's 4-lane waves.
 /// </summary>
 public sealed class MeshSuperstepRunner
 {
     public const int Threads = 128;
-    public const int Results = 4;
+    public const int Results = 8;
 
     private const int OutputHeap = 2;
     private const int Wave = 64;
@@ -49,15 +50,36 @@ public sealed class MeshSuperstepRunner
         .Ldone:
         s_mov_b64 exec, s[24:25]
         .Lshared:
+        v_mov_b32 v7, s20
+        v_add_nc_u32_e32 v7, 7, v7
+        v_readfirstlane_b32 s40, v7
+        v_mov_b32 v24, 0
+        v_cmp_gt_u32_e32 vcc, 3, v5
+        s_and_saveexec_b64 s[26:27], vcc
+        s_cbranch_execz .Lskip
+        v_mov_b32 v24, 9
+        .Lskip:
+        s_mov_b64 exec, s[26:27]
+        v_mov_b32 v25, 1
+        s_cmp_eq_u32 s20, 1
+        s_cselect_b64 s[28:29], exec, 0
+        s_and_b64 vcc, exec, s[28:29]
+        s_cbranch_vccz .Lnot
+        v_mov_b32 v25, 5
+        .Lnot:
+        v_mov_b32 v26, s40
         v_mov_b32 v20, s30
         v_mov_b32 v21, s31
         v_mov_b32 v22, s32
         v_mov_b32 v23, s33
-        v_lshlrev_b32_e32 v40, 4, v5
+        v_lshlrev_b32_e32 v40, 5, v5
         buffer_store_dword v20, v40, s[8:11], 0 offen
         buffer_store_dword v21, v40, s[8:11], 0 offen offset:4
         buffer_store_dword v22, v40, s[8:11], 0 offen offset:8
         buffer_store_dword v23, v40, s[8:11], 0 offen offset:12
+        buffer_store_dword v26, v40, s[8:11], 0 offen offset:16
+        buffer_store_dword v24, v40, s[8:11], 0 offen offset:20
+        buffer_store_dword v25, v40, s[8:11], 0 offen offset:24
         v_mov_b32 v6, 0
         exp pos0 v6, v6, v6, v6 done
         s_endpgm
@@ -139,6 +161,11 @@ public sealed class MeshSuperstepRunner
         uint last = (uint)(((wave * Wave) + Wave - 1) * 3);
         uint fifth = wave == 1 ? (uint)((Wave + 5) * 3) : 0u;
 
-        return [first, last, 32, fifth];
+        // A readfirstlane of a value equal on every lane under full EXEC, a skip only lanes 0-2 enter (wave 1 runs it
+        // with no lane active in the superstep form) and a branch on a scalar condition as a mask: no step each.
+        uint skipped = thread < 3 ? 9u : 0u;
+        uint scalar = wave == 1 ? 5u : 1u;
+
+        return [first, last, 32, fifth, (uint)wave + 7u, skipped, scalar, 0];
     }
 }

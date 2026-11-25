@@ -27,6 +27,9 @@ internal sealed partial class WindowAnalysis
     private readonly Dictionary<int, WindowState> _entries = [];
     private readonly Dictionary<int, int> _entersAlways = [];
 
+    // EntryFacts: no reason stops the pass, and every branch passes its state to both paths.
+    private bool _factsOnly;
+
     public WindowAnalysis(IReadOnlyList<CodeBlock> blocks, IReadOnlyList<string> prologue, int threads)
     {
         _graph = new WindowGraph(blocks);
@@ -72,6 +75,30 @@ internal sealed partial class WindowAnalysis
         return Solve(start);
     }
 
+    /// <summary>
+    /// The facts on entry to every reachable block, with no reason stopping the pass and every branch passing its state
+    /// to both paths: what holds on the console wave's lanes (<see cref="ValueFact.Uniform"/>, <see cref="ValueFact.AllUniform"/>,
+    /// <see cref="ValueFact.Full"/>, mask kinds) whatever a window does. Null when the pass does not settle.
+    /// </summary>
+    public IReadOnlyDictionary<int, WindowState>? EntryFacts()
+    {
+        _factsOnly = true;
+        var start = new WindowState();
+        var transfer = new StatementTransfer(start, _threads);
+
+        foreach (var line in _prologue)
+        {
+            transfer.Apply(WindowStatement.Parse(line));
+        }
+
+        if (Solve(start) is not null)
+        {
+            return null;
+        }
+
+        return _entries;
+    }
+
     private string? Solve(WindowState start)
     {
         _entries[_graph.Entry] = start;
@@ -112,7 +139,7 @@ internal sealed partial class WindowAnalysis
         {
             var reason = transfer.Apply(statement);
 
-            if (reason is not null)
+            if (reason is not null && !_factsOnly)
             {
                 return reason;
             }
@@ -125,7 +152,7 @@ internal sealed partial class WindowAnalysis
             state.PhaseTwo |= state.Allocated;
         }
 
-        if (exit.Kind != BlockExitKind.Conditional)
+        if (exit.Kind != BlockExitKind.Conditional || _factsOnly)
         {
             block.Successors.ToList().ForEach(successor => Propagate(successor, state, pending));
 

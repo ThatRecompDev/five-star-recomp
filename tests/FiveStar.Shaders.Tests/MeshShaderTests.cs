@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Five Star Recomp contributors.
+﻿// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Shaders.Tests.Cases;
@@ -67,6 +67,7 @@ public sealed class MeshShaderTests : IClassFixture<WarpFixture>
         Assert.StartsWith("// program wave 64; console results on hardware waves >= 4 lanes\n", runner.Supersteps(carry), StringComparison.Ordinal);
         Assert.Equal(carry, runner.Supersteps(carry).Contains("// carry: ", StringComparison.Ordinal));
         Assert.Contains("vw_ss_put_values(", runner.Supersteps(carry), StringComparison.Ordinal);
+        Assert.Contains("// superstep: 19 stops,", runner.Supersteps(carry).Split('\n').First(line => line.Contains("// superstep:", StringComparison.Ordinal)), StringComparison.Ordinal);
 
         var mismatches = runner.Run(carry);
 
