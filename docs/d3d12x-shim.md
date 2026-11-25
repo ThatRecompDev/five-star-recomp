@@ -840,8 +840,8 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   dword 0x11c of the constant buffer whose V# is record 28 of its table.
 - `--d3d12-watch-target WxH:format` follows the render targets of that shape (`2560x1440:10` is the lit HDR): in the
   frame after each captured present, every draw or ExecuteIndirect that renders into one, and each traced dispatch or
-  compute ExecuteIndirect (which may write it through a UAV), reads it back after itself, up to 16 a frame, labelled
-  `watch draw N <pipeline>`. The first writer after which a channel jumps or turns NaN names the pass that breaks it.
+  compute ExecuteIndirect (which may write it through a UAV), reads it back after itself: each pipeline's first write to
+  each target in that frame, up to `--d3d12-watch-limit` (16) readbacks, labelled `watch draw N <pipeline>`. The first writer after which a channel jumps or turns NaN names the pass that breaks it.
 - `--probe-pipeline <text,...>` makes the mesh, pixel and compute programs whose name holds one of the texts with probe code (`MeshProbe`,
   `MeshProbes`), in any of its forms (two-phase, staged, the superstep form of the wave32 variant): every load site (a
   buffer, formatted or pointer load with the range check before it, an s_buffer_load's compare included) marks itself

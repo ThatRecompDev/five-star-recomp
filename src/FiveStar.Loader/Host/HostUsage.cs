@@ -162,6 +162,7 @@ internal static class HostUsage
                                  (offset@byte: also the dword at that byte of the V#'s buffer, e.g. 0x380@0x11c)
           --d3d12-watch-target WxH:format  with the draw trace, every pass that renders into a target of this shape
                                  (and each traced dispatch) reads it back after captured presents, e.g. 2560x1440:10
+          --d3d12-watch-limit <n>  watched-target readbacks per frame (16); each pipeline's first write to a target only
           --probe-pipeline <text>  mesh programs named with <text> are made with probe code: per group its output
                                  counts, culling, vertex 0's position and the load sites that read out of range,
                                  unmapped pages or null records, summed up at each captured present (--capture-presents);
