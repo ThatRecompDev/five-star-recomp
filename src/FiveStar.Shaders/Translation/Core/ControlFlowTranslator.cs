@@ -235,6 +235,8 @@ internal sealed class ControlFlowTranslator
             {
                 CloseBlock(current, terminated, instruction.Address);
                 current = instruction.Address;
+                _state.Forms.Begin(instruction.Address);
+
                 _state.Body = [];
                 terminated = false;
                 _exit = null;
