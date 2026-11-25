@@ -25,7 +25,13 @@ internal static unsafe class AlignedReservations
     /// </summary>
     public static nint Allocate(nint process, nuint size, uint allocationType, uint protect)
     {
-        var requirements = new AddressRequirements { Alignment = Alignment };
+        return Allocate(process, size, allocationType, protect, Alignment);
+    }
+
+    /// <summary>The same on a multiple of <paramref name="alignment"/>, a power of two of 64 KiB or more.</summary>
+    public static nint Allocate(nint process, nuint size, uint allocationType, uint protect, ulong alignment)
+    {
+        var requirements = new AddressRequirements { Alignment = alignment };
         var parameter = new ExtendedParameter { Type = AddressRequirementsType, Pointer = &requirements };
 
         return KernelBase.VirtualAlloc2(process, 0, size, allocationType, protect, &parameter, 1);
