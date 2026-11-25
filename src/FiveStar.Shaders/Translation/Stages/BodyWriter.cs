@@ -98,8 +98,7 @@ internal sealed class BodyWriter
 
             if (_state.MeshYield)
             {
-                lines.Add("  if (in_gi == 0) { g_ms_live[0] = 0; g_ms_live[1] = 0; g_ms_live[2] = 0; }");
-                lines.Add("  uint ms_step = 0;");
+                lines.AddRange(["  if (in_gi == 0) { g_ms_live[0] = 0; g_ms_live[1] = 0; g_ms_live[2] = 0; }", "  uint ms_step = 0;"]);
             }
 
             if (!_state.MeshYield)
