@@ -21,9 +21,15 @@ internal static unsafe class DepthTwins
     /// <summary>D3D12_RESOURCE_STATE_UNORDERED_ACCESS, where a twin rests.</summary>
     public const int TwinState = 0x8;
 
-    /// <summary>The view formats whose plane gets a twin: R32_FLOAT (the depth of D32 and D32S8), R16_UNORM (D16).</summary>
+    /// <summary>
+    /// The view formats whose plane gets a twin: R32_FLOAT (the depth of D32 and D32S8), R16_UNORM and R16_UINT (D16;
+    /// the material classes as whole steps), and the console's R16_UNORM_X8_TYPELESS (the depth of D16S8, which the
+    /// desktop makes D32S8: its twin is R16_UNORM).
+    /// </summary>
     public const int Float32 = 41;
     public const int Unorm16 = 56;
+    public const int Uint16 = 57;
+    public const int ConsoleUnorm16 = 119;
 
     /// <summary>R8_UINT: the stencil twin's format, and the UAV format the game gives a stencil plane.</summary>
     public const int Uint8 = 62;
@@ -40,7 +46,6 @@ internal static unsafe class DepthTwins
     private static readonly ConcurrentDictionary<(nint Depth, bool Stencil), DepthTwin> Twins = new();
     private static readonly ConcurrentDictionary<nint, (nint Depth, int Format)> DepthViews = new();
     private static readonly ConcurrentDictionary<uint, DepthTwin> Indices = new();
-    private static readonly ConcurrentDictionary<nint, DepthTwin[]> Writers = new();
 
     /// <summary>D3D12_UNORDERED_ACCESS_VIEW_DESC: Texture2D.PlaneSlice after Format, ViewDimension and MipSlice.</summary>
     public const int PlaneSliceOffset = 12;
@@ -53,7 +58,7 @@ internal static unsafe class DepthTwins
     /// <summary>Whether a UAV of <paramref name="viewFormat"/> on a depth texture takes a twin.</summary>
     public static bool Twinned(int viewFormat)
     {
-        return viewFormat is Float32 or Unorm16 || IsStencil(viewFormat);
+        return viewFormat is Float32 or Unorm16 or Uint16 or ConsoleUnorm16 || IsStencil(viewFormat);
     }
 
     /// <summary>Whether a view of <paramref name="viewFormat"/> on a depth texture is of its stencil plane.</summary>
@@ -62,12 +67,20 @@ internal static unsafe class DepthTwins
         return viewFormat is Uint8 or StencilX32 or StencilX24 or StencilX16;
     }
 
-    /// <summary>The format of the twin a UAV of <paramref name="viewFormat"/> writes: R8_UINT for the stencil plane, else the view's.</summary>
+    /// <summary>
+    /// The format of the twin a UAV of <paramref name="viewFormat"/> writes: R8_UINT for the stencil plane, R16_UNORM for
+    /// the console's 16-bit depth view, else the view's.
+    /// </summary>
     public static int TwinFormat(int viewFormat)
     {
         if (IsStencil(viewFormat))
         {
             return Uint8;
+        }
+
+        if (viewFormat == ConsoleUnorm16)
+        {
+            return Unorm16;
         }
 
         return viewFormat;
@@ -158,30 +171,16 @@ internal static unsafe class DepthTwins
     }
 
     /// <summary>
-    /// Before a draw or dispatch of <paramref name="pipeline"/>: the twins whose UAVs its tables hold (found at its first
-    /// use, by the heap indices in the window records its programs reach) are marked written.
+    /// Before a draw or dispatch on <paramref name="self"/>: the twins whose UAVs the tables it binds hold (by the heap
+    /// indices in the window records its programs reach, read anew each time, as the tables and their records change)
+    /// are marked written. Before the first pass that binds a twin, its plane is copied into it (<see cref="DepthTwinFill"/>).
     /// </summary>
-    public static void MarkWriters(nint pipeline, uint* userData, byte* window, TableReachEntry[] tables)
+    [HotPath]
+    public static void MarkWriters(XboxObject* self, uint* userData, byte* window, TableReachEntry[] tables)
     {
-        if (!Writers.TryGetValue(pipeline, out var twins))
-        {
-            twins = Find(userData, window, tables);
-            Writers[pipeline] = twins;
-        }
-
-        foreach (var twin in twins)
-        {
-            twin.MarkWritten();
-        }
-    }
-
-    private static DepthTwin[] Find(uint* userData, byte* window, TableReachEntry[] tables)
-    {
-        var found = new List<DepthTwin>();
-
         if (window == null)
         {
-            return [];
+            return;
         }
 
         foreach (var entry in tables)
@@ -197,13 +196,35 @@ internal static unsafe class DepthTwins
             {
                 uint? index = DebugLayer.DepthUavs.HeapIndex((uint*)(window + table + (i * DescriptorWindow.ViewRecordBytes)));
 
-                if (index.HasValue && Indices.TryGetValue(index.Value, out var twin) && !found.Contains(twin))
+                if (index.HasValue && Indices.TryGetValue(index.Value, out var twin))
                 {
-                    found.Add(twin);
+                    Written(self, twin);
                 }
             }
         }
+    }
 
-        return [.. found];
+    [HotPath]
+    private static void Written(XboxObject* self, DepthTwin twin)
+    {
+        if (twin.TakeFirstUse())
+        {
+            Fill(self, twin);
+        }
+
+        twin.MarkWritten();
+    }
+
+    /// <summary>The plane into the twin before its first writer; warned once when this list cannot (a compute list).</summary>
+    private static void Fill(XboxObject* self, DepthTwin twin)
+    {
+        var d3d12x = ShimContext.Runtime.D3D12X;
+        var states = d3d12x.ListStates.For(self);
+        int state = states.Current(twin.Depth, twin.Home);
+
+        if (!DepthTwinFill.Record(d3d12x.Objects.DesktopDevice, self->Inner, twin, state, states.LegalStates))
+        {
+            d3d12x.Warnings.Warn("depth-twin-fill", $"[d3d12_xs] depth twins: a twin in format {twin.Format} was not filled from its plane before its first writer (the list or the formats cannot copy it); it starts at zero");
+        }
     }
 }

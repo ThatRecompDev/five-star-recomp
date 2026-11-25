@@ -73,11 +73,12 @@ public sealed unsafe class D3D12XBarrierTests
         nint queue = device.Queue();
         nint fence = device.Fence();
 
-        // Created in UNORDERED_ACCESS, as the game creates its render targets; it rests in RENDER_TARGET.
+        // Created in UNORDERED_ACCESS, as the game creates its render targets; one that takes UAVs too rests there, and a
+        // direct list moves it to RENDER_TARGET when it binds or clears it.
         nint target = Texture(device, RenderTargetAndUav, UnorderedAccess);
         nint copy = Texture(device, 0, CopyDest);
         nint view = RenderTargetView(device, target);
-        Assert.Equal(RenderTarget, d3d12x.Objects.AsResource(target)->HomeState);
+        Assert.Equal(UnorderedAccess, d3d12x.Objects.AsResource(target)->HomeState);
 
         nint first = device.DirectList();
         Barrier(first, target, UnorderedAccess, RenderTarget);
@@ -87,11 +88,11 @@ public sealed unsafe class D3D12XBarrierTests
 
         var states = d3d12x.ListStates.Find((XboxObject*)first);
         Assert.NotNull(states);
-        Assert.Equal(CopySource, states.Current(d3d12x.Objects.Unwrap(target), RenderTarget));
+        Assert.Equal(CopySource, states.Current(d3d12x.Objects.Unwrap(target), UnorderedAccess));
         Submit(queue, fence, first, 1);
         Assert.Equal(0, states.Count);
 
-        // Close moved the target home, so a list without a barrier clears it again.
+        // Close moved the target home, so a list without a barrier clears it again (moved to RENDER_TARGET for the clear).
         nint second = device.DirectList();
         Clear(second, view);
         Submit(queue, fence, second, 2);
