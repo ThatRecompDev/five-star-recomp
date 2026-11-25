@@ -11,8 +11,8 @@ using Xunit;
 namespace FiveStar.Loader.Tests;
 
 /// <summary>
-/// --gpu-timings on WARP: a list's passes (split at a render-target change or a draw/dispatch switch) get a timestamp
-/// each, the list's Close resolves them, and once the submission's fence passed they are summed per queue and pass,
+/// --gpu-timings on WARP: a list's passes (split at a render-target change, a draw/dispatch switch or another compute
+/// pipeline) get a timestamp each, the list's Close resolves them, and once the submission's fence passed they are summed per queue and pass,
 /// named by their first pipeline.
 /// </summary>
 public sealed class GpuTimingsTests
@@ -20,6 +20,7 @@ public sealed class GpuTimingsTests
     private const nint List = 0x1000;
     private const nint Culling = 1;
     private const nint Lighting = 2;
+    private const nint Tracing = 3;
 
     [Fact]
     public void A_pass_is_named_by_its_first_program_without_container_and_hash()
@@ -56,9 +57,10 @@ public sealed class GpuTimingsTests
         using var fence = device.CreateFence(1);
         nint list = context.List.NativePointer;
 
-        // Two dispatches are one pass; new targets and a draw begin the next.
+        // Dispatches of one pipeline are one pass; another compute pipeline, new targets and a draw begin the next.
         GpuTimings.Work(List, list, compute: true, Culling);
-        GpuTimings.Work(List, list, compute: true, Lighting);
+        GpuTimings.Work(List, list, compute: true, Culling);
+        GpuTimings.Work(List, list, compute: true, Tracing);
         GpuTimings.Targets(List);
         GpuTimings.Work(List, list, compute: false, Lighting);
         GpuTimings.BeforeClose(List, list);
@@ -70,6 +72,7 @@ public sealed class GpuTimingsTests
 
         Assert.Contains("queue #1 busy ", report, StringComparison.Ordinal);
         Assert.Contains("(meshlet_culling~CS_Cull ", report, StringComparison.Ordinal);
+        Assert.Contains("sr_tracing~CS_Trace ", report, StringComparison.Ordinal);
         Assert.Contains("PS_Light ", report, StringComparison.Ordinal);
         Assert.DoesNotContain("VS_Light", report, StringComparison.Ordinal);
         Assert.Contains("0 read after their block was reused", report, StringComparison.Ordinal);
@@ -80,6 +83,11 @@ public sealed class GpuTimingsTests
         if (pipeline == Culling)
         {
             return "sgd1_0c3d9198_t3c_meshlet_culling~CS_Cull_b589f3cd_Wrapped";
+        }
+
+        if (pipeline == Tracing)
+        {
+            return "sgd1_0f2178a6_t32_sr_tracing~CS_Trace_0fd13247_Wrapped";
         }
 
         return "sgd2_1042914b_t32_PS_Light_a4ab6e63_Wrapped + sgd2_102f2093_t32_VS_Light_a4ab6e63_Wrapped";
