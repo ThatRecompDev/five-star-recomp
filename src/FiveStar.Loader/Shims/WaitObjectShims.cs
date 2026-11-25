@@ -9,7 +9,7 @@ namespace FiveStar.Loader.Shims;
 
 /// <summary>
 /// The game's events and semaphores, seen for <see cref="WaitObjects"/> (<c>--watch-hang</c>): creation, signals,
-/// closes and single-object waits pass through to kernel32 unchanged. The loader removes these shims unless the hang
+/// resets, closes and waits on one or several objects pass through to kernel32 unchanged. The loader removes these shims unless the hang
 /// watch is on (<see cref="Names"/>), so a normal run calls kernel32 directly.
 /// </summary>
 internal static unsafe partial class WaitObjectShims
@@ -20,11 +20,15 @@ internal static unsafe partial class WaitObjectShims
     /// <summary>CREATE_EVENT_MANUAL_RESET.</summary>
     private const uint ManualResetFlag = 1;
 
+    /// <summary>MAXIMUM_WAIT_OBJECTS: the most handles one wait takes.</summary>
+    private const uint MaximumWaitObjects = 64;
+
     /// <summary>The shims, as "module!symbol" for <see cref="ShimTable.Disable"/>.</summary>
     public static readonly string[] Names =
     [
         "*!CreateEventW", "*!CreateEventA", "*!CreateEventExW", "*!CreateSemaphoreW", "*!CreateSemaphoreExW", "*!SetEvent",
-        "*!ReleaseSemaphore", "*!CloseHandle", "*!WaitForSingleObject", "*!WaitForSingleObjectEx",
+        "*!ReleaseSemaphore", "*!CloseHandle", "*!WaitForSingleObject", "*!WaitForSingleObjectEx", "*!ResetEvent",
+        "*!WaitForMultipleObjects",
     ];
 
     [Shim("*", "CreateEventW", SetsLastError = true)]
@@ -223,9 +227,51 @@ internal static unsafe partial class WaitObjectShims
         WaitObjects.Waiting(handle, milliseconds);
         uint result = Kernel32.WaitForSingleObjectEx(handle, milliseconds, alertable);
         ShimContext.Runtime.LastError.Set(Marshal.GetLastPInvokeError());
-        WaitObjects.Done();
+        WaitObjects.Done(handle, result);
 
         return result;
+    }
+
+    [Shim("*", "ResetEvent", SetsLastError = true)]
+    [UnmanagedCallersOnly]
+    private static int ResetEvent(nint handle)
+    {
+        try
+        {
+            WaitObjects.Reset(handle);
+            int done = Kernel32.ResetEvent(handle);
+            ShimContext.Runtime.LastError.Set(Marshal.GetLastPInvokeError());
+
+            return done;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WaitObjectShims.ResetEvent");
+
+            return default;
+        }
+    }
+
+    [Shim("*", "WaitForMultipleObjects", SetsLastError = true)]
+    [UnmanagedCallersOnly]
+    private static uint WaitForMultipleObjects(uint count, nint* handles, int waitAll, uint milliseconds)
+    {
+        try
+        {
+            var span = new ReadOnlySpan<nint>(handles, (int)Math.Min(count, MaximumWaitObjects));
+            WaitObjects.WaitingOnSeveral(span, waitAll != 0, milliseconds);
+            uint result = Kernel32.WaitForMultipleObjects(count, handles, waitAll, milliseconds);
+            ShimContext.Runtime.LastError.Set(Marshal.GetLastPInvokeError());
+            WaitObjects.DoneOnSeveral(span, result);
+
+            return result;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "WaitObjectShims.WaitForMultipleObjects");
+
+            return WaitFailed;
+        }
     }
 
     private static string EventKind(int manualReset)

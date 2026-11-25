@@ -23,6 +23,10 @@ internal static unsafe class WaitObjects
     /// <summary>Waits shorter than this are not reported.</summary>
     private const double ReportedSeconds = 1;
 
+    // winbase.h: WAIT_OBJECT_0 and WAIT_TIMEOUT.
+    private const uint WaitObject0 = 0;
+    private const uint WaitTimeout = 0x102;
+
     private static readonly ConcurrentDictionary<nint, WaitObject> Objects = new();
     private static readonly ConcurrentDictionary<uint, ThreadWait> Waits = new();
     private static readonly Stopwatch Clock = Stopwatch.StartNew();
@@ -45,7 +49,47 @@ internal static unsafe class WaitObjects
     {
         if (Objects.TryGetValue(handle, out var item))
         {
-            item.Signal(Native.Kernel32.GetCurrentThreadId(), Now);
+            item.Signal(Native.Kernel32.GetCurrentThreadId(), Now, Caller());
+        }
+    }
+
+    /// <summary>The event was reset by the calling thread: a signal nobody waited for is gone.</summary>
+    public static void Reset(nint handle)
+    {
+        Record(handle, "reset");
+    }
+
+    /// <summary>The calling thread starts waiting on any (or all, <paramref name="all"/>) of <paramref name="handles"/>.</summary>
+    public static void WaitingOnSeveral(ReadOnlySpan<nint> handles, bool all, uint milliseconds)
+    {
+        if (handles.IsEmpty)
+        {
+            return;
+        }
+
+        var frames = GameFrames();
+        Waits[Native.Kernel32.GetCurrentThreadId()] = new ThreadWait(handles[0], milliseconds, Now, frames);
+        string verb = $"wait on any of {handles.Length}";
+
+        if (all)
+        {
+            verb = $"wait on all of {handles.Length}";
+        }
+
+        foreach (var handle in handles)
+        {
+            Record(handle, verb, frames);
+        }
+    }
+
+    /// <summary>A wait on several objects returned <paramref name="result"/>: the object that woke it gets the wake-up.</summary>
+    public static void DoneOnSeveral(ReadOnlySpan<nint> handles, uint result)
+    {
+        Waits.TryRemove(Native.Kernel32.GetCurrentThreadId(), out _);
+
+        if (result < handles.Length)
+        {
+            Record(handles[(int)result], "woke");
         }
     }
 
@@ -58,13 +102,63 @@ internal static unsafe class WaitObjects
     /// <summary>The calling thread starts waiting on <paramref name="handle"/> for <paramref name="milliseconds"/>.</summary>
     public static void Waiting(nint handle, uint milliseconds)
     {
-        Waits[Native.Kernel32.GetCurrentThreadId()] = new ThreadWait(handle, milliseconds, Now, GameFrames());
+        var frames = GameFrames();
+        Waits[Native.Kernel32.GetCurrentThreadId()] = new ThreadWait(handle, milliseconds, Now, frames);
+        Record(handle, "wait", frames);
     }
 
-    /// <summary>The calling thread's wait ended.</summary>
-    public static void Done()
+    /// <summary>The calling thread's wait on <paramref name="handle"/> returned <paramref name="result"/> (WAIT_OBJECT_0, WAIT_TIMEOUT, ..).</summary>
+    public static void Done(nint handle, uint result)
     {
         Waits.TryRemove(Native.Kernel32.GetCurrentThreadId(), out _);
+        Record(handle, Outcome(result));
+    }
+
+    private static string Outcome(uint result)
+    {
+        if (result == WaitObject0)
+        {
+            return "woke";
+        }
+
+        if (result == WaitTimeout)
+        {
+            return "timed out";
+        }
+
+        return $"wait returned 0x{result:x}";
+    }
+
+    private static void Record(nint handle, string verb)
+    {
+        if (Objects.TryGetValue(handle, out var item))
+        {
+            item.Record(new WaitOperation(verb, Native.Kernel32.GetCurrentThreadId(), Now, Caller()));
+        }
+    }
+
+    private static void Record(nint handle, string verb, nint[] frames)
+    {
+        if (Objects.TryGetValue(handle, out var item))
+        {
+            item.Record(new WaitOperation(verb, Native.Kernel32.GetCurrentThreadId(), Now, First(frames)));
+        }
+    }
+
+    /// <summary>The game's innermost return address above the shim, 0 when none was found.</summary>
+    private static nint Caller()
+    {
+        return First(GameFrames());
+    }
+
+    private static nint First(nint[] frames)
+    {
+        if (frames.Length == 0)
+        {
+            return 0;
+        }
+
+        return frames[0];
     }
 
     /// <summary>
