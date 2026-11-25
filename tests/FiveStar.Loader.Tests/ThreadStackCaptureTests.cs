@@ -43,6 +43,56 @@ public sealed class ThreadStackCaptureTests
         Assert.Contains("kernelbase.dll", names);
     }
 
+    /// <summary>
+    /// A snapshot whose suspend or context read does not come back is skipped after the time bound and reported, and
+    /// the next capture runs on a fresh worker (w83's sampler and hang watch stopped for good inside one capture).
+    /// </summary>
+    [Fact]
+    public unsafe void A_snapshot_that_does_not_come_back_is_skipped_and_the_next_capture_works()
+    {
+        var modules = Modules();
+        uint id = 0;
+        uint stuck = 0;
+        using var started = new ManualResetEventSlim();
+        var sleeper = new Thread(() =>
+        {
+            id = Kernel32.GetCurrentThreadId();
+            started.Set();
+            Thread.Sleep(Timeout.Infinite);
+        }) { IsBackground = true };
+
+        sleeper.Start();
+        started.Wait();
+
+        try
+        {
+            ThreadSnapshot.Override = (nint)(delegate* unmanaged<byte*, void>)&Hang;
+            ThreadSnapshot.Stuck = thread => stuck = thread;
+            var clock = Stopwatch.StartNew();
+
+            Assert.Equal(0, ThreadStackCapture.Capture(id, modules, new ulong[Frames]));
+            Assert.True(clock.ElapsedMilliseconds < ThreadSnapshot.TimeoutMilliseconds * 8, $"{clock.ElapsedMilliseconds} ms");
+            Assert.Equal(id, stuck);
+        }
+        finally
+        {
+            ThreadSnapshot.Override = 0;
+            ThreadSnapshot.Stuck = null;
+            Hung.Set();
+        }
+
+        Assert.True(ThreadStackCapture.Capture(id, modules, new ulong[Frames]) >= 1);
+    }
+
+    private static readonly ManualResetEventSlim Hung = new();
+
+    /// <summary>A snapshot routine that does not come back until the test ends.</summary>
+    [System.Runtime.InteropServices.UnmanagedCallersOnly]
+    private static unsafe void Hang(byte* arguments)
+    {
+        Hung.Wait();
+    }
+
     [Fact]
     public void Capturing_a_thread_in_managed_code_during_collections_never_freezes()
     {
