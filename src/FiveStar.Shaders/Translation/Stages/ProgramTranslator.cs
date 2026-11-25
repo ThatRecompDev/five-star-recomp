@@ -90,22 +90,31 @@ internal static class ProgramTranslator
 
     /// <summary>
     /// A two-phase mesh program the window analysis holds back for a readfirstlane of per-lane values: translated again
-    /// with those exchanged through groupshared memory (Waves.FirstLaneExchange), kept when the analysis then passes.
+    /// with those exchanged through groupshared memory and the thread id read directly (Waves.FirstLaneExchange), kept
+    /// when the analysis then passes with every exchange where all windows of a console wave meet it in one round.
     /// </summary>
     private static TranslationState Exchanged(TranslationState state, Func<TranslationState> create)
     {
-        var sites = FirstLaneExchange.Sites(state);
+        if (!FirstLaneExchange.Applies(state) || new WindowAnalysis(state.Blocks, state.Prologue, state.MeshThreads).Check() is null)
+        {
+            return state;
+        }
 
-        if (sites.Count == 0)
+        var (sites, direct) = FirstLaneExchange.Sites(state);
+
+        if (sites.Count + direct.Count == 0)
         {
             return state;
         }
 
         var exchanged = create();
         exchanged.FirstLaneExchanges = sites;
+        exchanged.FirstLaneDirect = direct;
         Run(exchanged);
 
-        if (new WindowAnalysis(exchanged.Blocks, exchanged.Prologue, exchanged.MeshThreads).Check() is null)
+        var analysis = new WindowAnalysis(exchanged.Blocks, exchanged.Prologue, exchanged.MeshThreads);
+
+        if (analysis.Check() is null && FirstLaneExchange.Converged(exchanged, analysis))
         {
             return exchanged;
         }

@@ -200,6 +200,12 @@ internal sealed class TranslationState
     /// </summary>
     public IReadOnlyDictionary<long, int> FirstLaneExchanges { get; set; } = new Dictionary<long, int>();
 
+    /// <summary>
+    /// Two-phase mesh programs: v_readfirstlane instructions of the mesh thread id under a full EXEC (address to the
+    /// console's value, its first lane's thread id), read without an exchange.
+    /// </summary>
+    public IReadOnlyDictionary<long, string> FirstLaneDirect { get; set; } = new Dictionary<long, string>();
+
     /// <summary>The program ends a primitive-ordered (POPS) critical section.</summary>
     public bool Pops { get; set; }
 
