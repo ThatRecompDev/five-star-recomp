@@ -845,6 +845,11 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   Each target is also read back once where the frame first binds it (set as a render target, cleared, or before a traced
   dispatch or ExecuteIndirect), before any writer and outside the limit (`first bind (...) of watched target`), and its
   ClearRenderTargetViews (slot 52) are logged with their colour: a NaN there came over from earlier frames.
+  `--d3d12-watch-rendered` keeps only the targets the game binds as render targets (the lit HDR, not the
+  LightMixOutputCS outputs of its shape), so the readbacks reach the later passes. Each captured frame first releases
+  the reported readback buffers of lists reset since (the startup capture's window readbacks held 487 MB into w94b's
+  first world frame). Float readbacks also count exact 0.0 and NaN per channel, and plane 0 of a 32-bit depth
+  (R32G8X24_TYPELESS) reads as R32_FLOAT: a reverse-Z sky is 0.0.
 - `--probe-pipeline <text,...>` makes the mesh, pixel and compute programs whose name holds one of the texts with probe code (`MeshProbe`,
   `MeshProbes`), in any of its forms (two-phase, staged, the superstep form of the wave32 variant): every load site (a
   buffer, formatted or pointer load with the range check before it, an s_buffer_load's compare included) marks itself
