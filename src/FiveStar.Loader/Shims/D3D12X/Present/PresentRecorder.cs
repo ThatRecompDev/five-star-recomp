@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X.Present;
@@ -186,6 +187,7 @@ internal sealed unsafe class PresentRecorder : IDisposable
         }
 
         _ = ((delegate* unmanaged<nint, ulong, nint, int>)ComObject.Slot(_fence, SetEventOnCompletionSlot))(_fence, value, _event);
+        using var wait = BlockingWaits.Enter("present recorder fence");
         _ = PresentNative.WaitForSingleObject(_event, PresentNative.Infinite);
     }
 
