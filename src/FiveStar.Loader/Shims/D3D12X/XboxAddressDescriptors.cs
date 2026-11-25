@@ -34,10 +34,23 @@ internal static unsafe class XboxAddressDescriptors
             }
 
             var record = ImageViewClasses.With(BufferRecords.Based(BufferRecords.ShaderResource(view), view->Address, BufferRecords.FirstElement(view, unordered: false), 0, ViewKind.AddressView), view);
-            record = ImageViewClasses.Read(record, view->Format, D3D12X.AddressViews.ReadFormat(resource, view));
+            int readFormat = D3D12X.AddressViews.ReadFormat(resource, view);
+            bool shadowed = SharedExponentAliases.Takes(view->Format, readFormat);
+
+            // A view that reads an R9G9B9E5 shadow is plain float light; only without shadows do programs decode it (class 3).
+            if (!shadowed)
+            {
+                record = ImageViewClasses.Read(record, view->Format, readFormat);
+            }
+
             nint destination = D3D12X.DescriptorHeaps.Destination(handle, record);
             var texture = D3D12X.AddressViews.Create(self->Inner, resource, view, destination, record);
             D3D12X.DrawTrace?.AddressView(destination, resource, view, texture);
+
+            if (shadowed && texture is not null)
+            {
+                NoteShadowView(self->Inner, texture, handle);
+            }
         }
         catch (Exception exception)
         {
@@ -64,6 +77,17 @@ internal static unsafe class XboxAddressDescriptors
         catch (Exception exception)
         {
             UnmanagedGuard.Caught(exception, "XboxAddressDescriptors.CreateSamplerX");
+        }
+    }
+
+    /// <summary>The view at the game's <paramref name="handle"/> reads a shadow: draws whose tables hold it copy into it first.</summary>
+    private static void NoteShadowView(nint device, GpuTexture texture, nint handle)
+    {
+        var alias = SharedExponentAliases.For(device, texture);
+
+        if (alias is not null && D3D12X.DescriptorHeaps.Find(handle, out uint index) is not null)
+        {
+            SharedExponentAliases.NoteView(index, alias);
         }
     }
 
