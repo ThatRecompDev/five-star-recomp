@@ -44,6 +44,27 @@ public sealed unsafe class SuperstepCapTableTests
         }
     }
 
+    [Fact]
+    public void The_sampler_and_the_presenter_report_a_cap_hit_once_between_them()
+    {
+        uint* table = (uint*)NativeMemory.AllocZeroed(Slots * SlotDwords * sizeof(uint));
+        using var text = new StringWriter();
+        var log = new FiveStar.Loader.Diagnostics.LoaderLog(TextWriter.Null, TextWriter.Synchronized(text), false);
+
+        try
+        {
+            Write(table, 0x2BAD, 777, 0);
+            Parallel.For(0, 8, _ => WindowGuard.ReportCaps(table, 2300, log));
+
+            string lines = text.ToString();
+            Assert.Single(lines.Split('\n'), line => line.Contains("program 0x00002bad: 777 threads", StringComparison.Ordinal));
+        }
+        finally
+        {
+            NativeMemory.Free(table);
+        }
+    }
+
     /// <summary>The slot of <paramref name="id"/> (id &amp; 1023) as a program leaves it.</summary>
     private static void Write(uint* table, uint id, uint blocks, uint rounds)
     {
