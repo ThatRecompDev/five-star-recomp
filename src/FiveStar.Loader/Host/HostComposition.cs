@@ -47,6 +47,7 @@ internal static class HostComposition
     public static PipelineFolders CreatePipelineFolders(HostOptions options)
     {
         CompileBudget.Configure(options.MaxDriverCompiles, options.CompileCeilingBytes);
+        Shims.D3D12X.Resources.PlacedTextureHeaps.Enabled = options.PlacedTextures;
         string? cache = null;
 
         if (!options.NoPipelineCache)

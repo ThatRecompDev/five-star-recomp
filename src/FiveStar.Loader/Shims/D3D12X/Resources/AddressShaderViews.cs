@@ -44,7 +44,7 @@ internal sealed unsafe class AddressShaderViews
 
         if (BitOperations.IsPow2(views) || views % SummaryInterval == 0)
         {
-            _log.Detail($"  [d3d12_xs] console-address textures: {counters}; {_textures.Registry.Summary}");
+            _log.Detail($"  [d3d12_xs] console-address textures: {counters}; {_textures.Registry.Summary}; {_textures.Placed.Summary}");
         }
 
         if (IsBuffer(resource) && view->Address != 0)

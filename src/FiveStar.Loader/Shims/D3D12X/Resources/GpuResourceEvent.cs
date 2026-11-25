@@ -32,4 +32,7 @@ internal enum GpuResourceEvent
 
     /// <summary>A fill failed: the desktop refused its upload buffer or queue, or the copy did not finish.</summary>
     UploadFailed,
+
+    /// <summary>A texture could not be placed in a shared heap (<c>--placed-textures</c>) and was committed.</summary>
+    PlacedFailed,
 }

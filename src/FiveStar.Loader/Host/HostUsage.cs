@@ -56,6 +56,8 @@ internal static class HostUsage
                                  DXIL backend, a quarter with dxc)
           --loop-caps <caps>     loop caps of programs made on demand: victory (4096 compute, 256 vertex/mesh, 128 pixel),
                                  default, or compute,geometry,pixel; part of the program cache identity
+          --placed-textures      read-only console textures share large placed heaps instead of a committed
+                                 resource each (the driver's write-combined memory grew about 0.55 MB per texture)
           --max-driver-compiles <n>  driver pipeline compiles of 256 KB of DXIL or more at once (default 4)
           --compile-ceiling <GB> no such compile starts while private bytes and the running ones' expected arenas
                                  would pass this (default 28); one always may when none runs

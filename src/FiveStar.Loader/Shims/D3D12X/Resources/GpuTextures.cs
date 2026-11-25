@@ -54,6 +54,9 @@ internal sealed unsafe class GpuTextures : IDisposable
 
     public GpuTextureUploader Uploader { get; } = new();
 
+    /// <summary>The shared heaps of placed read-only textures (<c>--placed-textures</c>).</summary>
+    public PlacedTextureHeaps Placed { get; } = new();
+
     /// <summary>
     /// Slot 133: the desktop texture for <paramref name="address"/> in its home state <paramref name="state"/>
     /// (<see cref="ResourceStates.Home"/> of <paramref name="initialLayout"/>), registered and, unless GPU-written,
@@ -64,7 +67,8 @@ internal sealed unsafe class GpuTextures : IDisposable
         var desc = _descriptions.ToDesktop(device, description);
         state = ResourceStates.Home(desc.Dimension, desc.Flags, BarrierLayouts.ToState(initialLayout));
         byte* clearCopy = stackalloc byte[DepthViewDescriptions.ClearValueSize];
-        int hr = CreateCommitted(device, &desc, state, DepthViewDescriptions.ClearValue(clear, clearCopy, desc.Format), out desktop);
+        bool readOnly = (description->Flags & GpuWrittenFlags) == 0;
+        int hr = CreateTexture(device, &desc, state, DepthViewDescriptions.ClearValue(clear, clearCopy, desc.Format), readOnly, out desktop);
         Counters.Add(GpuResourceEvent.PlacedTexture);
 
         if (HResult.Failed(hr))
@@ -98,7 +102,7 @@ internal sealed unsafe class GpuTextures : IDisposable
         var desc = _descriptions.ToDesktop(device, &readOnly);
         desc.Format = ViewFormats.ForTexture(desc.Format, viewFormat);
 
-        if (HResult.Failed(CreateCommitted(device, &desc, ShaderResourceState, null, out nint desktop)))
+        if (HResult.Failed(CreateTexture(device, &desc, ShaderResourceState, null, readOnly: true, out nint desktop)))
         {
             return null;
         }
@@ -125,6 +129,33 @@ internal sealed unsafe class GpuTextures : IDisposable
             return;
         }
 
+        // A watched texture's memory can be unmapped by another thread while it is read every frame: a plain read
+        // faulted (an AccessViolation the guard cannot catch, boot v3), so its bytes are copied through the kernel first.
+        byte[]? copy = null;
+
+        if (texture.Watched)
+        {
+            copy = ReadThroughKernel(source, texture.Size);
+
+            if (copy is null)
+            {
+                return;
+            }
+        }
+
+        fixed (byte* copied = copy)
+        {
+            if (copied != null)
+            {
+                source = copied;
+            }
+
+            Fill(device, texture, source);
+        }
+    }
+
+    private void Fill(nint device, GpuTexture texture, byte* source)
+    {
         ulong hash = ContentHash.Of(source, texture.Size);
 
         if (hash == texture.UploadedHash)
@@ -219,6 +250,44 @@ internal sealed unsafe class GpuTextures : IDisposable
         }
 
         return texture;
+    }
+
+    /// <summary>The bytes at <paramref name="source"/> read through the kernel (ReadProcessMemory); null when a page went away.</summary>
+    private static byte[]? ReadThroughKernel(byte* source, ulong size)
+    {
+        var copy = GC.AllocateUninitializedArray<byte>(checked((int)size));
+        nuint done = 0;
+
+        fixed (byte* target = copy)
+        {
+            if (Kernel32.ReadProcessMemory(Kernel32.GetCurrentProcess(), (nint)source, target, (nuint)size, &done) == 0 || done != (nuint)size)
+            {
+                return null;
+            }
+        }
+
+        return copy;
+    }
+
+    /// <summary>
+    /// A read-only single-sample texture placed in a shared heap with <c>--placed-textures</c> (<see cref="PlacedTextureHeaps"/>),
+    /// else (or when placing fails) a committed one.
+    /// </summary>
+    private int CreateTexture(nint device, ResourceDescription* description, int state, void* clear, bool readOnly, out nint resource)
+    {
+        if (PlacedTextureHeaps.Enabled && readOnly && description->SampleCount <= 1)
+        {
+            int hr = Placed.Create(device, description, state, clear, out resource);
+
+            if (!HResult.Failed(hr))
+            {
+                return hr;
+            }
+
+            Counters.Add(GpuResourceEvent.PlacedFailed);
+        }
+
+        return CreateCommitted(device, description, state, clear, out resource);
     }
 
     private static int CreateCommitted(nint device, ResourceDescription* description, int state, void* clear, out nint resource)

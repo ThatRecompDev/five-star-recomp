@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Collections.Concurrent;
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
@@ -32,13 +33,26 @@ internal static unsafe class CompileBudget
     /// <summary>The default of <see cref="CeilingBytes"/> (<c>--compile-ceiling</c>, in GB).</summary>
     public const long DefaultCeilingBytes = 28L << 30;
 
-    /// <summary>Driver memory expected per byte of DXIL: 3 MB of mesh-shader DXIL passed 8 GB.</summary>
-    private const long BytesPerShaderByte = 4096;
+    /// <summary>
+    /// Driver memory expected per byte of DXIL. Boot v3 measured 101 compiles of 256 KB to 1.94 MB (the private peak
+    /// over each one's start, sampled every 250 ms): alone, at most 0.40 GB; with others running, at most 4.70 GB for
+    /// 1.75 MB, 2.69 GB per MB at the most and 0.79 at the 90th percentile. The most per MB, with concurrent growth
+    /// counted, keeps a margin, and puts 3 MB at the 8 GB an earlier mesh-shader compile passed.
+    /// </summary>
+    private const long BytesPerShaderByte = 2816;
 
-    private const long MinimumEstimate = 2L << 30;
-    private const long MaximumEstimate = 32L << 30;
+    /// <summary>The least a compile is expected to take: alone, none measured passed 0.40 GB.</summary>
+    private const long MinimumEstimate = 512L << 20;
+
+    /// <summary>The most one compile is expected to take: the largest seen, 8 GB (4.70 GB in v3).</summary>
+    private const long MaximumEstimate = 8L << 30;
     private const int PauseMilliseconds = 500;
     private const double BytesPerGigabyte = 1L << 30;
+    private const double BytesPerMegabyte = 1L << 20;
+
+    private static readonly TimeSpan SampleInterval = TimeSpan.FromMilliseconds(250);
+    private static readonly ConcurrentDictionary<BuildMeasure, byte> Measures = new();
+    private static readonly Lazy<Timer> Sampler = new(() => new Timer(_ => Sample(), null, SampleInterval, SampleInterval));
 
     private static readonly object Gate = new();
     private static int _running;
@@ -116,6 +130,52 @@ internal static unsafe class CompileBudget
 
     /// <summary>Compiles waiting for memory before they start.</summary>
     public static int Waiting => Volatile.Read(ref _waiting);
+
+    /// <summary>
+    /// Starts measuring a compile (<see cref="Measured"/> ends it): the process's private bytes now, and their peak while
+    /// it runs, sampled every <see cref="SampleInterval"/>. The peak counts the other compiles running too.
+    /// </summary>
+    public static BuildMeasure Measure(long shaderBytes)
+    {
+        var measure = new BuildMeasure(shaderBytes, PrivateBytes(), Running, System.Diagnostics.Stopwatch.GetTimestamp());
+        Measures[measure] = 0;
+        _ = Sampler.Value;
+
+        return measure;
+    }
+
+    /// <summary>
+    /// Ends a measure and logs a compile of <see cref="TinyShaderBytes"/> or more: its DXIL, estimate, the private
+    /// peak over its start, its time and the compiles running when it started (calibration data for <see cref="Estimate"/>).
+    /// </summary>
+    public static void Measured(BuildMeasure measure, string what)
+    {
+        Measures.TryRemove(measure, out _);
+
+        if (measure.ShaderBytes < TinyShaderBytes)
+        {
+            return;
+        }
+
+        long grown = Math.Max(measure.Peak, PrivateBytes()) - measure.StartBytes;
+        double seconds = System.Diagnostics.Stopwatch.GetElapsedTime(measure.Started).TotalSeconds;
+        ShimContext.Runtime.Log.Detail($"  [budget] {what}: {measure.ShaderBytes / BytesPerMegabyte:F2} MB of DXIL, estimate {Estimate(measure.ShaderBytes) / BytesPerGigabyte:F1} GB, private peak +{grown / BytesPerGigabyte:F2} GB over {seconds:F0} s, {measure.Running} compiles running at its start");
+    }
+
+    private static void Sample()
+    {
+        if (Measures.IsEmpty)
+        {
+            return;
+        }
+
+        long bytes = PrivateBytes();
+
+        foreach (var measure in Measures.Keys)
+        {
+            measure.Observe(bytes);
+        }
+    }
 
     /// <summary>The driver memory a compile of <paramref name="shaderBytes"/> of DXIL is expected to take.</summary>
     public static long Estimate(long shaderBytes)
