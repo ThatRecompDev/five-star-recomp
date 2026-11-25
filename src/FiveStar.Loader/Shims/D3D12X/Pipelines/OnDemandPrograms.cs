@@ -71,8 +71,20 @@ internal sealed class OnDemandPrograms : IProgramLibrary
             var failed = failures.Sum(entry => entry.Value);
             var causes = string.Join("; ", failures.OrderByDescending(entry => entry.Value).Take(CausesShown).Select(entry => $"{entry.Value} {entry.Key}"));
 
-            return $"programs on demand: {_jobs.Count} asked for, {Volatile.Read(ref _made)} translated and compiled, {Volatile.Read(ref _found)} found compiled{_compilerCounts?.Invoke()}, ready after {average:F1} s on average and {slowest:F0} s at most, {failed} failed ({causes}), {_workers.Backlog} queued, {_workers.Running} running, {_workers.WaitingForMemory} waiting for memory, {Links.Summary}";
+            return $"programs on demand: {_jobs.Count} asked for, {Made()}, {Volatile.Read(ref _found)} found compiled{_compilerCounts?.Invoke()}, ready after {average:F1} s on average and {slowest:F0} s at most, {failed} failed ({causes}), {_workers.Backlog} queued, {_workers.Running} running, {_workers.WaitingForMemory} waiting for memory, {Links.Summary}";
         }
+    }
+
+    /// <summary>"N translated, of which R restored from the content store, C compiled": a translator-only change restores most.</summary>
+    private string Made()
+    {
+        return Describe(Volatile.Read(ref _made), _producer.Restored);
+    }
+
+    /// <summary>The made programs as the summary names them: <paramref name="restored"/> of <paramref name="made"/> came from the content store.</summary>
+    public static string Describe(int made, int restored)
+    {
+        return $"{made} translated, of which {restored} restored from the content store, {made - restored} compiled";
     }
 
     /// <summary>Drops the DXIL read so far; programs in use stay with their users.</summary>

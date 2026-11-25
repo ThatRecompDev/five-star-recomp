@@ -70,7 +70,7 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
     }
 
     /// <summary>Pipelines loaded from the cache, stored in it, and loads the driver refused.</summary>
-    public string Summary => $"pipeline cache: {Volatile.Read(ref _hits)} loaded, {Volatile.Read(ref _stored)} stored, {Volatile.Read(ref _refused)} refused, {_index.Count + _activeSet.Count} pipelines in {_folder}";
+    public string Summary => $"pipeline cache: {Volatile.Read(ref _hits)} loaded (cache hits), {Volatile.Read(ref _stored)} stored (built by the driver), {Volatile.Read(ref _refused)} refused, {_index.Count + _activeSet.Count} pipelines in {_folder}";
 
     /// <summary>
     /// The cache in <paramref name="folder"/> for the device (an ID3D12Device1 or later), or null when the device has

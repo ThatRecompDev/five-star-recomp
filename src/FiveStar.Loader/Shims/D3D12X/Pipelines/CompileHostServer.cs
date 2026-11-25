@@ -171,11 +171,13 @@ internal static class CompileHostServer
         var request = form.Request!;
         var store = producer.ContentStore;
         BackendResult result;
+        bool restored = false;
 
         // A program the translator still writes the same way is copied from the content store, not compiled again.
         if (store is not null && store.TryRestore(request))
         {
             result = new BackendResult(BackendVerdict.Compiled, string.Empty);
+            restored = true;
         }
         else
         {
@@ -194,6 +196,11 @@ internal static class CompileHostServer
             if (!string.Equals(request.DxilPath, target, StringComparison.OrdinalIgnoreCase))
             {
                 File.Move(request.DxilPath, target, overwrite: true);
+            }
+
+            if (restored)
+            {
+                return HostAnswer.Restored;
             }
 
             return HostAnswer.Compiled;

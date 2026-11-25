@@ -41,6 +41,7 @@ internal sealed class ProgramProducer
     private readonly IShaderCompiler _compiler;
     private readonly SlowCompiles _slow;
     private readonly ProgramLoader _loader = new(new RdnaDecoder());
+    private int _restored;
 
     /// <param name="programs">The extracted FSSM programs (--shader-dir), their containers in the sibling dxbc folder.</param>
     /// <param name="folder">Where the DXIL goes: the folder of this translator, compiler and adapter.</param>
@@ -99,6 +100,9 @@ internal sealed class ProgramProducer
     /// translator build translates to the same HLSL is copied from there, not compiled again; null keeps none.
     /// </summary>
     public ProgramContentStore? ContentStore { get; init; }
+
+    /// <summary>Programs made by copying their DXIL from <see cref="ContentStore"/> (here or in the compile host) rather than compiling them.</summary>
+    public int Restored => Volatile.Read(ref _restored);
 
     /// <summary>The folder the DXIL goes to.</summary>
     public string Folder => _folder;
@@ -237,6 +241,11 @@ internal sealed class ProgramProducer
 
         if (answer.Kind == HostAnswerKind.Compiled)
         {
+            if (answer.WasRestored)
+            {
+                Interlocked.Increment(ref _restored);
+            }
+
             return new HostedMake(true, false, null, null);
         }
 
@@ -257,7 +266,11 @@ internal sealed class ProgramProducer
     {
         var request = form.Request!;
 
-        if (ContentStore is null || !ContentStore.TryRestore(request))
+        if (ContentStore is not null && ContentStore.TryRestore(request))
+        {
+            Interlocked.Increment(ref _restored);
+        }
+        else
         {
             var failure = CompileNow(form, request, dxcOnly);
 
