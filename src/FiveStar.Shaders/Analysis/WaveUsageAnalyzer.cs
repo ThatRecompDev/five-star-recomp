@@ -129,10 +129,10 @@ public static partial class WaveUsageAnalyzer
     {
         string[] wavePrefixes = ["WaveMultiPrefix", "WavePrefix", "WaveActive"];
 
-        return operation is "WaveReadLaneAt" or "vw_read" or "vw_read_fill" or "WaveMatch" || wavePrefixes.Any(prefix => operation.StartsWith(prefix, StringComparison.Ordinal));
+        return operation is "WaveReadLaneAt" or "vw_read" or "vw_read_fill" or "vw_read_live" or "vw_read_fill_live" or "WaveMatch" || wavePrefixes.Any(prefix => operation.StartsWith(prefix, StringComparison.Ordinal));
     }
 
-    [GeneratedRegex(@"\b(WaveReadLaneAt|vw_read|vw_read_fill|WaveReadLaneFirst|WaveActive(?:Sum|Product|Min|Max|BitAnd|BitOr|BitXor|AllEqual)|WavePrefix\w+|WaveMultiPrefix\w+|WaveMatch|QuadRead\w+|quad_perm|readfirstlane)\s*\(")]
+    [GeneratedRegex(@"\b(WaveReadLaneAt|vw_read_fill_live|vw_read_live|vw_read|vw_read_fill|WaveReadLaneFirst|WaveActive(?:Sum|Product|Min|Max|BitAnd|BitOr|BitXor|AllEqual)|WavePrefix\w+|WaveMultiPrefix\w+|WaveMatch|QuadRead\w+|quad_perm|readfirstlane)\s*\(")]
     private static partial Regex DataPattern();
 
     [GeneratedRegex(@"\b(WaveActiveBallot|WaveActiveCountBits|WaveActiveAnyTrue|WaveActiveAllTrue|WaveGetLaneIndex|lane_bit|WaveIsFirstLane|vw_ballot|vw_count|vw_any|vw_lane)\s*\(")]
