@@ -52,6 +52,7 @@ internal static class HostComposition
         CompileBudget.Configure(options.MaxDriverCompiles, options.CompileCeilingBytes);
         var boot = System.Diagnostics.Stopwatch.StartNew();
         CompileBudget.LoadWindow = () => Diagnostics.GameHangWatch.Loading(boot.Elapsed, LoadWindowSpan);
+
         Shims.D3D12X.Resources.PlacedTextureHeaps.Enabled = options.PlacedTextures;
         Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
         Shims.D3D12X.Binding.BufferRecords.HeapIndexOnly = options.BufferRecordsHeapIndex;
