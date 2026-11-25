@@ -79,6 +79,50 @@ internal sealed class ImageSampleBuilder
         }
     }
 
+    /// <summary>Whether <see cref="SharedExponentSample"/> takes a request: a 2D sample without compare or clamp.</summary>
+    public static bool TakesSharedExponent(ImageRequest request)
+    {
+        return SampleOperations.Contains(request.Operation) && !request.HasCompare && !request.HasClamp && request.Dimension == "2D";
+    }
+
+    /// <summary>
+    /// A filtered 2D sample of shared-exponent light through <paramref name="bits"/> (the uint declaration), the S#
+    /// words <paramref name="sampler"/>: the coordinates and the level the hardware takes (0 for _lz and outside a pixel
+    /// program, the explicit LOD, else log2 of the footprint from the gradients or the pixel's derivatives, plus a bias),
+    /// as an <c>se_sample</c> call (<see cref="TakesSharedExponent"/> requests only).
+    /// </summary>
+    public string SharedExponentSample(ImageRequest request, string bits, string sampler)
+    {
+        var address = new SampleAddress(request);
+        var n = request.Number;
+        var uv = $"_seuv{n}";
+        _state.Emit($"  float2 {uv} = {address.Coordinates}; uint _sew{n}, _seh{n}, _sen{n}; {bits}.GetDimensions(0u, _sew{n}, _seh{n}, _sen{n});");
+        var size = $"float2(_sew{n}, _seh{n})";
+        var level = "0.0";
+
+        if (address.Lod is not null)
+        {
+            level = address.Lod;
+        }
+        else if (address.DerivativeX is not null)
+        {
+            level = $"se_lod({address.DerivativeX}, {address.DerivativeY}, {size})";
+        }
+        else if (_state.Stage == ShaderStage.Pixel && !request.Operation.EndsWith("_lz", StringComparison.Ordinal))
+        {
+            level = $"se_lod(ddx({uv}), ddy({uv}), {size})";
+        }
+
+        if (address.Bias is not null)
+        {
+            level = $"{level} + {address.Bias}";
+        }
+
+        var offset = request.Offsets ?? "int2(0, 0)";
+
+        return $"se_sample({bits}, {uv}, {level}, {sampler}, {offset})";
+    }
+
     private string Sample(ImageRequest request)
     {
         var address = new SampleAddress(request);
