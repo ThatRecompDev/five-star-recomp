@@ -181,6 +181,9 @@ internal sealed record HostOptions
     /// <summary>Pipelines whose programs' names hold one of these texts stay stand-ins (<c>--skip-pipelines &lt;text,...&gt;</c>).</summary>
     public IReadOnlyList<string> SkipPipelines { get; set; } = [];
 
+    /// <summary>Records every descriptor-table bind mirrors (<c>--mirror-table-records full|&lt;n&gt;</c>).</summary>
+    public uint MirrorTableRecords { get; set; } = Shims.D3D12X.Binding.DescriptorWindow.DefaultTableRecords;
+
     /// <summary>Loop caps of programs made on demand (<c>--loop-caps victory|default|compute,geometry,pixel</c>); null for the translator's own.</summary>
     public FiveStar.Shaders.Translation.Core.LoopCaps? LoopCaps { get; set; }
 
