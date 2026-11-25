@@ -64,6 +64,9 @@ internal static class HostComposition
         Shims.D3D12X.Binding.RawBufferViews.Enabled = !options.TypedBufferViews;
 
         Shims.D3D12X.DebugLayer.NullAddressCheck.Enabled = options.CheckNullAddresses;
+
+        // No acceleration structure is built without --raytracing: programs made on demand miss every BVH node.
+        Shims.D3D12X.Binding.BvhMiss.Enabled = !options.RayTracing;
         Shims.D3D12X.Binding.WindowGuard.Enabled = !options.NoWindowGuard;
         string? cache = null;
 

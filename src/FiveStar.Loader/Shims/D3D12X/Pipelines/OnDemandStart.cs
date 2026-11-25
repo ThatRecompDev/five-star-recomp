@@ -105,6 +105,11 @@ internal sealed class OnDemandStart
             identity = ContentHash.OfText(identity, Binding.WindowGuard.Header);
         }
 
+        if (Binding.BvhMiss.Enabled)
+        {
+            identity = ContentHash.OfText(identity, Binding.BvhMiss.Header);
+        }
+
         return identity;
     }
 

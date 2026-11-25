@@ -23,7 +23,7 @@ internal static class SuperstepWriter
 
     // The rounds are bounded (LoopCaps.Rounds): every thread counts each round, so all leave on the same one. A round
     // runs at least one block or idle step per thread, so before this only ss_steps (2^24) bounded them.
-    private const string RoundBound = "    if (++ss_rounds > SS_ROUNDS) break;";
+    private const string RoundBound = "    if (++ss_rounds > SS_ROUNDS) { if (g_ss_gi == 0u) ss_cap_hit(1u); break; }";
 
     private static readonly char[] Separators = [' ', '(', ')', '[', ']', ',', ';', '.', '=', '<', '>', '&', '|', '+', '-', '*', '/', '!', '?', ':', '{', '}'];
 
@@ -141,7 +141,7 @@ internal static class SuperstepWriter
         var lines = new List<string>
         {
             "  [loop] for (;;) {", "  uint pc_stopped = pc;", "  if (pc >= PC_WAVE) { pc = PC_IDLE; }", "  [loop] while (pc < PC_WAVE) {",
-            $"    if (++ss_steps > {LoopGuard.SuperstepHex(state.Stage, state.Loops)}) {{ pc = PC_END; break; }}",
+            $"    if (++ss_steps > {LoopGuard.SuperstepHex(state.Stage, state.Loops)}) {{ ss_cap_hit(0u); pc = PC_END; break; }}",
         };
 
         if (state.SuperstepCarry)
