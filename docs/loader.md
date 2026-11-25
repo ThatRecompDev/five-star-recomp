@@ -530,7 +530,10 @@ before the block before it pressed its first key. So a step is a press repeated 
 2.5`) and a `change` block after it: a dropped press is pressed again, and the repeats stop once one took (pressing a
 check box twice would clear it). `screen` and `change` lines take `region <first column> <first row> <last column>
 <last row>` (cells, 0-47 and 0-26) to compare only that part of the frame, away from text that scrolls by itself, and
-`timeout <s>`: that long after the block before began, the block begins anyway and the log warns.
+`timeout <s>`: that long after the block before began, the block begins anyway and the log warns. `settle <s>` (with
+`settle-region <c0> <r0> <c1> <r1>`, default the whole frame) holds a block whose screen or change showed until that
+region has stayed still (at most 1 cell changed between reads) for that long, so a first press does not land on a
+screen still fading in.
 The loader is built with `<CETCompat>false</CETCompat>`: with CET shadow stacks, SEH resuming inside mapped code
 fail-fasts (0x30).
 

@@ -248,7 +248,7 @@ internal sealed class InputScriptWatcher : IDisposable
             learned = stored;
         }
 
-        string? how = _matcher.Seen(waiting, block, signature, learned, limit, !_script.Pressed(block - 1, seconds));
+        string? how = _matcher.Seen(waiting, block, signature, learned, limit, !_script.Pressed(block - 1, seconds), seconds);
 
         if (how is not null)
         {

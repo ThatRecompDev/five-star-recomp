@@ -39,11 +39,14 @@ screen legal-next
 # boxes in column 1, rows 6-7 and 11-12, Confirm in rows 13-15), away from the scrolling text: a check mark changes a
 # cell or two, a focus move about 30. A step that sees no change in 47 s goes on anyway, with a warning in the log.
 #
-# Some boots Space toggled nothing for 45 s while Down moved the focus at once. Space is the keyboard key and the
-# virtual gamepad's A at once, and the game may take both and toggle twice, so a select step tries Space for 15 s,
-# then the gamepad's A alone (PadA) for 15 s, then Enter alone; the first that takes ends the step.
-screen terms 160
-2 Space hold 0.3 repeat 6 every 2.5
+# Some boots Space toggled nothing: it was the keyboard key and the virtual gamepad's A at once, and the game took both
+# and ticked the box on and off (fixed: a scripted key now reaches the game once). A select step still tries Space for
+# 15 s, then the gamepad's A alone (PadA) for 15 s, then Enter; the first that takes ends the step.
+#
+# The block begins once the left half of the screen (the boxes, away from the scrolling text) has stayed still for 1 s,
+# so the first press does not land while the screen still fades in.
+screen terms 160 settle 1 settle-region 0 0 23 26
+0.5 Space hold 0.3 repeat 6 every 2.5
 +15 PadA hold 0.3 repeat 6 every 2.5
 +15 Enter hold 0.3 repeat 6 every 2.5
 

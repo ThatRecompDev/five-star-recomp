@@ -43,6 +43,8 @@ internal sealed class InputScript
     private const string ChangeWord = "change";
     private const string RegionWord = "region";
     private const string TimeoutWord = "timeout";
+    private const string SettleWord = "settle";
+    private const string SettleRegionWord = "settle-region";
 
     /// <summary>A region names four cells: first column, first row, last column, last row.</summary>
     private const int RegionFields = 4;
@@ -377,26 +379,29 @@ internal sealed class InputScript
             at++;
         }
 
-        var (region, timeout) = BlockOptions(fields, at);
-
-        return new ScriptBlock(fields[ScreenNameField], limit, change, region, timeout);
+        return BlockOptions(new ScriptBlock(fields[ScreenNameField], limit, change, CellRegion.Whole, 0), fields, at);
     }
 
-    private static (CellRegion Region, double Timeout) BlockOptions(string[] fields, int at)
+    /// <summary>The block's options: region, timeout, settle and settle-region.</summary>
+    private static ScriptBlock BlockOptions(ScriptBlock block, string[] fields, int at)
     {
-        var region = CellRegion.Whole;
-        double timeout = 0;
-
         while (at < fields.Length)
         {
-            if (fields[at].Equals(RegionWord, StringComparison.OrdinalIgnoreCase) && at + RegionFields < fields.Length)
+            bool region = fields[at].Equals(RegionWord, StringComparison.OrdinalIgnoreCase);
+
+            if ((region || fields[at].Equals(SettleRegionWord, StringComparison.OrdinalIgnoreCase)) && at + RegionFields < fields.Length)
             {
-                region = Region(fields, at + 1);
+                block = WithRegion(block, region, Region(fields, at + 1));
                 at += RegionFields + 1;
+            }
+            else if (fields[at].Equals(SettleWord, StringComparison.OrdinalIgnoreCase) && at + 1 < fields.Length)
+            {
+                block = block with { Settle = Number(fields[at + 1]) };
+                at += OptionFields;
             }
             else if (fields[at].Equals(TimeoutWord, StringComparison.OrdinalIgnoreCase) && at + 1 < fields.Length)
             {
-                timeout = Number(fields[at + 1]);
+                block = block with { Timeout = Number(fields[at + 1]) };
                 at += OptionFields;
             }
             else
@@ -405,7 +410,17 @@ internal sealed class InputScript
             }
         }
 
-        return (region, timeout);
+        return block;
+    }
+
+    private static ScriptBlock WithRegion(ScriptBlock block, bool compared, CellRegion region)
+    {
+        if (compared)
+        {
+            return block with { Region = region };
+        }
+
+        return block with { SettleRegion = region };
     }
 
     private static CellRegion Region(string[] fields, int first)
