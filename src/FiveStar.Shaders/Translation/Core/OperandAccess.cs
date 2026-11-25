@@ -50,6 +50,7 @@ internal sealed partial class OperandAccess
         {
             // A lane mask used as an integer: rebuild it with a ballot in program lane numbers. Ballots are snapped into
             // temporaries so they never run under a per-lane condition (HLSL 2021 short-circuits ?:, && and ||).
+            _state.Forms.Read(operand.At(0), mask: true);
             var half = component <= HighDword ? Halves[component] : Halves[LowDword];
 
             return SnapOne($"{WaveOps.Ballot}({Mask(operand)}).{half}");
@@ -68,6 +69,7 @@ internal sealed partial class OperandAccess
         if (key.Kind == RegisterKey.Scalar)
         {
             _state.IntegerUses.Add(key);
+            _state.Forms.Read(key, mask: false);
         }
 
         if (!_state.Written.Contains(key))
@@ -167,6 +169,14 @@ internal sealed partial class OperandAccess
     /// <summary>After an integer write of an SGPR: it no longer holds a mask.</summary>
     public void WroteInteger(RegisterKey key)
     {
+        // An integer write of either dword ends a wave64 mask in the pair below it.
+        _state.Forms.Write(key, mask: false);
+
+        if (_state.IsWave64)
+        {
+            _state.Forms.Write(key.Plus(-1), mask: false);
+        }
+
         _state.Masks.Remove(key);
         _state.MaskHighHalves.Remove(key);
         _state.IntegerUses.Add(key);
@@ -249,6 +259,7 @@ internal sealed partial class OperandAccess
     /// <summary>Records that a register now holds a lane mask (and, on wave64, that the next one is its high half).</summary>
     public void MarkMask(RegisterKey key)
     {
+        _state.Forms.Write(key, mask: true);
         _state.Touch(key);
         _state.Masks.Add(key);
         _state.MasksEver.Add(key);
@@ -290,6 +301,8 @@ internal sealed partial class OperandAccess
 
         if (key is not null && _state.Masks.Contains(key.Value) && !_state.Coherent.Contains(key.Value))
         {
+            _state.Forms.Read(key.Value, mask: true);
+
             return key.Value.MaskName;
         }
 
