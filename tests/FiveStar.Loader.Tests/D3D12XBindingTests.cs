@@ -43,6 +43,11 @@ public sealed unsafe class D3D12XBindingTests
     /// <summary>The game's main view heap (0x141cf3280), a heap that fits the desktop, and a page far from both ends.</summary>
     private const uint GameViews = 1245184;
     private const uint SmallHeap = 16;
+
+    /// <summary>The composite's table: 7 records in its root signature, its constants at record 41.</summary>
+    private const uint ComposedTable = 64;
+    private const uint CompositeExtent = 7;
+    private const uint CompositeRecord = 41;
     private const uint FarPage = 500000;
     private const uint TableSize = 2;
     private const uint StructureStride = 16;
@@ -391,6 +396,24 @@ public sealed unsafe class D3D12XBindingTests
         Assert.Contains($"VIEW_SLOTS = {DescriptorWindow.MaxViews}u;", prelude, StringComparison.Ordinal);
         Assert.Contains($"SAMPLER_SLOTS = {DescriptorWindow.MaxSamplers}u;", prelude, StringComparison.Ordinal);
         Assert.Equal(DescriptorWindow.UnmappedSlot, FiveStar.Shaders.Translation.AddressMap.HeapSlot + 1);
+    }
+
+    [Fact]
+    public void Binding_a_small_table_mirrors_the_records_the_game_copied_past_its_root_signature_range()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        var heap = ViewHeap(device, ComposedTable);
+
+        // The game copies a constant buffer's V# into record 41 of a table whose root signature spans 7 records, as
+        // VS_PassthroughComposite reads it; no slot is called, so only the table bind can mirror it.
+        uint[] buffer = [0xf5ba2cc0, 0x00100288, 6, 0x1104dfac];
+        buffer.CopyTo(new Span<uint>((void*)(heap.Cpu + (nint)(CompositeRecord * heap.Increment)), buffer.Length));
+
+        Assert.Equal(0u, test.Runtime.D3D12X.DescriptorHeaps.TableAddress(heap.Gpu, DescriptorWindow.MirroredRecords(CompositeExtent)));
+
+        uint* mirror = (uint*)(test.Runtime.D3D12X.Bindings.Window.Data + DescriptorWindow.ViewBase + (CompositeRecord * DescriptorWindow.ViewRecordBytes));
+        Assert.Equal(buffer, new Span<uint>(mirror, buffer.Length).ToArray());
     }
 
     [DxcFact]
