@@ -57,6 +57,7 @@ internal static class HostComposition
         Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
 
         Shims.D3D12X.DebugLayer.DrawCensus.Passes = options.CensusPasses;
+        Shims.D3D12X.Binding.PassControls.Rules = Shims.D3D12X.Binding.PassRules.Parse(options.HoldPasses, options.StubPasses);
         Shims.D3D12X.Binding.BufferRecords.HeapIndexOnly = options.BufferRecordsHeapIndex;
         Shims.D3D12X.Binding.WindowGuard.Enabled = !options.NoWindowGuard;
         string? cache = null;
@@ -76,7 +77,7 @@ internal static class HostComposition
             Shims.D3D12X.DebugLayer.PoolStoreTrace.Enabled = options.TracePoolStores;
             Shims.D3D12X.Binding.UserDataConstants.Enabled = options.UserDataConstants;
             Shims.D3D12X.Binding.WindowFeedback.Enabled = options.EvictWindows;
-            OnDemandStart.Translation = FiveStar.Shaders.Compilation.CorpusOptions.DefaultTranslation with { Loops = options.LoopCaps, SuperstepCarry = options.SuperstepCarry };
+            OnDemandStart.Translation = FiveStar.Shaders.Compilation.CorpusOptions.DefaultTranslation with { Loops = options.LoopCaps, SuperstepCarry = options.SuperstepCarry, RoundsPerStop = options.SuperstepRoundsPerStop };
             folders = folders with { OnDemand = OnDemandStart.Begin(root, options.Dxc, options.DxcBackend, options.ShaderJobs, out var message), OnDemandNote = message };
         }
 

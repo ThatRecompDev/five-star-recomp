@@ -129,6 +129,22 @@ internal sealed partial class MeshDeclarations
 
     /// <summary>True for a statement that writes a mesh output (dropped from the first phase).</summary>
     /// <summary>
+    /// After SetMeshOutputCounts in a direct-export form: every primitive of the group's count starts culled, so one the
+    /// program never exports (a lane whose export is off) is not drawn from undefined indices. Uninitialised primitives
+    /// hung NVIDIA's mesh pipeline (VIctory #587 initialises them all). Each thread its own, as every output write is.
+    /// </summary>
+    public List<string> InitialPrimitives()
+    {
+        return
+        [
+            $"  if (in_gi < min(g_ms_np, {MaxPrimitives}u)) {{",
+            "    tris[in_gi] = uint3(0u, 0u, 0u);",
+            "    prims[in_gi].cull = true;",
+            "  }",
+        ];
+    }
+
+    /// <summary>
     /// After a two-phase program cut off by its round bound (<paramref name="cut"/>, an HLSL condition, the same on every
     /// thread): its primitives culled, so none of the outputs it never wrote is drawn (WARP's rasterizer crashed on them).
     /// Each thread its own, as every output write is (the mesh-to-compute fallback needs that).

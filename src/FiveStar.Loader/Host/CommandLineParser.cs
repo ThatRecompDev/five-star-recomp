@@ -131,7 +131,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs":
                 return SetBreadcrumbs();
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
                 return SetTraceDraws(option);
             case "--capture-dir":
                 return SetCaptureDirectory();
@@ -207,7 +207,7 @@ internal sealed class CommandLineParser
                 _options.Dxc = Path.GetFullPath(Next());
 
                 return true;
-            case "--shader-jobs" or "--loop-caps" or "--force-cull-none" or "--skip-pipelines" or "--plain-supersteps" or "--host-pipelines":
+            case "--shader-jobs" or "--loop-caps" or "--force-cull-none" or "--skip-pipelines" or "--plain-supersteps" or "--host-pipelines" or "--superstep-round-budget":
                 return SetShaderJobs(option);
             case "--shader-backend":
                 return SetShaderBackend();
@@ -274,6 +274,13 @@ internal sealed class CommandLineParser
         if (option == "--force-cull-none")
         {
             _options.ForceCullNone = Next();
+
+            return true;
+        }
+
+        if (option == "--superstep-round-budget")
+        {
+            _options.SuperstepRoundsPerStop = int.Parse(Next(), CultureInfo.InvariantCulture);
 
             return true;
         }
@@ -716,6 +723,11 @@ internal sealed class CommandLineParser
             return true;
         }
 
+        if (option is "--hold-passes" or "--stub-passes")
+        {
+            return SetPassRules(option);
+        }
+
         _options.D3D12TraceDraws = true;
 
         if (option == "--census-passes")
@@ -731,6 +743,21 @@ internal sealed class CommandLineParser
         if (option == "--d3d12-dump-targets")
         {
             _options.D3D12DumpTargets = true;
+        }
+
+        return true;
+    }
+
+    /// <summary><c>--hold-passes consumer=producer|...;...</c> or <c>--stub-passes pass=r,g,b,a;...</c> (no trace).</summary>
+    private bool SetPassRules(string option)
+    {
+        if (option == "--hold-passes")
+        {
+            _options.HoldPasses = Next();
+        }
+        else
+        {
+            _options.StubPasses = Next();
         }
 
         return true;

@@ -84,15 +84,21 @@ internal sealed class ExportEmitter
         _state.Emit($"  x.{target} = float4({vector});");
     }
 
-    /// <summary>Mesh primitive export: three 9-bit vertex indices at bits 0/10/20, bit 31 = culled.</summary>
+    /// <summary>
+    /// Mesh primitive export: three 9-bit vertex indices at bits 0/10/20, bit 31 = culled. A direct export culls a
+    /// primitive that names a vertex past the group's vertex count and keeps its indices inside it: a garbage index hung
+    /// NVIDIA's mesh pipeline (VIctory #587 bounds the outputs the same way).
+    /// </summary>
     private void Primitive(string source)
     {
         var value = _operands.Read(OperandParser.Parse(source));
 
         if (_state.MeshYield)
         {
-            _state.Emit($"  if (active) {{ uint _p = {value}; tris[in_gi] = uint3(_p & 0x1ffu, (_p >> 10) & 0x1ffu, (_p >> 20) & 0x1ffu); "
-                + "prims[in_gi].cull = (_p >> 31) != 0; }");
+            int vertices = new Stages.MeshDeclarations(_state).MaxVertices;
+            _state.Emit($"  if (active) {{ uint _p = {value}; uint3 _i = uint3(_p & 0x1ffu, (_p >> 10) & 0x1ffu, (_p >> 20) & 0x1ffu); "
+                + $"uint _n = max(min(g_ms_nv, {vertices}u), 1u); tris[in_gi] = min(_i, _n - 1u); "
+                + "prims[in_gi].cull = (_p >> 31) != 0 || any(_i >= _n); }");
         }
         else
         {

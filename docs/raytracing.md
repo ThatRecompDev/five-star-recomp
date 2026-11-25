@@ -162,6 +162,8 @@ triangle from the header's root; a third builds a TLAS of two instances of one B
 moved), walks it as the shadow shader reads instance nodes and hits each triangle at both transforms. A loader test
 runs a batched desc as the game fills it through `BvhBatchBuilder`.
 
+The DLL's own GPU builder (52 compute programs) and the plan to run it: [bvh-builder.md](bvh-builder.md).
+
 ## Unknown
 
 - The instance-node fields the shadow shader does not read (0x00, 0x70 and bit 30 of 0x38) and the TLAS header past
