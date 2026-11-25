@@ -63,6 +63,14 @@ internal sealed class GraphicsAllocations
             .ToList();
     }
 
+    /// <summary>The allocations (base, bytes) the GPU may write.</summary>
+    public IReadOnlyList<(nint Base, ulong Bytes)> Writable()
+    {
+        return _bases.Where(entry => entry.Value.Access == GraphicsAccess.ReadWrite)
+            .Select(entry => (entry.Key, _sizes.GetValueOrDefault(entry.Key)))
+            .ToList();
+    }
+
     /// <summary>The access of the allocation at <paramref name="allocationBase"/>; false for memory not allocated here.</summary>
     public bool TryGet(nint allocationBase, out GraphicsAccess access, out uint allocationType, out uint protect)
     {
