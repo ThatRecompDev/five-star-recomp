@@ -131,6 +131,12 @@ internal sealed unsafe class ShaderVisibleHeap
         return _desktopStart + (nint)((ulong)Valid(Desktop(Record(index))) * Increment);
     }
 
+    /// <summary>Dword <paramref name="dword"/> of the record at <paramref name="index"/> (<see cref="DebugLayer.ViewLiveness"/>).</summary>
+    public uint RecordDword(uint index, int dword)
+    {
+        return Record(index)[dword];
+    }
+
     /// <summary>
     /// Writes <paramref name="buffer"/>'s V# fields into the record at <paramref name="index"/>, keeping the desktop
     /// descriptor it names (a copy from a desktop heap, <see cref="DesktopRecords"/>).

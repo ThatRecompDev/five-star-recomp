@@ -35,6 +35,9 @@ public sealed unsafe class D3D12XGpuResourceTests
     private const int UploadHeap = 2;
     private const int GenericRead = 0xAC3;
 
+    /// <summary>The texture uploader's slots (GpuTextureUploader).</summary>
+    private const int UploadSlots = 16;
+
     [Fact]
     public void A_texture_whose_memory_went_to_another_is_released_after_its_grace_period()
     {
@@ -166,7 +169,7 @@ public sealed unsafe class D3D12XGpuResourceTests
         for (uint mip = 0; mip < Mips; mip++)
         {
             uint extent = (uint)Size >> (int)mip;
-            uint[] texels = probe.Read(extent, extent, mip);
+            uint[] texels = probe.Read(extent, extent, mip, test.Runtime.D3D12X.Textures.Uploader.OrderBefore);
             Assert.Equal(linear[mip], texels.SelectMany(BitConverter.GetBytes).ToArray());
         }
 
@@ -215,7 +218,7 @@ public sealed unsafe class D3D12XGpuResourceTests
 
         using var probe = new TextureProbe(device12);
         CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
-        Assert.Equal(copied, probe.Read(Size, Size, 0).SelectMany(BitConverter.GetBytes).ToArray());
+        Assert.Equal(copied, probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
         Assert.True(textures.Counters[GpuResourceEvent.UploadKeptCopy] >= 1);
     }
 
@@ -247,8 +250,43 @@ public sealed unsafe class D3D12XGpuResourceTests
         using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
         CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
 
-        Assert.Equal(linear[0], probe.Read(Size, Size, 0).SelectMany(BitConverter.GetBytes).ToArray());
+        Assert.Equal(linear[0], probe.Read(Size, Size, 0, uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
         Assert.Equal(1, counters[GpuResourceEvent.Upload]);
+    }
+
+    [Fact]
+    public void A_submission_after_uploads_still_in_flight_reads_the_last_bytes()
+    {
+        using var test = TestRuntime.Create();
+        var (cpu, gpu) = AliasedPages(test);
+        var device = new XboxDevice(test);
+        var description = Description();
+        PlaceTexture(device, gpu, description);
+
+        using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
+        CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
+        var textures = test.Runtime.D3D12X.Textures;
+        var texture = textures.Registry.Find((ulong)gpu)!;
+
+        // The references besides the slots' (each upload so far holds one).
+        byte[][] linear = [];
+        long before = textures.Counters[GpuResourceEvent.Upload];
+        int references = References(texture.Desktop) - (int)before;
+
+        // More uploads than the uploader has slots, none waited for: slots are reused once their copies finish.
+        for (int round = 0; round < 40; round++)
+        {
+            linear = [Pattern(Size, round), Pattern(Size / 2, round + 1)];
+            Tile(description, cpu, linear);
+            textures.Refresh(test.Runtime.D3D12X.Objects.DesktopDevice, texture);
+        }
+
+        uint[] texels = probe.Read(Size, Size, 0, textures.Uploader.OrderBefore);
+        Assert.Equal(linear[0], texels.SelectMany(BitConverter.GetBytes).ToArray());
+
+        // Each of the 16 slots holds the texture its last copy wrote until it is reused: a texture retired and released
+        // right after a fill stays alive under the copy.
+        Assert.Equal(references + UploadSlots, References(texture.Desktop));
     }
 
     [Fact]
@@ -366,6 +404,14 @@ public sealed unsafe class D3D12XGpuResourceTests
         public uint Height;
         public uint Depth;
         public uint RowPitch;
+    }
+
+    /// <summary>The references <paramref name="resource"/> has now.</summary>
+    private static int References(nint resource)
+    {
+        System.Runtime.InteropServices.Marshal.AddRef(resource);
+
+        return System.Runtime.InteropServices.Marshal.Release(resource);
     }
 
     private static byte[] Pattern(int extent, int seed)

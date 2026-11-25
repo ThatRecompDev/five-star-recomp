@@ -35,10 +35,11 @@ internal sealed class DppRewriter
         _operands = operands;
     }
 
-    /// <summary>The operand list with src0 replaced by the value read from the selected lane.</summary>
-    public List<Operand> Apply(IReadOnlyList<Operand> a, InstructionModifiers modifiers)
+    /// <summary>The operand list with src0 (by role, <see cref="Operands.Sources"/>) replaced by the value read from the selected lane.</summary>
+    public List<Operand> Apply(string operation, IReadOnlyList<Operand> a, InstructionModifiers modifiers)
     {
-        var x = _operands.Read(a[Source0]);
+        var position = Sources(operation, a.Count).Source0;
+        var x = _operands.Read(a[position]);
         var keep = LaneMasks(modifiers);
 
         if (modifiers.Has("dpp8"))
@@ -49,7 +50,7 @@ internal sealed class DppRewriter
             var read = _operands.SnapOne($"{WaveOps.ReadLane}({x}, {lane})");
             _state.Reach(Dpp8Lanes);
 
-            return Replace(a, read);
+            return Replace(a, position, read);
         }
 
         string value;
@@ -74,7 +75,7 @@ internal sealed class DppRewriter
             _state.DppKeep = name;
         }
 
-        return Replace(a, source);
+        return Replace(a, position, source);
     }
 
     private static List<string> LaneMasks(InstructionModifiers modifiers)
@@ -162,10 +163,10 @@ internal sealed class DppRewriter
         }
     }
 
-    private static List<Operand> Replace(IReadOnlyList<Operand> a, string source)
+    private static List<Operand> Replace(IReadOnlyList<Operand> a, int position, string source)
     {
         var operands = a.ToList();
-        operands[Source0] = Operand.FromExpression(source).WithModifiersOf(a[Source0]);
+        operands[position] = Operand.FromExpression(source).WithModifiersOf(a[position]);
 
         return operands;
     }

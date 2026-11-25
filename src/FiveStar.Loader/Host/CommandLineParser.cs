@@ -574,6 +574,14 @@ internal sealed class CommandLineParser
         return true;
     }
 
+    /// <summary><c>--check-view-liveness</c>.</summary>
+    private bool SetViewLiveness()
+    {
+        _options.CheckViewLiveness = true;
+
+        return true;
+    }
+
     /// <summary><c>--frame-rate &lt;30|60|uncapped&gt;</c>.</summary>
     private bool SetFrameRate()
     {
@@ -598,6 +606,8 @@ internal sealed class CommandLineParser
                 return SetMemoryMap();
             case "--frame-rate":
                 return SetFrameRate();
+            case "--check-view-liveness":
+                return SetViewLiveness();
             case "--min-free-memory":
                 return SetMemoryFloor();
             case "--max-commit":
