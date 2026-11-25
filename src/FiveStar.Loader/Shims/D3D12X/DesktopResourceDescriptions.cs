@@ -44,7 +44,7 @@ internal sealed class DesktopResourceDescriptions
 
         if (IsTexture(desktop) && (desktop.Flags & GpuWrittenColor) != 0)
         {
-            desktop.Format = TargetFormats.GpuWritten(device, desktop.Format);
+            desktop.Format = Resources.TypelessTargets.Resource(TargetFormats.GpuWritten(device, desktop.Format));
         }
 
         DropUnsupportedUav(device, ref desktop);
