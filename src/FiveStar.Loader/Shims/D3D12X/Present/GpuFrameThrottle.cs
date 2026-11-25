@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X.Present;
@@ -195,6 +196,7 @@ internal sealed unsafe class GpuFrameThrottle : IDisposable
             }
 
             long slice = Math.Min(left, ReleaseWaitsMilliseconds);
+            using var wait = BlockingWaits.Enter("GPU frame throttle");
             _ = PresentNative.WaitForSingleObject(_event, (uint)slice);
         }
 

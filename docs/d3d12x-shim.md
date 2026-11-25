@@ -491,7 +491,10 @@ flowchart LR
   round bound}, the two-phase form's barrier bound counted with the rounds): each captured present and each
   `--sample-threads` sample (counts as they stand, the GPU running) warns with the programs that ran into the caps
   since the last, so a loop fed a garbage trip count is named (LinearDepthSkin's layer
-  loop in w49). The store-trace ring starts after it (`TRACE_BASE` 0x04016100).
+  loop in w49). A span table follows (`FIVESTAR_SPAN_GUARD`, {program id, drops}): a store or atomic whose high dword
+  is past the 47-bit user space (>= 0x8000) reaches nothing, as on the console. `gpu_page` once masked the high dword
+  to 15 bits, so such a pointer aliased into a mapped span. Captured presents warn with the programs that stored
+  through one. The store-trace ring starts after it (`TRACE_BASE` 0x04018100).
 - **CPU-only view heaps** take title memory too (the game creates eleven of 3,128 descriptors and copies their
   32-byte records into its per-draw tables itself, 0x144d9efc0). Their records name descriptors of the desktop
   shader-visible heap: every view written into one takes the next descriptors of a ring of 16 remap pages

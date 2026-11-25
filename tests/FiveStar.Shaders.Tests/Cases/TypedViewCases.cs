@@ -19,6 +19,13 @@ public static class TypedViewCases
     private const uint Uint = 1;
     private const uint Sint = 2;
     private const uint Float = 0;
+    private const uint SharedExponent = 3;
+
+    /// <summary>R9G9B9E5: 9-bit mantissas at 0, 9 and 18, the exponent at 27, biased by 15 + 9 mantissa bits.</summary>
+    private const int MantissaBits = 9;
+    private const int ExponentShift = 27;
+    private const int ExponentBias = 24;
+    private const uint MantissaMask = 0x1FF;
 
     private const string Address = """
         v_and_b32_e32 v1, 3, v41
@@ -27,7 +34,7 @@ public static class TypedViewCases
 
     public static IEnumerable<ComputeCase> All()
     {
-        return [UintLoad(), SintLoad(), FloatLoad(), HalfLoad(), UintStore()];
+        return [UintLoad(), SintLoad(), FloatLoad(), HalfLoad(), UintStore(), SharedExponentLoad()];
     }
 
     // NaN and sign patterns a float view could turn into other bits: an integer view returns them as they are.
@@ -93,6 +100,35 @@ public static class TypedViewCases
             Textures = [new TextureResource(TextureHeap, Format.R32_UInt, Width, Height, new uint[Texels]) { Writable = true }],
             Check = written => Enumerable.Range(0, Texels).Where(index => written[TextureHeap][index] != expected[index]).Select(index => $"texel {index} expected {Expected.Hex(expected[index])} actual {Expected.Hex(written[TextureHeap][index])}"),
         };
+    }
+
+    // Light the GPU wrote as R9G9B9E5 bits into an R32_UINT target, read through a format-67 view: the desktop view is
+    // R32_UINT, class 3 decodes all three channels (a uint view read as float gave red only, from garbage bits).
+    private static ComputeCase SharedExponentLoad()
+    {
+        uint[] texels = [.. Enumerable.Range(0, Texels).Select(index => Pack((uint)index + 1, (uint)(index * 37) + 5, 511 - (uint)index, 20 + (uint)index))];
+        var program = Address + "\n" + """
+            image_load v[20:22], v[1:2], s[8:15] dmask:0x7 dim:SQ_RSRC_IMG_2D unorm
+            s_waitcnt vmcnt(0)
+            """;
+
+        return new ComputeCase("cs_typed_rgb9e5_load", program, 3, thread => Decoded(texels[thread.Id & 7]))
+        {
+            User = [TextureHeap, 0, 0, SharedExponent],
+            Textures = [new TextureResource(TextureHeap, Format.R32_UInt, Width, Height, texels)],
+        };
+    }
+
+    private static uint Pack(uint red, uint green, uint blue, uint exponent)
+    {
+        return red | (green << MantissaBits) | (blue << (2 * MantissaBits)) | (exponent << ExponentShift);
+    }
+
+    private static Expected[] Decoded(uint bits)
+    {
+        float scale = MathF.Pow(2, (int)(bits >> ExponentShift) - ExponentBias);
+
+        return [.. Enumerable.Range(0, 3).Select(channel => Expected.Exact(BitConverter.SingleToUInt32Bits(((bits >> (channel * MantissaBits)) & MantissaMask) * scale)))];
     }
 
     private static ComputeCase Load(string name, Format format, uint viewClass, uint[] texels)
