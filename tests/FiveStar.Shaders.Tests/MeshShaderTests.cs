@@ -76,6 +76,23 @@ public sealed class MeshShaderTests : IClassFixture<WarpFixture>
     [WarpTheory]
     [InlineData(false)]
     [InlineData(true)]
+    public void A_readfirstlane_of_a_value_every_lane_holds_is_the_value_in_the_native_form(bool direct)
+    {
+        var runner = new MeshStageRunner(_fixture);
+        var hlsl = runner.Translate(MeshStageRunner.UniformFirstLane);
+
+        Assert.StartsWith("// program wave 64; console results on hardware waves >= 4 lanes\n", hlsl, StringComparison.Ordinal);
+        Assert.Contains("s50 = v41;", hlsl, StringComparison.Ordinal);
+        Assert.DoesNotContain("readfirstlane(", hlsl, StringComparison.Ordinal);
+
+        var mismatches = runner.Run(MeshStageRunner.UniformFirstLane, direct);
+
+        Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
+    }
+
+    [WarpTheory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void A_mesh_group_of_two_console_waves_gets_console_results_in_supersteps(bool carry)
     {
         var runner = new MeshSuperstepRunner(_fixture);

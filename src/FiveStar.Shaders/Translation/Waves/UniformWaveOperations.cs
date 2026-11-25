@@ -7,8 +7,9 @@ using FiveStar.Shaders.Translation.Core;
 namespace FiveStar.Shaders.Translation.Waves;
 
 /// <summary>
-/// Before the superstep form cuts the blocks, replaces the wave operations whose result every lane of the console wave
-/// already holds, so they take no group round: <c>readfirstlane(x, active)</c> of a value equal on every lane, or on
+/// Before the superstep form of a mesh or compute program cuts the blocks, replaces the wave operations whose result
+/// every lane of the console wave already holds, so they take no group round (in the native mesh form, where each is
+/// a ballot and a lane read, only the values: <see cref="RewriteValues"/>): <c>readfirstlane(x, active)</c> of a value equal on every lane, or on
 /// every active lane while EXEC is full, is <c>x</c>; <c>vw_any(m)</c> of a mask equal on every lane (or <c>active</c>
 /// and a uniform value while EXEC is full) is <c>m</c>. The facts are the window analysis's console-wave facts
 /// (<see cref="WindowAnalysis.EntryFacts"/>). In TransformD-style mesh programs most branches test a scalar condition
@@ -20,6 +21,12 @@ internal static partial class UniformWaveOperations
     public static int Rewrite(List<CodeBlock> blocks, IReadOnlyList<string> prologue, int threads)
     {
         return Uniform(blocks, prologue, threads) + Skips(blocks, prologue, threads);
+    }
+
+    /// <summary>Only the readfirstlanes and anys of uniform values, branches left as they are; how many it replaced.</summary>
+    public static int RewriteValues(List<CodeBlock> blocks, IReadOnlyList<string> prologue, int threads)
+    {
+        return Uniform(blocks, prologue, threads);
     }
 
     /// <summary>
