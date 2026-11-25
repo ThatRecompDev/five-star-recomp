@@ -585,7 +585,7 @@ uint perm_b32(uint a, uint b, uint sel) {
 }
 
 // ---- Mesh probe (loader --probe-pipeline; MeshProbe): FIVESTAR_MESH_PROBE is the program's id,
-// FIVESTAR_MESH_PROBE_BASE the byte offset of its ring in the GPU-memory window (a count, then 256-byte records from
+// FIVESTAR_MESH_PROBE_BASE the byte offset of its ring in the GPU-memory window (a count, then 384-byte records from
 // + 16), FIVESTAR_MESH_PROBE_SITES its number of load sites. Each load site calls a probe_* form with its number, which
 // marks the site (bit site & 31) in a per-thread mask when its range check fails (probe_buf_fits, probe_sbuf_fits),
 // when it reads an unmapped page of the address map (the null pair GPU_MAP_HEAP + 1, + 2), or a record naming no
@@ -594,15 +594,17 @@ uint perm_b32(uint a, uint b, uint sel) {
 // group x y z; vertices, primitives as SetMeshOutputCounts got them, culled primitives, cull mask of primitives 0-31;
 // vertex 0's position; flags (bit 0: position written, bit 1: m0 noted), range, unmapped and null-record masks;
 // the values of sites 0-31; the mask of values noted; m0; the number of sites; id ^ PROBE_MARK; the mask of sites
-// that loaded through a 32-bit pointer (the window), the first such address thread 0 read (flags bit 2)}.
+// that loaded through a 32-bit pointer (the window), the first such address thread 0 read (flags bit 2), the mask of
+// sites with a window address noted; from + 256 the first window address thread 0 read at each of sites 0-31}.
 #ifdef FIVESTAR_MESH_PROBE
 static const uint PROBE_RECORDS = 4096u;
-static const uint PROBE_RECORD_BYTES = 256u;
+static const uint PROBE_RECORD_BYTES = 384u;
 static const uint PROBE_NULL_RECORD = 5u;
 static const uint PROBE_MARK = 0x50524f42u;   // a whole record's last dword: its id ^ this
 static uint g_probe_range, g_probe_unmapped, g_probe_record, g_probe_window, g_probe_gi;
-groupshared uint g_probe_g[14];   // range, unmapped, null record, culled, cull mask, flags, position x y z w, values mask, m0, window mask, window address
+groupshared uint g_probe_g[15];   // range, unmapped, null record, culled, cull mask, flags, position x y z w, values mask, m0, window mask, window address, window sites noted
 groupshared uint g_probe_v[32];
+groupshared uint g_probe_w[32];   // per site: the first window address thread 0 read
 uint probe_bit(uint site) { return 1u << min(site, 31u); }
 bool probe_sbuf_fits(uint site, bool fits) {
     if (!fits) g_probe_range |= probe_bit(site);
@@ -621,6 +623,7 @@ uint probe_PtrLoad(uint site, uint lo, uint hi, uint off) {
     else {   // a 32-bit pointer: the window (descriptor records); the first such address thread 0 reads is kept
         g_probe_window |= probe_bit(site);
         if (g_probe_gi == 0u && (g_probe_g[5] & 4u) == 0u) { g_probe_g[13] = lo + off; g_probe_g[5] |= 4u; }
+        if (g_probe_gi == 0u && site < 32u && (g_probe_g[14] & (1u << site)) == 0u) { g_probe_w[site] = lo + off; g_probe_g[14] |= 1u << site; }
     }
     return PtrLoad(lo, hi, off);
 }
@@ -636,7 +639,7 @@ void probe_alloc(uint m0) {   // GS_ALLOC_REQ's m0, the first time
 }
 void probe_begin(uint gi) {   // before the group's first barrier
     g_probe_gi = gi;
-    if (gi == 0u) { [unroll] for (uint i = 0u; i < 14u; i++) g_probe_g[i] = 0u; }
+    if (gi == 0u) { [unroll] for (uint i = 0u; i < 15u; i++) g_probe_g[i] = 0u; }
 }
 void probe_position(float4 p) {   // thread 0, writing vertex 0
     g_probe_g[5] |= 1u;
@@ -665,6 +668,7 @@ void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the 
     m.Store4(at + 48u, uint4(g_probe_g[5], g_probe_g[0], g_probe_g[1], g_probe_g[2]));
     [unroll] for (uint k = 0u; k < 32u; k += 4u) m.Store4(at + 64u + k * 4u, uint4(g_probe_v[k], g_probe_v[k + 1u], g_probe_v[k + 2u], g_probe_v[k + 3u]));
     m.Store4(at + 192u, uint4(g_probe_g[10], g_probe_g[11], FIVESTAR_MESH_PROBE_SITES, FIVESTAR_MESH_PROBE ^ PROBE_MARK));
-    m.Store2(at + 208u, uint2(g_probe_g[12], g_probe_g[13]));
+    m.Store3(at + 208u, uint3(g_probe_g[12], g_probe_g[13], g_probe_g[14]));
+    [unroll] for (uint w = 0u; w < 32u; w += 4u) m.Store4(at + 256u + w * 4u, uint4(g_probe_w[w], g_probe_w[w + 1u], g_probe_w[w + 2u], g_probe_w[w + 3u]));
 }
 #endif

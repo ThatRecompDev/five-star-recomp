@@ -458,7 +458,11 @@ flowchart LR
   the heap index are logged (no console address, no map or table coverage, a UAV over another resource), with XMem or
   not and slot-127 committed or not. A record with an address keeps the desktop index in dword 4 (the shim's copies to desktop heaps); the
   window mirror holds it in dword 4 for every record (the debug readers). `--buffer-records-heap-index` keeps the heap
-  index in every record.- **Window guard** (`WindowGuard`, on unless `--no-window-guard`). The window holds room for 2,097,152 view records
+  index in every record. Views written into the game's desktop (non-title) heaps keep their fields by desktop handle
+  (`DesktopRecords`), and a copy from one into a title heap writes them into the copied records: before, those copies
+  wrote none, and PositionOnly's per-meshlet V#s, read from such copies, came out as {heap index, 0, 0, 0}. The first
+  16 copies that carry fields are logged with their game index.
+- **Window guard** (`WindowGuard`, on unless `--no-window-guard`). The window holds room for 2,097,152 view records
   (the game's main heap has 1,245,184; the regions past the records started after 1,000,000 before, so the shim's
   mirror of records 1,000,000 and up wrote into the store-trace ring, the window flags and the mesh probe's ring), then
   the guard's table, the store-trace ring, the window flags and the mesh probe's ring. A program's store or atomic
@@ -772,11 +776,13 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   when its range check fails, it reads an unmapped page of the address map or a record naming no descriptor, and thread
   0 notes the register each site's line loads the first time and m0 at GS_ALLOC_REQ. At the end of each group thread 0
   appends {group, the counts it gave SetMeshOutputCounts, m0, culled primitives, vertex 0's position, the three site
-  masks, the values of sites 0 to 31, the number of sites} to a ring in the descriptor window past the window flags, so
+  masks, the values of sites 0 to 31, the number of sites, the sites loading through a 32-bit pointer and the first
+  window address each of sites 0 to 31 read} to a ring in the descriptor window past the window flags, so
   a count of 0 shows whether its load read 0 from memory or failed its check. The program index names such a program
   `<name>.probe-<ring offset>`, so its DXIL, links and pipelines are cache entries of their own and the other programs
   stay warm. At each captured present the records since the last are summed up per program, each flagged site with its
-  text (kept as `<name>.sites.txt` beside the DXIL).
+  text (kept as `<name>.sites.txt` beside the DXIL) and, for a window load, the view record index it read (the game
+  index the copies and writes log).
 - `--capture-presents 60,300` reads the presented plane back at those present numbers once the presenting queue is
   idle and logs the same summary; `--capture-dir <dir>` also writes `present-N.png` there. Only the plane is read,
   never the window or the desktop.

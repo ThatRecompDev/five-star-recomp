@@ -258,6 +258,33 @@ internal static unsafe class XboxDescriptorMethods
         }
     }
 
+    /// <summary>
+    /// The buffer fields of the desktop-heap views copied in, into their records (<see cref="DesktopRecords"/>); how
+    /// many carried fields.
+    /// </summary>
+    [HotPath]
+    private static uint CopyFields(ShaderVisibleHeap heap, uint index, uint count, nint source, uint increment)
+    {
+        uint carried = 0;
+
+        if (!DesktopRecords.Any)
+        {
+            return carried;
+        }
+
+        for (uint i = 0; i < count; i++)
+        {
+            if (DesktopRecords.TryFind(source + (nint)((ulong)i * increment), out var buffer))
+            {
+                heap.SetFields(index + i, buffer);
+                DesktopRecords.NoteCarried(index + i, buffer);
+                carried++;
+            }
+        }
+
+        return carried;
+    }
+
     /// <summary>A buffer view whose desc leaves its record without V# fields (<see cref="BufferRecords.NoteFieldless"/>).</summary>
     private static void NoteFieldless(void* description, BufferRecord record, bool unordered)
     {
@@ -288,9 +315,9 @@ internal static unsafe class XboxDescriptorMethods
         BufferRecords.NoteFieldless(BufferRecords.FieldlessConstantBuffer, $"a desktop CBV in a game heap (address 0x{description->Location:x}, 0x{description->Size:x} bytes)");
     }
 
-    private static void NoteCopy(uint run, uint index)
+    private static void NoteCopy(uint run, uint index, uint carried)
     {
-        BufferRecords.NoteFieldless(BufferRecords.FieldlessCopy, $"{run} descriptors copied in from a desktop heap at game index {index}");
+        BufferRecords.NoteFieldless(BufferRecords.FieldlessCopy, $"{run} descriptors copied in from a desktop heap at game index {index}, {carried} carrying buffer fields");
     }
 
     /// <summary>With --watch-transient: the game range of a buffer UAV, by the desktop index its record names.</summary>
@@ -451,19 +478,26 @@ internal static unsafe class XboxDescriptorMethods
         {
             uint run = Least(count - done, heap.RunLength(index + done));
             nint desktop = heap.Destination(index + done, run, BufferRecord.None);
-
-            if (BufferRecords.Noting(BufferRecords.FieldlessCopy))
-            {
-                NoteCopy(run, index + done);
-            }
+            nint from = source + (nint)((ulong)done * increment);
+            uint carried = 0;
 
             if (desktop == 0)
             {
                 desktop = D3D12X.DescriptorHeaps.Sink();
                 run = 1;
+                DesktopCopy(device, run, desktop, from, type);
+            }
+            else
+            {
+                DesktopCopy(device, run, desktop, from, type);
+                carried = CopyFields(heap, index + done, run, from, increment);
             }
 
-            DesktopCopy(device, run, desktop, source + (nint)((ulong)done * increment), type);
+            if (carried < run && BufferRecords.Noting(BufferRecords.FieldlessCopy))
+            {
+                NoteCopy(run, index + done, carried);
+            }
+
             done += run;
         }
     }
