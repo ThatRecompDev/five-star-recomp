@@ -47,6 +47,20 @@ internal static class HostComposition
         return new GdkOptions(options.PackageRoot, options.SaveDirectory, dataRoot, Environment.CurrentDirectory, deviceType, Environment.OSVersion.Version, network);
     }
 
+    /// <summary>The binding and draw-diagnostic switches the options set.</summary>
+    private static void ApplyBindingSwitches(HostOptions options)
+    {
+        Shims.D3D12X.DebugLayer.DrawCensus.Passes = options.CensusPasses;
+        Shims.D3D12X.Binding.PassControls.Rules = Shims.D3D12X.Binding.PassRules.Parse(options.HoldPasses, options.StubPasses);
+        Shims.D3D12X.Binding.BufferRecords.HeapIndexOnly = options.BufferRecordsHeapIndex;
+        Shims.D3D12X.Binding.RawBufferViews.Enabled = !options.TypedBufferViews;
+        Shims.D3D12X.DebugLayer.NullAddressCheck.Enabled = options.CheckNullAddresses;
+
+        // No acceleration structure is built without --raytracing: programs made on demand miss every BVH node.
+        Shims.D3D12X.Binding.BvhMiss.Enabled = !options.RayTracing;
+        Shims.D3D12X.Binding.WindowGuard.Enabled = !options.NoWindowGuard;
+    }
+
     public static PipelineFolders CreatePipelineFolders(HostOptions options)
     {
         CompileBudget.Configure(options.MaxDriverCompiles, options.CompileCeilingBytes);
@@ -58,16 +72,7 @@ internal static class HostComposition
         Shims.D3D12X.Pipelines.PipelineWaits.Current = Shims.D3D12X.Pipelines.PipelineWaits.Parse(options.WaitPipelines);
         Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
 
-        Shims.D3D12X.DebugLayer.DrawCensus.Passes = options.CensusPasses;
-        Shims.D3D12X.Binding.PassControls.Rules = Shims.D3D12X.Binding.PassRules.Parse(options.HoldPasses, options.StubPasses);
-        Shims.D3D12X.Binding.BufferRecords.HeapIndexOnly = options.BufferRecordsHeapIndex;
-        Shims.D3D12X.Binding.RawBufferViews.Enabled = !options.TypedBufferViews;
-
-        Shims.D3D12X.DebugLayer.NullAddressCheck.Enabled = options.CheckNullAddresses;
-
-        // No acceleration structure is built without --raytracing: programs made on demand miss every BVH node.
-        Shims.D3D12X.Binding.BvhMiss.Enabled = !options.RayTracing;
-        Shims.D3D12X.Binding.WindowGuard.Enabled = !options.NoWindowGuard;
+        ApplyBindingSwitches(options);
         string? cache = null;
 
         if (!options.NoPipelineCache)
