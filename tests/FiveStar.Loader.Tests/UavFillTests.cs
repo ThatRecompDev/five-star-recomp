@@ -27,6 +27,7 @@ public sealed unsafe class UavFillTests
         using var heap = device.CreateDescriptorHeap(new Vortice.Direct3D12.DescriptorHeapDescription(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 3, DescriptorHeapFlags.ShaderVisible));
         using var context = new CommandContext(device);
         using var arena = new ResourceArena(device);
+
         var increment = device.GetDescriptorHandleIncrementSize(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
         (Format Format, ushort Slices, FillValue Fill)[] targets =
         [
@@ -35,6 +36,7 @@ public sealed unsafe class UavFillTests
             (Format.R32_UInt, 1, FillValue.Shared(RtStandIns.AmbientLevel)),
         ];
         var textures = new List<ID3D12Resource>();
+
         uint* words = stackalloc uint[6];
         var list = context.List;
         list.SetDescriptorHeaps(1, new[] { heap });
@@ -45,6 +47,7 @@ public sealed unsafe class UavFillTests
             var description = Vortice.Direct3D12.ResourceDescription.Texture2D(format, Size, Size, slices, 1, flags: ResourceFlags.AllowUnorderedAccess);
             var texture = device.CreateCommittedResource(HeapType.Default, description, ResourceStates.UnorderedAccess);
             textures.Add(texture);
+
             var dimension = slices > 1 ? UnorderedAccessViewDimension.Texture2DArray : UnorderedAccessViewDimension.Texture2D;
             var view = new UnorderedAccessViewDescription { Format = format, ViewDimension = dimension };
             view.Texture2DArray.ArraySize = slices;

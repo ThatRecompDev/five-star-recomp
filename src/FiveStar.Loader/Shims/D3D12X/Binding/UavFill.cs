@@ -46,6 +46,10 @@ internal static unsafe class UavFill
     private const uint Constants = 8;
     private const uint GroupSide = 8;
 
+    /// <summary>The program's first kind of 2D-array views and of 3D views (float, then uint).</summary>
+    private const uint ArrayKinds = 2;
+    private const uint VolumeKinds = 4;
+
     /// <summary>D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES: the program indexes whole heap tables.</summary>
     private const uint UnboundedTables = 1u << 20;
 
@@ -89,15 +93,12 @@ internal static unsafe class UavFill
             ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetTableSlot))(list, table, heapStart);
         }
 
-        uint* constants = stackalloc uint[(int)Constants];
-        constants[0] = index;
-        constants[1] = kind;
-        constants[2] = view.Width;
-        constants[3] = view.Height;
-        constants[4] = fill.Packed;
-        constants[5] = BitConverter.SingleToUInt32Bits(fill.Red);
-        constants[6] = BitConverter.SingleToUInt32Bits(fill.Green);
-        constants[7] = BitConverter.SingleToUInt32Bits(fill.Blue);
+        // The program's cbuffer: index, kind, width, height, the uint value, then the colour.
+        uint* constants = stackalloc uint[]
+        {
+            index, kind, view.Width, view.Height, fill.Packed,
+            BitConverter.SingleToUInt32Bits(fill.Red), BitConverter.SingleToUInt32Bits(fill.Green), BitConverter.SingleToUInt32Bits(fill.Blue),
+        };
         ((delegate* unmanaged<nint, uint, uint, uint*, uint, void>)ComObject.Slot(list, SetConstantsSlot))(list, ConstantsParameter, Constants, constants, 0);
 
         uint depth = 1;
@@ -132,9 +133,9 @@ internal static unsafe class UavFill
             case UavViews.Texture2D:
                 return uint32;
             case UavViews.Texture2DArray:
-                return 2 + uint32;
+                return ArrayKinds + uint32;
             case UavViews.Texture3D:
-                return 4 + uint32;
+                return VolumeKinds + uint32;
             default:
                 return uint.MaxValue;
         }
@@ -200,6 +201,7 @@ internal static unsafe class UavFill
         byte[] entry = Encoding.ASCII.GetBytes("main\0");
         byte[] target = Encoding.ASCII.GetBytes("cs_5_1\0");
         byte[] name = Encoding.ASCII.GetBytes("uav_fill\0");
+
         nint code = 0;
         nint errors = 0;
         int hr;

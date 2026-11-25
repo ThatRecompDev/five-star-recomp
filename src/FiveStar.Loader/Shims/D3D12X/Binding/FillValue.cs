@@ -31,12 +31,12 @@ internal readonly record struct FillValue(float Red, float Green, float Blue, ui
         }
 
         int exponent = Math.Clamp((int)Math.Floor(Math.Log2(largest)) + 1 + ExponentBias, 0, MaxExponent);
-        double scale = Math.Pow(2, exponent - ExponentBias - MantissaBits);
+        double scale = Math.ScaleB(1.0, exponent - ExponentBias - MantissaBits);
 
         if (Math.Round(largest / scale) > MantissaMax && exponent < MaxExponent)
         {
             exponent++;
-            scale *= 2;
+            scale = Math.ScaleB(scale, 1);
         }
 
         uint Mantissa(float value) => (uint)Math.Clamp(Math.Round(value / scale), 0, MantissaMax);

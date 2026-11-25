@@ -139,12 +139,8 @@ internal sealed class CommandLineParser
                 return SetCapturePresents();
             case "--present-test":
                 return SetPresentTest();
-            case "--raytracing" or "--raytracing-gpu":
+            case "--raytracing" or "--raytracing-gpu" or "--no-rt-stand-ins":
                 return SetRayTracing(option);
-            case "--no-rt-stand-ins":
-                _options.NoRtStandIns = true;
-
-                return true;
             case "--xdsp-convolution":
                 return SetXDspConvolution();
             case "--network":
@@ -874,9 +870,16 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    /// <summary>--raytracing (the DLL's CPU paths) or --raytracing-gpu (the inventory of its GPU builder).</summary>
+    /// <summary>--raytracing (the DLL's CPU paths), --raytracing-gpu (the inventory of its GPU builder) or --no-rt-stand-ins.</summary>
     private bool SetRayTracing(string option)
     {
+        if (option == "--no-rt-stand-ins")
+        {
+            _options.NoRtStandIns = true;
+
+            return true;
+        }
+
         if (option == "--raytracing-gpu")
         {
             _options.RayTracingGpuInventory = true;
