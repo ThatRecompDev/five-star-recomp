@@ -544,7 +544,7 @@ internal sealed unsafe class DrawTrace
         {
             foreach (var entry in TraceRecords.Offsets)
             {
-                uint? index = DepthUavs.HeapIndex((uint*)(window.Data + table + entry.Offset));
+                uint? index = TraceRecords.HeapIndex((uint*)(window.Data + table + entry.Offset));
 
                 if (!index.HasValue || !_views.TryTexture(start + (nint)((ulong)index.Value * increment), out var view))
                 {
