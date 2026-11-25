@@ -4,6 +4,7 @@
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.Binding;
+using FiveStar.Loader.Shims.D3D12X.Present;
 
 namespace FiveStar.Loader.Shims.D3D12X;
 
@@ -12,9 +13,9 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// are a cache over the GPU's system-memory budget, not all resident at once. Once per present, before the first list
 /// of the frame runs (<see cref="Poll"/>): the windows programs asked for (<see cref="WindowFeedback"/>: a read on a
 /// waiting page sets its window's flag) open while they fit; when they do not, the open windows wanted least recently
-/// are released for them. A released window's pages wait again at once, reading zeros; its views and heap go only
-/// <see cref="RetirePresents"/> presents later, when the GPU work that could still read them is done (the frame throttle
-/// keeps the GPU within a few presents). Windows a placed buffer of the game lives on are never released.
+/// are released for them. A released window's pages wait again at once, reading zeros; its views and heap go once every
+/// queue has finished what was submitted until then (each queue's shim fence), and no sooner than
+/// <see cref="RetirePresents"/> presents. Windows a placed buffer of the game lives on are never released.
 /// </summary>
 internal sealed unsafe class WindowResidency
 {
@@ -28,19 +29,21 @@ internal sealed unsafe class WindowResidency
     public const long KeepPresents = 30;
 
     private readonly object _gate = new();
-    private readonly List<(SectionWindow Window, List<nint> Buffers, long Present)> _retiring = [];
+    private readonly List<(SectionWindow Window, List<nint> Buffers, long Present, (nint Fence, ulong Value)[] Marks)> _retiring = [];
     private readonly SectionHeaps _heaps;
     private readonly GameMemoryViews _views;
+    private readonly GpuFrameThrottle _throttle;
     private readonly LoaderLog _log;
     private long _present = -1;
     private long _opened;
     private long _released;
     private long _wanted;
 
-    public WindowResidency(SectionHeaps heaps, GameMemoryViews views, LoaderLog log)
+    public WindowResidency(SectionHeaps heaps, GameMemoryViews views, GpuFrameThrottle throttle, LoaderLog log)
     {
         _heaps = heaps;
         _views = views;
+        _throttle = throttle;
         _log = log;
     }
 
@@ -150,7 +153,7 @@ internal sealed unsafe class WindowResidency
         foreach (var window in _heaps.Releasable().Where(window => present - window.LastWanted > KeepPresents).OrderBy(window => window.LastWanted))
         {
             _heaps.Retire(window);
-            _retiring.Add((window, _views.Close(window), present));
+            _retiring.Add((window, _views.Close(window), present, _throttle.Submitted()));
             Interlocked.Increment(ref _released);
             pending += window.Bytes;
 
@@ -161,14 +164,17 @@ internal sealed unsafe class WindowResidency
         }
     }
 
-    /// <summary>Releases the view buffers and heaps of the windows retired <see cref="RetirePresents"/> presents ago or more.</summary>
+    /// <summary>
+    /// Releases the view buffers and heaps of the windows retired <see cref="RetirePresents"/> presents ago or more whose
+    /// queues have finished everything submitted when they were retired: a list in flight may read any window.
+    /// </summary>
     private void Retire(long present)
     {
         for (int i = _retiring.Count - 1; i >= 0; i--)
         {
-            var (window, buffers, released) = _retiring[i];
+            var (window, buffers, released, marks) = _retiring[i];
 
-            if (present - released < RetirePresents)
+            if (present - released < RetirePresents || !GpuFrameThrottle.Passed(marks))
             {
                 continue;
             }

@@ -11,4 +11,10 @@ internal enum SectionHeapUse
 
     /// <summary>The address map, for pages the game mapped: programs may read them through a V# or pointer.</summary>
     Map,
+
+    /// <summary>
+    /// <see cref="WindowResidency"/>, for a window programs read (--evict-windows): with it the map itself opens no window
+    /// of a section backed lazily, so the budget goes to what the GPU reads.
+    /// </summary>
+    Asked,
 }

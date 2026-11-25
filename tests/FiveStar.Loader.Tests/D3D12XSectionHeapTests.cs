@@ -76,10 +76,11 @@ public sealed unsafe class D3D12XSectionHeapTests
     }
 
     /// <summary>
-    /// --evict-windows on a budget scaled down from --section-heap-budget 3: three 64 MiB windows of room for the
-    /// address map. A program reading a page whose window has no heap sets that window's flag; at the next present the
-    /// window wanted least recently is released for it (its pages wait again at once), its heap goes 8 presents later,
-    /// and the asked-for window opens with its pages mapped. A window a placed buffer lives on is never released.
+    /// --evict-windows on a budget scaled down from --section-heap-budget 3: room for three 64 MiB windows. The map opens
+    /// none of a lazily backed section itself; a program reading a waiting page sets its window's flag, and the window
+    /// opens at the next present. When none fits, the window asked for least recently is released (its pages wait
+    /// again at once), its heap goes once the GPU is past it, and the asked-for window opens in its place. A window a
+    /// placed buffer lives on is never released.
     /// </summary>
     [Fact]
     public void Windows_programs_ask_for_replace_the_least_recently_wanted_ones()
@@ -97,32 +98,35 @@ public sealed unsafe class D3D12XSectionHeapTests
 
             var heaps = d3d12.SectionHeaps;
             var views = d3d12.MemoryViews;
+            var residency = d3d12.Residency!;
             uint* flags = d3d12.Bindings.Window.WindowFlags;
             nint desktop = d3d12.Objects.DesktopDevice;
 
-            // The address map opened the first three windows; a page at +640 MiB waits, tagged with its window's id.
-            Assert.Equal(3 * SectionHeaps.LazyWindowBytes, heaps.Opened);
-            var (view, field) = views.Entry((ulong)range + WantedOffset);
-            Assert.Equal(DescriptorWindow.UnmappedSlot, view);
-            Assert.Equal(WindowFeedback.WaitTag, field & WindowFeedback.WaitTag);
-            var wanted = heaps.ById((int)(field & IdMask))!;
-            var section = wanted.Chunk.Section;
-
-            // A buffer of the game's pins the first window.
+            // A buffer of the game's opens and pins the first window; the map opened nothing, its pages wait tagged.
             Assert.Equal(0, device.PlacedBuffer(range + (nint)Page, Page, out _));
+            Assert.Equal(SectionHeaps.LazyWindowBytes, heaps.Opened);
+            var second = Waiting(views, heaps, (ulong)range + SectionHeaps.LazyWindowBytes);
+            var third = Waiting(views, heaps, (ulong)range + (2 * SectionHeaps.LazyWindowBytes));
+            var wanted = Waiting(views, heaps, (ulong)range + WantedOffset);
 
-            // A program reads the page (gpu_page stores the flag): the window at +64 MiB is released for it.
+            // Programs read the second and third windows: they open at the next present, filling the room.
+            flags[second.Id] = 1;
+            flags[third.Id] = 1;
+            residency.Poll(desktop, flags, 1);
+            Assert.Equal(3 * SectionHeaps.LazyWindowBytes, heaps.Opened);
+            Assert.NotEqual(DescriptorWindow.UnmappedSlot, views.Entry((ulong)range + SectionHeaps.LazyWindowBytes).View);
+
+            // A program reads the page at +640 MiB: the second window, asked for no later than the third, is released for it.
             flags[wanted.Id] = 1;
-            d3d12.Residency!.Poll(desktop, flags, FirstPresent);
-            var released = heaps.Find(section, SectionHeaps.LazyWindowBytes)!;
-            Assert.True(released.Retiring);
-            Assert.False(heaps.Find(section, 0)!.Retiring);
+            residency.Poll(desktop, flags, FirstPresent);
+            Assert.True(second.Retiring);
+            Assert.False(heaps.Find(second.Chunk.Section, 0)!.Retiring);
             Assert.Equal(DescriptorWindow.UnmappedSlot, views.Entry((ulong)range + SectionHeaps.LazyWindowBytes).View);
 
             // Its heap goes once the GPU is past it, and the window asked for opens in its place.
             flags[wanted.Id] = 1;
-            d3d12.Residency.Poll(desktop, flags, FirstPresent + WindowResidency.RetirePresents);
-            Assert.Equal(0, released.Heap);
+            residency.Poll(desktop, flags, FirstPresent + WindowResidency.RetirePresents);
+            Assert.Equal(0, second.Heap);
             Assert.NotEqual(0, wanted.Heap);
             Assert.NotEqual(DescriptorWindow.UnmappedSlot, views.Entry((ulong)range + WantedOffset).View);
             Assert.Equal(3 * SectionHeaps.LazyWindowBytes, heaps.Opened);
@@ -131,6 +135,16 @@ public sealed unsafe class D3D12XSectionHeapTests
         {
             WindowFeedback.Enabled = false;
         }
+    }
+
+    /// <summary>The window of a page that waits for it: the page's map entry names the null views and the window's tag.</summary>
+    private static SectionWindow Waiting(GameMemoryViews views, SectionHeaps heaps, ulong address)
+    {
+        var (view, field) = views.Entry(address);
+        Assert.Equal(DescriptorWindow.UnmappedSlot, view);
+        Assert.Equal(WindowFeedback.WaitTag, field & WindowFeedback.WaitTag);
+
+        return heaps.ById((int)(field & IdMask))!;
     }
 
     /// <summary>

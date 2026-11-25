@@ -124,6 +124,37 @@ internal sealed unsafe class GpuFrameThrottle : IDisposable
         }
     }
 
+    /// <summary>Every followed queue's shim fence and the value it has been submitted to now: what <see cref="Passed"/> checks.</summary>
+    public (nint Fence, ulong Value)[] Submitted()
+    {
+        lock (_gate)
+        {
+            var marks = new (nint Fence, ulong Value)[_queueCount];
+
+            for (int i = 0; i < _queueCount; i++)
+            {
+                var queue = (XboxQueueObject*)_queues[i];
+                marks[i] = (queue->Fence, Volatile.Read(ref queue->Signaled));
+            }
+
+            return marks;
+        }
+    }
+
+    /// <summary>Whether the GPU has finished everything submitted when <paramref name="marks"/> were taken (<see cref="Submitted"/>).</summary>
+    public static bool Passed((nint Fence, ulong Value)[] marks)
+    {
+        foreach (var (fence, value) in marks)
+        {
+            if (fence != 0 && value != 0 && Completed(fence) < value)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public void Dispose()
     {
         if (_event != 0)

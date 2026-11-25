@@ -120,6 +120,12 @@ internal sealed unsafe class SectionHeaps
                 return window.Heap;
             }
 
+            // With --evict-windows the GPU says which windows of a lazily backed section it reads (WindowResidency).
+            if (use == SectionHeapUse.Map && size == LazyWindowBytes && Binding.WindowFeedback.Enabled)
+            {
+                return 0;
+            }
+
             ulong room = Room(use);
 
             if (heapBytes > room)
@@ -192,7 +198,7 @@ internal sealed unsafe class SectionHeaps
     /// </summary>
     public bool TryOpen(nint device, SectionWindow window)
     {
-        nint heap = Heap(device, window.Chunk, window.Start, SectionHeapUse.Map, out _, out _);
+        nint heap = Heap(device, window.Chunk, window.Start, SectionHeapUse.Asked, out _, out _);
 
         return heap != 0;
     }
@@ -290,7 +296,7 @@ internal sealed unsafe class SectionHeaps
     {
         ulong room = Math.Min(Cap - Math.Min(Cap, _opened), SystemRoom());
 
-        if (use == SectionHeapUse.Map)
+        if (use != SectionHeapUse.Placed)
         {
             room -= Math.Min(room, PlacedReserve);
         }
@@ -381,6 +387,11 @@ internal sealed unsafe class SectionHeaps
         if (use == SectionHeapUse.Map)
         {
             return "the address map";
+        }
+
+        if (use == SectionHeapUse.Asked)
+        {
+            return "programs that read it";
         }
 
         return "a placed buffer";
