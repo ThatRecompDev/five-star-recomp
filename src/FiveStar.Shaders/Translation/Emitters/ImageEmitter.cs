@@ -13,7 +13,8 @@ namespace FiveStar.Shaders.Translation.Emitters;
 /// (<see cref="TranslationOptions.TypedImageViews"/>) a load, gather or store of an integer view (the class in T# dword 3)
 /// goes through a <c>uint4</c> or <c>int4</c> declaration of the same descriptor, and d16 keeps an integer's low 16 bits.
 /// A load of class 3 reads shared-exponent light (R9G9B9E5) the GPU wrote into an R32_UINT target, which the desktop
-/// views in R32_UINT: its bits are loaded as an integer and decoded to RGB, alpha 1 (the lighting's TL_PS read only red).
+/// views in R32_UINT: its bits are loaded as an integer and decoded to RGB, alpha 1 (the lighting's TL_PS read only red);
+/// a 2D sample of one decodes the texels and filters them as the sampler says (<c>se_sample</c>, <see cref="SamplerWords"/>).
 /// </summary>
 internal sealed class ImageEmitter
 {
