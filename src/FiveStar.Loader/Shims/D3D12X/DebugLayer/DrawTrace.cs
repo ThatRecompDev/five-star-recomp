@@ -25,6 +25,9 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 internal sealed unsafe class DrawTrace
 {
     private const int FirstDraws = 24;
+
+    /// <summary>Render targets a traced ExecuteIndirect reads back (the lit HDR and the tiled lighting's second target).</summary>
+    private const int TargetsReadBack = 2;
     private const int WindowDraws = 32;
 
     /// <summary>Targets read back in one dumped frame at most: each costs a readback buffer of its size.</summary>
@@ -61,6 +64,7 @@ internal sealed unsafe class DrawTrace
     private readonly ConcurrentDictionary<nint, string> _views = new();
     private readonly ConcurrentDictionary<nint, ulong> _constantBuffers = new();
     private readonly ConcurrentDictionary<nint, (nint Resource, int Home)> _targetViews = new();
+    private readonly ConcurrentDictionary<nint, (int Game, int View)> _viewFormats = new();
     private readonly ConcurrentDictionary<nint, string> _targetDescriptions = new();
     private readonly ConcurrentDictionary<nint, int> _dumped = new();
     private readonly ConcurrentDictionary<nint, byte> _indirectProbes = new();
@@ -136,8 +140,9 @@ internal sealed unsafe class DrawTrace
     }
 
     /// <summary>A render-target view of <paramref name="resource"/> (a wrapper or a desktop resource).</summary>
-    public void RenderTargetView(nint resource, nint handle)
+    public void RenderTargetView(nint resource, nint handle, int gameFormat = 0, int viewFormat = 0)
     {
+        _viewFormats[handle] = (gameFormat, viewFormat);
         var wrapper = _d3d12.Objects.AsResource(resource);
         int home = wrapper == null ? States.ResourceStates.RenderTarget : wrapper->HomeState;
         nint desktop = _d3d12.Objects.Unwrap(resource);
@@ -153,6 +158,12 @@ internal sealed unsafe class DrawTrace
     /// read back the 1st, 2nd, 4th, 8th... time a list leaves it (its passes one after another) and written as a PNG beside the captures.
     /// </summary>
     public static bool DumpTargets { get; set; }
+
+    /// <summary>
+    /// <c>--d3d12-probe-traced</c>: each draw <see cref="PipelineFilter"/> traces also reads back its first render target
+    /// (a float target's mean and largest channels too): the exposure texel, the lit HDR, the composite.
+    /// </summary>
+    public static bool ProbeTraced { get; set; }
 
     /// <summary>List slot 50 (<paramref name="single"/> ranges are not followed).</summary>
     public void RenderTargets(XboxObject* list, uint count, nint* handles, bool single, nint depthStencil)
@@ -230,6 +241,7 @@ internal sealed unsafe class DrawTrace
         if (filtered)
         {
             AppendWindowRecords(text, CommandListBindings.Of(list));
+            state.ProbeNext = ProbeTraced;
         }
 
         _log.Info(text.ToString());
@@ -334,7 +346,7 @@ internal sealed unsafe class DrawTrace
         _indirectProbes[(nint)list] = 0;
     }
 
-    /// <summary>After a traced ExecuteIndirect: its first render target and its depth target are read back in the list.</summary>
+    /// <summary>After a traced ExecuteIndirect: its first two render targets and its depth target are read back in the list.</summary>
     public void AfterIndirect(XboxObject* list)
     {
         if (!_indirectProbes.TryRemove((nint)list, out _))
@@ -344,7 +356,7 @@ internal sealed unsafe class DrawTrace
 
         var state = List(list);
 
-        foreach (nint handle in state.Targets.Take(1).Append(state.DepthStencil))
+        foreach (nint handle in state.Targets.Take(TargetsReadBack).Append(state.DepthStencil))
         {
             if (handle == 0 || !_targetViews.TryGetValue(handle, out var target))
             {
@@ -387,7 +399,10 @@ internal sealed unsafe class DrawTrace
         long draw = Interlocked.Read(ref _draws);
         var state = List(list);
 
-        if (draw > Volatile.Read(ref _windowEnd) || state.Targets.Length == 0 || !_targetViews.TryGetValue(state.Targets[0], out var target))
+        bool traced = state.ProbeNext;
+        state.ProbeNext = false;
+
+        if ((draw > Volatile.Read(ref _windowEnd) && !traced) || state.Targets.Length == 0 || !_targetViews.TryGetValue(state.Targets[0], out var target))
         {
             return;
         }
@@ -470,7 +485,21 @@ internal sealed unsafe class DrawTrace
         // The programs the pipeline was built from (mesh pipelines have no rectangle-list description), then that description.
         string name = QueueProgress.PipelineName(pipeline) + " " + (_d3d12.Rectangles.Pipelines?.Describe(pipeline) ?? string.Empty);
 
-        return name.Contains(PipelineFilter, StringComparison.Ordinal) && Interlocked.Increment(ref _filtered) <= FilterDraws;
+        return MatchesFilter(name, PipelineFilter) && Interlocked.Increment(ref _filtered) <= FilterDraws;
+    }
+
+    /// <summary>Whether <paramref name="name"/> holds one of the comma-separated parts of <paramref name="filter"/>.</summary>
+    public static bool MatchesFilter(string name, string filter)
+    {
+        foreach (var part in filter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (name.Contains(part, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private long Resets(nint list)
@@ -541,9 +570,20 @@ internal sealed unsafe class DrawTrace
     {
         foreach (nint handle in state.Targets)
         {
-            string target = _targetViews.TryGetValue(handle, out var view) ? $"resource 0x{view.Resource:x} {Describe(view.Resource)}, home state 0x{view.Home:x}" : "not a view this trace saw";
+            string target = _targetViews.TryGetValue(handle, out var view) ? $"resource 0x{view.Resource:x} {Describe(view.Resource)}, home state 0x{view.Home:x}{ViewFormat(handle)}" : "not a view this trace saw";
             text.Append($"\n      rtv 0x{handle:x}: {target}");
         }
+    }
+
+    /// <summary>The view's format as the game asked for it and as the desktop got it (0: the resource's own).</summary>
+    private string ViewFormat(nint handle)
+    {
+        if (!_viewFormats.TryGetValue(handle, out var formats))
+        {
+            return string.Empty;
+        }
+
+        return $", view format {formats.View} (game {formats.Game})";
     }
 
     private void AppendVertices(StringBuilder text, VertexBufferView view)

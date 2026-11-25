@@ -4,6 +4,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using FiveStar.Loader.Native;
+using FiveStar.Loader.Shims.D3D12X.Binding;
 using FiveStar.Loader.Shims.D3D12X.Pipelines;
 using FiveStar.Loader.Shims.D3D12X.States;
 using Vortice.Direct3D12;
@@ -50,7 +51,21 @@ internal static unsafe class DepthTwinCopy
     private const int FullScreenVertices = 3;
     private const int SampleMaskAll = -1;
 
+    /// <summary>ID3D12Device: CreateDescriptorHeap, GetDescriptorHandleIncrementSize, CreateDepthStencilView (d3d12.h).</summary>
+    private const int CreateDescriptorHeapSlot = 14;
+    private const int IncrementSlot = 15;
+    private const int CreateDepthStencilViewSlot = 21;
+
+    /// <summary>D3D12_DESCRIPTOR_HEAP_TYPE_DSV and D3D12_DSV_DIMENSION_TEXTURE2D; the copy's views (one per twin).</summary>
+    private const uint DepthStencilHeapType = 3;
+    private const int Texture2DView = 3;
+    private const uint MaxViews = 256;
+
+    private static readonly Guid DescriptorHeapIid = new("8efb471d-616c-4f49-90f7-127bb763fa51");
     private static readonly object Gate = new();
+    private static nint _views;
+    private static uint _increment;
+    private static uint _used;
     private static readonly ConcurrentDictionary<int, nint> Pipelines = new();
     private static nint _root;
     private static byte[]? _vertex;
@@ -68,6 +83,15 @@ internal static unsafe class DepthTwinCopy
         nint pipeline = Pipeline(device, format);
 
         if (pipeline == 0)
+        {
+            return false;
+        }
+
+        // The game's bound view may be read-only (the lighting tests depth without writing it): the copy writes through
+        // a writable view of its own.
+        view = WritableView(device, twin, format);
+
+        if (view == 0)
         {
             return false;
         }
@@ -90,6 +114,47 @@ internal static unsafe class DepthTwinCopy
         Move(list, twin.Depth, DepthWrite, state);
 
         return true;
+    }
+
+    /// <summary>A writable depth-stencil view of the twin's depth in <paramref name="format"/>, made once in the copy's own heap; 0 when the heap is full.</summary>
+    private static nint WritableView(nint device, DepthTwin twin, int format)
+    {
+        if (twin.CopyView != 0)
+        {
+            return twin.CopyView;
+        }
+
+        lock (Gate)
+        {
+            if (twin.CopyView != 0)
+            {
+                return twin.CopyView;
+            }
+
+            if (_views == 0)
+            {
+                uint* heap = stackalloc uint[] { DepthStencilHeapType, MaxViews, 0, 0 };
+                Guid iid = DescriptorHeapIid;
+                nint made = 0;
+                _ = ((delegate* unmanaged<nint, uint*, Guid*, nint*, int>)ComObject.Slot(device, CreateDescriptorHeapSlot))(device, heap, &iid, &made);
+                _views = made;
+                _increment = ((delegate* unmanaged<nint, int, uint>)ComObject.Slot(device, IncrementSlot))(device, (int)DepthStencilHeapType);
+            }
+
+            if (_views == 0 || _used == MaxViews)
+            {
+                return 0;
+            }
+
+            nint handle = DesktopCalls.HeapCpuStart(_views) + (nint)(_used++ * _increment);
+
+            // D3D12_DEPTH_STENCIL_VIEW_DESC: format, TEXTURE2D, no read-only flags, mip 0.
+            int* description = stackalloc int[] { format, Texture2DView, 0, 0 };
+            ((delegate* unmanaged<nint, nint, int*, nint, void>)ComObject.Slot(device, CreateDepthStencilViewSlot))(device, twin.Depth, description, handle);
+            twin.CopyView = handle;
+
+            return handle;
+        }
     }
 
     private static void Move(nint list, nint resource, int before, int after)

@@ -223,10 +223,11 @@ internal static unsafe class XboxDescriptorMethods
     {
         try
         {
-            D3D12X.DrawTrace?.RenderTargetView(resource, Destination(handle));
             nint desktop = D3D12X.Objects.Unwrap(resource);
             byte* copy = stackalloc byte[TargetViewDescriptions.RenderTargetViewSize];
-            CreateDesktopView(self, CreateRenderTargetViewSlot, desktop, TargetViewDescriptions.RenderTargetView(desktop, description, copy), Destination(handle));
+            void* view = TargetViewDescriptions.RenderTargetView(desktop, description, copy);
+            D3D12X.DrawTrace?.RenderTargetView(resource, Destination(handle), Format(description), Format(view));
+            CreateDesktopView(self, CreateRenderTargetViewSlot, desktop, view, Destination(handle));
         }
         catch (Exception exception)
         {
@@ -430,6 +431,17 @@ internal static unsafe class XboxDescriptorMethods
         DepthTwins.NoteView(index, twin, destination);
 
         return true;
+    }
+
+    /// <summary>A view desc's format (its first field), 0 without a desc.</summary>
+    private static int Format(void* description)
+    {
+        if (description == null)
+        {
+            return 0;
+        }
+
+        return *(int*)description;
     }
 
     /// <summary>Warns once; a depth texture's UAV is also noted by resource and heap index (<see cref="DepthUavs"/>).</summary>

@@ -277,6 +277,9 @@ internal sealed record HostOptions
     /// <summary>UAVs of depth textures go to colour twins written back into the depth before draws (<c>--depth-twins</c>).</summary>
     public bool DepthTwins { get; set; }
 
+    /// <summary>Draws the pipeline trace logs also read back their first render target (<c>--d3d12-probe-traced</c>).</summary>
+    public bool D3D12ProbeTraced { get; set; }
+
     /// <summary>Programs' stores through 32-bit pointers reach the descriptor window (<c>--no-window-guard</c>).</summary>
     public bool NoWindowGuard { get; set; }
 

@@ -485,7 +485,8 @@ internal static unsafe class CommandListBindingMethods
     {
         var replay = ListReplayState.Of(self);
 
-        if ((replay->Set & ListReplayState.DepthStencilBit) == 0)
+        // The copy reads the twin through the bound view heap: a list without one set has nothing to read it by.
+        if ((replay->Set & ListReplayState.DepthStencilBit) == 0 || (replay->Set & ListReplayState.HeapsBit) == 0)
         {
             return;
         }
