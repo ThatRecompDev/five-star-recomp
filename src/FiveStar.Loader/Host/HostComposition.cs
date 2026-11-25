@@ -57,6 +57,7 @@ internal static class HostComposition
         Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
 
         Shims.D3D12X.DebugLayer.DrawCensus.Passes = options.CensusPasses;
+        Shims.D3D12X.Binding.PassControls.Rules = Shims.D3D12X.Binding.PassRules.Parse(options.HoldPasses, options.StubPasses);
         Shims.D3D12X.Binding.BufferRecords.HeapIndexOnly = options.BufferRecordsHeapIndex;
         Shims.D3D12X.Binding.WindowGuard.Enabled = !options.NoWindowGuard;
         string? cache = null;
