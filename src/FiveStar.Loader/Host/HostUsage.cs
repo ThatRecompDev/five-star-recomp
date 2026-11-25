@@ -23,6 +23,8 @@ internal static class HostUsage
           --screens <file>       learned screens of --input-script (default %LOCALAPPDATA%\FiveStar\screens.txt)
                                  added to the desktop keys, so the keyboard and the virtual gamepad see them
           --profile-threads      with --sample-threads: also log the main image's busiest functions on running threads
+          --profile-managed <start>[:<seconds>]  from <start> s into the run sample managed stacks for <seconds> (20)
+                                 into <log>.managed.nettrace; fivestar profile summary reads it
           --trace-module <dll>   with --run: the call trace also records calls into this mapped image
           --sample-threads <s>   with --run: every s seconds log the calls per shim since the last sample,
                                  DirectStorage totals and every thread's stack

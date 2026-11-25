@@ -143,6 +143,12 @@ internal sealed record HostOptions
     /// <summary>With --sample-threads, also a profile burst of the running threads per sample (<c>--profile-threads</c>).</summary>
     public bool ProfileThreads { get; set; }
 
+    /// <summary>With --run, a managed CPU profile from this far into the run (<c>--profile-managed</c>).</summary>
+    public TimeSpan? ProfileManagedStart { get; set; }
+
+    /// <summary>How long the managed CPU profile samples.</summary>
+    public TimeSpan ProfileManagedLength { get; set; }
+
     /// <summary>With --run, also trace calls into these mapped images (<c>--trace-module</c>).</summary>
     public List<string> TracedModules { get; } = [];
 

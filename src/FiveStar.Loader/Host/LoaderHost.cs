@@ -314,6 +314,23 @@ internal sealed class LoaderHost
         return result;
     }
 
+    /// <summary>--sample-threads (with --profile-threads) and --profile-managed.</summary>
+    private void StartSampling()
+    {
+        var interval = _options.SampleThreads;
+        var profileStart = _options.ProfileManagedStart;
+
+        if (interval.HasValue)
+        {
+            new ThreadSampler(_runtime.Images, _runtime.Trace, SampledCounters, _options.ProfileThreads, _log).Start(interval.Value);
+        }
+
+        if (profileStart.HasValue)
+        {
+            ManagedProfile.Start(_runtime.Images, ManagedProfile.TracePath(_options.LogFile), profileStart.Value, _options.ProfileManagedLength, _log);
+        }
+    }
+
     private int RunMain(int rc)
     {
         var main = _runtime.Loader.MainImage;
@@ -330,13 +347,7 @@ internal sealed class LoaderHost
             return Failure;
         }
 
-        var interval = _options.SampleThreads;
-
-        if (interval.HasValue)
-        {
-            new ThreadSampler(_runtime.Images, _runtime.Trace, SampledCounters, _options.ProfileThreads, _log).Start(interval.Value);
-        }
-
+        StartSampling();
         StartMemoryWatch();
         ManagedExceptions.Watch(_log);
 
