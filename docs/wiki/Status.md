@@ -23,8 +23,11 @@ game builds descriptor addresses itself, heap-relative as on the console, and re
 base addresses; the descriptor window now mirrors that layout (views and samplers each from 0, records keeping the
 game's buffer addresses). Since the evening of 25 November the final composite fills the screen: the game copies
 descriptor records into its heap itself, and a table bind now mirrors them past the root signature's range (the
-composite reads record 41 of a 7-record table). The lit image it shows is still red-only: the lighting programs read
-records up to 180 of their tables, and mirroring those is being tested. On 25 November the device removals that ended
+composite reads record 41 of a 7-record table). The lit image it showed was red-only and washed out. The cause found
+is the lighting's R9G9B9E5 textures: the game keeps them as R32_UINT and reads them through shared-exponent views,
+which we read back as plain numbers; `--typed-image-views` now decodes them and is being tested in boots. The game's
+large reservations now get 4 GiB-aligned addresses, as on the console: the game joins a high and a low half of an
+address and crashed with our unaligned ones. On 25 November the device removals that ended
 every boot ~25–35 s after the world started loading were traced to the game's ray-tracing compute passes walking
 acceleration structures we never build; those pipelines now stay stand-ins unless `--raytracing` is given, and a boot
 ran 18 minutes in the world with no removal. Literal samplers (shadow comparison, clamp) now get their own samplers. The overwrite of the game's
