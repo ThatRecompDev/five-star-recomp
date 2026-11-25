@@ -64,7 +64,7 @@ public static class ShaderLowering
 
         if (DxilBackend.Optimize)
         {
-            Simplifier.Run(main, module);
+            Simplifier.Run(main, module, DxilBackend.ConvertBranches);
         }
 
         context.Graphics?.RecordUsage(main);
