@@ -353,6 +353,9 @@ internal sealed record HostOptions
     /// <summary>Only watched targets the game binds as render targets (<c>--d3d12-watch-rendered</c>).</summary>
     public bool D3D12WatchRendered { get; set; }
 
+    /// <summary>How much per-draw text the draw trace writes (<c>--log-draws off|brief|full</c>).</summary>
+    public Shims.D3D12X.DebugLayer.DrawLogLevel LogDraws { get; set; } = Shims.D3D12X.DebugLayer.DrawLogLevel.Brief;
+
     /// <summary>Captures 3 frames 100 presents apart from the first present that draws the world (<c>--capture-when-world</c>).</summary>
     public bool CaptureWhenWorld { get; set; }
 

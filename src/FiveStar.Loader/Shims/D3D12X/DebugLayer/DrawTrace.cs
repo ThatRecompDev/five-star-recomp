@@ -470,6 +470,18 @@ internal sealed unsafe class DrawTrace
         List(list).VertexBuffers = text.ToString();
     }
 
+    /// <summary><c>--log-draws off|brief|full</c> (<see cref="DrawLogLevel"/>; brief by default).</summary>
+    public static DrawLogLevel LogDraws { get; set; } = DrawLogLevel.Brief;
+
+    /// <summary>Writes one traced item's text unless <see cref="LogDraws"/> is off.</summary>
+    private void Write(StringBuilder text)
+    {
+        if (LogDraws != DrawLogLevel.Off)
+        {
+            _log.Info(text.ToString());
+        }
+    }
+
     /// <summary>A draw on <paramref name="list"/>; logged inside a trace window.</summary>
     public void Draw(XboxObject* list, uint vertices, uint instances)
     {
@@ -477,13 +489,21 @@ internal sealed unsafe class DrawTrace
         var rectangles = RectangleListState.Of(list);
         bool filtered = draw > Volatile.Read(ref _windowEnd);
 
-        if (filtered && !Matches(rectangles->Pipeline))
+        if ((filtered && !Matches(rectangles->Pipeline)) || (!filtered && LogDraws != DrawLogLevel.Full))
         {
             return;
         }
 
         var state = List(list);
         state.Traced = true;
+
+        if (LogDraws == DrawLogLevel.Off)
+        {
+            state.ProbeNext = ProbeTraced;
+
+            return;
+        }
+
         string pipeline = Label(rectangles->Pipeline);
         var text = new StringBuilder($"  [draws] draw {draw}: list 0x{(nint)list:x}, {vertices} vertices x {instances}");
         text.Append($"\n      pipeline 0x{rectangles->Pipeline:x} topology {rectangles->Topology} variant {rectangles->VariantBound}: {pipeline}");
@@ -499,7 +519,7 @@ internal sealed unsafe class DrawTrace
             state.ProbeNext = ProbeTraced;
         }
 
-        _log.Info(text.ToString());
+        Write(text);
     }
 
     /// <summary>The window records at <see cref="TraceRecords.Offsets"/> from the user SGPRs (<c>--d3d12-trace-records</c>).</summary>
@@ -635,7 +655,7 @@ internal sealed unsafe class DrawTrace
         AppendPointers(text, CommandListBindings.Of(list), compute);
         AppendWindowRecords(text, CommandListBindings.Of(list), compute);
 
-        _log.Info(text.ToString());
+        Write(text);
         _indirectProbes[(nint)list] = 0;
 
         if (ProbeTraced)
@@ -669,7 +689,7 @@ internal sealed unsafe class DrawTrace
         AppendPointers(text, CommandListBindings.Of(list), compute: true);
         AppendWindowRecords(text, CommandListBindings.Of(list), compute: true);
 
-        _log.Info(text.ToString());
+        Write(text);
         state.ProbeDispatch = ProbeTraced;
     }
 
@@ -698,7 +718,7 @@ internal sealed unsafe class DrawTrace
             if (_lists.TryGetValue(lists[i], out var state) && state.Traced)
             {
                 state.Traced = false;
-                _log.Info($"  [draws] list 0x{lists[i]:x} with traced work submitted on queue #{queue}");
+                Write(new StringBuilder($"  [draws] list 0x{lists[i]:x} with traced work submitted on queue #{queue}"));
             }
         }
     }
@@ -804,7 +824,10 @@ internal sealed unsafe class DrawTrace
         bool traced = state.ProbeNext;
         state.ProbeNext = false;
 
-        if ((draw > Volatile.Read(ref _windowEnd) && !traced) || state.Targets.Length == 0 || !_targetViews.TryGetValue(state.Targets[0], out var target))
+        // An untraced window draw is read back only with --log-draws full.
+        bool window = draw <= Volatile.Read(ref _windowEnd) && LogDraws == DrawLogLevel.Full;
+
+        if ((!window && !traced) || state.Targets.Length == 0 || !_targetViews.TryGetValue(state.Targets[0], out var target))
         {
             return;
         }

@@ -174,6 +174,8 @@ internal static class HostUsage
           --d3d12-watch-limit <n>  watched-target readbacks per frame (16); each pipeline's first write to a target only
           --d3d12-watch-rendered  watch only those targets the game binds as render targets (the lit HDR, not
                                  the UAV-only outputs of the same shape)
+          --log-draws off|brief|full  per-draw text of the draw trace: brief (default) writes traced work only, full also
+                                 the first draws and those after each captured present (each read back), off none
           --capture-when-world   with the draw trace, capture 3 frames 100 presents apart from the first present that
                                  records over 1000 draws and dispatches (the world), wherever it arrives
           --probe-pipeline <text>  mesh programs named with <text> are made with probe code: per group its output
