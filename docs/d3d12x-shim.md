@@ -842,6 +842,9 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   frame after each captured present, every draw or ExecuteIndirect that renders into one, and each traced dispatch or
   compute ExecuteIndirect (which may write it through a UAV), reads it back after itself: each pipeline's first write to
   each target in that frame, up to `--d3d12-watch-limit` (16) readbacks, labelled `watch draw N <pipeline>`. The first writer after which a channel jumps or turns NaN names the pass that breaks it.
+  Each target is also read back once where the frame first binds it (set as a render target, cleared, or before a traced
+  dispatch or ExecuteIndirect), before any writer and outside the limit (`first bind (...) of watched target`), and its
+  ClearRenderTargetViews (slot 52) are logged with their colour: a NaN there came over from earlier frames.
 - `--probe-pipeline <text,...>` makes the mesh, pixel and compute programs whose name holds one of the texts with probe code (`MeshProbe`,
   `MeshProbes`), in any of its forms (two-phase, staged, the superstep form of the wave32 variant): every load site (a
   buffer, formatted or pointer load with the range check before it, an s_buffer_load's compare included) marks itself

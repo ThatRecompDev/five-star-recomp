@@ -10,7 +10,7 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// <summary>
 /// Command-list slots that set output state the desktop takes unchanged: RSSetViewports (21), RSSetScissorRects (22),
 /// OMSetBlendFactor (23), OMSetStencilRef (24), OMSetRenderTargets (50, desktop 46) and OMSetDepthBounds (70, desktop
-/// 62). Each is kept in <see cref="ListReplayState"/> for a split list (<see cref="ListSplits"/>), shown to
+/// 62); ClearRenderTargetView (52, desktop 48) is only shown to the trace. Each is kept in <see cref="ListReplayState"/> for a split list (<see cref="ListSplits"/>), shown to
 /// <see cref="DebugLayer.DrawTrace"/> with <c>--d3d12-trace-draws</c>, then forwarded.
 /// </summary>
 internal static unsafe class ListStateSlots
@@ -21,9 +21,11 @@ internal static unsafe class ListStateSlots
     public const int SetStencilReferenceSlot = 24;
     public const int SetRenderTargetsSlot = 50;
     public const int SetDepthBoundsSlot = 70;
+    public const int ClearRenderTargetSlot = 52;
 
-    /// <summary>ID3D12GraphicsCommandList::OMSetRenderTargets and ID3D12GraphicsCommandList1::OMSetDepthBounds (d3d12.h).</summary>
+    /// <summary>ID3D12GraphicsCommandList::OMSetRenderTargets, ::ClearRenderTargetView and ID3D12GraphicsCommandList1::OMSetDepthBounds (d3d12.h).</summary>
     private const int DesktopSetRenderTargets = 46;
+    private const int DesktopClearRenderTarget = 48;
     private const int DesktopSetDepthBounds = 62;
 
     public static void Register(XboxObjects objects)
@@ -41,6 +43,24 @@ internal static unsafe class ListStateSlots
         objects.SetHandler(XboxInterfaceKind.CommandList, SetStencilReferenceSlot, (nint)stencil);
         objects.SetHandler(XboxInterfaceKind.CommandList, SetRenderTargetsSlot, (nint)targets);
         objects.SetHandler(XboxInterfaceKind.CommandList, SetDepthBoundsSlot, (nint)depthBounds);
+        delegate* unmanaged<XboxObject*, nint, float*, uint, int*, void> clear = &ClearRenderTarget;
+        objects.SetHandler(XboxInterfaceKind.CommandList, ClearRenderTargetSlot, (nint)clear);
+    }
+
+    /// <summary>Slot 52 (ClearRenderTargetView), shown to the draw trace, then forwarded.</summary>
+    [UnmanagedCallersOnly]
+    public static void ClearRenderTarget(XboxObject* self, nint view, float* colour, uint rects, int* boxes)
+    {
+        try
+        {
+            ShimContext.Runtime.D3D12X.DrawTrace?.ClearTarget(self, view, colour, rects);
+            nint inner = self->Inner;
+            ((delegate* unmanaged<nint, nint, float*, uint, int*, void>)ComObject.Slot(inner, DesktopClearRenderTarget))(inner, view, colour, rects, boxes);
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "ListStateSlots.ClearRenderTarget");
+        }
     }
 
     [HotPath]
