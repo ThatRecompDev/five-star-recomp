@@ -11,29 +11,62 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// was given to something else). The newest <see cref="KeptAliases"/> retired textures over exactly one range (other
 /// views of the same memory) keep their reference until disposal, as descriptors the game wrote earlier may still name
 /// them; older ones are released <see cref="AliasGraceFrames"/> presents later. Any other retired texture is
-/// released <see cref="GraceFrames"/> presents later, when the frames that could still sample it are done and the game
-/// has rewritten its descriptors for the new contents. Before, every streamed-out texture stayed alive: a cutscene's
+/// released <see cref="GraceFrames"/> presents later. Either is released only once every queue has completed the work
+/// it had submitted when the texture was retired (its shim fences, <see cref="QueueProgress"/>), so no list that could
+/// sample it is still on the GPU; the presents give the game time to rewrite its descriptors for the new contents.
+/// The grace was 120 and 600 presents, without the fences: boot w36 held 4,905 retired textures, their video memory
+/// charged to commit, when commit reached its limit. Before that every streamed-out texture stayed alive: a cutscene's
 /// streaming grew the process by about 3 GB a minute once video memory spilled into system memory.
 /// </summary>
 internal sealed class GpuTextureRegistry : IDisposable
 {
-    /// <summary>Presents between retiring a texture whose memory was reused and releasing it.</summary>
-    public const long GraceFrames = 120;
+    /// <summary>Presents between retiring a texture whose memory was reused and releasing it, its submitted work done.</summary>
+    public const long GraceFrames = 8;
 
     /// <summary>Retired textures over exactly one range kept until disposal: the newest ones.</summary>
     public const int KeptAliases = 2;
 
-    /// <summary>Presents before an older texture over the same range is released.</summary>
-    public const long AliasGraceFrames = 600;
+    /// <summary>Presents before an older texture over the same range is released, its submitted work done.</summary>
+    public const long AliasGraceFrames = 30;
 
     private readonly object _gate = new();
     private readonly Dictionary<(ulong Address, ulong Size), Queue<GpuTexture>> _aliases = [];
-    private readonly Queue<(GpuTexture Texture, long Frame)> _retired = new();
-    private readonly Queue<(GpuTexture Texture, long Frame)> _agedAliases = new();
+    private readonly Queue<(GpuTexture Texture, long Frame, ulong[] Submitted)> _retired = new();
+    private readonly Queue<(GpuTexture Texture, long Frame, ulong[] Submitted)> _agedAliases = new();
+    private readonly Func<ulong[]> _submitted;
+    private readonly Func<ulong[]> _completed;
     private int _aliasCount;
     private GpuTexture[] _sorted = [];
     private long _frame;
     private long _released;
+
+    /// <summary>The registry of the loader's queues (<see cref="QueueProgress"/>).</summary>
+    public static GpuTextureRegistry OfQueues()
+    {
+        return new GpuTextureRegistry(QueueProgress.Submitted, QueueProgress.Completed);
+    }
+
+    /// <param name="submitted">Every queue's submitted fence value now.</param>
+    /// <param name="completed">Every queue's completed fence value now.</param>
+    public GpuTextureRegistry(Func<ulong[]> submitted, Func<ulong[]> completed)
+    {
+        _submitted = submitted;
+        _completed = completed;
+    }
+
+    /// <summary>Whether every queue has completed what it had <paramref name="submitted"/>.</summary>
+    public static bool Finished(ulong[] submitted, ulong[] completed)
+    {
+        for (int queue = 0; queue < submitted.Length; queue++)
+        {
+            if (queue >= completed.Length || completed[queue] < submitted[queue])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     public int Count => Volatile.Read(ref _sorted).Length;
 
@@ -97,17 +130,24 @@ internal sealed class GpuTextureRegistry : IDisposable
         {
             _frame = frame;
 
-            while (_retired.Count > 0 && _retired.Peek().Frame + GraceFrames <= frame)
+            if (_retired.Count == 0 && _agedAliases.Count == 0)
             {
-                ComObject.Release(_retired.Dequeue().Texture.Desktop);
-                _released++;
+                return;
             }
 
-            while (_agedAliases.Count > 0 && _agedAliases.Peek().Frame + AliasGraceFrames <= frame)
-            {
-                ComObject.Release(_agedAliases.Dequeue().Texture.Desktop);
-                _released++;
-            }
+            var completed = _completed();
+            ReleaseDue(_retired, frame - GraceFrames, completed);
+            ReleaseDue(_agedAliases, frame - AliasGraceFrames, completed);
+        }
+    }
+
+    /// <summary>Releases, oldest first, the textures retired by <paramref name="lastFrame"/> whose submitted work is done.</summary>
+    private void ReleaseDue(Queue<(GpuTexture Texture, long Frame, ulong[] Submitted)> queue, long lastFrame, ulong[] completed)
+    {
+        while (queue.Count > 0 && queue.Peek().Frame <= lastFrame && Finished(queue.Peek().Submitted, completed))
+        {
+            ComObject.Release(queue.Dequeue().Texture.Desktop);
+            _released++;
         }
     }
 
@@ -171,7 +211,7 @@ internal sealed class GpuTextureRegistry : IDisposable
             return;
         }
 
-        _retired.Enqueue((entry, _frame));
+        _retired.Enqueue((entry, _frame, _submitted()));
     }
 
     /// <summary>
@@ -194,7 +234,7 @@ internal sealed class GpuTextureRegistry : IDisposable
 
         if (kept.Count > KeptAliases)
         {
-            _agedAliases.Enqueue((kept.Dequeue(), _frame));
+            _agedAliases.Enqueue((kept.Dequeue(), _frame, _submitted()));
             _aliasCount--;
         }
     }

@@ -35,6 +35,11 @@ internal sealed unsafe class PlacedTextureHeaps
     private const int NonTargetTexturesOnly = 0x44;
     private const ulong DefaultAlignment = 64UL << 10;
     private const int OwnHeapShare = 4;
+
+    /// <summary>Empty shared heaps kept for new textures; any more go back.</summary>
+    private const int KeptEmptyHeaps = 1;
+
+    private const long DefaultEmptyMilliseconds = 60_000;
     private const double BytesPerGigabyte = 1UL << 30;
 
     private static readonly Guid ResourceIid = new("696442be-a72e-4059-bc79-5b5c98040fad");
@@ -52,11 +57,12 @@ internal sealed unsafe class PlacedTextureHeaps
     private readonly List<Heap> _heaps = [];
     private long _placed;
     private long _freed;
+    private long _returned;
 
     /// <summary>Whether read-only textures are placed (on by default; <c>--committed-textures</c> turns it off).</summary>
     public static bool Enabled { get; set; }
 
-    /// <summary>"placed textures: N live in H heaps (G GB)", for the texture counters.</summary>
+    /// <summary>"placed textures: N live in H heaps (G GB, U GB used), R heaps returned", for the texture counters.</summary>
     public string Summary
     {
         get
@@ -64,13 +70,15 @@ internal sealed unsafe class PlacedTextureHeaps
             lock (_gate)
             {
                 ulong bytes = 0;
+                ulong used = 0;
 
                 foreach (var heap in _heaps)
                 {
                     bytes += heap.Size;
+                    used += heap.Used;
                 }
 
-                return $"placed textures: {Interlocked.Read(ref _placed) - Interlocked.Read(ref _freed)} live in {_heaps.Count} heaps ({bytes / BytesPerGigabyte:F1} GB)";
+                return $"placed textures: {Interlocked.Read(ref _placed) - Interlocked.Read(ref _freed)} live in {_heaps.Count} heaps ({bytes / BytesPerGigabyte:F1} GB, {used / BytesPerGigabyte:F1} GB used), {_returned} empty heaps returned";
             }
         }
     }
@@ -172,8 +180,31 @@ internal sealed unsafe class PlacedTextureHeaps
             }
 
             heap.Give(offset, size);
+            ReturnEmpty(Environment.TickCount64);
         }
     }
+
+    /// <summary>
+    /// Shared heaps empty for <see cref="EmptyMilliseconds"/> go back to the driver, with their video memory (charged
+    /// to commit: boot w36 held 58 heaps, 14.5 GB, when commit reached its limit), past one kept for the next textures.
+    /// A released texture's range stays mapped while its heap lives, so a stale read the game still makes hits memory
+    /// (issue #23); a heap goes only after it has been empty that long, when the game has rewritten its descriptors.
+    /// Call under the gate.
+    /// </summary>
+    private void ReturnEmpty(long now)
+    {
+        var empty = _heaps.Where(heap => !heap.Own && heap.Empty).OrderBy(heap => heap.EmptySince).ToList();
+
+        foreach (var heap in empty.Skip(KeptEmptyHeaps).Where(heap => now - heap.EmptySince >= EmptyMilliseconds))
+        {
+            _heaps.Remove(heap);
+            ComObject.Release(heap.Desktop);
+            _returned++;
+        }
+    }
+
+    /// <summary>How long a heap stays empty before it may go back (<see cref="ReturnEmpty"/>); for tests.</summary>
+    internal long EmptyMilliseconds { get; set; } = DefaultEmptyMilliseconds;
 
     private static nint CreateHeap(nint device, ulong bytes, ulong alignment)
     {
@@ -342,6 +373,15 @@ internal sealed unsafe class PlacedTextureHeaps
         /// <summary>Whether the heap holds one texture only and goes with it.</summary>
         public bool Own { get; } = own;
 
+        /// <summary>Bytes in ranges handed out.</summary>
+        public ulong Used => Size - _free.Aggregate(0UL, (total, range) => total + range.Size);
+
+        /// <summary>Whether every range is back.</summary>
+        public bool Empty => _free.Count == 1 && _free[0].Size == Size;
+
+        /// <summary>When the heap last became empty (Environment.TickCount64).</summary>
+        public long EmptySince { get; private set; }
+
         public bool TryTake(ulong size, ulong alignment, out ulong offset)
         {
             for (int i = 0; i < _free.Count; i++)
@@ -398,6 +438,11 @@ internal sealed unsafe class PlacedTextureHeaps
             {
                 _free[index - 1] = (_free[index - 1].Offset, _free[index - 1].Size + _free[index].Size);
                 _free.RemoveAt(index);
+            }
+
+            if (Empty)
+            {
+                EmptySince = Environment.TickCount64;
             }
         }
     }
