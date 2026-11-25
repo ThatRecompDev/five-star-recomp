@@ -373,7 +373,7 @@ internal sealed class LoaderHost
         StartMemoryWatch();
         ManagedExceptions.Watch(_log);
 
-        GpuBreadcrumbs.Enable(_options.D3D12Breadcrumbs);
+        EnableGpuMarkers();
         Shims.D3D12X.Binding.CommandListBindingMethods.SkipComputeChains = _options.SkipComputeChains;
         Shims.D3D12X.Binding.CommandListBindingMethods.EmptyIndirectAfterSkip = _options.EmptyIndirectAfterSkip;
         Shims.D3D12X.DebugLayer.DrawTrace.DumpTargets = _options.D3D12DumpTargets;
@@ -412,6 +412,13 @@ internal sealed class LoaderHost
     }
 
     /// <summary>The memory map (<c>--memory-map</c>) and the memory limits (<c>--min-free-memory</c>, <c>--max-commit</c>).</summary>
+    /// <summary><c>--d3d12-breadcrumbs</c> and <c>--gpu-timings</c>, for the device the game creates next.</summary>
+    private void EnableGpuMarkers()
+    {
+        GpuBreadcrumbs.Enable(_options.D3D12Breadcrumbs);
+        Shims.D3D12X.DebugLayer.GpuTimings.Enable(_options.GpuTimings);
+    }
+
     /// <summary><c>--watch-pool-pages</c> and <c>--watch-4g-lines</c>.</summary>
     private void StartPageWatches()
     {
@@ -540,7 +547,18 @@ internal sealed class LoaderHost
 
         string audio = $"audio: {_runtime.Audio.Summary}; XDsp {_runtime.XDsp.Submitted} commands";
 
-        return $"DirectStorage {_runtime.Storage.Summary()}; {pipelines}; {_runtime.D3D12X.Presenter.Presents} presents, {_runtime.D3D12X.FrameThrottle.Summary}; {_runtime.D3D12X.Residency?.Summary ?? "section windows resident"}; {_runtime.Input.Summary}; {audio}; {memory}; {MemorySnapshot.Summary()}; {WriteCombinedMemory.Summary()}; {Commit(pages, helpers)}; {CommandObjectCounts.Summary}; {Shims.D3D12X.Binding.RawBufferViews.Summary}; {Shims.D3D12X.Binding.RtStandIns.Summary}";
+        return $"DirectStorage {_runtime.Storage.Summary()}; {pipelines}; {_runtime.D3D12X.Presenter.Presents} presents, {_runtime.D3D12X.FrameThrottle.Summary}; {_runtime.D3D12X.Residency?.Summary ?? "section windows resident"}; {_runtime.Input.Summary}; {audio}; {memory}; {MemorySnapshot.Summary()}; {WriteCombinedMemory.Summary()}; {Commit(pages, helpers)}; {CommandObjectCounts.Summary}; {Shims.D3D12X.Binding.RawBufferViews.Summary}; {Shims.D3D12X.Binding.RtStandIns.Summary}{GpuTimes()}";
+    }
+
+    /// <summary>"; gpu over N frames: ..." with <c>--gpu-timings</c> (<see cref="Shims.D3D12X.DebugLayer.GpuTimings"/>), else empty.</summary>
+    private string GpuTimes()
+    {
+        if (!Shims.D3D12X.DebugLayer.GpuTimings.Active)
+        {
+            return string.Empty;
+        }
+
+        return "; " + Shims.D3D12X.DebugLayer.GpuTimings.Report(_runtime.D3D12X.Presenter.Presents);
     }
 
     /// <summary>

@@ -171,6 +171,7 @@ internal static unsafe class ListStateSlots
             }
 
             ShimContext.Runtime.D3D12X.DrawTrace?.RenderTargets(self, count, handles, single != 0, depth);
+            DebugLayer.GpuTimings.Targets((nint)self);
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, uint, nint*, int, nint*, void>)ComObject.Slot(inner, DesktopSetRenderTargets))(inner, count, handles, single, depthStencil);
         }

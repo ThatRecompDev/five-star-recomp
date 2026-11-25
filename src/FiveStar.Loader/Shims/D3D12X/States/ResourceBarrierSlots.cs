@@ -77,6 +77,7 @@ internal static unsafe class ResourceBarrierSlots
             }
 
             GpuBreadcrumbs.Close(self);
+            GpuTimings.BeforeClose((nint)self, inner);
 
             int hr = ((delegate* unmanaged<nint, int>)ComObject.Slot(inner, CloseSlot))(inner);
 
