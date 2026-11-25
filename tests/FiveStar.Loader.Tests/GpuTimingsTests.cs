@@ -61,6 +61,7 @@ public sealed class GpuTimingsTests
         GpuTimings.Work(List, list, compute: true, Culling);
         GpuTimings.Work(List, list, compute: true, Culling);
         GpuTimings.Work(List, list, compute: true, Tracing);
+
         GpuTimings.Targets(List);
         GpuTimings.Work(List, list, compute: false, Lighting);
         GpuTimings.BeforeClose(List, list);
