@@ -374,7 +374,13 @@ public sealed partial class MeshStageRunner
     /// </summary>
     public IReadOnlyList<string> RunBarrierLoop(bool supersteps, uint count, LoopCaps caps, int? roundsPerStop = null, bool spin = false)
     {
-        string name = (supersteps ? "ms_ngg_barrier_loop_supersteps" : "ms_ngg_barrier_loop") + (spin ? "_spin" : string.Empty);
+        string name = supersteps ? "ms_ngg_barrier_loop_supersteps" : "ms_ngg_barrier_loop";
+
+        if (spin)
+        {
+            name += "_spin";
+        }
+
         string mesh = TranslateBarrierLoop(supersteps, caps, roundsPerStop, spin);
         var (pixelSource, _) = PassThroughPixelShader.Build(mesh, ["param0"], flat: true);
         var pixel = _fixture.Workbench.Compile(name + "_ps", pixelSource, "ps");
@@ -389,8 +395,15 @@ public sealed partial class MeshStageRunner
     /// <summary>The barrier-loop program (<paramref name="spin"/>: without the barrier) translated in the superstep or the two-phase form.</summary>
     public string TranslateBarrierLoop(bool supersteps, LoopCaps caps, int? roundsPerStop = null, bool spin = false)
     {
-        var source = Program.Replace("s_barrier\n", (spin ? SpinLoop : BarrierLoop) + "\n", StringComparison.Ordinal);
-        var assembled = _fixture.Workbench.Assemble(spin ? "ms_ngg_spin_loop" : "ms_ngg_barrier_loop", source, 64);
+        var (loop, name) = (BarrierLoop, "ms_ngg_barrier_loop");
+
+        if (spin)
+        {
+            (loop, name) = (SpinLoop, "ms_ngg_spin_loop");
+        }
+
+        var source = Program.Replace("s_barrier\n", loop + "\n", StringComparison.Ordinal);
+        var assembled = _fixture.Workbench.Assemble(name, source, 64);
         var config = new ShaderConfig { Stage = HardwareStage.Ngg, WaveSize = 64, UserSgprs = 4, Ngg = new NggConfig(8, 0, 0), LdsBytes = 4 };
         var pipeline = new PipelineStateInfo { Stage = "ms", NumThreads = new ThreadGroupSize(64, 1, 1), MaxVertices = MaxOutputs, MaxPrimitives = MaxOutputs };
         var program = new ShaderProgram(ShaderStage.Mesh, assembled.Instructions, assembled.Code, ShaderSignatures.None, config, pipeline);
