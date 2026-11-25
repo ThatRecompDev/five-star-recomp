@@ -131,6 +131,25 @@ internal static unsafe class QueueProgress
         }
     }
 
+    /// <summary>Every followed queue's last signalled shim-fence value (its submitted work), by queue number - 1.</summary>
+    public static ulong[] Submitted()
+    {
+        int count = Volatile.Read(ref _count);
+        var values = new ulong[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            var queue = Queues[i];
+
+            if (queue is not null)
+            {
+                values[i] = Volatile.Read(ref ((XboxQueueObject*)queue.Wrapper)->Signaled);
+            }
+        }
+
+        return values;
+    }
+
     /// <summary>Every followed queue's completed shim-fence value, by queue number - 1.</summary>
     public static ulong[] Completed()
     {
