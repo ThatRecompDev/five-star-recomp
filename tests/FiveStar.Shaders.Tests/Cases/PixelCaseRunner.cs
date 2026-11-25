@@ -1,8 +1,10 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Buffers.Binary;
 using System.Globalization;
 using FiveStar.Shaders.Containers;
+using FiveStar.Shaders.Disassembly;
 using FiveStar.Shaders.Hardware;
 using FiveStar.Shaders.Tests.Toolchain;
 using FiveStar.Shaders.Tests.Warp;
@@ -70,7 +72,8 @@ public sealed class PixelCaseRunner
         }
 
         var config = new ShaderConfig { Stage = HardwareStage.Pixel, WaveSize = WaveSize };
-        var program = new ShaderProgram(ShaderStage.Pixel, assembled.Instructions, assembled.Code, signatures, config, null);
+        var (instructions, code) = Patched(testCase, assembled.Instructions, assembled.Code);
+        var program = new ShaderProgram(ShaderStage.Pixel, instructions, code, signatures, config, null);
 
         var hlsl = testCase.TypedViews ? ShaderWorkbench.TranslateTypedViews(program) : ShaderWorkbench.Translate(program);
 
@@ -80,6 +83,44 @@ public sealed class PixelCaseRunner
         }
 
         return _fixture.Workbench.Compile(testCase.Name, hlsl, "ps");
+    }
+
+    /// <summary>
+    /// The code with <see cref="PixelCase.ExportPatch"/> applied through an FSSM patch table (ExportPatches) at the first
+    /// <c>s_nop</c>, decoded again; the assembled program when the case has none.
+    /// </summary>
+    private static (IReadOnlyList<Instruction> Instructions, byte[] Code) Patched(PixelCase testCase, IReadOnlyList<Instruction> instructions, byte[] code)
+    {
+        if (testCase.ExportPatch is null)
+        {
+            return (instructions, code);
+        }
+
+        const int SizeField = 0x25C;
+        const int PatchesField = 0x260;
+        const int PatchBytes = 4 + (10 * 10 * 4);
+        const int FullSlot = 4 + (9 * 10 * 4);
+        const int HashPrefix = 0x18;
+
+        var table = new byte[PatchesField + (8 * PatchBytes)];
+        BinaryPrimitives.WriteUInt32LittleEndian(table.AsSpan(SizeField), (uint)testCase.ExportPatch.Length);
+
+        for (int target = 0; target < 8; target++)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(table.AsSpan(PatchesField + (target * PatchBytes)), uint.MaxValue);
+        }
+
+        int start = instructions.First(instruction => instruction.Mnemonic == "s_nop").Address;
+        BinaryPrimitives.WriteUInt32LittleEndian(table.AsSpan(PatchesField), (uint)((start + HashPrefix) / 4));
+
+        for (int i = 0; i < testCase.ExportPatch.Length; i++)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(table.AsSpan(PatchesField + FullSlot + (4 * i)), testCase.ExportPatch[i]);
+        }
+
+        var patched = ExportPatches.Apply(table, code);
+
+        return (new RdnaDecoder().Disassemble(patched, WaveSize), patched);
     }
 
     private List<string> Compare(PixelCase testCase, WarpResult result)
