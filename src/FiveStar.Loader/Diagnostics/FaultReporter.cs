@@ -41,8 +41,18 @@ internal sealed unsafe class FaultReporter
     /// <summary>Faults reported with registers, stack and calls; later ones get one line each.</summary>
     private const int FullReports = 3;
 
-    /// <summary>Faults reported at all.</summary>
+    /// <summary>Faults reported at all, but for the first at each new address (<see cref="MaxSites"/>).</summary>
     private const int MaxReports = 64;
+
+    /// <summary>Fault addresses remembered: a fault at one not seen before is reported past <see cref="MaxReports"/>.</summary>
+    private const int MaxSites = 1024;
+
+    /// <summary>EXCEPTION_RECORD.ExceptionAddress (winnt.h).</summary>
+    private const int AddressOffset = 0x10;
+
+    /// <summary>Whether this thread is writing a report: a fault in the report is not reported again.</summary>
+    [ThreadStatic]
+    private static bool t_reporting;
 
     /// <summary><c>mov rax,gs:[58h]; test rax,rax</c>: the thread's implicit-TLS array (TEB.ThreadLocalStoragePointer).</summary>
     private static readonly byte[] TestTlsArray = [0x65, 0x48, 0x8B, 0x04, 0x25, ThreadEnvironmentBlock.ThreadLocalStoragePointer, 0, 0, 0, 0x48, 0x85, 0xC0];
@@ -55,9 +65,7 @@ internal sealed unsafe class FaultReporter
     private readonly object _registration = new();
     private nint _entry;
     private int _reported;
-
-    /// <summary>1 while a report is written; a fault meanwhile (in the report or on another thread) is not reported.</summary>
-    private int _reporting;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<nint, byte> _sites = new();
     private nint _handle;
 
     public FaultReporter(ImageTable images, CallTrace trace, CodeHeap heap, AmdInstructionHandler cpu, LoaderLog log)
@@ -194,10 +202,13 @@ internal sealed unsafe class FaultReporter
         byte* record = *(byte**)pointers;
         byte* context = *(byte**)(pointers + sizeof(nint));
 
-        if (!IsFault(*(uint*)record) || Interlocked.CompareExchange(ref _reporting, 1, 0) != 0)
+        // Another thread's fault is reported meanwhile; only one inside this thread's report is not (it would recur).
+        if (!IsFault(*(uint*)record) || t_reporting)
         {
             return ContinueSearch;
         }
+
+        t_reporting = true;
 
         try
         {
@@ -205,7 +216,7 @@ internal sealed unsafe class FaultReporter
         }
         finally
         {
-            Volatile.Write(ref _reporting, 0);
+            t_reporting = false;
         }
 
         return ContinueSearch;
@@ -222,8 +233,11 @@ internal sealed unsafe class FaultReporter
         }
 
         int number = Interlocked.Increment(ref _reported);
+        nint site = *(nint*)(record + AddressOffset);
+        bool newSite = _sites.Count < MaxSites && _sites.TryAdd(site, 0);
 
-        if (number > MaxReports)
+        // Past the quota a fault at a new address still gets its line: the boot's last fault is often one.
+        if (number > MaxReports && !newSite)
         {
             return;
         }
