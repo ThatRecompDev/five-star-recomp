@@ -17,6 +17,7 @@ public sealed class Recording : IDisposable
     private const int MinimumSamplerSlots = 16;
     private const int MinimumBufferBytes = 256;
     private const int StatisticsCount = 11;
+    private const int UserDataDwords = 128;
 
     private readonly ID3D12Device _device;
     private readonly List<IDisposable> _owned = [];
@@ -156,17 +157,36 @@ public sealed class Recording : IDisposable
         _device.CreateShaderResourceView(buffer, RawView(words), ResourceSlot(slot));
     }
 
-    /// <summary>User SGPRs as root constants at parameter 0 (zero-padded to the bound count).</summary>
+    /// <summary>How parameter 0 takes the user SGPRs.</summary>
+    public UserDataBinding UserData { get; init; }
+
+    /// <summary>User SGPRs at parameter 0: root constants (zero-padded to the bound count) or a root CBV over 128 dwords.</summary>
     public void SetComputeRoot(ID3D12RootSignature root, Bindings bindings)
     {
         List.SetComputeRootSignature(root);
-        List.SetComputeRoot32BitConstants(0, RootConstants(bindings), 0);
+
+        if (UserData == UserDataBinding.Buffer)
+        {
+            List.SetComputeRootConstantBufferView(0, UserDataBuffer(bindings));
+        }
+        else
+        {
+            List.SetComputeRoot32BitConstants(0, RootConstants(bindings), 0);
+        }
     }
 
     public void SetGraphicsRoot(ID3D12RootSignature root, Bindings bindings)
     {
         List.SetGraphicsRootSignature(root);
-        List.SetGraphicsRoot32BitConstants(0, RootConstants(bindings), 0);
+
+        if (UserData == UserDataBinding.Buffer)
+        {
+            List.SetGraphicsRootConstantBufferView(0, UserDataBuffer(bindings));
+        }
+        else
+        {
+            List.SetGraphicsRoot32BitConstants(0, RootConstants(bindings), 0);
+        }
     }
 
     /// <summary>Creates, clears and binds the render targets, viewport and scissor.</summary>
@@ -327,9 +347,16 @@ public sealed class Recording : IDisposable
         return new PipelineStatistics(values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[10]);
     }
 
-    private static uint[] RootConstants(Bindings bindings)
+    private uint[] RootConstants(Bindings bindings)
     {
-        var words = new uint[bindings.RootConstantCount];
+        var count = bindings.RootConstantCount;
+
+        if (UserData == UserDataBinding.UserConstants)
+        {
+            count = UserDataBindings.UserConstants;
+        }
+
+        var words = new uint[count];
 
         for (var index = 0; index < Math.Min(words.Length, bindings.UserSgprs.Count); index++)
         {
@@ -337,6 +364,23 @@ public sealed class Recording : IDisposable
         }
 
         return words;
+    }
+
+    /// <summary>The user SGPRs in an upload buffer of 128 dwords, as the loader's ring block; its GPU address.</summary>
+    private ulong UserDataBuffer(Bindings bindings)
+    {
+        var words = new uint[UserDataDwords];
+        var count = Math.Min(words.Length, bindings.UserSgprs.Count);
+
+        for (var index = 0; index < count; index++)
+        {
+            words[index] = bindings.UserSgprs[index];
+        }
+
+        var buffer = Buffer(UserDataDwords * sizeof(uint), HeapType.Upload, ResourceStates.GenericRead);
+        Write(buffer, words);
+
+        return buffer.GPUVirtualAddress;
     }
 
     private void AddBuffer(BufferResource resource)

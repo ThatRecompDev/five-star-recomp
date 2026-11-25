@@ -185,6 +185,9 @@ internal sealed record HostOptions
     /// <summary>A memory wait recorded after work splits its list there; <c>--no-split-at-waits</c> turns it off.</summary>
     public bool SplitAtWaits { get; set; } = true;
 
+    /// <summary>User data as root constants instead of the ring's root CBV (<c>--user-data-constants</c>), with programs made on demand.</summary>
+    public bool UserDataConstants { get; set; }
+
     /// <summary>Programs made on demand trace stores into the transient pool and the game heap (<c>--trace-pool-stores</c>).</summary>
     public bool TracePoolStores { get; set; }
 

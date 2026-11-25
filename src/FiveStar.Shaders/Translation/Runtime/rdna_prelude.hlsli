@@ -3,7 +3,14 @@
 // Runtime support for translated RDNA programs.
 // Bindless model: a descriptor's dword0 written by the D3D12.X shim is a PC descriptor-heap index (see GPU addresses).
 
-cbuffer UserData : register(b0) { uint4 g_user4[32]; };       // initial user SGPRs (root constants)
+#ifdef FIVESTAR_USER_CONSTANTS
+// User SGPRs as 32 root constants (s0..s31: every user SGPR RDNA preloads); none past them, read as 0.
+cbuffer UserData : register(b0) { uint4 g_user4[8]; };
+uint user_sgpr(uint i) { return i < 32u ? g_user4[(i >> 2) & 7u][i & 3] : 0u; }
+#else
+cbuffer UserData : register(b0) { uint4 g_user4[32]; };       // initial user SGPRs (a root CBV of 128 dwords)
+uint user_sgpr(uint i) { return g_user4[i >> 2][i & 3]; }
+#endif
 static const uint GPU_MEM_HEAP = 0;                            // raw window of the loader's 32-bit space, RW view at + 1
 static const uint GPU_MAP_HEAP = 7;                            // address map of game memory (raw SRV)
 static const uint GPU_MAP_SPANS = 0x8000u;                     // 4 GiB spans of the 47-bit address space
@@ -11,8 +18,6 @@ static const uint STATIC_SAMPLER_BASE = 2032;                  // runtime-create
 static const uint PC_END = 0xffffffffu;
 static const uint PC_YIELD = 0xfffffffeu;                      // mesh shaders: s_barrier yield point
 static const uint CODE_TAG = 0xc0de0000u;                       // pointer hi-word for PC-relative (embedded) data
-
-uint user_sgpr(uint i) { return g_user4[i >> 2][i & 3]; }
 
 uint MemLoad(uint ptr_lo, uint off) {
     ByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP];

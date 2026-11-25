@@ -26,9 +26,17 @@ public sealed class WarpFixture : IDisposable
     private readonly Dictionary<string, byte[]> _helpers = [];
 
     public WarpFixture()
+        : this(UserDataBindings.FromEnvironment())
     {
+    }
+
+    /// <summary>A fixture whose programs and runs take the user SGPRs as <paramref name="userData"/> says.</summary>
+    internal WarpFixture(UserDataBinding userData)
+    {
+        UserData = userData;
+
         _folder = new Lazy<string>(() => Directory.CreateTempSubdirectory("fivestar-warp-").FullName);
-        _workbench = new Lazy<ShaderWorkbench>(() => new ShaderWorkbench(ShaderToolchain.Find(), _folder.Value));
+        _workbench = new Lazy<ShaderWorkbench>(() => new ShaderWorkbench(ShaderToolchain.Find(), _folder.Value) { Header = UserDataBindings.Header(userData) });
         _device = new Lazy<WarpDevice>(() => new WarpDevice());
         _pixelLanes = new Lazy<PixelContext[]>(() => ProbePixels("fullscreen_vs.hlsl"));
         _halfCoverageLanes = new Lazy<PixelContext[]>(() => ProbePixels("half_vs.hlsl"));
@@ -40,7 +48,10 @@ public sealed class WarpFixture : IDisposable
 
     public ShaderWorkbench Workbench => _workbench.Value;
 
-    public WarpRunner Runner => new(_device.Value);
+    public WarpRunner Runner => new(_device.Value, UserData);
+
+    /// <summary>How the programs and runs take the user SGPRs.</summary>
+    public UserDataBinding UserData { get; }
 
     /// <summary>Per pixel of an 8x8 fullscreen draw (row-major): its PC lane, quad slot, wave size and wave.</summary>
     public IReadOnlyList<PixelContext> PixelLanes => _pixelLanes.Value;

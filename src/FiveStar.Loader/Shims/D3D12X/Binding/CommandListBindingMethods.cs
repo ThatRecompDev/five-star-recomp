@@ -12,7 +12,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Binding;
 /// <summary>
 /// The command-list slots that bind (docs/d3d12x-shim.md, Binding). Slots 33 to 46 are the desktop root methods four
 /// slots later; slot 32 is SetDescriptorHeaps (call at 0x144e4cac2 with the main view and sampler heaps). Root
-/// arguments go to the list's user data and reach the GPU as one root CBV per draw or dispatch that follows a change.
+/// arguments go to the list's user data and reach the GPU as one root CBV (or root constants, <see cref="UserDataConstants"/>)
+/// per draw or dispatch that follows a change.
 /// </summary>
 internal static unsafe class CommandListBindingMethods
 {
@@ -44,12 +45,14 @@ internal static unsafe class CommandListBindingMethods
     private const int DesktopSetGraphicsRootSignature = 30;
     private const int DesktopSetComputeRootDescriptorTable = 31;
     private const int DesktopSetGraphicsRootDescriptorTable = 32;
+    private const int DesktopSetComputeRoot32BitConstants = 35;
+    private const int DesktopSetGraphicsRoot32BitConstants = 36;
     private const int DesktopSetComputeRootConstantBufferView = 37;
     private const int DesktopSetGraphicsRootConstantBufferView = 38;
     private const int DesktopExecuteIndirect = 59;
     private const int DesktopSetPipelineState = 25;
 
-    /// <summary>Root parameters of BindlessRootSignature: the user-data CBV and the mesh fallback table.</summary>
+    /// <summary>Root parameters of BindlessRootSignature: the user data and the mesh fallback table.</summary>
     private const uint UserDataParameter = BindlessRootSignature.UserDataParameter;
     private const uint FallbackTableParameter = BindlessRootSignature.FallbackTableParameter;
 
@@ -741,7 +744,10 @@ internal static unsafe class CommandListBindingMethods
         }
     }
 
-    /// <summary>Uploads the bind point's user data when it changed and points root parameter 0 at it.</summary>
+    /// <summary>
+    /// Sets the bind point's user data when it changed: as root constants (<see cref="UserDataConstants"/>), or uploaded
+    /// to the ring with root parameter 0 pointed at it.
+    /// </summary>
     [HotPath]
     private static void Flush(XboxObject* self, bool compute)
     {
@@ -749,17 +755,27 @@ internal static unsafe class CommandListBindingMethods
         var ring = Bindings.Ring;
         int root = compute ? bindings->ComputeRoot : bindings->GraphicsRoot;
         int dirty = compute ? bindings->ComputeDirty : bindings->GraphicsDirty;
+        bool constants = UserDataConstants.Enabled;
 
-        if (ring is null || root == 0 || dirty == 0 || Bindings.Root == 0)
+        if ((ring is null && !constants) || root == 0 || dirty == 0 || Bindings.Root == 0)
         {
             return;
         }
 
         uint* data = compute ? bindings->Compute : bindings->Graphics;
-        ulong address = ring.Upload(data, UserData.Used(bindings, compute));
-        int slot = compute ? DesktopSetComputeRootConstantBufferView : DesktopSetGraphicsRootConstantBufferView;
+        uint used = UserData.Used(bindings, compute);
         nint inner = self->Inner;
-        ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(inner, slot))(inner, UserDataParameter, address);
+
+        if (constants)
+        {
+            SetUserConstants(inner, compute, data, used);
+        }
+        else
+        {
+            ulong address = ring!.Upload(data, used);
+            int slot = compute ? DesktopSetComputeRootConstantBufferView : DesktopSetGraphicsRootConstantBufferView;
+            ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(inner, slot))(inner, UserDataParameter, address);
+        }
 
         if (compute)
         {
@@ -769,6 +785,23 @@ internal static unsafe class CommandListBindingMethods
         {
             bindings->GraphicsDirty = 0;
         }
+    }
+
+    /// <summary>
+    /// The used dwords as root constants. Past <see cref="BindlessRootSignature.UserConstants"/> (a layout the shim could
+    /// not read, which uploads all 128) is nothing a program reads: RDNA preloads no user SGPR past s31.
+    /// </summary>
+    [HotPath]
+    private static void SetUserConstants(nint inner, bool compute, uint* data, uint used)
+    {
+        int slot = compute ? DesktopSetComputeRoot32BitConstants : DesktopSetGraphicsRoot32BitConstants;
+
+        if (used > BindlessRootSignature.UserConstants)
+        {
+            used = BindlessRootSignature.UserConstants;
+        }
+
+        ((delegate* unmanaged<nint, uint, uint, uint*, uint, void>)ComObject.Slot(inner, slot))(inner, UserDataParameter, used, data, 0);
     }
 
     [HotPath]
