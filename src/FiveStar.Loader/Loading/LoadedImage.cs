@@ -8,6 +8,9 @@ namespace FiveStar.Loader.Loading;
 /// <summary>An image this loader mapped, with the state of its load.</summary>
 internal sealed class LoadedImage
 {
+    /// <summary>The executable sections' RVA ranges, read from the headers on first use (<see cref="InCode"/>).</summary>
+    private (uint Start, uint End)[]? _code;
+
     public LoadedImage(string name, string path, PeImage pe, nint imageBase)
     {
         Name = name;
@@ -67,9 +70,44 @@ internal sealed class LoadedImage
         return (ulong)address >= (ulong)Base && (ulong)address < (ulong)Base + Size;
     }
 
+    /// <summary>
+    /// Whether <paramref name="address"/> lies in a section the image's headers declare executable. That says nothing of
+    /// whether the page is mapped now; it rules out the data sections without asking the system.
+    /// </summary>
+    public bool InCode(nint address)
+    {
+        if (!Contains(address))
+        {
+            return false;
+        }
+
+        uint rva = (uint)(address - Base);
+
+        foreach (var (start, end) in _code ??= CodeRanges())
+        {
+            if (rva >= start && rva < end)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public nint Va(uint rva)
     {
         return Base + (nint)rva;
+    }
+
+    /// <summary>The executable sections' RVA ranges (start, end), from the headers.</summary>
+    private (uint Start, uint End)[] CodeRanges()
+    {
+        return
+        [
+            .. Pe.Sections
+                .Where(section => (section.Characteristics & SectionCharacteristics.MemoryExecute) != 0)
+                .Select(section => (section.VirtualAddress, section.VirtualAddress + Math.Max(section.VirtualSize, section.RawSize))),
+        ];
     }
 
     public override string ToString()

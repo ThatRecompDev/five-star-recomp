@@ -55,13 +55,21 @@ internal static unsafe class ReturnAddresses
             nint value = *slot;
             var image = images.FindByAddress(value);
 
-            if (image is not null && value - IndirectCall >= image.Base && CallBytesReadable(value) && AfterCall((byte*)value))
+            // The section test first: stacks hold many pointers into an image's data, and each VirtualQuery of
+            // CallBytesReadable is a system call (two thirds of the shims' time in a boot's world load, on every wait).
+            if (image is not null && InCode(image, value) && CallBytesReadable(value) && AfterCall((byte*)value))
             {
                 found.Add(value);
             }
         }
 
         return [.. found];
+    }
+
+    /// <summary>Whether the 6 bytes before <paramref name="value"/> lie in executable sections of <paramref name="image"/>.</summary>
+    internal static bool InCode(LoadedImage image, nint value)
+    {
+        return image.InCode(value - IndirectCall) && image.InCode(value - 1);
     }
 
     /// <summary>

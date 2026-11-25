@@ -4,6 +4,7 @@
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Loading;
 using FiveStar.Loader.Native;
+using FiveStar.Loader.Pe;
 using Xunit;
 
 namespace FiveStar.Loader.Tests;
@@ -202,5 +203,25 @@ public sealed unsafe class WaitObjectsTests
         {
             Assert.Equal(call, ReturnAddresses.AfterCall(bytes + before.Length));
         }
+    }
+
+    /// <summary>A stack value is checked against the image's executable sections before any system call.</summary>
+    [Fact]
+    public void Only_a_value_after_six_bytes_of_an_executable_section_is_checked_as_code()
+    {
+        nint imageBase = unchecked((nint)0x7FF6_0000_0000);
+        var sections = new List<PeSection>
+        {
+            new(".text", 0x1000, 0x1000, 0x400, 0x1000, SectionCharacteristics.ContainsCode | SectionCharacteristics.MemoryExecute | SectionCharacteristics.MemoryRead),
+            new(".data", 0x2000, 0x1000, 0x1400, 0x1000, SectionCharacteristics.ContainsInitializedData | SectionCharacteristics.MemoryRead | SectionCharacteristics.MemoryWrite),
+        };
+        var pe = new PeImage([], 0, (ulong)imageBase, 0x3000, 0x400, 0x1000, 0x1000, [], sections);
+        var image = new LoadedImage("game.exe", "game.exe", pe, imageBase);
+
+        Assert.True(ReturnAddresses.InCode(image, imageBase + 0x1010));
+        Assert.True(ReturnAddresses.InCode(image, imageBase + 0x2000));
+        Assert.False(ReturnAddresses.InCode(image, imageBase + 0x1003));
+        Assert.False(ReturnAddresses.InCode(image, imageBase + 0x2010));
+        Assert.False(ReturnAddresses.InCode(image, imageBase + 0x4000));
     }
 }
