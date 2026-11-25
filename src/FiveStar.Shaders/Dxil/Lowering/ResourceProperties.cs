@@ -60,6 +60,8 @@ public static class ResourceProperties
     {
         I32 = 4,
         U32 = 5,
+        I64 = 6,
+        U64 = 7,
         F32 = 9,
     }
 
@@ -131,6 +133,8 @@ public static class ResourceProperties
         {
             ScalarKind.Int => ComponentType.I32,
             ScalarKind.Uint or ScalarKind.Bool => ComponentType.U32,
+            ScalarKind.Int64 => ComponentType.I64,
+            ScalarKind.Uint64 => ComponentType.U64,
             _ => ComponentType.F32,
         };
 

@@ -57,7 +57,7 @@ public sealed class TextureLowerer
     public RValue Method(SyntaxNode call, RValue target)
     {
         var name = call.Text;
-        var texture = new TextureCall(_context, call, target);
+        var texture = new TextureCall(_context, call, target, false);
 
         return name switch
         {
@@ -80,7 +80,7 @@ public sealed class TextureLowerer
     /// <summary><c>texture[index]</c> read: a texel load of mip 0 (or of the UAV).</summary>
     public RValue ReadElement(SyntaxNode node, RValue target)
     {
-        var texture = new TextureCall(_context, node, target);
+        var texture = new TextureCall(_context, node, target, false);
 
         return Load(texture, Expressions.Lower(node[1]), 0);
     }
@@ -88,7 +88,7 @@ public sealed class TextureLowerer
     /// <summary><c>texture[index] = value</c>: a texel store of the components the texture holds.</summary>
     public void WriteElement(SyntaxNode node, RValue target, RValue value)
     {
-        var texture = new TextureCall(_context, node, target);
+        var texture = new TextureCall(_context, node, target, false);
         var coordinates = Integers(Expressions.Lower(node[1]), texture.Shape.Coordinates);
         var data = _context.Convert.Convert(value, texture.Element);
         var components = Pad(data.Components, Module.Undefined(texture.ScalarType), MaxCoordinates);
@@ -105,7 +105,7 @@ public sealed class TextureLowerer
     public RValue Atomic(SyntaxNode call, RValue target)
     {
         var element = call[0];
-        var texture = new TextureCall(_context, element, target);
+        var texture = new TextureCall(_context, element, target, true);
         var coordinates = Integers(Expressions.Lower(element[1]), texture.Shape.Coordinates);
         var int32 = Module.Types.Int32;
 
@@ -122,27 +122,36 @@ public sealed class TextureLowerer
         }
 
         var argument = Expressions.Lower(call[1]);
-        var code = AtomicCode(call, argument.Type.Kind);
-        var value = _context.Convert.Convert(argument, HlslType.Uint).Scalar;
+        var wide = texture.Element.Kind is ScalarKind.Int64 or ScalarKind.Uint64;
+        var code = AtomicCode(call, Choice.Of(wide, texture.Element.Kind, argument.Type.Kind));
+        var valueType = Choice.Of(wide, HlslType.Uint64, HlslType.Uint);
+        var overload = Choice.Of(wide, Module.Types.Int64, int32);
+
+        var value = _context.Convert.Convert(argument, valueType).Scalar;
         var original = texture.Ops.Overloaded(
-            DxOpCode.AtomicBinOp, "atomicBinOp", AttributeSet.NoUnwind, int32, int32,
+            DxOpCode.AtomicBinOp, "atomicBinOp", AttributeSet.NoUnwind, overload, overload,
             texture.Handle, Module.Int32((uint)code), coordinates[0], coordinates[1], coordinates[LevelsField - 1], value);
-        WriteOriginal(call, LocationArgument, original);
+        WriteOriginal(call, LocationArgument, RValue.Of(valueType, original));
 
         return RValue.Void;
     }
 
     private void WriteOriginal(SyntaxNode call, int index, Value original)
     {
+        WriteOriginal(call, index, RValue.Of(HlslType.Uint, original));
+    }
+
+    private void WriteOriginal(SyntaxNode call, int index, RValue original)
+    {
         if (call.Children.Count > index)
         {
-            _context.Variables.Write(Expressions.Place(call[index]), RValue.Of(HlslType.Uint, original));
+            _context.Variables.Write(Expressions.Place(call[index]), original);
         }
     }
 
     private static RawBufferLowerer.AtomicCode AtomicCode(SyntaxNode call, ScalarKind kind)
     {
-        var signed = kind == ScalarKind.Int;
+        var signed = kind is ScalarKind.Int or ScalarKind.Int64;
 
         return call.Text switch
         {
@@ -388,7 +397,11 @@ public sealed class TextureLowerer
     {
         private readonly IrBuilder _builder;
 
-        public TextureCall(LoweringContext context, SyntaxNode call, RValue target)
+        /// <param name="context">The lowering context.</param>
+        /// <param name="call">The call, for errors.</param>
+        /// <param name="target">The texture.</param>
+        /// <param name="atomic">An Interlocked call: 64-bit texels are allowed.</param>
+        public TextureCall(LoweringContext context, SyntaxNode call, RValue target, bool atomic)
         {
             Call = call;
             Ops = context.Ops;
@@ -403,8 +416,8 @@ public sealed class TextureLowerer
             Shape = shape;
             Element = target.Type.Element ?? HlslType.Vector(ScalarKind.Float, MaxCoordinates);
 
-            // 64-bit texels (typed 64-bit atomics) are lowered as 32-bit ones here: dxc compiles those programs.
-            if (Element.Kind is ScalarKind.Int64 or ScalarKind.Uint64)
+            // 64-bit texels are lowered only for atomics (InterlockedMax of a depth and an id in the alpha prepasses).
+            if (Element.Kind is ScalarKind.Int64 or ScalarKind.Uint64 && !atomic)
             {
                 throw SourceError.At(call, $"{target.Type.Name} of 64-bit elements is not supported");
             }
