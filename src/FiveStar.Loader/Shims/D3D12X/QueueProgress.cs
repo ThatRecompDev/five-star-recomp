@@ -379,7 +379,8 @@ internal static unsafe class QueueProgress
             var entry = queue.Events[oldest % History];
             text.Append("\n      oldest unfinished: ").Append(Format(entry, queue.Seen, now));
             GpuBreadcrumbs.Describe(text, Volatile.Read(ref wrapper->Fence), entry.Value, PipelineName);
-            text.Append(CultureInfo.InvariantCulture, $"\n      ({start - oldest - 1} calls after it not shown)");
+            text.Append(CultureInfo.InvariantCulture, $"\n      ({start - oldest - 1} calls after it not shown, but any execution with a list stopped part way)");
+            Stopped(text, queue, wrapper, oldest + 1, start, now);
         }
 
         for (long i = start; i < next; i++)
@@ -395,6 +396,32 @@ internal static unsafe class QueueProgress
         }
 
         return text.ToString();
+    }
+
+    /// <summary>
+    /// The executions in [<paramref name="from"/>, <paramref name="to"/>) a list of which stopped part way: the ones the
+    /// GPU was in when it stopped. Boot w46's removal named only an execution whose lists had all finished, and 60 calls
+    /// after it went unshown.
+    /// </summary>
+    private static void Stopped(StringBuilder text, Queue queue, XboxQueueObject* wrapper, long from, long to, long now)
+    {
+        for (long i = from; i < to; i++)
+        {
+            var entry = queue.Events[i % History];
+
+            if (entry.Kind != QueueEventKind.Execute)
+            {
+                continue;
+            }
+
+            var lists = new StringBuilder();
+            GpuBreadcrumbs.Describe(lists, Volatile.Read(ref wrapper->Fence), entry.Value, PipelineName);
+
+            if (lists.ToString().Contains(GpuBreadcrumbs.StoppedMark, StringComparison.Ordinal))
+            {
+                text.Append("\n      ").Append(Format(entry, queue.Seen, now)).Append(lists);
+            }
+        }
     }
 
     /// <summary>The position of the first execution after the last finished one in the kept calls; -1 for none.</summary>
