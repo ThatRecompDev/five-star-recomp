@@ -65,14 +65,14 @@ internal static class FrameLog
     }
 
     /// <summary>
-    /// "[frame] present N: X ms = game G (our submit path S, of it texture refresh R; descriptor mirroring M; GC C, A MB allocated) +
+    /// "[frame] present N: X ms = game G (our submit path S, of it texture refresh R; descriptor mirroring M; GC C in a/b/c collections of gen 0/1/2, A MB allocated) +
     /// present P (latency L, retire T, submit U, present V)", all in milliseconds.
     /// </summary>
     public static string Line(long presents, FrameTimes times)
     {
         var c = CultureInfo.InvariantCulture;
 
-        return string.Create(c, $"  [frame] present {presents}: {times.Frame:F1} ms = game {times.Game:F1} (our submit path {times.Submit:F1}, of it texture refresh {times.Refresh:F1}; descriptor mirroring {times.Mirroring:F1}; GC pauses {times.Collections:F1}, {times.AllocatedMegabytes:F1} MB allocated) + present {times.Present:F1} (latency wait {times.Latency:F1}, retire wait {times.Retire:F1}, copy submit {times.CopySubmit:F1}, Present {times.Swap:F1})");
+        return string.Create(c, $"  [frame] present {presents}: {times.Frame:F1} ms = game {times.Game:F1} (our submit path {times.Submit:F1}, of it texture refresh {times.Refresh:F1}; descriptor mirroring {times.Mirroring:F1}; GC pauses {times.Collections:F1} in {times.Gen0}/{times.Gen1}/{times.Gen2} collections of gen 0/1/2, {times.AllocatedMegabytes:F1} MB allocated) + present {times.Present:F1} (latency wait {times.Latency:F1}, retire wait {times.Retire:F1}, copy submit {times.CopySubmit:F1}, Present {times.Swap:F1})");
     }
 
     /// <summary>Whether frame <paramref name="presents"/> of <paramref name="milliseconds"/> gets a line.</summary>

@@ -251,6 +251,9 @@ internal sealed record HostOptions
     /// <summary>Every how many frames the CPU frame breakdown is logged (<c>--frame-log</c>); 0 is off.</summary>
     public int FrameLog { get; set; }
 
+    /// <summary>The GC runs in SustainedLowLatency mode: no blocking full collections unless memory runs low (<c>--gc-sustained</c>).</summary>
+    public bool SustainedGc { get; set; }
+
     /// <summary>The frame interval the frame events keep (<c>--frame-rate</c>); the game's own by default.</summary>
     public Shims.D3D12X.Present.FrameRate FrameRate { get; set; }
 

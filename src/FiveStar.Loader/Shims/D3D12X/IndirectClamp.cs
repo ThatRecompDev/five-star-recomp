@@ -179,9 +179,7 @@ internal static unsafe class IndirectClamp
             return !NullAddressCheck.Drop(NullAddressKind.RootDescriptor, self, $"argument clamp views: clamped 0x{destination:x}, budget 0x{budget:x}, count 0x{countAddress:x}");
         }
 
-        BarrierWriter.Transition(list, scratch, ResourceStates.Common, ResourceStates.UnorderedAccess);
-        ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetRootSignatureSlot))(list, _root);
-        ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetPipelineSlot))(list, _pipeline);
+        Begin(self, list, scratch);
 
         ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetShaderResourceSlot))(list, ArgumentsParameter, DesktopCalls.GpuAddress(arguments) + argumentOffset);
         ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetShaderResourceSlot))(list, CountParameter, countAddress);
@@ -198,8 +196,22 @@ internal static unsafe class IndirectClamp
         ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(list, DispatchSlot))(list, (maxCount + GroupThreads - 1) / GroupThreads, 1, 1);
         BarrierWriter.Transition(list, scratch, ResourceStates.UnorderedAccess, IndirectArgumentState);
         Interlocked.Increment(ref _clamped);
+        GpuTimings.Work((nint)self, list, kind == DispatchKind, ListActivity.Of(self)->Pipeline);
 
         return true;
+    }
+
+    /// <summary>
+    /// The clamp's start: a pass of its own in <c>--gpu-timings</c> (the execution's pass starts after the clamp, at the
+    /// end of <see cref="Record"/>), the scratch made writable and our program bound.
+    /// </summary>
+    [HotPath]
+    private static void Begin(XboxObject* self, nint list, nint scratch)
+    {
+        GpuTimings.Work((nint)self, list, compute: true, GpuTimings.IndirectClampPipeline);
+        BarrierWriter.Transition(list, scratch, ResourceStates.Common, ResourceStates.UnorderedAccess);
+        ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetRootSignatureSlot))(list, _root);
+        ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetPipelineSlot))(list, _pipeline);
     }
 
     /// <summary>

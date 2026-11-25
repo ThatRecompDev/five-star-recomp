@@ -46,6 +46,45 @@ public sealed class GpuTimingsTests
         }
     }
 
+    [WarpFact]
+    public void Timing_a_pass_allocates_nothing_on_the_game_thread()
+    {
+        using var gpu = GpuDevice.CreateWarp(debugLayer: false);
+
+        try
+        {
+            GpuTimings.Enable(true);
+            GpuTimings.Attach(gpu.Device.NativePointer, null);
+            using var context = new CommandContext(gpu.Device);
+            nint list = context.List.NativePointer;
+            GpuTimings.Reset(List);
+            Passes(list);
+
+            // Called before every draw, dispatch and indirect execution: no allocation per call.
+            GpuTimings.Reset(List);
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            Passes(list);
+            Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+            GpuTimings.BeforeClose(List, list);
+            context.ExecuteAndWait();
+        }
+        finally
+        {
+            GpuTimings.Detach();
+        }
+    }
+
+    /// <summary>Compute, clamp and draw passes in turn (the first run also warms the code up).</summary>
+    private static void Passes(nint list)
+    {
+        for (int pass = 0; pass < 100; pass++)
+        {
+            GpuTimings.Work(List, list, compute: true, Tracing);
+            GpuTimings.Work(List, list, compute: true, GpuTimings.IndirectClampPipeline);
+            GpuTimings.Work(List, list, compute: false, Lighting);
+        }
+    }
+
     private static void Run(ID3D12Device device)
     {
         GpuTimings.Enable(true);
@@ -65,7 +104,9 @@ public sealed class GpuTimingsTests
         GpuTimings.Split(List, list);
         GpuTimings.Work(List, list, compute: true, Tracing);
 
+        // An indirect draw's argument clamp is a pass of its own before the draw's.
         GpuTimings.Targets(List);
+        GpuTimings.Work(List, list, compute: true, GpuTimings.IndirectClampPipeline);
         GpuTimings.Work(List, list, compute: false, Lighting);
         GpuTimings.BeforeClose(List, list);
         context.ExecuteAndWait();
@@ -77,18 +118,20 @@ public sealed class GpuTimingsTests
         Assert.Contains("queue #1 busy ", report, StringComparison.Ordinal);
         Assert.Contains("(meshlet_culling~CS_Cull ", report, StringComparison.Ordinal);
         Assert.Contains("sr_tracing~CS_Trace ", report, StringComparison.Ordinal);
+
         Assert.Contains("(memory wait) ", report, StringComparison.Ordinal);
+        Assert.Contains("loader:indirect-clamp ", report, StringComparison.Ordinal);
         Assert.Contains("PS_Light ", report, StringComparison.Ordinal);
         Assert.DoesNotContain("VS_Light", report, StringComparison.Ordinal);
 
         Assert.Contains("0 read after their block was reused", report, StringComparison.Ordinal);
-        Assert.Contains("0 with more than 63 passes", report, StringComparison.Ordinal);
+        Assert.Contains("0 with more than 255 passes", report, StringComparison.Ordinal);
 
-        // 70 compute passes: the block holds 63, and its last pass, which takes the rest, says so.
+        // 300 compute passes: the block holds 255, and its last pass, which takes the rest, says so.
         GpuTimings.Reset(List);
         nint[] alternating = [Culling, Tracing];
 
-        for (int pass = 0; pass < 70; pass++)
+        for (int pass = 0; pass < 300; pass++)
         {
             GpuTimings.Work(List, list, compute: true, alternating[pass & 1]);
         }
@@ -100,7 +143,7 @@ public sealed class GpuTimingsTests
         report = GpuTimings.Report(3);
 
         Assert.Contains("meshlet_culling~CS_Cull +rest ", report, StringComparison.Ordinal);
-        Assert.Contains("1 with more than 63 passes", report, StringComparison.Ordinal);
+        Assert.Contains("1 with more than 255 passes", report, StringComparison.Ordinal);
     }
 
     private static string Name(nint pipeline)

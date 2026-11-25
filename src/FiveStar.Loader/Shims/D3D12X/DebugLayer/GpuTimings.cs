@@ -24,11 +24,14 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// </summary>
 internal static unsafe class GpuTimings
 {
-    /// <summary>Query blocks in the ring, one per recording; at about 300 recordings a frame the ring turns every second or so.</summary>
-    private const int Blocks = 8192;
+    /// <summary>Query blocks in the ring, one per recording; at about 300 recordings a frame and 1-2 frames a second the ring turns every 4-7 s.</summary>
+    private const int Blocks = 2048;
 
-    /// <summary>Queries per recording: up to 63 passes and the end; later boundaries extend the last pass.</summary>
-    private const int QueriesPerBlock = 64;
+    /// <summary>
+    /// Queries per recording: up to 255 passes and the end; later boundaries extend the last pass. An indirect execution
+    /// with its argument clamp takes two passes, so a list of a hundred of them fits.
+    /// </summary>
+    private const int QueriesPerBlock = 256;
 
     private const int Queries = Blocks * QueriesPerBlock;
 
@@ -66,6 +69,12 @@ internal static unsafe class GpuTimings
 
     /// <summary>The pipeline slot of a pass that begins where a list splits at a memory wait.</summary>
     private static readonly nint MemoryWait = -1;
+
+    /// <summary>The pass name of our argument clamp before an indirect execution (<see cref="IndirectClamp"/>).</summary>
+    private const string IndirectClampPass = "loader:indirect-clamp";
+
+    /// <summary>The pipeline slot of <see cref="IndirectClampPass"/>: pass it to <see cref="Work"/> before the clamp's dispatch.</summary>
+    public static readonly nint IndirectClampPipeline = -2;
 
     private static readonly ConcurrentDictionary<nint, ListTimes> Lists = new();
     private static readonly ConcurrentQueue<Submission> Submitted = new();
@@ -420,12 +429,7 @@ internal static unsafe class GpuTimings
 
             for (int i = 0; i < passes; i++)
             {
-                string pass = MemoryWaitPass;
-
-                if (recording.Pipelines[i] != MemoryWait)
-                {
-                    pass = PassName(Name(recording.Pipelines[i]));
-                }
+                string pass = Named(recording.Pipelines[i]);
 
                 if (recording.Overflow && i == passes - 1)
                 {
@@ -438,6 +442,22 @@ internal static unsafe class GpuTimings
 
             QueueBusy[submission.Queue] = QueueBusy.GetValueOrDefault(submission.Queue) + Milliseconds(values[passes] - values[0], submission.Frequency);
         }
+    }
+
+    /// <summary>A pass's name: the memory wait's and the argument clamp's own, else by its first pipeline.</summary>
+    private static string Named(nint pipeline)
+    {
+        if (pipeline == MemoryWait)
+        {
+            return MemoryWaitPass;
+        }
+
+        if (pipeline == IndirectClampPipeline)
+        {
+            return IndirectClampPass;
+        }
+
+        return PassName(Name(pipeline));
     }
 
     private static double Milliseconds(ulong ticks, ulong frequency)

@@ -418,6 +418,13 @@ internal sealed class LoaderHost
         GpuBreadcrumbs.Enable(_options.D3D12Breadcrumbs);
         Shims.D3D12X.DebugLayer.GpuTimings.Enable(_options.GpuTimings);
         Shims.D3D12X.Present.FrameLog.Every = _options.FrameLog;
+
+        if (_options.SustainedGc)
+        {
+            // Background gen 2 only; the ConserveMemory compactions (blocking) wait for low memory. Measured with --frame-log.
+            System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency;
+        }
+
         DeviceLoss.Log = _log;
         DeviceLoss.Armed = true;
         ThreadSnapshot.Stuck = id => _log.Warn($"[sample] stack capture stuck on thread {id}: no answer in {ThreadSnapshot.TimeoutMilliseconds} ms; skipped, its worker abandoned");
