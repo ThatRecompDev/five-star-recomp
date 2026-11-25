@@ -10,7 +10,8 @@ namespace FiveStar.Shaders.Translation;
 /// How far a program reads past each descriptor-table pointer its user SGPRs hold: the end (in bytes) of every
 /// <c>s_load</c> whose base pair is an entry SGPR, copied by <c>s_mov_b32</c> or not, and a high dword set to 0 (a 32-bit
 /// pointer into the descriptor heap). A table's root-signature ranges can be shorter than what its programs read:
-/// VS_PassthroughComposite loads records 28 and 41 (bytes 0x380 and 0x520) of a table whose ranges span 7. The scan is
+/// VS_PassthroughComposite loads records 28 and 41 (bytes 0x380 and 0x520) of a table whose ranges span 7. A load at an
+/// offset in an SGPR reaches the whole table (<see cref="DynamicReach"/>). The scan is
 /// linear, so a pointer formed on one branch counts on every path; a larger reach only mirrors more records.
 /// </summary>
 public static class TableReach
@@ -20,6 +21,9 @@ public static class TableReach
     private const int OffsetOperand = 2;
     private const int LoadOperands = 3;
     private const uint DwordBytes = 4;
+
+    /// <summary>The reach of a load at an offset the program computes: the game's tables span 0x8000 bytes (its 0x7fe0 offset mask).</summary>
+    public const uint DynamicReach = 0x8000;
 
     /// <summary>Scalar instructions whose first operand is read, not written.</summary>
     private static readonly string[] Readers = ["s_cmp", "s_bitcmp", "s_cbranch", "s_branch", "s_setpc", "s_store", "s_buffer_store", "s_atomic", "s_sendmsg", "s_waitcnt", "s_setreg"];
@@ -65,19 +69,27 @@ public static class TableReach
         var pair = Parse(arguments[BaseOperand]);
         var offset = Parse(arguments[OffsetOperand]);
 
-        if (pair is null || offset is null || pair.Kind != OperandKind.Scalar || !offset.IsImmediate || !zero.Contains(pair.High))
+        if (pair is null || offset is null || pair.Kind != OperandKind.Scalar || !zero.Contains(pair.High))
         {
             return;
         }
 
         int? entry = Entry(pair.Low, origin, written);
 
-        if (entry is null)
+        if (entry is null || !(offset.IsImmediate || offset.Kind == OperandKind.Scalar))
         {
             return;
         }
 
-        uint end = offset.Value + ((uint)(destination.High - destination.Low + 1) * DwordBytes);
+        // An offset in an SGPR is an index the program computed (TL_PS_PBR_MATERIAL_STANDARD picks a probe's T# at
+        // s14 + 32 * index): it may reach anywhere in the table.
+        uint end = DynamicReach;
+
+        if (offset.IsImmediate)
+        {
+            end = offset.Value + ((uint)(destination.High - destination.Low + 1) * DwordBytes);
+        }
+
         reach[entry.Value] = Math.Max(reach.GetValueOrDefault(entry.Value), end);
     }
 
