@@ -39,6 +39,9 @@ public static class DxilBackend
     /// </summary>
     public static bool Optimize { get; set; } = true;
 
+    /// <summary>Whether small branches that only compute become selects (<c>IfConversion</c>); on by default, off to compare.</summary>
+    public static bool ConvertBranches { get; set; } = true;
+
     /// <summary>Whether the backend compiles programs of this profile (ps, vs, cs, ms, gs).</summary>
     public static bool Supports(string profile)
     {

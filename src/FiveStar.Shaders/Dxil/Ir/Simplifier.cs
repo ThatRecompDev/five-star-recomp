@@ -28,12 +28,21 @@ public static class Simplifier
         DxOpCode.QuadReadLaneAt, DxOpCode.QuadOp,
     }.Select(code => (int)code).ToFrozenSet();
 
-    /// <summary>Simplifies <paramref name="function"/>, numbered and cleaned; cleans it again after each round.</summary>
-    public static void Run(IrFunction function, DxilModule module)
+    /// <summary>
+    /// Simplifies <paramref name="function"/>, numbered and cleaned; cleans it again after each round. With
+    /// <paramref name="convertBranches"/> each round first turns small computing branches into selects (<see cref="IfConversion"/>).
+    /// </summary>
+    public static void Run(IrFunction function, DxilModule module, bool convertBranches = false)
     {
         for (var round = 0; round < Rounds && function.Blocks.Count > 0; round++)
         {
             var replaced = new Dictionary<Value, Value>();
+
+            if (convertBranches)
+            {
+                IfConversion.Run(function, module);
+            }
+
             MergeChains(function, replaced);
             var tree = DominatorTree.Of(function);
             var pending = new Stack<BasicBlock>();
