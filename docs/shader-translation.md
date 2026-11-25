@@ -182,6 +182,18 @@ the most any program has went from 449 to 284, and none has more than 300 (48 ha
 (049945c2), whose pipeline the driver did not build in 10 minutes, went from 393 stops to 234 (1,291 to 973 cases); its
 remaining rounds are mostly the 192 branches on "any lane" of a mask.
 
+Before the cut, wave operations whose result every lane of the console wave already holds take no round
+(`UniformWaveOperations`, from the window analysis's console-wave facts, `WindowAnalysis.EntryFacts`):
+`readfirstlane(x)` of a value equal on every lane (or on every active lane under a full EXEC) is `x`; `vw_any(m)` of a
+mask equal on every lane (or EXEC and a uniform value under a full EXEC: a scalar condition as a mask) is `m`; and a
+branch on "any active lane" whose path, run with no lane active, changes nothing read where the paths meet
+(`SkipRegion`) enters the path always, as the console does whenever a lane is active (never a loop's exit test). In
+every 4th mesh program the 621 that take the superstep form went from 23,912 stops to 11,663 (each fewer; the most
+from 186 to 130); `MS_VS_TransformD_c5fd36bb` 018ec975 from 25 to 11 and 049945c2 from 144 to 82. Those programs need
+whole console waves because `readfirstlane` takes a per-lane value: TransformD reads its vertex and primitive counts
+(GS_ALLOC_REQ's m0, and every lane's export test) from the first lane's meshlet record, indexed per lane by instance,
+equal across the wave only by the data.
+
 A superstep program names its cost in its first body line, `// superstep: <stops> stops, round bound <n>` (the loader
 logs it once per program): a round is a group barrier and a run of the dispatch switch to the next stop, so a large
 program's rounds can outlast the driver's timeout well before the caps' bound (`MSNC_VS_LinearDepthSkin_f1f2249c`:

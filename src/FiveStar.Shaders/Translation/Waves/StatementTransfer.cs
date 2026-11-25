@@ -125,9 +125,11 @@ internal sealed class StatementTransfer
         var held = !calls.Any(call => ValueRules.IsWindowCall(call, _state)) && statement.Reads.All(name => _state.Get(name).IsHeld);
         var guardedHeld = statement.IsGuarded && _state.Get(WindowNames.Active).IsExact && held;
 
+        string? reason = null;
+
         if (statement.Kind == StatementKind.Effect && !exact && !guardedHeld)
         {
-            return $"effect on values the window may not share with the console: {statement.Text}";
+            reason = $"effect on values the window may not share with the console: {statement.Text}";
         }
 
         if (statement.IsAllocation)
@@ -135,12 +137,13 @@ internal sealed class StatementTransfer
             _state.Allocated = true;
         }
 
+        // Assigned even with a reason: the facts-only pass (WindowAnalysis.EntryFacts) goes on past it.
         foreach (var target in statement.Assigned)
         {
             Assigned(target, Bits(exact), Bits(held));
         }
 
-        return null;
+        return reason;
     }
 
     private void Assigned(string target, uint exact, uint held)
