@@ -56,6 +56,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         Objects = new XboxObjects(stubs, heap, Debugging, log);
         CommandLists = new XboxCommandLists(Objects);
         ListStates = new CommandListStates();
+        RenderTargets = new States.RenderTargetStates();
 
         MemorySource = new GameMemorySource(memory);
         Textures = new GpuTextures(MemorySource, Descriptions, log);
@@ -111,6 +112,9 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
 
     /// <summary>The textures each command list moved out of their home state (list slots 9 and 26).</summary>
     public CommandListStates ListStates { get; }
+
+    /// <summary>The render targets that rest in UNORDERED_ACCESS, by the views written of them (<see cref="States.RenderTargetStates"/>).</summary>
+    public States.RenderTargetStates RenderTargets { get; }
 
     /// <summary>The pipeline slots (55, 57, 62, 67, 86) once a device exists and the shader folders are known.</summary>
     public PipelineSlots? Pipelines { get; private set; }

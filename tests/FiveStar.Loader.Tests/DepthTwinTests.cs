@@ -18,7 +18,7 @@ namespace FiveStar.Loader.Tests;
 /// puts those values in the depth, where a draw's depth test sees them.
 /// </summary>
 [Collection("DepthTwins")]
-public sealed unsafe class DepthTwinTests
+public sealed unsafe class DepthTwinTests : IDisposable
 {
     private const int Size = 8;
     private const float Written = 0.25f;
@@ -34,6 +34,14 @@ public sealed unsafe class DepthTwinTests
 
     /// <summary>asfloat(0x37800080), the float nearest 1/65535: the tiled lighting's depth of one material class.</summary>
     private const int StepConstant = 0x37800080;
+
+    /// <summary>The twins, the copy's and the prelude's device objects are dropped: later tests make another device.</summary>
+    public void Dispose()
+    {
+        DepthTwins.Detach();
+        DepthTwinCopy.Detach();
+        DepthTwinPrelude.Detach();
+    }
 
     [WarpFact]
     public void A_value_written_to_the_twin_reaches_the_depth()

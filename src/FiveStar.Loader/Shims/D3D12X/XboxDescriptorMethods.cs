@@ -239,7 +239,7 @@ internal static unsafe class XboxDescriptorMethods
             D3D12X.DrawTrace?.RenderTargetView(resource, destination, Format(description), Format(view));
 
             CreateDesktopView(self, CreateRenderTargetViewSlot, desktop, view, destination);
-            States.RenderTargetStates.Note(destination, resource);
+            D3D12X.RenderTargets.Note(D3D12X.Objects, destination, resource);
         }
         catch (Exception exception)
         {
