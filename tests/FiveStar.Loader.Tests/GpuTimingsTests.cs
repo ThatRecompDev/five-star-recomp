@@ -76,7 +76,27 @@ public sealed class GpuTimingsTests
         Assert.Contains("sr_tracing~CS_Trace ", report, StringComparison.Ordinal);
         Assert.Contains("PS_Light ", report, StringComparison.Ordinal);
         Assert.DoesNotContain("VS_Light", report, StringComparison.Ordinal);
+
         Assert.Contains("0 read after their block was reused", report, StringComparison.Ordinal);
+        Assert.Contains("0 with more than 63 passes", report, StringComparison.Ordinal);
+
+        // 70 compute passes: the block holds 63, and its last pass, which takes the rest, says so.
+        GpuTimings.Reset(List);
+        nint[] alternating = [Culling, Tracing];
+
+        for (int pass = 0; pass < 70; pass++)
+        {
+            GpuTimings.Work(List, list, compute: true, alternating[pass & 1]);
+        }
+
+        GpuTimings.BeforeClose(List, list);
+        context.ExecuteAndWait();
+        GpuTimings.Executed(1, queue.NativePointer, fence.NativePointer, 1, [List]);
+        GpuTimings.CollectNow();
+        report = GpuTimings.Report(3);
+
+        Assert.Contains("meshlet_culling~CS_Cull +rest ", report, StringComparison.Ordinal);
+        Assert.Contains("1 with more than 63 passes", report, StringComparison.Ordinal);
     }
 
     private static string Name(nint pipeline)
