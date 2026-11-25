@@ -57,7 +57,14 @@ Prints the program, code block and instruction counts and the first difference o
   loop's end, while its last write in program order is an `s_buffer_load`) would be read in the wrong form, so a first
   translation finds such registers and the second keeps them in their integer variables: each mask write also sets
   them with a ballot, and mask reads test them with `lane_bit` (cases `cs_mask_on_taken_path`,
-  `cs_integer_on_taken_path`). On wave64 the high dword of every mask is set this way too.
+  `cs_integer_on_taken_path`). On wave64 the high dword of every mask is set this way too. The first translation
+  records, per block, the form each read assumed and each write left (`MaskForms`); `MaskFormAnalysis` carries the
+  forms each register may hold from block to block along the branches (registers not yet written are integers) and
+  keeps only those a read may reach in the other form. A register used as an integer in one part of a program and as
+  a mask in another stays a plain bool (`cs_mask_after_integer`). Before, any register ever used both ways was kept in
+  its integer variables: on `CS_ScreenProbes_ActivateProbes` (wave64) that was 33 of its 34 masks; now one is (s0,
+  also a `s_getpc`/`s_setpc` address), and its HLSL goes from 32,393 `vw_ballot` and 20,976 `lane_bit` to
+  17,411 and 2,167.
 - SCC is the bool `scc`, set by compares, logic, carries and shifts as the hardware does.
 - Registers read before any write are hardware inputs, assigned in a prologue (rules in [fssm.md](fssm.md)); a read
   outside the input layout is 0.
