@@ -50,16 +50,17 @@ public sealed unsafe class D3D12XObjectTests
         using var test = TestRuntime.Create(log: log);
         var device = new XboxDevice(test);
         nint list = device.DirectList();
-        var registerWrite = (delegate* unmanaged<nint, int>)XboxDevice.Vtable(list)[131];
+        // Slot 130: no handler (131 and 132, the cache flushes, have one now).
+        var unknown = (delegate* unmanaged<nint, int>)XboxDevice.Vtable(list)[130];
 
-        Assert.Equal(NotImplemented, registerWrite(list));
-        Assert.Equal(NotImplemented, registerWrite(list));
+        Assert.Equal(NotImplemented, unknown(list));
+        Assert.Equal(NotImplemented, unknown(list));
         delegate* unmanaged<nint, int> handler = &Handler;
         test.Runtime.D3D12X.Objects.SetHandler(XboxInterfaceKind.Device, 55, (nint)handler);
         int handled = ((delegate* unmanaged<nint, int>)XboxDevice.Vtable(device.Device)[55])(device.Device);
 
         string text = log.ToString();
-        string name = "d3d12_xs.dll!ID3D12GraphicsCommandList.X::Slot131";
+        string name = "d3d12_xs.dll!ID3D12GraphicsCommandList.X::Slot130";
         Assert.Equal(2, test.Runtime.Stubs.CallsTo(name));
         Assert.Single(text.Split('\n'), line => line.Contains(name, StringComparison.Ordinal));
         Assert.Equal(HandlerResult, handled);

@@ -62,7 +62,7 @@ internal sealed class ProgramProducer
     /// </summary>
     public string Header { get; init; } = ModeHeader();
 
-    /// <summary>The defines of the modes this process runs in: --user-data-constants, --evict-windows and the window guard.</summary>
+    /// <summary>The defines of the modes this process runs in: --user-data-constants, --evict-windows, the window guard and BVH misses.</summary>
     public static string ModeHeader()
     {
         var header = new StringBuilder();
@@ -80,6 +80,11 @@ internal sealed class ProgramProducer
         if (Binding.WindowGuard.Enabled)
         {
             header.Append(Binding.WindowGuard.Header);
+        }
+
+        if (Binding.BvhMiss.Enabled)
+        {
+            header.Append(Binding.BvhMiss.Header);
         }
 
         return header.ToString();
