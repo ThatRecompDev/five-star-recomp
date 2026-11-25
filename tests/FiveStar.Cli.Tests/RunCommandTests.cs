@@ -130,6 +130,25 @@ public sealed class RunCommandTests : IDisposable
             JournalWarmUp.Arguments(plan, "warm.log"));
     }
 
+    [Fact]
+    public void Setups_warm_step_builds_from_the_same_folders_as_runs_on_demand_boot()
+    {
+        var options = RunOptions.Parse([_dump, "--work", _work]);
+        var context = new SetupContext(_dump, _work, null, 1, 1, options.Tools);
+        var boot = LoaderCommandLine.Build(Plan(options, StepCondition.Done, long.MaxValue), "run.log");
+
+        var warm = PipelineWarmStep.Arguments(context, "warm.log");
+
+        Assert.Contains("--warm-used-only", warm);
+        Assert.DoesNotContain("--translated-dir", warm);
+        Assert.DoesNotContain(ShaderTranslateStep.StepName, new PipelineWarmStep().DependsOn);
+
+        foreach (var folder in (string[])["--shader-dir", "--program-cache", "--pipeline-cache"])
+        {
+            Assert.Equal(boot[boot.ToList().IndexOf(folder) + 1], warm[warm.IndexOf(folder) + 1]);
+        }
+    }
+
     private static void WriteJournal(string path, int records)
     {
         using var writer = new BinaryWriter(File.Create(path));
