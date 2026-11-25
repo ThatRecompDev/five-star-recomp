@@ -61,6 +61,17 @@ internal static class HostComposition
         Shims.D3D12X.Binding.WindowGuard.Enabled = !options.NoWindowGuard;
     }
 
+    /// <summary>The in-place window of <c>--in-place-window</c> (MB), or the default for 0.</summary>
+    private static ulong InPlaceWindow(ulong megabytes)
+    {
+        if (megabytes == 0)
+        {
+            return Shims.D3D12X.SectionHeaps.WindowBytes;
+        }
+
+        return Shims.D3D12X.SectionHeaps.InPlaceWindowOf(megabytes);
+    }
+
     public static PipelineFolders CreatePipelineFolders(HostOptions options)
     {
         CompileBudget.Configure(options.MaxDriverCompiles, options.CompileCeilingBytes);
@@ -70,6 +81,7 @@ internal static class HostComposition
         Shims.D3D12X.Resources.PlacedTextureHeaps.Enabled = options.PlacedTextures;
         Shims.D3D12X.Resources.GpuTextureRegistry.KeptAliases = options.KeptAliases;
         Shims.D3D12X.Pipelines.PipelineWaits.Current = Shims.D3D12X.Pipelines.PipelineWaits.Parse(options.WaitPipelines);
+        Shims.D3D12X.SectionHeaps.InPlaceWindow = InPlaceWindow(options.InPlaceWindowMegabytes);
         Shims.D3D12X.DebugLayer.MeshProbes.Filter = options.ProbePipeline;
 
         ApplyBindingSwitches(options);
