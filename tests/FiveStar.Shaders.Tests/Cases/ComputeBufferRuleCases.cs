@@ -27,6 +27,11 @@ public static class ComputeBufferRuleCases
     private const uint Format16Float = 13;
     private const uint Format16x4Float = 71;
     private const uint Format32x4Uint = 75;
+    private const uint Format8x4Uint = 60;
+
+    /// <summary>DST_SEL z, y, x, 1 (a BGRA view with its alpha forced to one), and w, 0, 0, 0.</summary>
+    private const uint BgraOneSelect = 6 | (5 << 3) | (4 << 6) | (1 << 9);
+    private const uint WOnlySelect = 7;
 
     private static readonly uint[] Input = [.. Enumerable.Range(0, 1024).Select(index => 0xA0000000 + (0x11 * (uint)index))];
 
@@ -35,13 +40,13 @@ public static class ComputeBufferRuleCases
 
     public static IEnumerable<ComputeCase> All()
     {
-        return [Structured(), Unchecked(), FormatElements(), HalfData(), AtomicPastEnd()];
+        return [Structured(), Unchecked(), FormatElements(), FormatSelects(), HalfData(), AtomicPastEnd()];
     }
 
     /// <summary>A V# of heap slot <paramref name="heap"/> as the hardware reads it.</summary>
-    private static uint[] Descriptor(int heap, uint stride, uint records, uint select, uint format = 0)
+    private static uint[] Descriptor(int heap, uint stride, uint records, uint select, uint format = 0, uint destination = DwordSelect)
     {
-        return [(uint)heap, stride << StrideShift, records, DwordSelect | (format << FormatShift) | (select << SelectShift)];
+        return [(uint)heap, stride << StrideShift, records, destination | (format << FormatShift) | (select << SelectShift)];
     }
 
     // OOB_SELECT 0, stride 8, 4 records: a dword at offset 8 is past the stride, a dwordx2 at 4 keeps its first dword
@@ -116,6 +121,29 @@ public static class ComputeBufferRuleCases
         {
             SecondDescriptor = Descriptor(DataHeap, 2, Records, 0, Format16Uint),
             User = Descriptor(DataHeap, 12, Threads, 0, Format32x4Uint),
+            Buffers = [new BufferResource(DataHeap, Input, Writable: false)],
+        };
+    }
+
+    // DST_SEL picks the fields of an 8_8_8_8_UINT element: z, y, x and the constant 1 for a BGRA-ordered view, and the
+    // fourth field in x with zero after it, so the selected field and not the result slot decides each value.
+    private static ComputeCase FormatSelects()
+    {
+        const string Program = """
+            buffer_load_format_xyzw v[20:23], v41, s[4:7], 0 idxen
+            buffer_load_format_xy v[24:25], v41, s[8:11], 0 idxen
+            s_waitcnt vmcnt(0)
+            """;
+
+        return new ComputeCase("cs_buffer_rule_format_select", Program, 6, thread =>
+        {
+            uint Field(int index) => (Input[thread.Id] >> (8 * index)) & 0xFF;
+
+            return [.. new[] { Field(2), Field(1), Field(0), 1u, Field(3), 0u }.Select(Expected.Exact)];
+        })
+        {
+            SecondDescriptor = Descriptor(DataHeap, 4, Threads, 0, Format8x4Uint, BgraOneSelect),
+            User = Descriptor(DataHeap, 4, Threads, 0, Format8x4Uint, WOnlySelect),
             Buffers = [new BufferResource(DataHeap, Input, Writable: false)],
         };
     }
