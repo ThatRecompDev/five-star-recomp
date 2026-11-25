@@ -116,7 +116,10 @@ for compute, 2^20 elsewhere; 2^24 for every stage before). A console program's l
 on the data the console gives it; on the PC one wrong input keeps a loop going until the driver removes the device.
 
 The console has no cap, so a cap is only a safety net against our own wrong inputs and must not bind for a correct
-program. The caps count all loops of one invocation together (a cap per loop let nested loops multiply it, 65,536² in
+program. It keeps the device alive, not the output right: a hit is a bug to fix where the wrong input or
+translation comes from. So every hit is counted (`loop_cap_hit`, once per wave, in dword 3 of the program's slot of
+the window guard's cap table, beside the superstep block and round caps) and the loader names the programs at each
+captured present (`[window guard] present N: K programs ran into a cap`). The caps count all loops of one invocation together (a cap per loop let nested loops multiply it, 65,536² in
 `CS_InitDepthPyramidWithCpuOcclusion3x3`):
 
 | Stage | Cap | Why |

@@ -101,6 +101,30 @@ public sealed class ComputeCaseRunner
         return (Compare(testCase, written, Math.Min(_fixture.ComputeWaveSize, testCase.Wave)), records, sites);
     }
 
+    /// <summary>
+    /// Runs a case with the cap table (rdna_prelude FIVESTAR_CAP_TABLE at the start of the writable window, heap slot 1)
+    /// under program id <paramref name="id"/>: the case's mismatches and the four dwords of the program's slot.
+    /// </summary>
+    public (IReadOnlyList<string> Mismatches, uint[] Slot) RunCapCounted(ComputeCase testCase, uint id)
+    {
+        const int SlotDwords = 4;
+        const int Slots = 1024;
+        var defines = $"#define FIVESTAR_PROGRAM_ID {id}u\n#define FIVESTAR_CAP_TABLE 0u\n";
+        var shader = Build(testCase with { Name = testCase.Name + "_caps" }, program => defines + ShaderWorkbench.Translate(program), direct: false);
+
+        uint[] user = [.. ComputeCase.Descriptor(ComputeCase.OutputHeap), .. testCase.SecondDescriptor, .. testCase.User, .. new uint[ComputeCase.UserSgprCount]];
+        var output = new BufferResource(ComputeCase.OutputHeap, [.. Enumerable.Repeat(testCase.Fill, testCase.TotalThreads * testCase.Outputs)], Writable: true);
+        var table = new BufferResource(ProbeRingSlot, new uint[Slots * SlotDwords], Writable: true);
+        var bindings = new Bindings { UserSgprs = user[..ComputeCase.UserSgprCount], Buffers = [output, table, .. testCase.Buffers], Textures = testCase.Textures };
+
+        var (x, y, z) = testCase.Groups;
+        var result = _fixture.Runner.Compute(new ComputeJob(shader, x, y, z, bindings));
+        var written = result.Buffers.Concat(result.Textures).ToDictionary(pair => pair.Key, pair => pair.Value);
+        var start = (int)(id & (Slots - 1)) * SlotDwords;
+
+        return (Compare(testCase, written, Math.Min(_fixture.ComputeWaveSize, testCase.Wave)), result.Buffers[ProbeRingSlot][start..(start + SlotDwords)]);
+    }
+
     private static string GroupWave(ShaderProgram program)
     {
         // As the corpus builds it: structured (WARP's shader compiler crashes on barriers in the dispatch switch).
