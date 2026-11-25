@@ -67,7 +67,8 @@ nothing is read. A box node returns four invalid children, a triangle node t_num
 hit_status 0). The game's traversal loops then end at once. Before, about 70 inline ray-tracing compute programs
 (`CS_RaytracingResolve`, the ray-traced shadows, `bvh_*`) traversed whatever title memory the T# base pointed at,
 following garbage child pointers until the driver reset the context: the world-load DEVICE_REMOVED of boot w63,
-gone when those programs were skipped. Their loops are bounded besides by the loop guard (65,536 iterations per
+gone when those programs were skipped. VIctory found the same (its PR #2311: the world ray-tracing pass walked unbuilt
+memory and hung NVIDIA at world entry) and holds such pipelines until its builder has run. Their loops are bounded besides by the loop guard (65,536 iterations per
 compute invocation, [shader-translation.md](shader-translation.md#loop-guard)), which alone is no time bound for
 such loops.
 
