@@ -121,6 +121,8 @@ internal static unsafe class QueueProgress
             return;
         }
 
+        DeviceLoss.Noticed("a queue fence reads UINT64_MAX");
+
         if (reason.HasValue)
         {
             Report($"device removed, reason {HResult.Format(reason.Value)}");
