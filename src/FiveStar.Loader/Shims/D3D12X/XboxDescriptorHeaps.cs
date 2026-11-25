@@ -208,6 +208,9 @@ internal sealed unsafe class XboxDescriptorHeaps
         }
     }
 
+    /// <summary>Stopwatch ticks spent mirroring table binds so far (<see cref="Present.FrameLog"/>).</summary>
+    public long TableTicks => Volatile.Read(ref _tableTicks);
+
     /// <summary>Table binds so far and the time their mirroring took (<see cref="ShaderVisibleHeap.Table"/>).</summary>
     public string TableSummary => $"{Volatile.Read(ref _tableBinds)} table binds mirrored in {Stopwatch.GetElapsedTime(0, Volatile.Read(ref _tableTicks)).TotalMilliseconds:F0} ms, {Volatile.Read(ref _reachMirrors)} tables mirrored further at draws for programs' reach";
 

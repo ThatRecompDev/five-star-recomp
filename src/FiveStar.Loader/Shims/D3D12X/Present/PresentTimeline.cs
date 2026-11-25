@@ -26,6 +26,7 @@ internal sealed class PresentTimeline
 
     private const int Lines = 64;
     private const double MillisecondsPerSecond = 1000.0;
+    private const double BytesPerMegabyte = 1024.0 * 1024.0;
 
     private readonly LoaderLog _log;
     private readonly long[] _marks = new long[Phases];
@@ -35,6 +36,8 @@ internal sealed class PresentTimeline
     private long _first;
     private TimeSpan _previousPause;
     private long _previousWaited;
+    private long _previousMirroring;
+    private long _previousAllocated;
     private int _lines;
 
     public PresentTimeline(LoaderLog log)
@@ -70,9 +73,17 @@ internal sealed class PresentTimeline
         {
             _first = now;
         }
-        else if (_lines < Lines && Milliseconds(now - _previousExit) >= SlowMilliseconds)
+        else
         {
-            Report(presents, now, pause);
+            if (_lines < Lines && Milliseconds(now - _previousExit) >= SlowMilliseconds)
+            {
+                Report(presents, now, pause);
+            }
+
+            if (FrameLog.Enabled)
+            {
+                LogFrame(presents, now, pause);
+            }
         }
 
         _previousExit = now;
@@ -90,6 +101,30 @@ internal sealed class PresentTimeline
         long waited = d3d12x.Pacer.WaitedTicks;
         double frameEvents = Milliseconds(waited - _previousWaited);
         _log.Info($"  [present] slow present {presents} at {Milliseconds(now - _first) / MillisecondsPerSecond:F1} s: {Milliseconds(now - _previousExit):F0} ms = game {game:F0} (frame-event waits {frameEvents:F0}) + latency wait {Milliseconds(_marks[LatencyWait]):F0} + retire wait {Milliseconds(_marks[RetireWait]):F0} + submit {Milliseconds(_marks[Submit]):F0} + present {Milliseconds(_marks[Present]):F0}; GC pauses {gc:F0} ms; longest Signal-to-cell {Milliseconds(d3d12x.Fences.TakeLongestLatency()):F0} ms; fences (cell/completed){d3d12x.Fences.Describe()}");
+    }
+
+    /// <summary><c>--frame-log</c>: the frame's line when it is due or slow; the submit and mirroring sums start over.</summary>
+    private void LogFrame(long presents, long now, TimeSpan pause)
+    {
+        var (submit, refresh) = FrameLog.Take();
+        long mirroring = ShimContext.Runtime.D3D12X.DescriptorHeaps.TableTicks;
+        long mirrored = mirroring - _previousMirroring;
+        _previousMirroring = mirroring;
+
+        long allocated = GC.GetTotalAllocatedBytes();
+        long allocatedFrame = allocated - _previousAllocated;
+        _previousAllocated = allocated;
+        double frame = Milliseconds(now - _previousExit);
+
+        if (!FrameLog.Logs(presents, frame, SlowMilliseconds))
+        {
+            return;
+        }
+
+        double present = Milliseconds(now - _entered);
+        var times = new FrameTimes(frame, Milliseconds(_entered - _previousExit), Milliseconds(submit), Milliseconds(refresh), Milliseconds(mirrored),
+            (pause - _previousPause).TotalMilliseconds, present, Milliseconds(_marks[LatencyWait]), Milliseconds(_marks[RetireWait]), Milliseconds(_marks[Submit]), Milliseconds(_marks[Present]), allocatedFrame / BytesPerMegabyte);
+        _log.Info(FrameLog.Line(presents, times));
     }
 
     private static double Milliseconds(long ticks)
