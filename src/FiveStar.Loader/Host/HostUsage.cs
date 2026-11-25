@@ -132,6 +132,8 @@ internal static class HostUsage
           --check-null-addresses  root views, indirect argument and count buffers, bottom-of-pipe writes and buffer
                                  copies that would reach a null GPU address or read past their buffer are logged
                                  (the first 8 of each kind, with list and pipeline) and dropped
+          --depth-twins          UAVs of a depth texture's depth plane write a colour twin, copied into the depth
+                                 before the next draw that binds it (needs --mirror-table-records reach)
           --user-data-constants  draws pass their user data as root constants, not a root CBV in upload memory (needs
                                  programs made on demand)
           --trace-pool-stores    programs made on demand log their stores into the transient pool and the game heap

@@ -243,7 +243,13 @@ internal static unsafe class XboxDescriptorMethods
             D3D12X.DrawTrace?.RenderTargetView(resource, Destination(handle));
             nint desktop = D3D12X.Objects.Unwrap(resource);
             byte* copy = stackalloc byte[DepthViewDescriptions.DepthStencilViewSize];
-            CreateDesktopView(self, CreateDepthStencilViewSlot, desktop, DepthViewDescriptions.DepthStencilView(desktop, description, copy), Destination(handle));
+            void* view = DepthViewDescriptions.DepthStencilView(desktop, description, copy);
+            CreateDesktopView(self, CreateDepthStencilViewSlot, desktop, view, Destination(handle));
+
+            if (DepthTwins.Enabled && view != null)
+            {
+                DepthTwins.NoteDepthView(Destination(handle), desktop, *(int*)view);
+            }
         }
         catch (Exception exception)
         {
@@ -265,6 +271,11 @@ internal static unsafe class XboxDescriptorMethods
 
             if (!TargetViewDescriptions.TakesUnorderedAccess(desktop, out var desc))
             {
+                if (DepthTwins.Enabled && TwinView(inner, resource, desktop, desc, description, handle))
+                {
+                    return;
+                }
+
                 WarnNullUnorderedAccessView(desc, resource, description, handle);
                 create(inner, 0, 0, TargetViewDescriptions.NullUnorderedAccessView(description, copy), Destination(handle));
 
@@ -386,6 +397,39 @@ internal static unsafe class XboxDescriptorMethods
         }
 
         TransientPoolViews.Note(handle, game, ((BufferViewDescription*)description)->UavFirstElement, record);
+    }
+
+    /// <summary>
+    /// <c>--depth-twins</c>: a UAV of a depth texture's depth plane goes to the texture's colour twin instead of a null
+    /// view (<see cref="DepthTwins"/>); false when the view is of another plane or the twin cannot be made.
+    /// </summary>
+    private static bool TwinView(nint device, nint resource, nint depth, ResourceDescription desc, void* description, nint handle)
+    {
+        int viewFormat = description == null ? 0 : *(int*)description;
+
+        if ((desc.Flags & AllowDepthStencil) == 0 || !DepthTwins.Twinned(viewFormat) || D3D12X.DescriptorHeaps.Find(handle, out uint index) is null)
+        {
+            return false;
+        }
+
+        var twin = DepthTwins.For(device, depth, desc, viewFormat);
+        var game = D3D12X.Objects.AsResource(resource);
+
+        if (twin is null || game == null)
+        {
+            return false;
+        }
+
+        twin.Home = game->HomeState;
+
+        byte* view = stackalloc byte[TargetViewDescriptions.UnorderedAccessViewSize];
+        Buffer.MemoryCopy(description, view, TargetViewDescriptions.UnorderedAccessViewSize, TargetViewDescriptions.UnorderedAccessViewSize);
+        *(int*)(view + DepthTwins.PlaneSliceOffset) = 0;
+        nint destination = Destination(handle);
+        ((delegate* unmanaged<nint, nint, nint, void*, nint, void>)ComObject.Slot(device, CreateUnorderedAccessViewSlot))(device, twin.Twin, 0, view, destination);
+        DepthTwins.NoteView(index, twin, destination);
+
+        return true;
     }
 
     /// <summary>Warns once; a depth texture's UAV is also noted by resource and heap index (<see cref="DepthUavs"/>).</summary>
