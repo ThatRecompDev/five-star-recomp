@@ -6,7 +6,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Binding;
 /// <summary>
 /// The hardware dword 3 a typed buffer view's V# carries (RDNA 2 ISA, buffer resource): DST_SEL_X..W in bits 0-11, the
 /// gfx10 unified buffer format in bits 12-18 and RESOURCE_LEVEL (bit 24, 1 on gfx10). Translated programs decode it as
-/// they decode a V# the game builds itself (rdna_prelude buf_code, fmt_swizzle), so a B8G8R8A8 view reads R in x.
+/// they decode a V# the game builds itself (rdna_prelude buf_code, FmtLoad), so a B8G8R8A8 view reads R in x.
 /// </summary>
 internal static class BufferFormatCodes
 {
