@@ -102,6 +102,13 @@ internal static unsafe class ThreadStackCapture
     /// <summary>The thread's context and stack copy (<see cref="StackCopy.Bytes"/> -1 when it could not be read); called under <see cref="Gate"/>.</summary>
     private static StackCopy Snapshot(uint threadId, byte* context)
     {
+        // The calling thread is never read: suspending itself, it would never resume and would keep the gate (a hang
+        // watch walking every thread of the process did, and every later sample and report waited on it).
+        if (threadId == Kernel32.GetCurrentThreadId())
+        {
+            return new StackCopy(0, 0, -1);
+        }
+
         nint thread = Kernel32.OpenThread(ThreadAccess, 0, threadId);
 
         if (thread == 0)
