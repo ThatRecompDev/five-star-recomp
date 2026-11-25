@@ -335,6 +335,9 @@ internal sealed record HostOptions
     /// <summary>Render targets of this shape read back after each pass that writes them, after captured presents (<c>--d3d12-watch-target WxH:format</c>).</summary>
     public Shims.D3D12X.DebugLayer.TargetShape? D3D12WatchTarget { get; set; }
 
+    /// <summary>Watched-target readbacks per frame (<c>--d3d12-watch-limit n</c>).</summary>
+    public int D3D12WatchLimit { get; set; } = Shims.D3D12X.DebugLayer.DrawTrace.DefaultWatchLimit;
+
     /// <summary>Passes held while a producer is missing this frame (<c>--hold-passes consumer=producer|...;...</c>).</summary>
     public string? HoldPasses { get; set; }
 
