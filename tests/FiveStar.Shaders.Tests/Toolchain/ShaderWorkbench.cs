@@ -46,6 +46,12 @@ public sealed class ShaderWorkbench
         return HlslTranslator.Translate(program, Options).Hlsl;
     }
 
+    /// <summary>As <see cref="Translate(ShaderProgram)"/> with typed image views (TranslationOptions.TypedImageViews).</summary>
+    public static string TranslateTypedViews(ShaderProgram program)
+    {
+        return HlslTranslator.Translate(program, Options with { TypedImageViews = true }).Hlsl;
+    }
+
     /// <summary>Compiles HLSL with the profile prefix (ps, vs, cs, ms, gs) to DXIL; dxc errors become an exception.</summary>
     public byte[] Compile(string name, string hlsl, string profile)
     {

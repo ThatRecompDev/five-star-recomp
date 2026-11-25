@@ -39,6 +39,7 @@ public static class PixelMemoryCases
             FloatExport(),
             CompressedExport(),
             CompressedUintExport(),
+            SharedExponentImplicitSample(),
         ];
     }
 
@@ -440,6 +441,42 @@ public static class PixelMemoryCases
             Bindings = new Bindings { UserSgprs = [F(1.5), F(0.25), F(-2), F(0.5)] },
             FloatTargets = true,
             Raw = true,
+        };
+    }
+
+    // An implicit-LOD sample of shared-exponent light (typed image views, class 3) in a 16x16 R32_UINT texture with an
+    // 8x8 level 1: one pixel per two texels takes LOD 1, and the point sampler reads level 1's texel (x, y) decoded.
+    private static PixelCase SharedExponentImplicitSample()
+    {
+        const string Program = """
+            v_mul_f32_e32 v12, 0x3e000000, v2
+            v_mul_f32_e32 v13, 0x3e000000, v3
+            s_mov_b32 s20, 0x92
+            s_mov_b32 s21, 0xc00000
+            s_mov_b32 s22, 0x4000000
+            s_mov_b32 s23, 0
+            image_sample v[20:22], v[12:13], s[0:7], s[20:23] dmask:0x7 dim:SQ_RSRC_IMG_2D
+            s_waitcnt vmcnt(0)
+            """;
+        const int Base = 16;
+        const int Level1 = 8;
+        uint[] texels = [.. Enumerable.Range(0, (Base * Base) + (Level1 * Level1)).Select(index => (uint)((index * 29) & 511) | ((uint)((index * 13) & 511) << 9) | ((uint)((index * 7) & 511) << 18) | (14u << 27))];
+
+        return new PixelCase("image_sample_rgb9e5_implicit", Program, 3, pixel =>
+        {
+            uint bits = texels[(Base * Base) + (pixel.Y * Level1) + pixel.X];
+            float scale = MathF.Pow(2, (int)(bits >> 27) - 24);
+
+            return [.. Enumerable.Range(0, 3).Select(channel => Expected.Exact(BitConverter.SingleToUInt32Bits(((bits >> (9 * channel)) & 511) * scale)))];
+        })
+        {
+            Bindings = new Bindings
+            {
+                UserSgprs = [2, 0, 0, 3],
+                Textures = [new TextureResource(2, Format.R32_UInt, Base, Base, texels) { Levels = 2 }],
+            },
+            FloatTargets = true,
+            TypedViews = true,
         };
     }
 

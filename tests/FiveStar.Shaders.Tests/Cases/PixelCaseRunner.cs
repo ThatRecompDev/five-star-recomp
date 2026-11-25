@@ -72,7 +72,7 @@ public sealed class PixelCaseRunner
         var config = new ShaderConfig { Stage = HardwareStage.Pixel, WaveSize = WaveSize };
         var program = new ShaderProgram(ShaderStage.Pixel, assembled.Instructions, assembled.Code, signatures, config, null);
 
-        var hlsl = ShaderWorkbench.Translate(program);
+        var hlsl = testCase.TypedViews ? ShaderWorkbench.TranslateTypedViews(program) : ShaderWorkbench.Translate(program);
 
         if (direct)
         {

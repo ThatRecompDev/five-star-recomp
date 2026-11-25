@@ -37,8 +37,11 @@ public sealed class TypedImageViewsTests
         Assert.Contains("& 0xffffu, f32tof16", typed, StringComparison.Ordinal);
         Assert.Contains("RWTexture2D<uint4> _uav", typed, StringComparison.Ordinal);
 
-        // A sample filters: it stays float4, and without the option nothing changes.
-        Assert.Equal(2, System.Text.RegularExpressions.Regex.Count(typed, "Texture2D<uint4> _tex"));
+        // A sample filters through its float4 declaration, and a shared-exponent view (class 3) through se_sample over a
+        // uint4 one; without the option nothing changes.
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Count(typed, "Texture2D<uint4> _tex"));
+        Assert.Contains("== 3u) _img", typed, StringComparison.Ordinal);
+        Assert.Contains("se_sample(", typed, StringComparison.Ordinal);
         Assert.DoesNotContain("<uint4>", plain, StringComparison.Ordinal);
         Assert.DoesNotContain("<int4>", plain, StringComparison.Ordinal);
     }
