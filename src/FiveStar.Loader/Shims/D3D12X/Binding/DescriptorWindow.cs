@@ -210,8 +210,9 @@ internal sealed unsafe class DescriptorWindow
             bytes = DebugLayer.MeshProbes.Bytes;
         }
 
-        var properties = new HeapProperties { Type = HeapProperties.Custom, CpuPageProperty = HeapProperties.WriteCombine, MemoryPool = HeapProperties.SystemPool };
-        nint buffer = DesktopCalls.CreateBuffer(device, properties, bytes, DesktopCalls.UnorderedAccessFlag, CommonState);
+        int state = CommonState;
+        var properties = GpuUploadHeaps.For(device, new HeapProperties { Type = HeapProperties.Custom, CpuPageProperty = HeapProperties.WriteCombine, MemoryPool = HeapProperties.SystemPool }, ref state);
+        nint buffer = DesktopCalls.CreateBuffer(device, properties, bytes, DesktopCalls.UnorderedAccessFlag, state);
         byte* data = buffer == 0 ? null : DesktopCalls.Map(buffer);
 
         if (data == null)

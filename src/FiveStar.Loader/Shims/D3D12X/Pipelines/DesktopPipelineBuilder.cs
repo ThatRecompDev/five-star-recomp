@@ -34,6 +34,12 @@ internal static unsafe class DesktopPipelineBuilder
             stream.AddShader(StageType(program.Stage), program.Code);
         }
 
+        // --mesh-launch: the amplification stage in front of mesh programs that take its payload.
+        if (mesh && MeshLaunch.Code is not null && programs.Where(program => program.Stage == HardwareStage.Ngg).All(program => MeshLaunch.Accepts(program.Dxil)))
+        {
+            stream.AddShader(PipelineStateSubObjectType.AmplificationShader, MeshLaunch.Code);
+        }
+
         stream.AddBytes(PipelineStateSubObjectType.Blend, StatePadding.Blend(DesktopStateRules.Blend(description.Blend)));
         stream.AddWords(PipelineStateSubObjectType.SampleMask, [unchecked((int)description.SampleMask)]);
         stream.AddBytes(PipelineStateSubObjectType.Rasterizer, DesktopStateRules.Rasterizer(description.Rasterizer, description.DepthStencil));

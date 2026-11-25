@@ -716,16 +716,34 @@ internal sealed class CommandLineParser
                 _options.WaitPipelines = Next();
 
                 return true;
+            case "--kept-aliases":
+                _options.KeptAliases = Math.Max(0, int.Parse(Next(), CultureInfo.InvariantCulture));
+
+                return true;
+            default:
+                return ApplyPerformance(option);
+        }
+    }
+
+    /// <summary>Frame-time measurement and the A/B switches of the perf work.</summary>
+    private bool ApplyPerformance(string option)
+    {
+        switch (option)
+        {
+            case "--gpu-upload-heaps":
+                _options.GpuUploadHeaps = true;
+
+                return true;
+            case "--mesh-launch":
+                _options.MeshLaunch = true;
+
+                return true;
             case "--gc-sustained":
                 _options.SustainedGc = true;
 
                 return true;
             case "--frame-log":
                 _options.FrameLog = Math.Max(1, int.Parse(Next(), CultureInfo.InvariantCulture));
-
-                return true;
-            case "--kept-aliases":
-                _options.KeptAliases = Math.Max(0, int.Parse(Next(), CultureInfo.InvariantCulture));
 
                 return true;
             default:

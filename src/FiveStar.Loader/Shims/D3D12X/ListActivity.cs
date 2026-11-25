@@ -29,6 +29,9 @@ internal unsafe struct ListActivity
     /// <summary>The last stand-in whose work this recording skipped and no later work ran after, else 0.</summary>
     public nint Skipped;
 
+    /// <summary>1 when <see cref="Pipeline"/> has the mesh launch stage (<see cref="MeshLaunch"/>): its mesh draws go through it.</summary>
+    public int Launches;
+
     public static ListActivity* Of(XboxObject* list)
     {
         return (ListActivity*)((byte*)list + Offset);
@@ -47,6 +50,7 @@ internal unsafe struct ListActivity
 
         activity->StandIn = 0;
         activity->Skipped = 0;
+        activity->Launches = 0;
         activity->Serial = DebugLayer.GpuBreadcrumbs.Begin(list);
         DebugLayer.GpuTimings.Reset((nint)list);
         DebugLayer.NanScan.Reset((nint)list);

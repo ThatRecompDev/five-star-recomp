@@ -39,6 +39,9 @@ internal sealed unsafe class DesktopStream : IDisposable
     /// <summary>The bytes of shader bytecode in the stream.</summary>
     public long ShaderBytes { get; private set; }
 
+    /// <summary>The stream has an amplification stage (<see cref="MeshLaunch"/>): a pipeline made from it is marked so.</summary>
+    public bool Launches { get; private set; }
+
     /// <summary>The pipeline's name in the pipeline cache: 32 hex digits of the content hash.</summary>
     public string Key => _key ??= Convert.ToHexStringLower(_identity.GetCurrentHash().AsSpan(0, KeyBytes));
 
@@ -148,6 +151,7 @@ internal sealed unsafe class DesktopStream : IDisposable
     /// </summary>
     public void AddShader(PipelineStateSubObjectType type, ProgramCode bytecode)
     {
+        Launches |= type == PipelineStateSubObjectType.AmplificationShader;
         Begin(type, PipelineLayout.PointerSize);
         _shaders.Add((_bytes.Count, bytecode));
         _bytes.AddRange(BitConverter.GetBytes(0L));
@@ -239,6 +243,11 @@ internal sealed unsafe class DesktopStream : IDisposable
     public int Create(nint device2, Guid* iid, nint* result)
     {
         int hr = DesktopDevice.CreatePipelineState(device2, Describe(), iid, result);
+
+        if (hr >= 0 && Launches)
+        {
+            MeshLaunch.Mark(*result);
+        }
 
         // The desc points at the programs' native bytes, which this stream keeps alive.
         GC.KeepAlive(this);

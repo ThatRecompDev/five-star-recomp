@@ -260,6 +260,12 @@ internal sealed record HostOptions
     /// <summary>The GC runs in SustainedLowLatency mode: no blocking full collections unless memory runs low (<c>--gc-sustained</c>).</summary>
     public bool SustainedGc { get; set; }
 
+    /// <summary>Mesh draws launched by an amplification stage of ours instead of clamped by a compute pass (<c>--mesh-launch</c>).</summary>
+    public bool MeshLaunch { get; set; }
+
+    /// <summary>The descriptor window, the address map and the user-data ring in GPU upload heaps where the device has them (<c>--gpu-upload-heaps</c>).</summary>
+    public bool GpuUploadHeaps { get; set; }
+
     /// <summary>The frame interval the frame events keep (<c>--frame-rate</c>); the game's own by default.</summary>
     public Shims.D3D12X.Present.FrameRate FrameRate { get; set; }
 

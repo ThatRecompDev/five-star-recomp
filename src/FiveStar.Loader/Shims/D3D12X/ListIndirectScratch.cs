@@ -27,6 +27,15 @@ internal struct ListIndirectScratch
     /// </summary>
     public ulong Budget;
 
+    /// <summary>The list's budget buffer for <see cref="MeshLaunch"/> (256 bytes, its counter in the first word), made on first use and kept.</summary>
+    public nint LaunchBudget;
+
+    /// <summary>
+    /// One past the segment (<see cref="ListSegments"/>) whose recording made <see cref="LaunchBudget"/> writable, 0 when this
+    /// recording has not zeroed it yet: a new segment runs as a list of its own, after which the buffer is common again.
+    /// </summary>
+    public int LaunchSegment;
+
     public static unsafe ListIndirectScratch* Of(XboxObject* list)
     {
         return (ListIndirectScratch*)((byte*)list + Offset);
