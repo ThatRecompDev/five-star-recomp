@@ -285,6 +285,7 @@ internal sealed class ControlFlowTranslator
     /// <summary>Translates one instruction; true when it ends its block.</summary>
     private bool TranslateInstruction(Instruction instruction)
     {
+        _state.Translated.Add(instruction);
         var line = instruction.Text.Split(';')[0].Split("//")[0].Trim();
 
         if (line.Length == 0)
