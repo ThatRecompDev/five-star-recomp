@@ -976,7 +976,7 @@ internal sealed class CommandLineParser
     {
         if (option == "--d3d12-watch-target")
         {
-            _options.D3D12WatchTarget = Shims.D3D12X.DebugLayer.TargetShape.Parse(Next()) ?? throw new CommandLineException("--d3d12-watch-target takes WxH:format, e.g. 2560x1440:10");
+            _options.D3D12WatchTarget = Shims.D3D12X.DebugLayer.TargetShape.Parse(Next()) ?? throw new CommandLineException("--d3d12-watch-target takes WxH:format[,WxH:format...], e.g. 2560x1440:10");
         }
 
         if (option == "--d3d12-watch-limit")
