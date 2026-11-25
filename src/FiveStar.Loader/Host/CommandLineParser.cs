@@ -574,6 +574,14 @@ internal sealed class CommandLineParser
         return true;
     }
 
+    /// <summary><c>--frame-rate &lt;30|60|uncapped&gt;</c>.</summary>
+    private bool SetFrameRate()
+    {
+        _options.FrameRate = FrameRates.Parse(Next());
+
+        return true;
+    }
+
     private bool SetAudioCapture()
     {
         _options.AudioCapture = Path.GetFullPath(Next());
@@ -588,6 +596,8 @@ internal sealed class CommandLineParser
         {
             case "--memory-map":
                 return SetMemoryMap();
+            case "--frame-rate":
+                return SetFrameRate();
             case "--min-free-memory":
                 return SetMemoryFloor();
             case "--max-commit":

@@ -241,6 +241,9 @@ internal sealed record HostOptions
     /// <summary>GPU time per pass and queue with the sample line (<c>--gpu-timings</c>).</summary>
     public bool GpuTimings { get; set; }
 
+    /// <summary>The frame interval the frame events keep (<c>--frame-rate</c>); the game's own by default.</summary>
+    public Shims.D3D12X.Present.FrameRate FrameRate { get; set; }
+
     /// <summary>Check the game's transient-memory pool for corrupted nodes (<c>--watch-transient</c>).</summary>
     public bool WatchTransient { get; set; }
 
