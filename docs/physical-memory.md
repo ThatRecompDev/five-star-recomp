@@ -185,3 +185,7 @@ The game calls the device right after mapping (vtable +0x250 with the address an
   contiguous; mapping into 2 MiB (MEM_LARGE_PAGES) reservations, which take one frame per 32-page cluster and are
   not supported here.
 - The working-set structure beyond its first two qwords, and the 0x20000000 flag bit.
+- Alignments the console may give that the loader does not: frame runs aligned to a large page for those page
+  flags (their meaning is not known, so runs are only consecutive when possible), and 4 MiB alignment for an XMemAlloc
+  block with XALLOC_PAGESIZE_4MB (only its alignment code is honoured; a block on 4 MB pages need not start on one).
+  Neither has shown up in a fault; both stay as they are until one does.
