@@ -31,7 +31,8 @@ internal static unsafe class RtStandIns
         ("CS_ScreenProbes_TemporalResolve", FillValue.Shared(AmbientLevel), true),
     ];
 
-    private static readonly ConcurrentDictionary<nint, int> RuleOfPipeline = new();
+    /// <summary>The desktop pipelines whose outputs are overwritten after they run, with their rule (<see cref="Named"/>).</summary>
+    private static readonly ConcurrentDictionary<nint, int> AfterRunPipelines = new();
     private static long _filled;
 
     /// <summary>The grey of the screen-probe light stand-in (VIctory's 0.6).</summary>
@@ -46,7 +47,30 @@ internal static unsafe class RtStandIns
     /// <summary>The rule for a pipeline name, or -1.</summary>
     public static int RuleOf(string name)
     {
-        return Array.FindIndex(Rules, rule => name.Contains(rule.Name, StringComparison.Ordinal));
+        for (int rule = 0; rule < Rules.Length; rule++)
+        {
+            if (name.Contains(Rules[rule].Name, StringComparison.Ordinal))
+            {
+                return rule;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>A desktop pipeline was built from <paramref name="names"/>: an after-run rule is kept for it (a reused address loses an old one).</summary>
+    public static void Named(nint pipeline, string names)
+    {
+        int rule = RuleOf(names);
+
+        if (Enabled && rule >= 0 && Rules[rule].AfterRun)
+        {
+            AfterRunPipelines[pipeline] = rule;
+
+            return;
+        }
+
+        AfterRunPipelines.TryRemove(pipeline, out _);
     }
 
     /// <summary>A dispatch of a held pipeline named <paramref name="name"/> was skipped: its outputs get the rule's value.</summary>
@@ -64,13 +88,7 @@ internal static unsafe class RtStandIns
     [HotPath]
     public static void AfterDispatch(XboxObject* list, nint pipeline)
     {
-        if (!RuleOfPipeline.TryGetValue(pipeline, out int rule))
-        {
-            rule = RuleOf(QueueProgress.PipelineName(pipeline));
-            RuleOfPipeline[pipeline] = rule;
-        }
-
-        if (rule >= 0 && Rules[rule].AfterRun)
+        if (!AfterRunPipelines.IsEmpty && AfterRunPipelines.TryGetValue(pipeline, out int rule))
         {
             Fill(list, Rules[rule].Value);
         }
@@ -84,7 +102,8 @@ internal static unsafe class RtStandIns
         var layout = bindings->ComputeLayout;
         var window = runtime.Bindings.Window;
 
-        if (layout == null || layout->UavRanges == 0 || window.Data == null || window.ViewHeap == 0)
+        // Without the game's compute root signature set there is nothing to restore after the fill's own.
+        if (bindings->ComputeRoot == 0 || layout == null || layout->UavRanges == 0 || window.Data == null || window.ViewHeap == 0)
         {
             return;
         }

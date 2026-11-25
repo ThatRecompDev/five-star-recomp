@@ -43,6 +43,41 @@ internal static unsafe class UavViews
         Views[handle] = view.Value;
     }
 
+    /// <summary>Desktop descriptors <paramref name="first"/> on are rewritten (any view, or a copy): what they held is forgotten.</summary>
+    [HotPath]
+    public static void Forget(nint first, uint count, uint increment)
+    {
+        if (Views.IsEmpty)
+        {
+            return;
+        }
+
+        for (uint i = 0; i < count; i++)
+        {
+            Views.TryRemove(first + (nint)((ulong)i * increment), out _);
+        }
+    }
+
+    /// <summary>Desktop descriptors <paramref name="source"/> on were copied to <paramref name="destination"/> on: their texture UAVs go along.</summary>
+    [HotPath]
+    public static void Carry(nint source, nint destination, uint count, uint increment)
+    {
+        if (Views.IsEmpty)
+        {
+            return;
+        }
+
+        for (uint i = 0; i < count; i++)
+        {
+            var offset = (nint)((ulong)i * increment);
+
+            if (Views.TryGetValue(source + offset, out var view))
+            {
+                Views[destination + offset] = view;
+            }
+        }
+    }
+
     public static bool TryFind(nint handle, out UavView view)
     {
         return Views.TryGetValue(handle, out view);

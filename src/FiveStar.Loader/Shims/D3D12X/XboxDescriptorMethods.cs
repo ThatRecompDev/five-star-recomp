@@ -548,6 +548,11 @@ internal static unsafe class XboxDescriptorMethods
             {
                 DesktopCopy(device, run, desktop, from, type);
                 carried = CopyFields(heap, index + done, run, from, increment);
+
+                if (RtStandIns.Enabled)
+                {
+                    UavViews.Carry(from, desktop, run, increment);
+                }
             }
 
             if (carried < run && BufferRecords.Noting(BufferRecords.FieldlessCopy))
