@@ -257,7 +257,11 @@ internal sealed class OnDemandStart
             hosting = new ProgramHosting(host, _backend, adapter);
         }
 
-        var producer = new ProgramProducer(programs, folder, picker, compiler, slow) { Hosting = hosting };
+        var producer = new ProgramProducer(programs, folder, picker, compiler, slow)
+        {
+            Hosting = hosting,
+            ContentStore = new FiveStar.Shaders.Cache.ProgramContentStore(FiveStar.Shaders.Cache.ProgramContentStore.FolderBeside(folder), FiveStar.Shaders.Cache.ProgramContentStore.CompilerIdentity(compiler)),
+        };
 
         return new OnDemandPrograms(index, ahead, producer, workers, warnings, () => BackendCounts);
     }
