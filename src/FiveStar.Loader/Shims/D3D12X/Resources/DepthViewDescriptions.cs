@@ -38,6 +38,12 @@ internal static unsafe class DepthViewDescriptions
     private const int ViewDimensionDword = 1;
     private const int SrvMappingDword = 2;
 
+    /// <summary>D3D12_SRV_DIMENSION_TEXTURE2D and TEXTURE2DARRAY, and the dwords of their PlaneSlice (the union starts at dword 4).</summary>
+    private const int SrvTexture2D = 4;
+    private const int SrvTexture2DArray = 5;
+    private const int SrvTexture2DPlaneDword = 6;
+    private const int SrvTexture2DArrayPlaneDword = 8;
+
     /// <summary>MipLevels -1: every mip from the most detailed.</summary>
     private const int AllMips = -1;
 
@@ -92,7 +98,7 @@ internal static unsafe class DepthViewDescriptions
     {
         if (description != null)
         {
-            return Patched(description, copy, ShaderResourceViewSize, DepthFormats.ShaderView(*(int*)description));
+            return Planed(Patched(description, copy, ShaderResourceViewSize, DepthFormats.ShaderView(*(int*)description)), copy);
         }
 
         if (!IsDepthFamily(resource, out var desc))
@@ -111,6 +117,62 @@ internal static unsafe class DepthViewDescriptions
         {
             dwords[SrvArraySizeDword] = desc.DepthOrArraySize;
         }
+
+        return copy;
+    }
+
+    /// <summary>
+    /// Sets the PlaneSlice of the 2D (or 2D array) SRV desc at <paramref name="view"/> to the plane its format reads
+    /// (<see cref="DepthFormats.Plane"/>): the desktop takes a stencil-format view only of plane 1 and a depth-format
+    /// view only of plane 0. Whether it changed the desc; other formats and dimensions as they are.
+    /// </summary>
+    [HotPath]
+    public static bool SetPlane(int* view)
+    {
+        int plane = DepthFormats.Plane(view[0]);
+        int dword = SrvPlaneDword(view[ViewDimensionDword]);
+
+        if (plane == DepthFormats.NoPlane || dword == 0 || view[dword] == plane)
+        {
+            return false;
+        }
+
+        view[dword] = plane;
+
+        return true;
+    }
+
+    /// <summary>The dword of an SRV desc's PlaneSlice for a dimension; 0 for a dimension without one.</summary>
+    private static int SrvPlaneDword(int dimension)
+    {
+        if (dimension == SrvTexture2D)
+        {
+            return SrvTexture2DPlaneDword;
+        }
+
+        if (dimension == SrvTexture2DArray)
+        {
+            return SrvTexture2DArrayPlaneDword;
+        }
+
+        return 0;
+    }
+
+    /// <summary><paramref name="view"/> with its plane set (<see cref="SetPlane"/>): in <paramref name="copy"/> for a plane format.</summary>
+    [HotPath]
+    private static void* Planed(void* view, byte* copy)
+    {
+        if (DepthFormats.Plane(*(int*)view) == DepthFormats.NoPlane)
+        {
+            return view;
+        }
+
+        if (view != copy)
+        {
+            Buffer.MemoryCopy(view, copy, ShaderResourceViewSize, ShaderResourceViewSize);
+        }
+
+        SetPlane((int*)copy);
 
         return copy;
     }

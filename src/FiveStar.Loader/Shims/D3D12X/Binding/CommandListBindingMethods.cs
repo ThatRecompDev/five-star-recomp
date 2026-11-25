@@ -515,9 +515,9 @@ internal static unsafe class CommandListBindingMethods
     }
 
     /// <summary>
-    /// <c>--depth-twins</c>, before a draw: when the bound depth-stencil view's texture has a twin that a pass wrote since,
-    /// the twin's values go into the depth (<see cref="DepthTwinCopy"/>), then the list's graphics state is set again
-    /// (heaps, input, targets, viewports, root signature, user data, pipeline).
+    /// <c>--depth-twins</c>, before a draw: when the bound depth-stencil view's texture has a depth or stencil twin that a
+    /// pass wrote since, the twin's values go into that plane (<see cref="DepthTwinCopy"/>), then the list's graphics
+    /// state is set again (heaps, input, targets, viewports, root signature, user data, pipeline).
     /// </summary>
     private static void CopyTwin(XboxObject* self)
     {
@@ -530,20 +530,11 @@ internal static unsafe class CommandListBindingMethods
         }
 
         nint view = (nint)replay->DepthStencil;
-        var twin = DepthTwins.OfView(view, out int format);
-
-        if (twin is null || twin.ViewHandle == 0 || !twin.TakeWritten())
-        {
-            return;
-        }
-
-        var d3d12x = ShimContext.Runtime.D3D12X;
-        nint heap = d3d12x.Bindings.Window.ViewHeap;
-        ulong table = DesktopCalls.HeapGpuStart(heap) + (ulong)(twin.ViewHandle - DesktopCalls.HeapCpuStart(heap));
-        int state = d3d12x.ListStates.For(self).Current(twin.Depth, twin.Home);
+        var depth = DepthTwins.OfView(view, out int format, out var stencil);
         nint list = self->Inner;
+        bool copied = CopyPlane(self, depth, view, format);
 
-        if (!DepthTwinCopy.Record(d3d12x.Objects.DesktopDevice, list, twin, view, format, state, table))
+        if (!(CopyPlane(self, stencil, view, format) | copied))
         {
             return;
         }
@@ -562,6 +553,22 @@ internal static unsafe class CommandListBindingMethods
         {
             ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, DesktopSetPipelineState))(list, rectangles->Pipeline);
         }
+    }
+
+    /// <summary>Records the copy of <paramref name="twin"/> into its plane when a pass wrote it since; whether it was recorded.</summary>
+    private static bool CopyPlane(XboxObject* self, DepthTwin? twin, nint view, int format)
+    {
+        if (twin is null || twin.ViewHandle == 0 || !twin.TakeWritten())
+        {
+            return false;
+        }
+
+        var d3d12x = ShimContext.Runtime.D3D12X;
+        nint heap = d3d12x.Bindings.Window.ViewHeap;
+        ulong table = DesktopCalls.HeapGpuStart(heap) + (ulong)(twin.ViewHandle - DesktopCalls.HeapCpuStart(heap));
+        int state = d3d12x.ListStates.For(self).Current(twin.Depth, twin.Home);
+
+        return DepthTwinCopy.Record(d3d12x.Objects.DesktopDevice, self->Inner, twin, view, format, state, table);
     }
 
     /// <summary>After the argument clamp's dispatch: the list's compute root signature, user data and pipeline again.</summary>

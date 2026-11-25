@@ -87,6 +87,8 @@ internal sealed unsafe class AddressShaderViews
             texture = null;
         }
 
+        // A stencil-plane view reads plane 1 and a depth-plane view plane 0, whatever the desc names.
+        DepthViewDescriptions.SetPlane((int*)&desktop);
         var create = (delegate* unmanaged<nint, nint, AddressViewDescription*, nint, void>)ComObject.Slot(device, DesktopShaderResourceViewSlot);
         create(device, target, &desktop, handle);
         Noted(handle, target, &desktop);
