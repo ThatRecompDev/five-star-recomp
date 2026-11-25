@@ -239,7 +239,22 @@ internal sealed unsafe class DrawTrace
     private void AppendWindowRecords(StringBuilder text, CommandListBindings* bindings)
     {
         var graphics = new ReadOnlySpan<uint>(bindings->Graphics, UserDwordsShown);
-        TraceRecords.Append(text, _d3d12.Bindings.Window.Data, DescriptorWindow.NullTableBase, graphics, TraceRecords.Offsets, MapState, (address, bytes) => (nint)_memory.Find(address, (ulong)bytes));
+        var sources = new TraceRecordSources(MapState, (address, bytes) => (nint)_memory.Find(address, (ulong)bytes), GameRecord);
+        TraceRecords.Append(text, _d3d12.Bindings.Window.Data, DescriptorWindow.NullTableBase, graphics, TraceRecords.Offsets, sources);
+    }
+
+    /// <summary>The game's own view-heap record behind window offset <paramref name="windowOffset"/>; 0 past its heap.</summary>
+    private nint GameRecord(uint windowOffset)
+    {
+        var heap = _d3d12.DescriptorHeaps.Views;
+        uint index = (windowOffset - DescriptorWindow.ViewBase) / DescriptorWindow.ViewRecordBytes;
+
+        if (heap is null || index >= heap.Count)
+        {
+            return 0;
+        }
+
+        return heap.Title + (nint)((ulong)index * heap.Increment);
     }
 
     /// <summary>
