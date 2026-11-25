@@ -133,7 +133,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs" or "--gpu-timings":
                 return SetBreadcrumbs(option);
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--capture-when-world" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--log-draws" or "--capture-when-world" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
                 return SetTraceDraws(option);
             case "--capture-dir":
                 return SetCaptureDirectory();
@@ -929,6 +929,29 @@ internal sealed class CommandLineParser
             _options.D3D12TraceRecords = Shims.D3D12X.DebugLayer.TraceRecords.Parse(Next());
         }
 
+        SetWatchTarget(option);
+
+        if (option == "--log-draws")
+        {
+            _options.LogDraws = Enum.TryParse<Shims.D3D12X.DebugLayer.DrawLogLevel>(Next(), ignoreCase: true, out var level) ? level : throw new CommandLineException("--log-draws takes off, brief or full");
+        }
+
+        if (option == "--capture-when-world")
+        {
+            _options.CaptureWhenWorld = true;
+        }
+
+        if (option == "--d3d12-dump-targets")
+        {
+            _options.D3D12DumpTargets = true;
+        }
+
+        return true;
+    }
+
+    /// <summary><c>--d3d12-watch-target WxH:format</c>, <c>--d3d12-watch-limit n</c> and <c>--d3d12-watch-rendered</c>.</summary>
+    private void SetWatchTarget(string option)
+    {
         if (option == "--d3d12-watch-target")
         {
             _options.D3D12WatchTarget = Shims.D3D12X.DebugLayer.TargetShape.Parse(Next()) ?? throw new CommandLineException("--d3d12-watch-target takes WxH:format, e.g. 2560x1440:10");
@@ -943,18 +966,6 @@ internal sealed class CommandLineParser
         {
             _options.D3D12WatchRendered = true;
         }
-
-        if (option == "--capture-when-world")
-        {
-            _options.CaptureWhenWorld = true;
-        }
-
-        if (option == "--d3d12-dump-targets")
-        {
-            _options.D3D12DumpTargets = true;
-        }
-
-        return true;
     }
 
     /// <summary><c>--hold-passes consumer=producer|...;...</c> or <c>--stub-passes pass=r,g,b,a;...</c> (no trace).</summary>
