@@ -612,6 +612,10 @@ internal sealed class CommandLineParser
                 _options.PlacedTextures = true;
 
                 return true;
+            case "--typed-image-views":
+                _options.TypedImageViews = true;
+
+                return true;
             case "--typeless-targets":
                 _options.TypelessTargets = true;
 
