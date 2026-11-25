@@ -13,11 +13,20 @@ uint user_sgpr(uint i) { return g_user4[i >> 2][i & 3]; }
 #endif
 static const uint GPU_MEM_HEAP = 0;                            // raw window of the loader's 32-bit space, RW view at + 1
 static const uint GPU_MAP_HEAP = 7;                            // address map of game memory (raw SRV)
+static const uint VIEW_SLOTS = 1000000u;                       // the desktop view heap (DescriptorWindow.MaxViews)
+static const uint SAMPLER_SLOTS = 2048u;                       // the desktop sampler heap (DescriptorWindow.MaxSamplers)
 static const uint GPU_MAP_SPANS = 0x8000u;                     // 4 GiB spans of the 47-bit address space
 static const uint STATIC_SAMPLER_BASE = 2032;                  // runtime-created samplers for literal S#s
 static const uint PC_END = 0xffffffffu;
 static const uint PC_YIELD = 0xfffffffeu;                      // mesh shaders: s_barrier yield point
 static const uint CODE_TAG = 0xc0de0000u;                       // pointer hi-word for PC-relative (embedded) data
+
+// A descriptor index a program read from memory names a slot inside its heap: past the end it names the null SRV or
+// UAV the address map uses for unmapped pages, and a sampler past the end the last sampler. Without the clamp a stray
+// index reads outside the heap (VIctory's port of the same game saw NVIDIA hang and AMD fault on it).
+uint view_slot(uint i) { return i < VIEW_SLOTS ? i : GPU_MAP_HEAP + 1u; }
+uint uav_slot(uint i) { return i < VIEW_SLOTS ? i : GPU_MAP_HEAP + 2u; }
+uint sampler_slot(uint i) { return min(i, SAMPLER_SLOTS - 1u); }
 
 uint MemLoad(uint ptr_lo, uint off) {
     ByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP];
@@ -63,7 +72,7 @@ uint2 ptr_add(uint lo, uint hi, uint u, int s) {
 // heap indices from + 112; entries of {program id, address lo or byte offset, address hi or heap index | kind << 31,
 // value} from + 256. TRACE_BASE is DescriptorWindow.TraceBase.
 #ifdef FIVESTAR_STORE_TRACE
-static const uint TRACE_BASE = 0x01e94800u;
+static const uint TRACE_BASE = 0x04012100u;
 static const uint TRACE_ENTRIES = 65536u;
 void trace_entry(uint lo, uint hi, uint v) {
     RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
@@ -105,6 +114,21 @@ void TRACE_VSTORE(uint d0, uint d1, uint off, uint v) {   // a buffer store thro
     }
 #endif
 }
+// ---- Window guard (the loader's default; FIVESTAR_WINDOW_GUARD is the byte offset of its table in the window): a
+// store or atomic through a 32-bit pointer (high dword 0) would land in the descriptor window, whose records and debug
+// rings programs never write. It is dropped (an atomic goes to the sink after the table) and counted in slot
+// FIVESTAR_PROGRAM_ID & 1023 of the table: {program id, drops}.
+#ifdef FIVESTAR_WINDOW_GUARD
+#ifndef FIVESTAR_PROGRAM_ID
+#define FIVESTAR_PROGRAM_ID 0u
+#endif
+void window_guard_count() {
+    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    uint slot = FIVESTAR_WINDOW_GUARD + (FIVESTAR_PROGRAM_ID & 1023u) * 8u;
+    m.Store(slot, FIVESTAR_PROGRAM_ID);
+    m.InterlockedAdd(slot + 4u, 1u);
+}
+#endif
 uint PtrLoad(uint lo, uint hi, uint off) {   // off is signed (a dword offset or an SMEM offset)
     uint2 a = ptr_add(lo, hi, 0u, asint(off));
     if (hi == 0u) return MemLoad(a.x, 0u);
@@ -112,16 +136,32 @@ uint PtrLoad(uint lo, uint hi, uint off) {   // off is signed (a dword offset or
     ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(p.x)];
     return b.Load(p.y & ~3u);
 }
+// An S#'s dword through a 32-bit pointer: relative to the sampler heap, whose records start at SAMPLER_WINDOW_BASE in
+// the window (DescriptorWindow.SamplerBase); a view's 32-bit pointer is relative to the view heap, whose records start
+// at 0. Scaleform's FTexTG programs read their S# at a root constant + index * 16 (SamplerLoads).
+static const uint SAMPLER_WINDOW_BASE = 0x04008000u;
+uint SamplerPtrLoad(uint lo, uint hi, uint off) {
+    if (hi == 0u) return MemLoad(SAMPLER_WINDOW_BASE + lo, off);
+    return PtrLoad(lo, hi, off);
+}
 void PtrStore(uint lo, uint hi, uint off, uint v) {
     uint2 a = ptr_add(lo, hi, 0u, asint(off));
+#ifdef FIVESTAR_WINDOW_GUARD
+    if (hi == 0u) { window_guard_count(); return; }
+#else
     if (hi == 0u) { MemStore(a.x, 0u, v); return; }
+#endif
     TRACE_ADDR(a.x, a.y, v);
     uint2 p = gpu_page(a.x, a.y);
     RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(p.x + 1u)];
     b.Store(p.y & ~3u, v);
 }
 uint2 gpu_rw(uint lo, uint hi) {   // (RW heap index, byte address) of a pointer, for atomics
+#ifdef FIVESTAR_WINDOW_GUARD
+    if (hi == 0u) { window_guard_count(); return uint2(GPU_MEM_HEAP + 1u, FIVESTAR_WINDOW_GUARD + 1024u * 8u); }
+#else
     if (hi == 0u) return uint2(GPU_MEM_HEAP + 1u, lo);
+#endif
     uint2 p = gpu_page(lo, hi);
     return uint2(p.x + 1u, p.y);
 }// An access's view: (heap index, byte offset of base + off in it); rw takes the UAV of a game-memory base. Dword1
@@ -166,16 +206,16 @@ uint sbuf_limit(uint d1, uint d2) {
 }
 
 uint BufLoad(uint heap_index, uint off) {
-    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
+    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(view_slot(heap_index))];
     return b.Load(off & ~3u);
 }
 uint BufLoadRW(uint heap_index, uint off) {   // load through a UAV slot (buffer also written by this shader)
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
+    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
     return b.Load(off & ~3u);
 }
 void BufStore(uint heap_index, uint off, uint v) {
     TRACE_VIEW(heap_index, off, v);
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
+    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
     b.Store(off & ~3u, v);
 }
 
@@ -389,7 +429,7 @@ uint fmt_component(uint4 w, uint field, uint num, uint missing) {
     return select((field >> 8) != 0u, fmt_convert(fmt_field(w, field), field >> 8, num), missing);
 }
 uint4 FmtLoad(uint heap_index, uint addr, uint code) {
-    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
+    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(view_slot(heap_index))];
     uint base = addr & ~3u, sh = (addr & 3u) * 8u;
     uint4 w = b.Load4(base); uint w4 = b.Load(base + 16);
     uint4 shifted = (w >> sh) | (uint4(w.yzw, w4) << ((32u - sh) & 31u));
@@ -482,7 +522,7 @@ uint enc_num(float f, uint bits, uint num) {
     return 0;
 }
 void FmtStore(uint heap_index, uint addr, uint code, uint4 v, uint n) {
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(heap_index)];
+    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
     uint layout = code >> 3, num = code & 7;
     bool ints = num == 4 || num == 5;
     uint4 c = v;
@@ -562,7 +602,7 @@ uint perm_b32(uint a, uint b, uint sel) {
 }
 
 // ---- Mesh probe (loader --probe-pipeline; MeshProbe): FIVESTAR_MESH_PROBE is the program's id,
-// FIVESTAR_MESH_PROBE_BASE the byte offset of its ring in the GPU-memory window (a count, then 256-byte records from
+// FIVESTAR_MESH_PROBE_BASE the byte offset of its ring in the GPU-memory window (a count, then 384-byte records from
 // + 16), FIVESTAR_MESH_PROBE_SITES its number of load sites. Each load site calls a probe_* form with its number, which
 // marks the site (bit site & 31) in a per-thread mask when its range check fails (probe_buf_fits, probe_sbuf_fits),
 // when it reads an unmapped page of the address map (the null pair GPU_MAP_HEAP + 1, + 2), or a record naming no
@@ -570,15 +610,18 @@ uint perm_b32(uint a, uint b, uint sel) {
 // the first time (probe_value), and m0 at GS_ALLOC_REQ (probe_alloc). At the end of the group thread 0 appends: {id,
 // group x y z; vertices, primitives as SetMeshOutputCounts got them, culled primitives, cull mask of primitives 0-31;
 // vertex 0's position; flags (bit 0: position written, bit 1: m0 noted), range, unmapped and null-record masks;
-// the values of sites 0-31; the mask of values noted; m0; the number of sites; id ^ PROBE_MARK}.
+// the values of sites 0-31; the mask of values noted; m0; the number of sites; id ^ PROBE_MARK; the mask of sites
+// that loaded through a 32-bit pointer (the window), the first such address thread 0 read (flags bit 2), the mask of
+// sites with a window address noted; from + 256 the first window address thread 0 read at each of sites 0-31}.
 #ifdef FIVESTAR_MESH_PROBE
 static const uint PROBE_RECORDS = 4096u;
-static const uint PROBE_RECORD_BYTES = 256u;
+static const uint PROBE_RECORD_BYTES = 384u;
 static const uint PROBE_NULL_RECORD = 5u;
 static const uint PROBE_MARK = 0x50524f42u;   // a whole record's last dword: its id ^ this
-static uint g_probe_range, g_probe_unmapped, g_probe_record, g_probe_gi;
-groupshared uint g_probe_g[12];   // range, unmapped, null record, culled, cull mask, flags, position x y z w, values mask, m0
+static uint g_probe_range, g_probe_unmapped, g_probe_record, g_probe_window, g_probe_gi;
+groupshared uint g_probe_g[15];   // range, unmapped, null record, culled, cull mask, flags, position x y z w, values mask, m0, window mask, window address, window sites noted
 groupshared uint g_probe_v[32];
+groupshared uint g_probe_w[32];   // per site: the first window address thread 0 read
 uint probe_bit(uint site) { return 1u << min(site, 31u); }
 bool probe_sbuf_fits(uint site, bool fits) {
     if (!fits) g_probe_range |= probe_bit(site);
@@ -594,6 +637,11 @@ uint probe_BufLoadRW(uint site, uint heap_index, uint off) { probe_view(site, he
 uint4 probe_FmtLoad(uint site, uint heap_index, uint addr, uint code) { probe_view(site, heap_index); return FmtLoad(heap_index, addr, code); }
 uint probe_PtrLoad(uint site, uint lo, uint hi, uint off) {
     if (hi != 0u) { uint2 a = ptr_add(lo, hi, 0u, asint(off)); probe_view(site, gpu_page(a.x, a.y).x); }
+    else {   // a 32-bit pointer: the window (descriptor records); the first such address thread 0 reads is kept
+        g_probe_window |= probe_bit(site);
+        if (g_probe_gi == 0u && (g_probe_g[5] & 4u) == 0u) { g_probe_g[13] = lo + off; g_probe_g[5] |= 4u; }
+        if (g_probe_gi == 0u && site < 32u && (g_probe_g[14] & (1u << site)) == 0u) { g_probe_w[site] = lo + off; g_probe_g[14] |= 1u << site; }
+    }
     return PtrLoad(lo, hi, off);
 }
 void probe_value(uint site, uint v) {   // the register a site's line loaded, the first time on thread 0
@@ -608,7 +656,7 @@ void probe_alloc(uint m0) {   // GS_ALLOC_REQ's m0, the first time
 }
 void probe_begin(uint gi) {   // before the group's first barrier
     g_probe_gi = gi;
-    if (gi == 0u) { [unroll] for (uint i = 0u; i < 12u; i++) g_probe_g[i] = 0u; }
+    if (gi == 0u) { [unroll] for (uint i = 0u; i < 15u; i++) g_probe_g[i] = 0u; }
 }
 void probe_position(float4 p) {   // thread 0, writing vertex 0
     g_probe_g[5] |= 1u;
@@ -624,6 +672,7 @@ void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the 
     InterlockedOr(g_probe_g[0], g_probe_range);
     InterlockedOr(g_probe_g[1], g_probe_unmapped);
     InterlockedOr(g_probe_g[2], g_probe_record);
+    InterlockedOr(g_probe_g[12], g_probe_window);
     GroupMemoryBarrierWithGroupSync();
     if (gi != 0u) return;
     RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
@@ -636,5 +685,7 @@ void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the 
     m.Store4(at + 48u, uint4(g_probe_g[5], g_probe_g[0], g_probe_g[1], g_probe_g[2]));
     [unroll] for (uint k = 0u; k < 32u; k += 4u) m.Store4(at + 64u + k * 4u, uint4(g_probe_v[k], g_probe_v[k + 1u], g_probe_v[k + 2u], g_probe_v[k + 3u]));
     m.Store4(at + 192u, uint4(g_probe_g[10], g_probe_g[11], FIVESTAR_MESH_PROBE_SITES, FIVESTAR_MESH_PROBE ^ PROBE_MARK));
+    m.Store3(at + 208u, uint3(g_probe_g[12], g_probe_g[13], g_probe_g[14]));
+    [unroll] for (uint w = 0u; w < 32u; w += 4u) m.Store4(at + 256u + w * 4u, uint4(g_probe_w[w], g_probe_w[w + 1u], g_probe_w[w + 2u], g_probe_w[w + 3u]));
 }
 #endif

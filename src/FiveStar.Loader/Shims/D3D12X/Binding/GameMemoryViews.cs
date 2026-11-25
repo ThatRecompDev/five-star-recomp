@@ -41,6 +41,9 @@ internal sealed unsafe class GameMemoryViews
 
     private const ulong PageMask = XMemPhysicalMemory.PageSize - 1;
 
+    /// <summary>Pages <see cref="Maps"/> checks one by one.</summary>
+    private const ulong PagesChecked = 256;
+
     /// <summary>D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS | ALLOW_CROSS_ADAPTER, which a buffer on a section heap needs.</summary>
     private const int SectionBufferFlags = 0x14;
 
@@ -86,6 +89,50 @@ internal sealed unsafe class GameMemoryViews
 
             return AddressMap.Read(new ReadOnlySpan<byte>(_data, _map.Bytes), address);
         }
+    }
+
+    /// <summary>
+    /// Whether every page of [<paramref name="start"/>, + <paramref name="bytes"/>) has a view in the map now, as
+    /// programs read through it (gpu_page); false before the map exists. Past <see cref="PagesChecked"/> pages only the
+    /// first and the last are looked at.
+    /// </summary>
+    public bool Maps(ulong start, ulong bytes)
+    {
+        ulong first = start & ~PageMask;
+        ulong last = (start + Math.Max(bytes, 1) - 1) & ~PageMask;
+        ulong pages = ((last - first) / XMemPhysicalMemory.PageSize) + 1;
+
+        lock (_gate)
+        {
+            if (_data == null)
+            {
+                return false;
+            }
+
+            var map = new ReadOnlySpan<byte>(_data, _map.Bytes);
+
+            if (pages > PagesChecked)
+            {
+                return Viewed(map, first) && Viewed(map, last);
+            }
+
+            for (ulong page = first; page <= last; page += XMemPhysicalMemory.PageSize)
+            {
+                if (!Viewed(map, page))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    private static bool Viewed(ReadOnlySpan<byte> map, ulong page)
+    {
+        var (view, _) = AddressMap.Read(map, page);
+
+        return view != 0 && view != DescriptorWindow.UnmappedSlot;
     }
 
     /// <summary>Maps the pages of a range the address table gained (<see cref="AddressTable.Observe"/>).</summary>

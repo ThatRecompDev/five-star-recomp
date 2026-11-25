@@ -443,7 +443,31 @@ flowchart LR
   1,000,000 (the tier-2 limit): 0 is a raw SRV over the descriptor window (`GPU_MEM_HEAP`), 1 a raw UAV over it, 2
   to 5 null descriptors for the mesh fallback table (root parameter 1; 5 is also what a record naming nothing
   reads), 6 a sink, 7 the address map (`GPU_MAP_HEAP`, below), 8 and 9 the null SRV and UAV its unmapped pages name.
-- **CPU-only view heaps** take title memory too (the game creates eleven of 3,128 descriptors and copies their
+- **Buffer records** (`BufferRecord`, `BufferRecords`). A buffer view's record is its V# as the console lays it out:
+  stride and num_records, the format word with its OOB_SELECT, and in dword 0 and dword 1 bits 0-15 either the desktop
+  heap index (base_hi 0) or, for a read-only view, its console GPU address (the resource's slot-133 address plus the
+  first element, a CBV's location, a slot-70 view's address). Programs read V#s from tables and build pointers from
+  their base: `MS_VS_Transform_PositionOnly` s_loads a V# and then loads through base + 0x40; with the heap index
+  there, it read the descriptor window and its meshlet V#s came out empty. A read-only view (SRV, CBV, slot 70) gets
+  its address when the address map has a view for its pages now (`GameMemoryViews.Maps`, what `gpu_page` reads: the
+  XMem pages the game mapped have one without any placed buffer, which is why the address table missed slot-70 views
+  such as PositionOnly's) or the address table covers it; the GPU only reads, and the map gives it the bytes the game
+  wrote. A UAV gets it only when the address table's range is the view's own desktop resource, so its writes land where
+  the command processor reads (indirect arguments, copies). With every record based, boots hung or crashed at 120 to
+  130 s, UAV writes reaching memory the desktop resources did not show. The first 8 records of each reason that keep
+  the heap index are logged (no console address, no map or table coverage, a UAV over another resource), with XMem or
+  not and slot-127 committed or not. A record with an address keeps the desktop index in dword 4 (the shim's copies to desktop heaps); the
+  window mirror holds it in dword 4 for every record (the debug readers). `--buffer-records-heap-index` keeps the heap
+  index in every record. Views written into the game's desktop (non-title) heaps keep their fields by desktop handle
+  (`DesktopRecords`), and a copy from one into a title heap writes them into the copied records: before, those copies
+  wrote none, and PositionOnly's per-meshlet V#s, read from such copies, came out as {heap index, 0, 0, 0}. The first
+  16 copies that carry fields are logged with their game index.
+- **Window guard** (`WindowGuard`, on unless `--no-window-guard`). The window holds room for 2,097,152 view records
+  (the game's main heap has 1,245,184; the regions past the records started after 1,000,000 before, so the shim's
+  mirror of records 1,000,000 and up wrote into the store-trace ring, the window flags and the mesh probe's ring), then
+  the guard's table, the store-trace ring, the window flags and the mesh probe's ring. A program's store or atomic
+  through a 32-bit pointer would land in the window; the prelude drops it (an atomic goes to a sink) and counts it per
+  program (`FIVESTAR_PROGRAM_ID`), and each captured present logs the programs that did since the last.- **CPU-only view heaps** take title memory too (the game creates eleven of 3,128 descriptors and copies their
   32-byte records into its per-draw tables itself, 0x144d9efc0). Their records name descriptors of the desktop
   shader-visible heap: every view written into one takes the next descriptors of a ring of 16 remap pages
   (`DescriptorRing`, 65,536 descriptors), so a record copied earlier keeps naming the view it copied until the ring
@@ -489,12 +513,21 @@ flowchart LR
 - **Draws and dispatches (12 to 14, 61)** upload the bind point's 128 dwords when they changed (a 64 MiB upload ring
   of 512-byte blocks, a block reused after 131,072 others) and point root parameter 0 at them; ExecuteIndirect
   unwraps its signature and buffers. Reset (10, 139) clears the list's binding state.
-- **Descriptor window.** A buffer (custom heap, write-combined system memory, UAV; 0x2610000 bytes for the game):
-  one 16-byte record per sampler, a 1024-record null table at 0x8000, then from 0x10000 one 32-byte record per game
-  view descriptor in game order (a T#; buffers and CBVs use the first 16 bytes). Dwords 0 to 3 of each mirror those
+- **Descriptor window.** A buffer (custom heap, write-combined system memory, UAV): from 0 one 32-byte record per
+  game view descriptor in game order (a T#; buffers and CBVs use the first 16 bytes), room for 2,097,152, then a
+  1024-record null table at 0x4000000 and one 16-byte record per sampler at 0x4008000. A 32-bit descriptor address is
+  heap-relative on the console, and the game makes such addresses itself: MS_VS_Transform_PositionOnly reads its
+  meshlet V# at root constant 2 (the game sets 0) + (root constant 0 & 0x3ff) × 32, game index 147. With the view
+  records at 0x10000 that address read sampler record 0x126 and every typed load through the V# failed its range
+  check (w26); with them at 0 it reads the descriptor's record (VIctory models the console the same way, THIRD_PARTY_NOTICES.md: tables are
+  byte offsets in their heap, the heap pointer is 0). The sampler heap is a space of its own, also based at 0:
+  Scaleform's FTexTG programs read their S# at a root constant + index × 16, so an S# load through a 32-bit pointer
+  reads the sampler records (shader-translation.md, `SamplerPtrLoad`), and a sampler table's pointer is index × 16.
+  With the sampler records at 0x4008000 and no such split, w27's front-end UI read view records as S#s and the device
+  was removed. Dwords 0 to 3 of each mirror those
   of the title record: the desktop index (a record naming no desktop descriptor reads 5) and a buffer view's V#
   dwords 1 to 3 (below). A table's user SGPR is the window offset of its
-  first record (base + (handle - title start) / increment × record size), so a program's `MemLoad(table + k * 32)`
+  first record (base + (handle - title start) / increment × record size, for views the heap-relative address), so a program's `MemLoad(table + k * 32)`
   reads the heap index of the table's k-th descriptor wherever the game put the table. Records are mirrored when the
   shim writes them and, for a table, at SetRootDescriptorTable: as many as the root signature's table spans (end of
   its last range, at most 1024, unbounded ranges 1024) and at least 16, skipping records whose dwords 0 to 3 did not
@@ -752,11 +785,13 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   when its range check fails, it reads an unmapped page of the address map or a record naming no descriptor, and thread
   0 notes the register each site's line loads the first time and m0 at GS_ALLOC_REQ. At the end of each group thread 0
   appends {group, the counts it gave SetMeshOutputCounts, m0, culled primitives, vertex 0's position, the three site
-  masks, the values of sites 0 to 31, the number of sites} to a ring in the descriptor window past the window flags, so
+  masks, the values of sites 0 to 31, the number of sites, the sites loading through a 32-bit pointer and the first
+  window address each of sites 0 to 31 read} to a ring in the descriptor window past the window flags, so
   a count of 0 shows whether its load read 0 from memory or failed its check. The program index names such a program
   `<name>.probe-<ring offset>`, so its DXIL, links and pipelines are cache entries of their own and the other programs
   stay warm. At each captured present the records since the last are summed up per program, each flagged site with its
-  text (kept as `<name>.sites.txt` beside the DXIL).
+  text (kept as `<name>.sites.txt` beside the DXIL) and, for a window load, the view record index it read (the game
+  index the copies and writes log).
 - `--capture-presents 60,300` reads the presented plane back at those present numbers once the presenting queue is
   idle and logs the same summary; `--capture-dir <dir>` also writes `present-N.png` there. Only the plane is read,
   never the window or the desktop.

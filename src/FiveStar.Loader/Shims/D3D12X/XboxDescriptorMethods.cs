@@ -78,11 +78,16 @@ internal static unsafe class XboxDescriptorMethods
 
             // In the game's own heaps a CBV is a V# the programs read as a ByteAddressBuffer: a raw SRV over the same bytes.
             if (location != 0 && D3D12X.DescriptorHeaps.Find(handle, out _) is not null
-                && D3D12X.AddressBuffers.CreateRaw(inner, location, description->Size, D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.ConstantBuffer(description->Size))))
+                && D3D12X.AddressBuffers.CreateRaw(inner, location, description->Size, D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.Based(BufferRecords.ConstantBuffer(description->Size), location, 0, 0, ViewKind.ConstantBuffer))))
             {
                 D3D12X.DrawTrace?.ConstantBufferView(D3D12X.DescriptorHeaps.Source(handle), description->Location, description->Size);
 
                 return;
+            }
+
+            if (description != null && BufferRecords.Noting(BufferRecords.FieldlessConstantBuffer) && D3D12X.DescriptorHeaps.Find(handle, out _) is not null)
+            {
+                NoteConstantBuffer(description);
             }
 
             ConstantBufferViewDescription desktop = default;
@@ -165,11 +170,14 @@ internal static unsafe class XboxDescriptorMethods
         {
             nint desktop = D3D12X.Objects.Unwrap(resource);
             D3D12X.DrawTrace?.ShaderResourceView(desktop, Destination(handle));
+            var record = BufferRecords.Based(BufferRecords.ShaderResource(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: false), desktop, ViewKind.ShaderResource);
+            NoteFieldless(description, record, unordered: false);
+
             byte* copy = stackalloc byte[DepthViewDescriptions.ShaderResourceViewSize];
             desktop = BufferViewRanges.Fit(resource, desktop, description, copy, false, out void* fitted);
             void* view = TargetViewDescriptions.ShaderResourceView(desktop, fitted, copy);
 
-            nint destination = D3D12X.DescriptorHeaps.Destination(handle, BufferRecords.ShaderResource(description));
+            nint destination = D3D12X.DescriptorHeaps.Destination(handle, record);
             CreateDesktopView(self, CreateShaderResourceViewSlot, desktop, DepthViewDescriptions.ShaderResourceView(desktop, view, copy), destination);
         }
         catch (Exception exception)
@@ -232,8 +240,9 @@ internal static unsafe class XboxDescriptorMethods
                 return;
             }
 
+            var record = BufferRecords.Based(BufferRecords.UnorderedAccess(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: true), desktop, ViewKind.UnorderedAccess);
+            NoteFieldless(description, record, unordered: true);
             desktop = BufferViewRanges.Fit(resource, desktop, description, copy, true, out void* fitted);
-            var record = BufferRecords.UnorderedAccess(description);
             var destination = D3D12X.DescriptorHeaps.Destination(handle, record);
 
             if (TransientPoolViews.Enabled)
@@ -247,6 +256,68 @@ internal static unsafe class XboxDescriptorMethods
         {
             UnmanagedGuard.Caught(exception, "XboxDescriptorMethods.CreateUnorderedAccessView");
         }
+    }
+
+    /// <summary>
+    /// The buffer fields of the desktop-heap views copied in, into their records (<see cref="DesktopRecords"/>); how
+    /// many carried fields.
+    /// </summary>
+    [HotPath]
+    private static uint CopyFields(ShaderVisibleHeap heap, uint index, uint count, nint source, uint increment)
+    {
+        uint carried = 0;
+
+        if (!DesktopRecords.Any)
+        {
+            return carried;
+        }
+
+        for (uint i = 0; i < count; i++)
+        {
+            if (DesktopRecords.TryFind(source + (nint)((ulong)i * increment), out var buffer))
+            {
+                heap.SetFields(index + i, buffer);
+                DesktopRecords.NoteCarried(index + i, buffer);
+                carried++;
+            }
+        }
+
+        return carried;
+    }
+
+    /// <summary>A buffer view whose desc leaves its record without V# fields (<see cref="BufferRecords.NoteFieldless"/>).</summary>
+    private static void NoteFieldless(void* description, BufferRecord record, bool unordered)
+    {
+        var view = (BufferViewDescription*)description;
+
+        if (view == null || view->Dimension != BufferViewDescription.BufferDimension || record.IsBuffer || !BufferRecords.Noting(BufferRecords.FieldlessView))
+        {
+            return;
+        }
+
+        if (unordered)
+        {
+            NoteView("UAV", view->Format, view->UavFlags, view->UavElements, view->UavStride);
+
+            return;
+        }
+
+        NoteView("SRV", view->Format, view->SrvFlags, view->SrvElements, view->SrvStride);
+    }
+
+    private static void NoteView(string kind, int format, int flags, uint elements, uint stride)
+    {
+        BufferRecords.NoteFieldless(BufferRecords.FieldlessView, $"a buffer {kind} of format {format}, flags 0x{flags:x}, {elements} elements of stride {stride}");
+    }
+
+    private static void NoteConstantBuffer(ConstantBufferViewDescription* description)
+    {
+        BufferRecords.NoteFieldless(BufferRecords.FieldlessConstantBuffer, $"a desktop CBV in a game heap (address 0x{description->Location:x}, 0x{description->Size:x} bytes)");
+    }
+
+    private static void NoteCopy(uint run, uint index, uint carried)
+    {
+        BufferRecords.NoteFieldless(BufferRecords.FieldlessCopy, $"{run} descriptors copied in from a desktop heap at game index {index}, {carried} carrying buffer fields");
     }
 
     /// <summary>With --watch-transient: the game range of a buffer UAV, by the desktop index its record names.</summary>
@@ -407,14 +478,26 @@ internal static unsafe class XboxDescriptorMethods
         {
             uint run = Least(count - done, heap.RunLength(index + done));
             nint desktop = heap.Destination(index + done, run, BufferRecord.None);
+            nint from = source + (nint)((ulong)done * increment);
+            uint carried = 0;
 
             if (desktop == 0)
             {
                 desktop = D3D12X.DescriptorHeaps.Sink();
                 run = 1;
+                DesktopCopy(device, run, desktop, from, type);
+            }
+            else
+            {
+                DesktopCopy(device, run, desktop, from, type);
+                carried = CopyFields(heap, index + done, run, from, increment);
             }
 
-            DesktopCopy(device, run, desktop, source + (nint)((ulong)done * increment), type);
+            if (carried < run && BufferRecords.Noting(BufferRecords.FieldlessCopy))
+            {
+                NoteCopy(run, index + done, carried);
+            }
+
             done += run;
         }
     }

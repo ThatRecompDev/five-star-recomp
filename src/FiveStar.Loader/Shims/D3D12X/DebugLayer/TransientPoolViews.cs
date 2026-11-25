@@ -9,8 +9,8 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// <summary>
 /// With <c>--watch-transient</c>: the game range of every buffer UAV by the desktop index its record names (kept at
 /// creation, <see cref="Note"/>), and, before each marked operation, the UAVs of the descriptor tables its user data
-/// points at. A user dword that is a window pointer into the view records (<see cref="DescriptorWindow.ViewBase"/>, a
-/// multiple of the 32-byte record) is taken as a table; its first <see cref="DescriptorWindow.MinTableRecords"/>
+/// points at. A user dword that is a window pointer into the view records (from <see cref="DescriptorWindow.ViewBase"/>,
+/// a multiple of the 32-byte record, not 0) is taken as a table; its first <see cref="DescriptorWindow.MinTableRecords"/>
 /// records are read from the window as the program sees them, and each buffer UAV among them whose game range overlaps
 /// the transient pool goes to <see cref="TransientPoolHits"/> with the record's V# words (stride, num_records,
 /// OOB_SELECT in dword 3).
@@ -131,7 +131,7 @@ internal static unsafe class TransientPoolViews
         {
             uint pointer = data[i];
 
-            if (pointer < DescriptorWindow.ViewBase || pointer >= ViewEnd || (pointer - DescriptorWindow.ViewBase) % RecordBytes != 0)
+            if (pointer == DescriptorWindow.ViewBase || pointer >= ViewEnd || (pointer - DescriptorWindow.ViewBase) % RecordBytes != 0)
             {
                 continue;
             }
@@ -139,7 +139,7 @@ internal static unsafe class TransientPoolViews
             for (uint k = 0; k < DescriptorWindow.MinTableRecords && pointer + (k * RecordBytes) < ViewEnd; k++)
             {
                 uint* record = (uint*)(window + pointer + (k * RecordBytes));
-                uint desktop = record[0];
+                uint desktop = record[DescriptorWindow.MirroredDesktopDword];
 
                 if (desktop >= MaxViews)
                 {

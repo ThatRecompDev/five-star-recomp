@@ -114,7 +114,7 @@ internal sealed class ImageEmitter
         }
 
         var name = $"_uav{_state.NextTemporary()}";
-        _state.Emit($"  {{ RW{texture.Type}<float4> {name} = ResourceDescriptorHeap[{heapIndex}];");
+        _state.Emit($"  {{ RW{texture.Type}<float4> {name} = ResourceDescriptorHeap[uav_slot({heapIndex})];");
         var index = ImageDimensions.IntegerCoordinates(coordinates, texture.Components);
         _state.Emit($"    if (active) {name}[{index}] = float4({string.Join(", ", values)}); }}");
     }
@@ -250,11 +250,11 @@ internal sealed class ImageEmitter
 
     private void Declare(ImageRequest request, Operand resource, Operand? sampler)
     {
-        _state.Emit($"  {request.TextureType}<float4> {request.Texture} = ResourceDescriptorHeap[{_operands.Read(resource, 0)}];");
+        _state.Emit($"  {request.TextureType}<float4> {request.Texture} = ResourceDescriptorHeap[view_slot({_operands.Read(resource, 0)})];");
 
         if (sampler is not null && !request.HasCompare)
         {
-            _state.Emit($"  SamplerState _smp{request.Number} = SamplerDescriptorHeap[{_operands.SamplerIndex(sampler)}];");
+            _state.Emit($"  SamplerState _smp{request.Number} = SamplerDescriptorHeap[sampler_slot({_operands.SamplerIndex(sampler)})];");
         }
     }
 
