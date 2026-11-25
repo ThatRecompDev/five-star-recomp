@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Loader.Shims.D3D12X.Present;
+using FiveStar.Loader.Tests.Support;
 using Xunit;
 
 namespace FiveStar.Loader.Tests;
@@ -10,7 +11,7 @@ namespace FiveStar.Loader.Tests;
 /// <c>--frame-log</c>: our submit path's time is summed per frame and taken once a frame; a line is due every n-th frame
 /// and for every slow one, and names each part of the frame. Off, nothing is timed.
 /// </summary>
-[Collection(nameof(FrameLogTests))]
+[Collection(TimingState.Name)]
 public sealed class FrameLogTests
 {
     [Fact]
