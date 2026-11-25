@@ -34,7 +34,111 @@ public static class TypedViewCases
 
     public static IEnumerable<ComputeCase> All()
     {
-        return [UintLoad(), SintLoad(), FloatLoad(), HalfLoad(), UintStore(), SharedExponentLoad()];
+        return [UintLoad(), SintLoad(), FloatLoad(), HalfLoad(), UintStore(), SharedExponentLoad(), SharedExponentBilinear(), SharedExponentPoint(), SharedExponentLevel()];
+    }
+
+    /// <summary>A literal S# in s[20:23]: clamp to the edge, max LOD 12, and word 2 (filters and mip filter).</summary>
+    private static string Sampler(string word2)
+    {
+        return $"""
+            s_mov_b32 s20, 0x92
+            s_mov_b32 s21, 0xc00000
+            s_mov_b32 s22, {word2}
+            s_mov_b32 s23, 0
+            """;
+    }
+
+    /// <summary>Bilinear (mag and min linear, mip point) and point (all point) S# word 2.</summary>
+    private const string BilinearWord = "0x14500000";
+    private const string PointWord = "0x4000000";
+
+    private static uint[] SharedExponentTexels(int count, uint seed)
+    {
+        return [.. Enumerable.Range(0, count).Select(index => Pack((uint)(index * 23 + seed) & 511, (uint)(index * 37 + 5) & 511, (511 - (uint)index) & 511, 12 + ((uint)index & 7)))];
+    }
+
+    // sample_lz midway between texels x and x + 1 of the row (clamped at the edge): a sampled class-3 view decodes each
+    // texel and filters the colours (through its float declaration it read the bits as red and green and blue as 0).
+    private static ComputeCase SharedExponentBilinear()
+    {
+        var texels = SharedExponentTexels(Texels, 1);
+        var program = Address + "\n" + """
+            v_cvt_f32_u32_e32 v3, v1
+            v_add_f32_e32 v3, 1.0, v3
+            v_mul_f32_e32 v3, 0.25, v3
+            v_cvt_f32_u32_e32 v4, v2
+            v_add_f32_e32 v4, 0.5, v4
+            v_mul_f32_e32 v4, 0.5, v4
+            """ + "\n" + Sampler(BilinearWord) + "\n" + """
+            image_sample_lz v[20:22], v[3:4], s[8:15], s[20:23] dmask:0x7 dim:SQ_RSRC_IMG_2D
+            s_waitcnt vmcnt(0)
+            """;
+
+        return new ComputeCase("cs_typed_rgb9e5_sample_bilinear", program, 3, thread =>
+        {
+            int x = thread.Id & 3;
+            int row = ((thread.Id >> 2) & 1) * Width;
+            var (left, right) = (Colour(texels[row + x]), Colour(texels[row + Math.Min(x + 1, Width - 1)]));
+
+            return [.. Enumerable.Range(0, 3).Select(channel => Expected.Near((left[channel] + right[channel]) / 2, 1e-3))];
+        })
+        {
+            User = [TextureHeap, 0, 0, SharedExponent],
+            Textures = [new TextureResource(TextureHeap, Format.R32_UInt, Width, Height, texels)],
+        };
+    }
+
+    // sample_lz at texel centres through a point sampler: each texel's colour exactly.
+    private static ComputeCase SharedExponentPoint()
+    {
+        var texels = SharedExponentTexels(Texels, 7);
+        var program = Address + "\n" + """
+            v_cvt_f32_u32_e32 v3, v1
+            v_add_f32_e32 v3, 0.5, v3
+            v_mul_f32_e32 v3, 0.25, v3
+            v_cvt_f32_u32_e32 v4, v2
+            v_add_f32_e32 v4, 0.5, v4
+            v_mul_f32_e32 v4, 0.5, v4
+            """ + "\n" + Sampler(PointWord) + "\n" + """
+            image_sample_lz v[20:22], v[3:4], s[8:15], s[20:23] dmask:0x7 dim:SQ_RSRC_IMG_2D
+            s_waitcnt vmcnt(0)
+            """;
+
+        return new ComputeCase("cs_typed_rgb9e5_sample_point", program, 3, thread => Decoded(texels[thread.Id & 7]))
+        {
+            User = [TextureHeap, 0, 0, SharedExponent],
+            Textures = [new TextureResource(TextureHeap, Format.R32_UInt, Width, Height, texels)],
+        };
+    }
+
+    // sample_l at LOD 1 through a point sampler (point mips): texel x & 1 of the 2x1 level 1, not level 0.
+    private static ComputeCase SharedExponentLevel()
+    {
+        var texels = SharedExponentTexels(Texels + 2, 3);
+        var program = Address + "\n" + """
+            v_and_b32_e32 v1, 1, v41
+            v_cvt_f32_u32_e32 v3, v1
+            v_add_f32_e32 v3, 0.5, v3
+            v_mul_f32_e32 v3, 0.5, v3
+            v_mov_b32 v4, 0.5
+            v_mov_b32 v5, 1.0
+            """ + "\n" + Sampler(PointWord) + "\n" + """
+            image_sample_l v[20:22], v[3:5], s[8:15], s[20:23] dmask:0x7 dim:SQ_RSRC_IMG_2D
+            s_waitcnt vmcnt(0)
+            """;
+
+        return new ComputeCase("cs_typed_rgb9e5_sample_level", program, 3, thread => Decoded(texels[Texels + (thread.Id & 1)]))
+        {
+            User = [TextureHeap, 0, 0, SharedExponent],
+            Textures = [new TextureResource(TextureHeap, Format.R32_UInt, Width, Height, texels) { Levels = 2 }],
+        };
+    }
+
+    private static float[] Colour(uint bits)
+    {
+        float scale = MathF.Pow(2, (int)(bits >> ExponentShift) - ExponentBias);
+
+        return [.. Enumerable.Range(0, 3).Select(channel => ((bits >> (channel * MantissaBits)) & MantissaMask) * scale)];
     }
 
     // NaN and sign patterns a float view could turn into other bits: an integer view returns them as they are.

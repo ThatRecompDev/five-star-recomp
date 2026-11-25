@@ -471,7 +471,8 @@ internal static unsafe class XboxDescriptorMethods
         try
         {
             nint inner = self->Inner;
-            ((delegate* unmanaged<nint, void*, nint, void>)ComObject.Slot(inner, CreateSamplerSlot))(inner, description, Destination(handle));
+            var destination = D3D12X.DescriptorHeaps.Destination(handle, SamplerRecords.Of((DesktopSamplerDescription*)description));
+            ((delegate* unmanaged<nint, void*, nint, void>)ComObject.Slot(inner, CreateSamplerSlot))(inner, description, destination);
         }
         catch (Exception exception)
         {

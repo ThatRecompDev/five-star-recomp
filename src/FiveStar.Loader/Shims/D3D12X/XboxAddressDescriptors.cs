@@ -59,7 +59,7 @@ internal static unsafe class XboxAddressDescriptors
             var sampler = ConsoleSamplers.ToDesktop(*description);
             nint inner = self->Inner;
             var create = (delegate* unmanaged<nint, DesktopSamplerDescription*, nint, void>)ComObject.Slot(inner, DesktopSamplerSlot);
-            create(inner, &sampler, D3D12X.DescriptorHeaps.Destination(handle));
+            create(inner, &sampler, D3D12X.DescriptorHeaps.Destination(handle, SamplerRecords.Of(&sampler)));
         }
         catch (Exception exception)
         {

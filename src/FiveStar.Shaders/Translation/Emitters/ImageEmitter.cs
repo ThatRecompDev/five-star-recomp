@@ -320,9 +320,49 @@ internal sealed class ImageEmitter
         else
         {
             _state.Emit($"  float4 {result} = {call};");
+            SampleSharedExponent(request, resource, result);
         }
 
         WriteResult(destination, result, mask, modifiers.Has("d16"), integer);
+    }
+
+    /// <summary>
+    /// A filtered sample of a class-3 view (shared-exponent light in an R32_UINT texture): its float declaration reads the
+    /// texel's bits as red and zero green and blue, so the texels are loaded through the uint declaration, decoded and
+    /// filtered as the sampler says (<c>se_sample</c>).
+    /// </summary>
+    private void SampleSharedExponent(ImageRequest request, Operand resource, string result)
+    {
+        var sampler = request.SamplerOperand;
+
+        if (!_state.TypedImageViews || sampler is null || !ImageSampleBuilder.TakesSharedExponent(request))
+        {
+            return;
+        }
+
+        var bits = $"{request.Texture}s";
+        var slot = NullTextureSlots.Slot(request.TextureType, _operands.Read(resource, 0));
+        _state.Emit($"  {request.TextureType}<uint4> {bits} = ResourceDescriptorHeap[{slot}];");
+        var sample = _samples.SharedExponentSample(request, bits, SamplerWord(sampler));
+        _state.Emit($"  if ({ClassOf(resource)} == {SharedExponentClass}) {result} = {sample};");
+    }
+
+    /// <summary>The sampler word of <see cref="SamplerWords"/>: packed from a literal S#, else the heap sampler record's dword 3.</summary>
+    private string SamplerWord(Operand sampler)
+    {
+        var words = new uint[Vec4];
+
+        for (var dword = 0; dword < Vec4; dword++)
+        {
+            if (!_state.Constants.TryGetValue(sampler.At(dword), out var word))
+            {
+                return _operands.Read(sampler, ClassDword);
+            }
+
+            words[dword] = (uint)word;
+        }
+
+        return $"0x{SamplerWords.Pack(words):x}u";
     }
 
     /// <summary>
