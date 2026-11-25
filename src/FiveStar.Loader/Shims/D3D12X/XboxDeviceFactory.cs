@@ -209,12 +209,23 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         }
 
         QueueProgress.Start(_log);
+        QueueProgress.Memory = InPlaceSummary;
         GpuBreadcrumbs.Attach(inner, _log);
         *device = Objects.WrapDevice(inner);
         Bindings.Attach(inner);
         CreatePipelines(inner);
 
         return HResult.Ok;
+    }
+
+    private const int MebibyteShift = 20;
+
+    /// <summary>The GPU's memory groups and what of the game's memory the GPU reads in place, for the removal report.</summary>
+    private string InPlaceSummary()
+    {
+        string groups = SectionHeaps.Budget?.Sample() ?? "GPU memory unknown";
+
+        return $"{groups}; in place: {SectionHeaps.Opened >> MebibyteShift} MiB of section heaps, {GameMemory.CoveredBytes >> MebibyteShift} MiB of the game's own memory";
     }
 
     /// <summary>

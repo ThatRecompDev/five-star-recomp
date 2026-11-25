@@ -143,7 +143,7 @@ internal sealed unsafe class XboxGameMemoryBuffers
         // address the GPU got lay in its first 64 MiB, and the heap was opened whole).
         if (Windowed(device))
         {
-            bytes = Math.Min(SectionHeaps.LazyWindowBytes, size - (ulong)(key - allocation));
+            bytes = Math.Min(WindowSize(), size - (ulong)(key - allocation));
         }
 
         nint buffer = CreateBuffer(device, key, bytes, writable, key != allocation || bytes != size);
@@ -168,7 +168,7 @@ internal sealed unsafe class XboxGameMemoryBuffers
     }
 
     /// <summary>
-    /// What one buffer covers, by its start: the whole allocation; with <c>--evict-windows</c> and
+    /// What one buffer covers, by its start: the whole allocation; with <c>--evict-windows</c> or <c>--in-place-window</c> and
     /// OpenExistingHeapFromAddress1 (ID3D12Device13), the window of <see cref="SectionHeaps.LazyWindowBytes"/> around
     /// <paramref name="address"/>, so the game's 2.2 GiB heap takes the GPU's system-memory budget only where it is used.
     /// </summary>
@@ -179,15 +179,26 @@ internal sealed unsafe class XboxGameMemoryBuffers
             return allocation;
         }
 
-        ulong window = ((address - (ulong)allocation) / SectionHeaps.LazyWindowBytes) * SectionHeaps.LazyWindowBytes;
+        ulong window = ((address - (ulong)allocation) / WindowSize()) * WindowSize();
 
         return allocation + (nint)window;
     }
 
-    /// <summary>Whether allocations open by window: <c>--evict-windows</c> on a device with ID3D12Device13.</summary>
+    /// <summary>Whether allocations open by window: <c>--evict-windows</c> or <c>--in-place-window</c> on a device with ID3D12Device13.</summary>
     private bool Windowed(nint device)
     {
-        return Binding.WindowFeedback.Enabled && CanWindow(device);
+        return (Binding.WindowFeedback.Enabled || SectionHeaps.InPlaceWindow < SectionHeaps.WindowBytes) && CanWindow(device);
+    }
+
+    /// <summary>The window of a windowed allocation: <see cref="SectionHeaps.LazyWindowBytes"/> with <c>--evict-windows</c>, else <see cref="SectionHeaps.InPlaceWindow"/>.</summary>
+    private static ulong WindowSize()
+    {
+        if (Binding.WindowFeedback.Enabled)
+        {
+            return SectionHeaps.LazyWindowBytes;
+        }
+
+        return SectionHeaps.InPlaceWindow;
     }
 
     /// <summary>Whether the device opens part of an allocation as a heap (ID3D12Device13); asked once.</summary>
