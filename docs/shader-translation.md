@@ -114,6 +114,17 @@ program. The caps count all loops of one invocation together (a cap per loop let
 | pixel, vertex, geometry, mesh | 4,096 | invocations come by the million a draw. A Series X frame at 30 fps is about 2·10^11 lane instructions; a full-screen pass of 3.7 M pixels at 4,096 iterations of a 4-instruction loop would take a third of it, so a correct program stays far below. A runaway draw stops after about 1.5·10^10 iterations, well under the driver's 2 s timeout on a 4090 |
 | compute | 65,536 | a thread is one of fewer, and single-thread passes walk whole lists |
 
+`TranslationOptions.Loops` (`LoopCaps`; the loader's `--loop-caps`) replaces these per stage: `victory` is
+victory-gta6's 4,096 compute, 256 vertex and mesh, 128 pixel, and also bounds the dispatch form at 256 blocks per
+allowed iteration; `compute,geometry,pixel` gives other numbers. The caps are part of the translation options, so of
+the program cache identity. The superstep form had no bound at all; it now ends a thread that has run the stage's
+dispatch steps (`ss_steps`), which then meets every later barrier as an ended thread.
+
+Lower caps cut correct programs short, not only runaways. In the 25,908-program corpus 4,816 of 12,067 pixel programs
+have loops, 1,251 of them ten or more, whose iterations all count against one cap; 1,944 of 2,689 compute programs and
+1,366 mesh programs have loops. No static trip count is known for most of them (their bounds are loaded data), so
+`victory` is a diagnostic setting for hangs, not a default.
+
 victory-gta6 caps each loop at 128 (pixel), 256 (vertex, mesh) and 4,096 (compute) and kills the lane at the cap. Those
 values can cut real loops (light lists, blur kernels); ours trade a little more GPU time for not doing so.
 `--trace-pool-stores` logs the first hit per program with the loop's number and the cap. The previous lanes' boot logs

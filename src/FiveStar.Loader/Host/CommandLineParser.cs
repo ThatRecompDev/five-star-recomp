@@ -207,8 +207,8 @@ internal sealed class CommandLineParser
                 _options.Dxc = Path.GetFullPath(Next());
 
                 return true;
-            case "--shader-jobs":
-                return SetShaderJobs();
+            case "--shader-jobs" or "--loop-caps":
+                return SetShaderJobs(option);
             case "--shader-backend":
                 return SetShaderBackend();
             default:
@@ -244,8 +244,16 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    private bool SetShaderJobs()
+    /// <summary>--shader-jobs N, or --loop-caps victory|default|compute,geometry,pixel (programs made on demand).</summary>
+    private bool SetShaderJobs(string option)
     {
+        if (option == "--loop-caps")
+        {
+            _options.LoopCaps = FiveStar.Shaders.Translation.Core.LoopCaps.Parse(Next()) ?? throw new ArgumentException("--loop-caps takes victory, default or compute,geometry,pixel");
+
+            return true;
+        }
+
         _options.ShaderJobs = int.Parse(Next(), CultureInfo.InvariantCulture);
 
         return true;

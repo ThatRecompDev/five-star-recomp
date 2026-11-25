@@ -61,6 +61,7 @@ internal static class HostComposition
             var root = options.ProgramCache ?? Path.Combine(WorkDirectory(options), OnDemandStart.FolderName);
             Shims.D3D12X.DebugLayer.PoolStoreTrace.Enabled = options.TracePoolStores;
             Shims.D3D12X.Binding.UserDataConstants.Enabled = options.UserDataConstants;
+            OnDemandStart.Translation = FiveStar.Shaders.Compilation.CorpusOptions.DefaultTranslation with { Loops = options.LoopCaps };
             folders = folders with { OnDemand = OnDemandStart.Begin(root, options.Dxc, options.DxcBackend, options.ShaderJobs, out var message), OnDemandNote = message };
         }
 
