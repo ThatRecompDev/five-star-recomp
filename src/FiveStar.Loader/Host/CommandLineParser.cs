@@ -207,7 +207,7 @@ internal sealed class CommandLineParser
                 _options.Dxc = Path.GetFullPath(Next());
 
                 return true;
-            case "--shader-jobs" or "--loop-caps" or "--force-cull-none" or "--plain-supersteps":
+            case "--shader-jobs" or "--loop-caps" or "--force-cull-none" or "--plain-supersteps" or "--host-pipelines":
                 return SetShaderJobs(option);
             case "--shader-backend":
                 return SetShaderBackend();
@@ -245,7 +245,7 @@ internal sealed class CommandLineParser
     }
 
     /// <summary>
-    /// --shader-jobs N, --loop-caps victory|default|compute,geometry,pixel, --plain-supersteps (programs made on demand) or
+    /// --shader-jobs N, --loop-caps victory|default|compute,geometry,pixel, --plain-supersteps, --host-pipelines (programs made on demand) or
     /// --force-cull-none text.
     /// </summary>
     private bool SetShaderJobs(string option)
@@ -253,6 +253,13 @@ internal sealed class CommandLineParser
         if (option == "--plain-supersteps")
         {
             _options.SuperstepCarry = false;
+
+            return true;
+        }
+
+        if (option == "--host-pipelines")
+        {
+            _options.HostPipelines = true;
 
             return true;
         }

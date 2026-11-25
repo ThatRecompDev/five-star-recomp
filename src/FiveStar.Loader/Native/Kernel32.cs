@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Five Star Recomp contributors.
+// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.InteropServices;
@@ -45,6 +45,10 @@ internal static unsafe class Kernel32
     /// <summary>SetInformationJobObject(job, JOBOBJECTINFOCLASS, info, size): nonzero on success.</summary>
     [DllImport(Library)]
     public static extern int SetInformationJobObject(nint job, int informationClass, void* information, uint size);
+
+    /// <summary>QueryInformationJobObject(job, JOBOBJECTINFOCLASS, info, size, returned): nonzero on success.</summary>
+    [DllImport(Library)]
+    public static extern int QueryInformationJobObject(nint job, int informationClass, void* information, uint size, uint* returned);
 
     /// <summary>AssignProcessToJobObject(job, process): nonzero on success.</summary>
     [DllImport(Library)]
