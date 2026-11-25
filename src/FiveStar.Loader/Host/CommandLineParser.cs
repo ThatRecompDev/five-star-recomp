@@ -512,6 +512,10 @@ internal sealed class CommandLineParser
                 _options.EvictWindows = true;
 
                 return true;
+            case "--reserve-gpu-system-memory":
+                _options.ReservedSystemMemory = Gigabytes(Next());
+
+                return true;
             case "--max-driver-compiles" or "--compile-ceiling":
                 return SetCompileLimit(option);
             default:

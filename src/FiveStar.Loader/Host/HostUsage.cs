@@ -38,6 +38,9 @@ internal static class HostUsage
                                  the GPU's system-memory budget leaves); the rest opens as it is used, or reads as zeros
           --evict-windows        prototype: section windows the address map needs open when programs report reading
                                  them and the least recently wanted are released for them (programs made on demand)
+          --reserve-gpu-system-memory <GB>
+                                 debugging: hold this much GPU system memory (upload buffers, RAM) from device creation,
+                                 so its budget is as tight as on a machine with less RAM
           --main <name>          image that plays the process exe for GetModuleHandle(NULL)/GetModuleFileName(NULL)
                                  (default: first mapped exe, else the first --load)
           --patch-peb            also point PEB.ImageBaseAddress at the main image (off by default)

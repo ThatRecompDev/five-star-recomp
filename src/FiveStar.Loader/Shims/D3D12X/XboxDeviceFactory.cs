@@ -198,6 +198,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
 
         Debugging.AttachDevice(inner);
         SectionHeaps.Budget = GpuMemoryBudget.Open(inner, _log);
+        SystemMemoryReserve.Take(inner, SectionHeaps.Budget, _log);
         SectionHeaps.WindowOpened = MemoryViews.WindowOpened;
 
         if (WindowFeedback.Enabled)

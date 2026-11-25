@@ -370,6 +370,8 @@ internal sealed class LoaderHost
             _runtime.D3D12X.SectionHeaps.Cap = _options.SectionHeapBudget;
         }
 
+        Shims.D3D12X.SystemMemoryReserve.Bytes = _options.ReservedSystemMemory;
+
         if (_options.WatchTransient)
         {
             TransientPoolWatch.Start(_log);
