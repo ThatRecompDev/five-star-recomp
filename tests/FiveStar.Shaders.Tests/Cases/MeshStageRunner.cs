@@ -9,6 +9,7 @@ using FiveStar.Shaders.Tests.Reference;
 using FiveStar.Shaders.Tests.Toolchain;
 using FiveStar.Shaders.Tests.Warp;
 using FiveStar.Shaders.Translation;
+using FiveStar.Shaders.Translation.Core;
 
 namespace FiveStar.Shaders.Tests.Cases;
 
@@ -346,4 +347,44 @@ public sealed partial class MeshStageRunner
 
     [GeneratedRegex(@"vertex record stride (\d+) B")]
     private static partial Regex StridePattern();
+
+    private const string BarrierLoop = """
+        s_barrier
+        s_mov_b32 s28, s11
+        .Lspin:
+        s_barrier
+        s_sub_u32 s28, s28, 1
+        s_cmp_lg_u32 s28, 0
+        s_cbranch_scc1 .Lspin
+        """;
+
+    /// <summary>Draws the barrier-loop program with <paramref name="count"/> iterations under <paramref name="caps"/>.</summary>
+    public IReadOnlyList<string> RunBarrierLoop(bool supersteps, uint count, LoopCaps caps)
+    {
+        string name = supersteps ? "ms_ngg_barrier_loop_supersteps" : "ms_ngg_barrier_loop";
+        var source = Program.Replace("s_barrier\n", BarrierLoop + "\n", StringComparison.Ordinal);
+        var assembled = _fixture.Workbench.Assemble("ms_ngg_barrier_loop", source, 64);
+        var config = new ShaderConfig { Stage = HardwareStage.Ngg, WaveSize = 64, UserSgprs = 4, Ngg = new NggConfig(8, 0, 0), LdsBytes = 4 };
+        var pipeline = new PipelineStateInfo { Stage = "ms", NumThreads = new ThreadGroupSize(64, 1, 1), MaxVertices = MaxOutputs, MaxPrimitives = MaxOutputs };
+        var program = new ShaderProgram(ShaderStage.Mesh, assembled.Instructions, assembled.Code, ShaderSignatures.None, config, pipeline);
+
+        string mesh;
+
+        if (supersteps)
+        {
+            mesh = HlslTranslator.SuperstepVariant(program, new TranslationOptions(StructuredControlFlow: false, PinWaveSize: false, EmulateWaveSize: true) { Loops = caps });
+        }
+        else
+        {
+            mesh = HlslTranslator.Translate(program, new TranslationOptions(StructuredControlFlow: true, PinWaveSize: false, EmulateWaveSize: true) { Loops = caps }).Hlsl;
+        }
+
+        var (pixelSource, _) = PassThroughPixelShader.Build(mesh, ["param0"], flat: true);
+        var pixel = _fixture.Workbench.Compile(name + "_ps", pixelSource, "ps");
+        var bindings = new Bindings { UserSgprs = [(Primitives << 12) | Vertices, Culled, FloatBits.Of(AttributeBase), count] };
+        var result = _fixture.Runner.Mesh(new MeshJob(_fixture.Workbench.Compile(name, mesh, "ms"), pixel, Framebuffer.Exact(1, Size, Size), bindings, 1));
+        var image = Reference();
+
+        return ImageCheck.Compare(result, Size, Size, (x, y, _) => image[y, x]);
+    }
 }

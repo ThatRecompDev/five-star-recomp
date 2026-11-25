@@ -128,6 +128,22 @@ internal sealed partial class MeshDeclarations
     }
 
     /// <summary>True for a statement that writes a mesh output (dropped from the first phase).</summary>
+    /// <summary>
+    /// After a two-phase program cut off by its round bound (<paramref name="cut"/>, an HLSL condition, the same on every
+    /// thread): its primitives culled, so none of the outputs it never wrote is drawn (WARP's rasterizer crashed on them).
+    /// Each thread its own, as every output write is (the mesh-to-compute fallback needs that).
+    /// </summary>
+    public List<string> CutEpilogue(string cut)
+    {
+        return
+        [
+            $"  if ({cut} && in_gi < min(g_ms_np, {MaxPrimitives}u)) {{",
+            "    tris[in_gi] = uint3(0u, 0u, 0u);",
+            "    prims[in_gi].cull = true;",
+            "  }",
+        ];
+    }
+
     public static bool WritesOutput(string line)
     {
         return OutputWritePattern().IsMatch(line);
