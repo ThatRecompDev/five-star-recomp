@@ -29,15 +29,18 @@ internal static class SuperstepWriter
 
     private static readonly string[] Step = ["    if (!vw_ss_step(pc, pc_resume)) break;", RoundBound];
 
-    // Phase one ends on GS_ALLOC_REQ's flag as read in this step: every thread reads it, then meets a barrier before
-    // any can run on and set it, so all leave together. Read without that barrier, a thread that resumed first could set
-    // the flag while a slower one had not read it yet: the two left the loop at different rounds and the group's next
-    // barrier never filled (DEVICE_HUNG on the RTX 4090).
+    // Phase one ends on whether GS_ALLOC_REQ was sent before this step, as the step's own buffer says
+    // (vw_ss_allocated), so every thread leaves on the same round with the step's one barrier. Read from g_ms_alloc
+    // instead, a thread that resumed first could set it while a slower one had not read it yet: the two left the loop at
+    // different rounds and the group's next barrier never filled (DEVICE_HUNG on the RTX 4090); a second barrier per
+    // round kept them apart before, and the loops of a program run in phase one.
     private static readonly string[] PhaseOneStep =
     [
-        "    if (!vw_ss_step(pc, pc_resume)) break;", RoundBound, "    bool ms_alloc = vw_ss_released() && g_ms_alloc != 0;",
-        "    GroupMemoryBarrierWithGroupSync();", "    if (ms_alloc) break;",
+        "    if (!vw_ss_step(pc, pc_resume)) break;", RoundBound, "    if (vw_ss_released() && vw_ss_allocated()) break;",
     ];
+
+    // GS_ALLOC_REQ also marks the thread that sent it for its next step.
+    private const string Allocation = "if (WaveIsFirstLane()) { g_ms_nv = ";
 
     public static List<string> Body(TranslationState state, IReadOnlyList<string> hoisted, MeshDeclarations mesh)
     {
@@ -50,8 +53,8 @@ internal static class SuperstepWriter
 
         if (state.SuperstepCarry)
         {
-            var carry = SuperstepCarry.Plan(state.Blocks, Registers(state, hoisted), Pinned(state, mesh));
-            lines.Add($"  // carry: {carry.Size.Registers} registers in {carry.Size.Slots} slots");
+            var carry = SuperstepCarry.Plan(state.Blocks, Registers(state, hoisted), Pinned(state, mesh), [.. state.InputMap, .. state.Prologue]);
+            lines.Add($"  // carry: {carry.Size.Registers} registers in {carry.Size.Slots} slots, at most {carry.MostAtStop} across a stop");
             lines.AddRange(carry.Declarations);
             lines.AddRange(carry.Entry);
             state.Blocks.Clear();
@@ -188,7 +191,8 @@ internal static class SuperstepWriter
         foreach (var block in blocks)
         {
             lines.Add($"    case {Hlsl.Hex(block.Address)}: {{");
-            lines.AddRange(block.Lines.Where(line => !dropOutputs || !MeshDeclarations.WritesOutput(line)).Select(line => Indent + line));
+            var kept = block.Lines.Where(line => !dropOutputs || !MeshDeclarations.WritesOutput(line));
+            lines.AddRange(kept.Select(line => Indent + line.Replace(Allocation, "if (WaveIsFirstLane()) { g_ss_sent = true; g_ms_nv = ", StringComparison.Ordinal)));
             lines.Add("    } break;");
         }
     }
