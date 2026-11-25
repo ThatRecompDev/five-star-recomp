@@ -18,6 +18,9 @@ internal sealed class DepthTwin(nint depth, nint twin, int format, uint width, u
 
     public uint Height { get; } = height;
 
+    /// <summary>The copy pass's own writable depth-stencil view of the depth (<see cref="DepthTwinCopy"/>); 0 before the first copy.</summary>
+    public nint CopyView { get; set; }
+
     /// <summary>The depth texture's home state (where each list starts it, <see cref="States.ResourceBarrierSlots"/>).</summary>
     public int Home { get; set; }
 
