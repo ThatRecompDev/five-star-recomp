@@ -366,32 +366,40 @@ internal sealed partial class OperandAccess
     }
 
     /// <summary>
-    /// The SamplerDescriptorHeap index of an S#: a literal S# built from constants gets a static-sampler slot, otherwise
-    /// dword0 holds the heap index.
+    /// The SamplerDescriptorHeap index of an S#: a literal S# built from constants gets its static-sampler slot (for a
+    /// sample, or with <paramref name="comparison"/> a depth compare), otherwise dword0 holds the heap index.
     /// </summary>
-    public string SamplerIndex(Operand sampler)
+    public string SamplerIndex(Operand sampler, bool comparison)
     {
         const int SamplerDwords = 4;
 
-        var words = new long[SamplerDwords];
+        var words = new uint[SamplerDwords];
 
         for (var dword = 0; dword < SamplerDwords; dword++)
         {
-            if (!_state.Constants.TryGetValue(sampler.At(dword), out words[dword]))
+            if (!_state.Constants.TryGetValue(sampler.At(dword), out var word))
             {
                 return Read(sampler, 0);
             }
+
+            words[dword] = (uint)word;
         }
 
-        var slot = _state.StaticSamplers.FindIndex(existing => existing.SequenceEqual(words));
-
-        if (slot < 0)
+        // FORCE_UNNORMALIZED (texel coordinates) and FORCE_DEGAMMA (sRGB decode) act in the shader, which no S# of the
+        // corpus asks for (shadPS4 applies them there; facts only).
+        if ((words[0] & StaticSampler.ShaderSideBits) != 0)
         {
-            _state.StaticSamplers.Add(words);
-            slot = _state.StaticSamplers.Count - 1;
+            throw new UnsupportedProgramException($"literal S# with unnormalized coordinates or degamma: {words[0]:x8}");
         }
 
-        return $"STATIC_SAMPLER_BASE + {slot}u";
+        var found = StaticSampler.Of(words, comparison);
+
+        if (!_state.StaticSamplers.Any(existing => existing.SameAs(found)))
+        {
+            _state.StaticSamplers.Add(found);
+        }
+
+        return $"STATIC_SAMPLER_BASE + {found.Slot - StaticSampler.FirstSlot}u";
     }
 
     private void TrackConstant(RegisterKey key, string value)

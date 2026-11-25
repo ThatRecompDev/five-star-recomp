@@ -45,6 +45,12 @@ internal static class WaveOps
         return $"// narrower hardware waves differ: {reason}";
     }
 
+    /// <summary>The second header line of a fast-waves mesh program (TranslationOptions.FastWaves): approximate below its console wave, and why.</summary>
+    public static string FastLine(string reason)
+    {
+        return $"{TranslationOptions.FastWavesComment}approximate on narrower hardware waves: {reason}";
+    }
+
     /// <summary>D3D12's narrowest wave.</summary>
     public const int NarrowestHardwareWave = 4;
 }

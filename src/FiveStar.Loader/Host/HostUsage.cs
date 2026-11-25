@@ -65,6 +65,10 @@ internal static class HostUsage
                                  free memory and 10 minutes; one past a limit stays a stand-in (off by default)
           --plain-supersteps     superstep forms made on demand keep every register live around one dispatch
                                  switch (the form before the liveness carry); part of the cache identity
+          --fast-waves           approximate: a mesh program that needs its whole console wave runs natively on
+                                 narrower waves, each wave's first lane taken for its console wave's and any-lane branches decided per wave,
+                                 instead of in the superstep form (not when it reads a lane by number); part of the
+                                 cache identity
           --committed-textures   a committed resource for each read-only console texture instead of the shared
                                  placed heaps (the default, also --placed-textures), whose released ranges stay mapped
           --prebuild-jobs <n>    threads that build, from device creation on, the pipelines earlier boots used that the

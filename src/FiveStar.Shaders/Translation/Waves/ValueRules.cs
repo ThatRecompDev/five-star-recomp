@@ -23,6 +23,11 @@ internal static partial class ValueRules
         var text = value.Trim();
         var first = FirstLanePattern().Match(text);
 
+        if (first.Success && state.FastWaves)
+        {
+            return ValueFact.Scalar;
+        }
+
         if (first.Success)
         {
             return FirstLane(state.Get(first.Groups["x"].Value), state.Get(WindowNames.Active));
@@ -74,7 +79,13 @@ internal static partial class ValueRules
     /// <summary>Exact when everything read is exact and no function depends on the hardware wave.</summary>
     public static bool IsExact(IEnumerable<string> names, IEnumerable<string> calls, WindowState state)
     {
-        return !calls.Any(WindowNames.IsWindowFunction) && names.All(name => state.Get(name).IsExact);
+        return !calls.Any(call => IsWindowCall(call, state)) && names.All(name => state.Get(name).IsExact);
+    }
+
+    /// <summary>A call whose result depends on the hardware wave; with fast waves not <c>readfirstlane</c> (the window's first lane is taken for the console's).</summary>
+    public static bool IsWindowCall(string call, WindowState state)
+    {
+        return WindowNames.IsWindowFunction(call) && !(state.FastWaves && call == "readfirstlane");
     }
 
     /// <summary>The fact of a branch or select condition: a whole expression, or <c>[!]vw_any(mask)</c>.</summary>
@@ -145,7 +156,7 @@ internal static partial class ValueRules
     {
         var names = WindowStatement.Names(text);
         var calls = WindowStatement.Functions(text);
-        var window = calls.Any(WindowNames.IsWindowFunction);
+        var window = calls.Any(call => IsWindowCall(call, state));
         var varies = calls.Any(WindowNames.IsLaneFunction) || names.Any(WindowNames.IsLaneInput);
         var exact = Bits(IsExact(names, calls, state));
         var held = Bits(!window && names.All(name => state.Get(name).IsHeld));

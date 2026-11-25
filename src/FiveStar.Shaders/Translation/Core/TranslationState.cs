@@ -83,6 +83,9 @@ internal sealed class TranslationState
     /// <summary>Wave operations keep console lane numbers on any hardware wave size (see TranslationOptions).</summary>
     public bool EmulateWaves { get; init; }
 
+    /// <summary>A mesh program the window analysis rejects may keep the native form, approximately (TranslationOptions.FastWaves).</summary>
+    public bool FastWaves { get; init; }
+
     /// <summary>The loop caps (TranslationOptions.Loops, else the translator's own).</summary>
     public LoopCaps Loops { get; init; } = LoopCaps.Default;
 
@@ -160,8 +163,8 @@ internal sealed class TranslationState
     /// <summary>Mesh staging: export target to the number of components written.</summary>
     public Dictionary<string, int> MeshWidths { get; } = [];
 
-    /// <summary>Literal sampler descriptors, in first-use order (index = slot after STATIC_SAMPLER_BASE).</summary>
-    public List<long[]> StaticSamplers { get; } = [];
+    /// <summary>The S#s built from literal constants, in first-use order (TranslationOptions-independent slots, see StaticSampler).</summary>
+    public List<StaticSampler> StaticSamplers { get; } = [];
 
     /// <summary>Vertex attributes read through the fetch shader: (attribute, component count).</summary>
     public HashSet<(int Attribute, int Components)> FetchInputs { get; } = [];
