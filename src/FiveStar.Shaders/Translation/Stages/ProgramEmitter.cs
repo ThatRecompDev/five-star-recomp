@@ -104,6 +104,12 @@ internal sealed partial class ProgramEmitter
         {
             // Every wave operation exchanges through groupshared memory; quads stay native.
             lines.AddRange(["#define VW_GROUP_LANES 1", $"#define VW_GROUP_THREADS {_state.GroupThreads}u"]);
+
+            if (_state.SuperstepValues)
+            {
+                lines.Add($"#define VW_SS_VALUES {SuperstepSplitter.FirstLaneValues}");
+            }
+
             lines.Insert(0, WaveOps.FloorLine(wave, WaveOps.NarrowestHardwareWave));
 
             return lines;

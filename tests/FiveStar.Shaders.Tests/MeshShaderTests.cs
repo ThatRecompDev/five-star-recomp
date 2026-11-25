@@ -65,6 +65,7 @@ public sealed class MeshShaderTests : IClassFixture<WarpFixture>
         Assert.StartsWith("// program wave 64; console results on hardware waves >= 64 lanes\n", runner.Translate(), StringComparison.Ordinal);
         Assert.StartsWith("// program wave 64; console results on hardware waves >= 4 lanes\n", runner.Supersteps(carry), StringComparison.Ordinal);
         Assert.Equal(carry, runner.Supersteps(carry).Contains("// carry: ", StringComparison.Ordinal));
+        Assert.Contains("vw_ss_put_values(", runner.Supersteps(carry), StringComparison.Ordinal);
 
         var mismatches = runner.Run(carry);
 

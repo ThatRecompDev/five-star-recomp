@@ -142,9 +142,13 @@ programs the stops fell from 1,340,858 to 406,824; none has more than 500 left (
 
 One round then serves every ballot, `vw_any` and `vw_count` of the mask the last round took, until something that mask
 reads is written or the block ends (`SuperstepSplitter`): the round's mask buffer holds the whole ballot, so a ballot's
-`.y` no longer takes a round after its `.x`. `MS_VS_TransformD_c5fd36bb` (049945c2), whose pipeline the driver did not
-build in 10 minutes, went from 393 stops to 284 (1,291 to 1,073 cases); its remaining rounds are 150 readfirstlanes
-and 192 branches on "any lane" of a mask.
+`.y` no longer takes a round after its `.x`. Up to four readfirstlanes of one mask in a row (a waterfall loop reading
+a descriptor's dwords) also share one round: each thread deposits the four values (`vw_ss_put_values`, with
+`VW_SS_VALUES 4` in the program) and reads value k of the first lane (`vw_ss_first_value`). Over the 8,765 mesh
+programs the stops fell from 406,824 to 316,397 with the shared ballots and to 299,243 with the shared readfirstlanes;
+the most any program has went from 449 to 284, and none has more than 300 (48 had). `MS_VS_TransformD_c5fd36bb`
+(049945c2), whose pipeline the driver did not build in 10 minutes, went from 393 stops to 234 (1,291 to 973 cases); its
+remaining rounds are mostly the 192 branches on "any lane" of a mask.
 
 A superstep program names its cost in its first body line, `// superstep: <stops> stops, round bound <n>` (the loader
 logs it once per program): a round is a group barrier and a run of the dispatch switch to the next stop, so a large

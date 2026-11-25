@@ -9,7 +9,10 @@
 // mask buffer three steps later, with a barrier between.
 static const uint PC_WAVE = 0xfffffffdu;   // a thread stopped at a wave operation
 static const uint PC_IDLE = 0x7ffffffeu;   // the dispatch case of a stopped thread: it leaves with its pc unchanged
-groupshared uint g_ss_x[2][VW_GROUP_THREADS];
+#ifndef VW_SS_VALUES
+#define VW_SS_VALUES 1   // values a thread deposits in one step: 1, or 4 for up to four readfirstlanes of one mask
+#endif
+groupshared uint g_ss_x[2][VW_GROUP_THREADS * VW_SS_VALUES];
 groupshared uint g_ss_m[3][(VW_GROUP_THREADS + 31u) / 32u];
 groupshared uint g_ss_ops[3], g_ss_live[3];
 static uint g_ss_gi, g_ss_step, g_ss_read, g_ss_arg;
@@ -26,7 +29,7 @@ void vw_ss_begin(uint gi) {
     GroupMemoryBarrierWithGroupSync();
 }
 void vw_ss_put(uint x, bool bit, uint arg) {   // before stopping at a wave operation
-    g_ss_x[g_ss_step & 1u][g_ss_gi] = x;
+    g_ss_x[g_ss_step & 1u][g_ss_gi * VW_SS_VALUES] = x;
     if (bit) InterlockedOr(g_ss_m[g_ss_step % 3u][g_ss_gi >> 5], 1u << (g_ss_gi & 31u));
     g_ss_arg = arg;
 }
@@ -53,10 +56,26 @@ uint2 vw_ss_ballot() {
 }
 bool vw_ss_any() { uint2 m = vw_ss_ballot(); return (m.x | m.y) != 0; }
 uint vw_ss_count() { uint2 m = vw_ss_ballot(); return countbits(m.x) + countbits(m.y); }
-uint vw_ss_lane_value(uint lane) { return g_ss_x[g_ss_read & 1u][vw_ss_base() + (lane & (VW_WAVE - 1u))]; }
+uint vw_ss_lane_value(uint lane) { return g_ss_x[g_ss_read & 1u][(vw_ss_base() + (lane & (VW_WAVE - 1u))) * VW_SS_VALUES]; }
 uint vw_ss_read() { return vw_ss_lane_value(g_ss_arg); }
 uint vw_ss_first() {   // readfirstlane: the first lane whose bit was set, lane 0 if none
     uint2 m = vw_ss_ballot();
     uint l = m.x != 0 ? firstbitlow(m.x) : m.y != 0 ? 32 + firstbitlow(m.y) : 0u;
     return vw_ss_lane_value(l);
 }
+#if VW_SS_VALUES == 4
+void vw_ss_put_values(uint4 x, bool bit) {   // before stopping at up to VW_SS_VALUES readfirstlanes of one mask
+    uint at = g_ss_gi * 4u;
+    g_ss_x[g_ss_step & 1u][at] = x.x;
+    g_ss_x[g_ss_step & 1u][at + 1u] = x.y;
+    g_ss_x[g_ss_step & 1u][at + 2u] = x.z;
+    g_ss_x[g_ss_step & 1u][at + 3u] = x.w;
+    if (bit) InterlockedOr(g_ss_m[g_ss_step % 3u][g_ss_gi >> 5], 1u << (g_ss_gi & 31u));
+    g_ss_arg = 0;
+}
+uint vw_ss_first_value(uint k) {   // value k of the first lane whose bit was set, lane 0 if none
+    uint2 m = vw_ss_ballot();
+    uint l = m.x != 0 ? firstbitlow(m.x) : m.y != 0 ? 32 + firstbitlow(m.y) : 0u;
+    return g_ss_x[g_ss_read & 1u][(vw_ss_base() + l) * VW_SS_VALUES + k];
+}
+#endif
