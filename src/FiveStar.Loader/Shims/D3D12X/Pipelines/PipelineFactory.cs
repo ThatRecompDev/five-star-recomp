@@ -330,8 +330,19 @@ internal sealed unsafe class PipelineFactory
             built?.Invoke(pipeline);
         };
 
-        // A pipeline the cache holds from a boot with --raytracing, or from before ray-tracing pipelines were held, is not loaded.
-        if (!SkippedPipelines.Skips(names) && !RayTracingPrograms.Skips(names, RayTracingPrograms.Folder, scan: true) && Cache is not null && !HResult.Failed(Cache.Load(stream, iid, result)))
+        // A held pipeline (--skip-pipelines; ray tracing without --raytracing) is a stand-in that never builds, at once:
+        // its build failed, and a creation that finished within the budget handed the game that failure (0x80004005),
+        // which stalled its loading at the black press-a-button screen (boots w66d to w68a, with a warm pipeline cache;
+        // an empty one queued every creation, so the game got stand-ins). Nor is it loaded from the cache.
+        if (SkippedPipelines.Skips(names) || RayTracingPrograms.Skips(names, RayTracingPrograms.Folder, scan: true))
+        {
+            stream.Dispose();
+            *result = StandIns.Unbuilt(names);
+
+            return HResult.Ok;
+        }
+
+        if (Cache is not null && !HResult.Failed(Cache.Load(stream, iid, result)))
         {
             stream.Dispose();
             named(*result);
