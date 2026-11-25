@@ -89,7 +89,13 @@ public sealed class CompileTicketTests
     private static CompileTicket Admit(long shaderBytes)
     {
         bool urgent = CompileBudget.Urgent;
+        var physical = CompileBudget.AvailablePhysical;
+        var commit = CompileBudget.CommitAvailable;
         CompileBudget.Urgent = true;
+
+        // The host's memory must not decide these tests (a CI runner has little commit to spare).
+        CompileBudget.AvailablePhysical = static () => ulong.MaxValue / 2;
+        CompileBudget.CommitAvailable = static () => ulong.MaxValue / 2;
 
         try
         {
@@ -100,6 +106,8 @@ public sealed class CompileTicketTests
         finally
         {
             CompileBudget.Urgent = urgent;
+            CompileBudget.AvailablePhysical = physical;
+            CompileBudget.CommitAvailable = commit;
         }
     }
 }
