@@ -39,6 +39,12 @@ internal static unsafe class QueueProgress
     /// <summary>ID3D12Fence::GetCompletedValue (d3d12.h).</summary>
     private const int GetCompletedValueSlot = 8;
 
+    /// <summary>ID3D12DeviceChild::GetDevice (d3d12.h).</summary>
+    private const int GetDeviceSlot = 7;
+
+    /// <summary>ID3D12Device::GetDeviceRemovedReason (d3d12.h).</summary>
+    private const int GetDeviceRemovedReasonSlot = 37;
+
     private static readonly Queue?[] Queues = new Queue?[MaxQueues];
     private static readonly ConcurrentDictionary<nint, string> PipelineNames = new();
     private static readonly object Gate = new();
@@ -99,15 +105,43 @@ internal static unsafe class QueueProgress
         Add((XboxQueueObject*)queue, new QueueEvent { At = Stopwatch.GetTimestamp(), Kind = kind, Fence = fence, Value = value });
     }
 
-    /// <summary>Logs every queue with the values seen before the removal; once.</summary>
-    public static void ReportRemoval()
+    /// <summary>
+    /// Logs every queue with the values seen before the removal, and <paramref name="reason"/>
+    /// (GetDeviceRemovedReason: DXGI_ERROR_DEVICE_HUNG 0x887a0006 for a GPU timeout, DEVICE_RESET 0x887a0007, DRIVER_INTERNAL_ERROR 0x887a0020) when known; once.
+    /// </summary>
+    public static void ReportRemoval(int? reason = null)
     {
         if (Interlocked.Exchange(ref _removed, 1) != 0)
         {
             return;
         }
 
-        Report("device removed");
+        if (reason.HasValue)
+        {
+            Report($"device removed, reason {HResult.Format(reason.Value)}");
+        }
+        else
+        {
+            Report("device removed");
+        }
+    }
+
+    /// <summary>The removal reason of the device that made <paramref name="fence"/> (ID3D12DeviceChild::GetDevice); null when it cannot be read.</summary>
+    private static int? RemovedReason(nint fence)
+    {
+        nint device = 0;
+        var iid = D3D12XLayout.DeviceIid;
+        int hr = ((delegate* unmanaged<nint, Guid*, nint*, int>)ComObject.Slot(fence, GetDeviceSlot))(fence, &iid, &device);
+
+        if (HResult.Failed(hr) || device == 0)
+        {
+            return null;
+        }
+
+        int reason = ((delegate* unmanaged<nint, int>)ComObject.Slot(device, GetDeviceRemovedReasonSlot))(device);
+        ComObject.Release(device);
+
+        return reason;
     }
 
     /// <summary>Logs every queue as last seen, after <paramref name="reason"/>.</summary>
@@ -298,7 +332,7 @@ internal static unsafe class QueueProgress
 
         if (completed == ulong.MaxValue)
         {
-            ReportRemoval();
+            ReportRemoval(RemovedReason(fence));
 
             return;
         }
