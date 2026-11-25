@@ -42,10 +42,11 @@ internal static class ProgramTranslator
         // second keeps them in their integer variables, which every mask write also sets (OperandAccess.ShadowInteger).
         var state = create(new HashSet<RegisterKey>());
         Run(state);
-        var mixed = state.MasksEver
+        var candidates = state.MasksEver
             .Where(key => key != SpecialRegisters.Exec)
             .Where(key => state.IntegerUses.Contains(key) || (state.IsWave64 && state.IntegerUses.Contains(key.Plus(1))))
             .ToHashSet();
+        var mixed = MaskFormAnalysis.Mixed(state, candidates);
 
         if (mixed.Count > 0)
         {

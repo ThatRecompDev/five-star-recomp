@@ -123,7 +123,8 @@ public static class ComputeWaveCases
             .Append(ExecLowHalfCase())
             .Append(MaskHighHalfPathCase())
             .Concat(Variants("cs_mask_on_taken_path", MaskOnTakenPathCase))
-            .Concat(Variants("cs_integer_on_taken_path", IntegerOnTakenPathCase));
+            .Concat(Variants("cs_integer_on_taken_path", IntegerOnTakenPathCase))
+            .Concat(Variants("cs_mask_after_integer", MaskAfterIntegerCase));
     }
 
     // A loop's back-edge block (s_and exec, s[12:13], s[80:81]) reads the saveexec mask of the loop's end, but the
@@ -167,6 +168,26 @@ public static class ComputeWaveCases
             """;
 
         return new ComputeCase(name, Pair40(Program, wave), 1, thread => [Convert.ToUInt32(thread.Lane is 1 or 2)]) { Wave = wave, User = [1] };
+    }
+
+    // A register read as an integer, then written as a mask on both paths and read as one where they meet: every read
+    // sees one form on every path (MaskFormAnalysis), so the mask stays a bool with no ballot or lane_bit.
+    private static ComputeCase MaskAfterIntegerCase(string name, int wave)
+    {
+        const string Program = """
+            s_mov_b32 s40, 5
+            v_mov_b32 v21, s40
+            s_cmp_eq_u32 s8, 0
+            s_cbranch_scc1 .Lother
+            v_cmp_gt_u32_e64 MASK40, 4, v0
+            s_branch .Ljoin
+            .Lother:
+            v_cmp_gt_u32_e64 MASK40, 2, v0
+            .Ljoin:
+            v_cndmask_b32_e64 v20, 0, 1, MASK40
+            """;
+
+        return new ComputeCase(name, Pair40(Program, wave), 2, thread => [Convert.ToUInt32(thread.GroupIndex < 4), 5]) { Wave = wave, User = [1] };
     }
 
     private static string Pair40(string program, int wave)
