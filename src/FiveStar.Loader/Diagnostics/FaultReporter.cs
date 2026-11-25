@@ -23,8 +23,9 @@ internal sealed unsafe class FaultReporter
     /// <summary>EXCEPTION_CONTINUE_EXECUTION (excpt.h): resume the thread with its (changed) CONTEXT.</summary>
     private const int ContinueExecution = -1;
 
-    /// <summary>AddVectoredExceptionHandler's First argument: call this handler before the others.</summary>
+    /// <summary>AddVectoredExceptionHandler's First argument: call this handler before the others, or after them.</summary>
     private const uint CallFirst = 1;
+    private const uint CallLast = 0;
 
     /// <summary>NTSTATUS severity bits 30..31 = 3: an error, the class of hardware faults (ntstatus.h).</summary>
     private const uint ErrorSeverity = 0xC0000000;
@@ -64,6 +65,8 @@ internal sealed unsafe class FaultReporter
     private readonly AmdInstructionHandler _cpu;
     private readonly object _registration = new();
     private nint _entry;
+    private nint _backstopEntry;
+    private nint _backstop;
     private int _reported;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<nint, byte> _sites = new();
     private nint _handle;
@@ -80,7 +83,14 @@ internal sealed unsafe class FaultReporter
     /// <summary>Faults reported so far.</summary>
     public int Reported => Volatile.Read(ref _reported);
 
-    /// <summary>Registers the handler; once per process.</summary>
+    /// <summary>
+    /// Registers the handler first, and a second handler last that only emulates the AMD-only instructions (the
+    /// backstop); once per process. A handler a game module adds first (Bink at every video) runs before ours until
+    /// <see cref="KeepFirst"/> moves ours back; a fault whose dispatch passed the head of the list before ours went back
+    /// there, and reached our old registration only after it left, met no emulation (0xC000001D at a CLWB, then at a
+    /// CLZERO 18 minutes into a boot, issue #13). The backstop is never removed, so every handler that continues the
+    /// search leads to it, whatever the order at the head.
+    /// </summary>
     public void Install()
     {
         if (_handle != 0)
@@ -88,9 +98,27 @@ internal sealed unsafe class FaultReporter
             return;
         }
 
-        _entry = EmitEntry();
+        _entry = EmitEntry(&OnException);
+        _backstopEntry = EmitEntry(&OnEmulate);
+        _heap.Seal();
         _handle = Kernel32.AddVectoredExceptionHandler(CallFirst, _entry);
-        _log.Info("fault reporter: vectored exception handler installed");
+        _backstop = Kernel32.AddVectoredExceptionHandler(CallLast, _backstopEntry);
+        _log.Info("fault reporter: vectored exception handler installed, with the AMD-only instruction emulation last as well");
+    }
+
+    /// <summary>The registration at the head of the list, 0 before <see cref="Install"/>.</summary>
+    internal nint FirstRegistration => _handle;
+
+    /// <summary>Removes both registrations (tests).</summary>
+    internal void Uninstall()
+    {
+        lock (_registration)
+        {
+            _ = Kernel32.RemoveVectoredExceptionHandler(_handle);
+            _ = Kernel32.RemoveVectoredExceptionHandler(_backstop);
+            _handle = 0;
+            _backstop = 0;
+        }
     }
 
     /// <summary>
@@ -131,9 +159,8 @@ internal sealed unsafe class FaultReporter
     /// LdrpFreeTls, as on a corrupted heap) cannot enter managed code: the runtime finds its thread through that array,
     /// and the entry would fault again inside coreclr.
     /// </summary>
-    private nint EmitEntry()
+    private nint EmitEntry(delegate* unmanaged<nint, int> handler)
     {
-        delegate* unmanaged<nint, int> handler = &OnException;
         var code = new X64Emitter();
         code.Data(TestTlsArray);
         int toNoThread = code.JzForward();
@@ -143,10 +170,7 @@ internal sealed unsafe class FaultReporter
         code.MovEax((uint)ContinueSearch);
         code.Ret();
 
-        nint entry = _heap.Write(code.ToArray());
-        _heap.Seal();
-
-        return entry;
+        return _heap.Write(code.ToArray());
     }
 
     /// <summary>ntdll's RtlPcToFileHeader.</summary>
@@ -180,6 +204,29 @@ internal sealed unsafe class FaultReporter
             UnmanagedGuard.Caught(exception, "FaultReporter.OnException");
 
             return default;
+        }
+    }
+
+    /// <summary>The backstop: an AMD-only instruction's fault is performed and the thread goes on; anything else searches on.</summary>
+    [UnmanagedCallersOnly]
+    private static int OnEmulate(nint pointers)
+    {
+        try
+        {
+            var runtime = ShimContext.ActiveRuntime;
+
+            if (runtime is not null && runtime.Faults._cpu.TryEmulate(pointers))
+            {
+                return ContinueExecution;
+            }
+
+            return ContinueSearch;
+        }
+        catch (Exception exception)
+        {
+            UnmanagedGuard.Caught(exception, "FaultReporter.OnEmulate");
+
+            return ContinueSearch;
         }
     }
 
