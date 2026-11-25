@@ -109,6 +109,9 @@ internal sealed record HostOptions
     /// </summary>
     public bool PlacedTextures { get; set; } = true;
 
+    /// <summary>GPU-written UNORM color textures made typeless, so views take the game's sRGB or integer member (<c>--typeless-targets</c>).</summary>
+    public bool TypelessTargets { get; set; }
+
     /// <summary>Name parts of stand-ins waited for at their first use instead of skipped (<c>--wait-pipelines</c>); null for none.</summary>
     public string? WaitPipelines { get; set; }
 

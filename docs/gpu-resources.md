@@ -66,7 +66,12 @@ flowchart LR
   (a GPU-written one with the same extent, whatever its format); else, when every byte of the desc's XG layout is
   readable, a new texture without RT/DS/UAV flags in PIXEL | NON_PIXEL_SHADER_RESOURCE, in the view's format when its
   element size equals the resource's. The SRV takes the view's format on a typeless texture and the texture's own
-  otherwise (an invalid SRV desc removes the device).
+  otherwise (an invalid SRV desc removes the device). A view whose format another member of the texture's family would
+  take (UNORM_SRGB on a UNORM target: the sRGB decode lost; UINT on UNORM or FLOAT: the integer reading lost) or one of
+  another family (an alias of its bytes) is counted (`ViewCastLost`, `ViewReinterpretLost`) and each pair of formats
+  named once. `--typeless-targets` (off by default, `TypelessTargets`) makes GPU-written R8G8B8A8, B8G8R8A8,
+  B8G8R8X8 and R8 UNORM textures in their TYPELESS format so such views keep the game's member; a view the game makes
+  without a desc on one gets the UNORM whole-resource desc.
 - **Upload** (`GpuTextureUploader`): every subresource detiled by `XgCopier.From` into an upload buffer at the
   desktop's copyable footprint, copied on a private direct queue between transitions out of and back into the
   texture's state, waited for. The upload buffer is system memory, the GPU's non-local segment, whose budget is half
