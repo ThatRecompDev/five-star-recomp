@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Loader.Diagnostics;
+using FiveStar.Shaders.Translation;
 
 namespace FiveStar.Loader.Shims.D3D12X.Binding;
 
@@ -93,8 +94,14 @@ internal sealed unsafe class DescriptorWindow
     /// <summary>The null SRV and UAV (next slot) that unmapped pages of the address map name.</summary>
     public const uint UnmappedSlot = AddressMapSlot + 1;
 
-    /// <summary>The first desktop index of the game's descriptors.</summary>
-    public const uint ReservedViews = UnmappedSlot + 2;
+    /// <summary>The null texture descriptors of each dimension (<see cref="NullTextureSlots"/>), after the null pair.</summary>
+    public const uint NullTextureBase = UnmappedSlot + 2;
+
+    /// <summary>The first desktop index of the game's descriptors: past the null textures (rdna_prelude FIRST_GAME_VIEW).</summary>
+    public const uint ReservedViews = NullTextureSlots.End;
+
+    /// <summary>The define of the first game view for programs made on demand (rdna_prelude tex_slot): T#s below it read a null texture.</summary>
+    public static string Header => $"#define FIVESTAR_FIRST_GAME_VIEW {ReservedViews}u\n";
 
     /// <summary>rdna_prelude STATIC_SAMPLER_BASE: samplers for the literal S#s of a program.</summary>
     public const uint StaticSamplerBase = 2032;
@@ -289,5 +296,22 @@ internal sealed unsafe class DescriptorWindow
         }
 
         DesktopCalls.UnorderedAccessView(device, 0, &nullWrite, cpu + (nint)((UnmappedSlot + 1) * increment));
+        WriteNullTextures(device, cpu, increment);
+    }
+
+    /// <summary>A null SRV of each texture dimension, then a null UAV of each writable one (<see cref="NullTextureSlots"/>).</summary>
+    private static void WriteNullTextures(nint device, nint cpu, uint increment)
+    {
+        foreach (string type in NullTextureSlots.Views)
+        {
+            var view = NullTextureViews.ShaderResource(type);
+            DesktopCalls.ShaderResourceView(device, 0, &view, cpu + (nint)(NullTextureSlots.For(type) * increment));
+        }
+
+        foreach (string type in NullTextureSlots.Uavs)
+        {
+            var view = NullTextureViews.UnorderedAccess(type);
+            DesktopCalls.UnorderedAccessView(device, 0, &view, cpu + (nint)(NullTextureSlots.For(type) * increment));
+        }
     }
 }
