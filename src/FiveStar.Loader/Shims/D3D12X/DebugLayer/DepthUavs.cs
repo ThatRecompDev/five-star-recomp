@@ -83,7 +83,7 @@ internal static unsafe class DepthUavs
 
             uint table = userData[entry.Sgpr];
 
-            for (uint i = 0; i < entry.Records && table + ((i + 1) * RecordBytes) <= DescriptorWindow.RecordsEnd; i++)
+            for (uint i = 0; i < entry.Records && InWindow(table, i); i++)
             {
                 uint? index = HeapIndex((uint*)(window + table + (i * RecordBytes)));
 
@@ -93,6 +93,16 @@ internal static unsafe class DepthUavs
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Whether record <paramref name="record"/> of a table at window offset <paramref name="table"/> lies in the window,
+    /// summed in 64 bits: an SGPR that is no window offset (near 4 GiB) wrapped the 32-bit sum below the end, and the
+    /// read outside the window killed a boot.
+    /// </summary>
+    public static bool InWindow(uint table, uint record)
+    {
+        return table + ((record + 1UL) * RecordBytes) <= DescriptorWindow.RecordsEnd;
     }
 
     /// <summary>Logs the depth test and stencil ops of a tiled-lighting pipeline once, as the desktop gets them.</summary>
