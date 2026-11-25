@@ -118,6 +118,13 @@ internal sealed record HostOptions
     /// <summary>Integer texture views loaded, gathered and stored through integer declarations (<c>--typed-image-views</c>); part of the program cache identity.</summary>
     public bool TypedImageViews { get; set; }
 
+    /// <summary>
+    /// With <c>--typed-image-views</c>: the programs whose 2D samples filter shared-exponent light themselves, by name part
+    /// (<c>--shared-exponent-programs &lt;text,...&gt;</c>; TranslationOptions.SharedExponentPrograms). By default the indirect
+    /// diffuse lighting's, which read the screen probes' R9G9B9E5 light; the filter costs too much DXIL to give every program.
+    /// </summary>
+    public IReadOnlyList<string> SharedExponentPrograms { get; set; } = ["indirect_diffuse_lighting~"];
+
     /// <summary>GPU-written UNORM color textures made typeless, so views take the game's sRGB or integer member (<c>--typeless-targets</c>).</summary>
     public bool TypelessTargets { get; set; }
 

@@ -336,7 +336,7 @@ internal sealed class ImageEmitter
     {
         var sampler = request.SamplerOperand;
 
-        if (!_state.TypedImageViews || sampler is null || !ImageSampleBuilder.TakesSharedExponent(request))
+        if (!_state.SharedExponentSamples || sampler is null || !ImageSampleBuilder.TakesSharedExponent(request))
         {
             return;
         }
