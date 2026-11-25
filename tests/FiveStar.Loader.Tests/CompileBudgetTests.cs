@@ -16,16 +16,19 @@ public sealed class CompileBudgetTests
     {
         long mesh = CompileBudget.Estimate(3L << 20);
 
-        Assert.Equal(8 * Gigabyte, mesh);
+        Assert.Equal(3L * 2816 << 20, mesh);
         Assert.Equal(Gigabyte / 2, CompileBudget.Estimate(4096));
-        Assert.Equal(8 * Gigabyte, CompileBudget.Estimate(64L << 20));
+        Assert.Equal(32 * Gigabyte, CompileBudget.Estimate(64L << 20));
 
-        // 20 GB free: one running compile that still needs 8 GB leaves room for another (4 + 8 + 8 = 20).
-        Assert.True(CompileBudget.Room(mesh, 20UL * Gigabyte, 100UL * Gigabyte, 8 * Gigabyte));
+        // The foliage mesh pipeline of 13 MB of DXIL took about 20 GB by itself.
+        Assert.True(CompileBudget.Estimate(13L << 20) >= 20 * Gigabyte);
+
+        // 21 GB free: one running compile that still needs 8 GB leaves room for another (4 + 8 + 8.25 < 21).
+        Assert.True(CompileBudget.Room(mesh, 21UL * Gigabyte, 100UL * Gigabyte, 8 * Gigabyte));
 
         // Two that still need 16 GB do not; nor does a commit charge near its limit.
-        Assert.False(CompileBudget.Room(mesh, 20UL * Gigabyte, 100UL * Gigabyte, 16 * Gigabyte));
-        Assert.False(CompileBudget.Room(mesh, 20UL * Gigabyte, 12UL * Gigabyte, 0));
+        Assert.False(CompileBudget.Room(mesh, 21UL * Gigabyte, 100UL * Gigabyte, 16 * Gigabyte));
+        Assert.False(CompileBudget.Room(mesh, 21UL * Gigabyte, 12UL * Gigabyte, 0));
     }
 
     [Fact]
@@ -42,7 +45,7 @@ public sealed class CompileBudgetTests
         Assert.False(CompileBudget.UnderCeiling(small, most, 10 * Gigabyte, 0, most, ceiling));
         Assert.False(CompileBudget.UnderCeiling(small, 2, 24 * Gigabyte, 4 * Gigabyte, most, ceiling));
 
-        // With none running one always starts, even an 8 GB mesh compile at 26 GB private.
+        // With none running one always starts, even a mesh compile of 8 GB at 26 GB private.
         Assert.True(CompileBudget.UnderCeiling(CompileBudget.Estimate(3L << 20), 0, 26 * Gigabyte, 0, most, ceiling));
 
         // Program work (boot and warm-up) waits while the compile host is over its ceiling, unless none runs.

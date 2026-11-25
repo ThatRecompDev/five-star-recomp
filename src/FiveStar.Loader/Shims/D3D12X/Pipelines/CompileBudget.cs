@@ -44,8 +44,11 @@ internal static unsafe class CompileBudget
     /// <summary>The least a compile is expected to take: alone, none measured passed 0.40 GB.</summary>
     private const long MinimumEstimate = 512L << 20;
 
-    /// <summary>The most one compile is expected to take: the largest seen, 8 GB (4.70 GB in v3).</summary>
-    private const long MaximumEstimate = 8L << 30;
+    /// <summary>
+    /// The most one compile is expected to take. One foliage mesh pipeline (13 MB of DXIL) took about 20 GB of
+    /// nvgpucomp64 arenas by itself; an 8 GB cap let it start with 26 GB free and the working set rose by 20 GB in 6 s.
+    /// </summary>
+    private const long MaximumEstimate = 32L << 30;
     private const int PauseMilliseconds = 500;
     private const double BytesPerGigabyte = 1L << 30;
     private const double BytesPerMegabyte = 1L << 20;
