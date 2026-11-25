@@ -84,13 +84,24 @@ internal sealed class ScreenSignature
     /// <summary>How many cells differ by more than <see cref="CellTolerance"/>.</summary>
     public int Distance(ScreenSignature other)
     {
+        return Distance(other, CellRegion.Whole);
+    }
+
+    /// <summary>How many cells of <paramref name="region"/> differ by more than <see cref="CellTolerance"/>.</summary>
+    public int Distance(ScreenSignature other, CellRegion region)
+    {
         int changed = 0;
 
-        for (int i = 0; i < Cells; i++)
+        for (int row = region.FirstRow; row <= region.LastRow; row++)
         {
-            if (Math.Abs(_cells[i] - other._cells[i]) > CellTolerance)
+            for (int column = region.FirstColumn; column <= region.LastColumn; column++)
             {
-                changed++;
+                int i = (row * Columns) + column;
+
+                if (Math.Abs(_cells[i] - other._cells[i]) > CellTolerance)
+                {
+                    changed++;
+                }
             }
         }
 

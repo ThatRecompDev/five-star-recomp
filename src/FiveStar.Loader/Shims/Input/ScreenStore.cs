@@ -8,7 +8,7 @@ namespace FiveStar.Loader.Shims.Input;
 /// <summary>
 /// The <c>--screens</c> file: one learned screen per line, <c>&lt;name&gt; &lt;signature&gt; [&lt;max changed cells&gt;]</c>,
 /// '#' starting a comment. A frame shows the screen when at most that many cells of its signature differ
-/// (<see cref="ScreenSignature.Distance"/>). Learning a screen rewrites the file. Signatures come from the user's own
+/// (<see cref="ScreenSignature.Distance(ScreenSignature)"/>). Learning a screen rewrites the file. Signatures come from the user's own
 /// frames; the file is not meant for the repository.
 /// </summary>
 internal sealed class ScreenStore

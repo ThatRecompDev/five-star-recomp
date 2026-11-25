@@ -520,6 +520,14 @@ the nearest frame seen. Screens are learned from the user's own frames, into `--
 `<name> <signature> [<max changed cells>]` each. `<seconds> learn <name>` learns the next frame as `<name>`; while a
 block waits for a screen it does not know, pressing F8 (the real key) when it shows learns it and begins the block.
 A `capture` also logs the frame's signature. Nothing is read back while no block waits.
+
+**Change blocks, regions and timeouts.** A line `change <name> [<min changed cells>]` starts a block that needs no
+learned screen: it begins once at least that many cells (default 1) differ, two reads in a row, from the last frame
+before the block before it pressed its first key. So a step is a press repeated in one block (`1 Space repeat 18 every
+2.5`) and a `change` block after it: a dropped press is pressed again, and the repeats stop once one took (pressing a
+check box twice would clear it). `screen` and `change` lines take `region <first column> <first row> <last column>
+<last row>` (cells, 0-47 and 0-26) to compare only that part of the frame, away from text that scrolls by itself, and
+`timeout <s>`: that long after the block before began, the block begins anyway and the log warns.
 The loader is built with `<CETCompat>false</CETCompat>`: with CET shadow stacks, SEH resuming inside mapped code
 fail-fasts (0x30).
 
