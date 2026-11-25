@@ -8,8 +8,9 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// <summary>
 /// The desktop textures standing for console GPU address ranges, sorted by address. Lookups read the current array
 /// without a lock; registering replaces it. A new texture retires every texture whose range it overlaps (the memory
-/// was given to something else). A retired texture over the same range (another view of the same memory) keeps its
-/// reference until disposal: descriptors the game wrote earlier may still name it. Any other retired texture is
+/// was given to something else). The newest <see cref="KeptAliases"/> retired textures over exactly one range (other
+/// views of the same memory) keep their reference until disposal, as descriptors the game wrote earlier may still name
+/// them; older ones are released <see cref="AliasGraceFrames"/> presents later. Any other retired texture is
 /// released <see cref="GraceFrames"/> presents later, when the frames that could still sample it are done and the game
 /// has rewritten its descriptors for the new contents. Before, every streamed-out texture stayed alive: a cutscene's
 /// streaming grew the process by about 3 GB a minute once video memory spilled into system memory.
@@ -19,9 +20,17 @@ internal sealed class GpuTextureRegistry : IDisposable
     /// <summary>Presents between retiring a texture whose memory was reused and releasing it.</summary>
     public const long GraceFrames = 120;
 
+    /// <summary>Retired textures over exactly one range kept until disposal: the newest ones.</summary>
+    public const int KeptAliases = 2;
+
+    /// <summary>Presents before an older texture over the same range is released.</summary>
+    public const long AliasGraceFrames = 600;
+
     private readonly object _gate = new();
-    private readonly List<GpuTexture> _aliased = [];
+    private readonly Dictionary<(ulong Address, ulong Size), Queue<GpuTexture>> _aliases = [];
     private readonly Queue<(GpuTexture Texture, long Frame)> _retired = new();
+    private readonly Queue<(GpuTexture Texture, long Frame)> _agedAliases = new();
+    private int _aliasCount;
     private GpuTexture[] _sorted = [];
     private long _frame;
     private long _released;
@@ -35,13 +44,27 @@ internal sealed class GpuTextureRegistry : IDisposable
         {
             lock (_gate)
             {
-                return _aliased.Count + _retired.Count;
+                return _aliasCount + _retired.Count + _agedAliases.Count;
             }
         }
     }
 
     /// <summary>Retired textures released so far.</summary>
     public long Released => Interlocked.Read(ref _released);
+
+    /// <summary>"N textures, retired R (aliased A), released N", for the texture counters.</summary>
+    public string Summary
+    {
+        get
+        {
+            lock (_gate)
+            {
+                int retired = _aliasCount + _retired.Count + _agedAliases.Count;
+
+                return $"{_sorted.Length} textures, retired {retired} (aliased {_aliasCount + _agedAliases.Count}), released {_released}";
+            }
+        }
+    }
 
     public void Register(GpuTexture texture)
     {
@@ -77,6 +100,12 @@ internal sealed class GpuTextureRegistry : IDisposable
             while (_retired.Count > 0 && _retired.Peek().Frame + GraceFrames <= frame)
             {
                 ComObject.Release(_retired.Dequeue().Texture.Desktop);
+                _released++;
+            }
+
+            while (_agedAliases.Count > 0 && _agedAliases.Peek().Frame + AliasGraceFrames <= frame)
+            {
+                ComObject.Release(_agedAliases.Dequeue().Texture.Desktop);
                 _released++;
             }
         }
@@ -117,13 +146,18 @@ internal sealed class GpuTextureRegistry : IDisposable
     {
         lock (_gate)
         {
-            foreach (var entry in _sorted.Concat(_aliased).Concat(_retired.Select(retired => retired.Texture)))
+            var aliases = _aliases.Values.SelectMany(queue => queue);
+            var retired = _retired.Concat(_agedAliases).Select(entry => entry.Texture);
+
+            foreach (var entry in _sorted.Concat(aliases).Concat(retired))
             {
                 ComObject.Release(entry.Desktop);
             }
 
-            _aliased.Clear();
+            _aliases.Clear();
+            _aliasCount = 0;
             _retired.Clear();
+            _agedAliases.Clear();
             _sorted = [];
         }
     }
@@ -132,11 +166,36 @@ internal sealed class GpuTextureRegistry : IDisposable
     {
         if (entry.Address == replacement.Address && entry.Size == replacement.Size)
         {
-            _aliased.Add(entry);
+            Alias(entry);
 
             return;
         }
 
         _retired.Enqueue((entry, _frame));
+    }
+
+    /// <summary>
+    /// Keeps a texture retired by another over exactly its range; past <see cref="KeptAliases"/> for that range the
+    /// oldest is released <see cref="AliasGraceFrames"/> presents later. All were kept before, and a streaming pool
+    /// reuses fixed-size slots: the growth after the story load followed the textures made.
+    /// </summary>
+    private void Alias(GpuTexture entry)
+    {
+        var range = (entry.Address, entry.Size);
+
+        if (!_aliases.TryGetValue(range, out var kept))
+        {
+            kept = new Queue<GpuTexture>();
+            _aliases[range] = kept;
+        }
+
+        kept.Enqueue(entry);
+        _aliasCount++;
+
+        if (kept.Count > KeptAliases)
+        {
+            _agedAliases.Enqueue((kept.Dequeue(), _frame));
+            _aliasCount--;
+        }
     }
 }

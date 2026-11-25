@@ -39,9 +39,10 @@ flowchart LR
 ```
 
 - **Registry** (`GpuTextureRegistry`): textures sorted by console address over the span of their XG layout; lookups
-  take no lock. A texture registered over an overlapping range retires the old one. One over the same range (another
-  view of the same memory) keeps its reference until shutdown, since descriptors written earlier may still name it;
-  any other is released 120 presents later (the memory went to something else). Keeping them all was a leak: in the
+  take no lock. A texture registered over an overlapping range retires the old one. Of those over the same range (other
+  views of the same memory, or a streaming slot reused) the newest two keep their reference until shutdown, since
+  descriptors written earlier may still name them, and older ones are released 600 presents later; any other is
+  released 120 presents later (the memory went to something else). Keeping them all was a leak: in the
   opening cutscene the game streams textures through the same memory, about 45,000 were made in 7 minutes, and once
   video memory was full the process grew by 2 to 3 GB every 30 s until the machine ran out.
 - **Slot 133** (`GpuTextures.CreatePlaced`): a committed desktop texture in its home state ([Barriers](#barriers)).
