@@ -19,6 +19,11 @@ public sealed unsafe class DepthUavsTests
         Assert.Equal(92380u, DepthUavs.HeapIndex(index));
         Assert.Null(DepthUavs.HeapIndex(texture));
 
+        // A table at the window's start is read; an SGPR near 4 GiB that wraps a 32-bit sum is not.
+        Assert.True(DepthUavs.InWindow(0, 0));
+        Assert.False(DepthUavs.InWindow(0xFFFFFFF0, 0));
+        Assert.False(DepthUavs.InWindow(0x80000000, 0x7FFFFFFF));
+
         // Depth on, no writes, EQUAL (3); stencil on, read 0xff, write 0x00, both faces KEEP KEEP KEEP EQUAL.
         var desc = new byte[0x40];
         int[] words = [1, 0, 3, 1];
