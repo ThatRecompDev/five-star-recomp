@@ -46,6 +46,12 @@ internal sealed class SkipRegion
         _consoleRuns = consoleRuns;
     }
 
+    /// <summary>
+    /// The window runs the path anyway, inactive (fast waves, WindowAnalysis.EntersAlways): its scalar writes happen as
+    /// the console's, so only what it writes per lane counts.
+    /// </summary>
+    public bool ScalarsRun { get; init; }
+
     /// <summary>Null when skipping is safe, else why not.</summary>
     public string? Check()
     {
@@ -245,7 +251,7 @@ internal sealed class SkipRegion
 
     private void Mark(HashSet<string> zero, string target, bool empty)
     {
-        if (!WindowNames.IsMask(target) && !WindowNames.IsTemporary(target))
+        if (!WindowNames.IsMask(target) && !WindowNames.IsTemporary(target) && !(ScalarsRun && WindowNames.IsScalar(target)))
         {
             _written.Add(target);
         }
