@@ -73,7 +73,7 @@ public sealed unsafe class WaitObjectsTests
             // A signal, a wait on several objects that it ends, then a reset: the signal the next waiter expects is gone.
             WaitObjects.Signaled(idle);
             WaitObjects.WaitingOnSeveral([other, idle], all: false, uint.MaxValue);
-            WaitObjects.DoneOnSeveral([other, idle], 1);
+            WaitObjects.DoneOnSeveral([other, idle], all: false, 1);
             WaitObjects.Reset(idle);
 
             uint waiterId = 0;
@@ -105,6 +105,39 @@ public sealed unsafe class WaitObjectsTests
             WaitObjects.Closed(other);
             _ = Kernel32.CloseHandle(idle);
             _ = Kernel32.CloseHandle(other);
+        }
+    }
+
+    /// <summary>A wait on several objects is reported as one of them, and its timeout is kept by every one.</summary>
+    [Fact]
+    public void A_wait_on_several_objects_names_them_all_and_its_timeout_stays_on_each()
+    {
+        nint first = Kernel32.CreateEventW(0, 0, 0, null);
+        nint second = Kernel32.CreateEventW(0, 0, 0, null);
+        uint self = Kernel32.GetCurrentThreadId();
+
+        try
+        {
+            WaitObjects.Created(first, "auto-reset event");
+            WaitObjects.Created(second, "auto-reset event");
+
+            WaitObjects.WaitingOnSeveral([first, second], all: false, 10);
+            Assert.Contains($"on one of 2 handles (0x{first:x}, 0x{second:x}), the first 0x{first:x}: ", WaitObjects.Report(new ImageTable(), Prefix, 0), StringComparison.Ordinal);
+            WaitObjects.DoneOnSeveral([first, second], all: false, 0x102);
+
+            foreach (var handle in new[] { first, second })
+            {
+                WaitObjects.Waiting(handle, 0);
+                Assert.Matches($@"-\d+\.\d s timed out by {self}", WaitObjects.Report(new ImageTable(), Prefix, 0));
+                WaitObjects.Done(handle, 0x102);
+            }
+        }
+        finally
+        {
+            WaitObjects.Closed(first);
+            WaitObjects.Closed(second);
+            _ = Kernel32.CloseHandle(first);
+            _ = Kernel32.CloseHandle(second);
         }
     }
 

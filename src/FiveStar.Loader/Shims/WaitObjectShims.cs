@@ -262,7 +262,7 @@ internal static unsafe partial class WaitObjectShims
             WaitObjects.WaitingOnSeveral(span, waitAll != 0, milliseconds);
             uint result = Kernel32.WaitForMultipleObjects(count, handles, waitAll, milliseconds);
             ShimContext.Runtime.LastError.Set(Marshal.GetLastPInvokeError());
-            WaitObjects.DoneOnSeveral(span, result);
+            WaitObjects.DoneOnSeveral(span, waitAll != 0, result);
 
             return result;
         }

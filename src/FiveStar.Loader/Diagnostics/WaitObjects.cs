@@ -23,9 +23,12 @@ internal static unsafe class WaitObjects
     /// <summary>Waits shorter than this are not reported.</summary>
     private const double ReportedSeconds = 1;
 
-    // winbase.h: WAIT_OBJECT_0 and WAIT_TIMEOUT.
-    private const uint WaitObject0 = 0;
+    // winbase.h: WAIT_OBJECT_0, WAIT_TIMEOUT and WAIT_ABANDONED_0.
     private const uint WaitTimeout = 0x102;
+    private const uint WaitAbandoned0 = 0x80;
+
+    /// <summary>MAXIMUM_WAIT_OBJECTS (winnt.h).</summary>
+    private const uint MaximumWaitObjects = 64;
 
     private static readonly ConcurrentDictionary<nint, WaitObject> Objects = new();
     private static readonly ConcurrentDictionary<uint, ThreadWait> Waits = new();
@@ -41,7 +44,7 @@ internal static unsafe class WaitObjects
             return;
         }
 
-        Objects[handle] = new WaitObject(kind, Native.Kernel32.GetCurrentThreadId(), Now, GameFrames());
+        Objects[handle] = new WaitObject(kind, Native.Kernel32.GetCurrentThreadId(), Now, GameFrames(Frames));
     }
 
     /// <summary>The object was set or released by the calling thread.</summary>
@@ -67,8 +70,8 @@ internal static unsafe class WaitObjects
             return;
         }
 
-        var frames = GameFrames();
-        Waits[Native.Kernel32.GetCurrentThreadId()] = new ThreadWait(handles[0], milliseconds, Now, frames);
+        var frames = GameFrames(Frames);
+        Waits[Native.Kernel32.GetCurrentThreadId()] = new ThreadWait(handles[0], milliseconds, Now, frames) { Several = handles.ToArray(), All = all };
         string verb = $"wait on any of {handles.Length}";
 
         if (all)
@@ -78,18 +81,44 @@ internal static unsafe class WaitObjects
 
         foreach (var handle in handles)
         {
-            Record(handle, verb, frames);
+            Record(handle, verb, First(frames));
         }
     }
 
-    /// <summary>A wait on several objects returned <paramref name="result"/>: the object that woke it gets the wake-up.</summary>
-    public static void DoneOnSeveral(ReadOnlySpan<nint> handles, uint result)
+    /// <summary>
+    /// A wait on any (or all, <paramref name="all"/>) of <paramref name="handles"/> returned <paramref name="result"/>: the
+    /// object that woke it gets the wake-up (each one for a wait on all), an abandoned mutex its abandonment, and every
+    /// object a timeout or a failure.
+    /// </summary>
+    public static void DoneOnSeveral(ReadOnlySpan<nint> handles, bool all, uint result)
     {
         Waits.TryRemove(Native.Kernel32.GetCurrentThreadId(), out _);
+        nint caller = Caller();
 
         if (result < handles.Length)
         {
-            Record(handles[(int)result], "woke");
+            if (!all)
+            {
+                Record(handles[(int)result], "woke", caller);
+
+                return;
+            }
+        }
+        else if (result - WaitAbandoned0 < handles.Length)
+        {
+            if (!all)
+            {
+                Record(handles[(int)(result - WaitAbandoned0)], "abandoned", caller);
+
+                return;
+            }
+        }
+
+        string verb = Outcome(result);
+
+        foreach (var handle in handles)
+        {
+            Record(handle, verb, caller);
         }
     }
 
@@ -102,9 +131,9 @@ internal static unsafe class WaitObjects
     /// <summary>The calling thread starts waiting on <paramref name="handle"/> for <paramref name="milliseconds"/>.</summary>
     public static void Waiting(nint handle, uint milliseconds)
     {
-        var frames = GameFrames();
+        var frames = GameFrames(Frames);
         Waits[Native.Kernel32.GetCurrentThreadId()] = new ThreadWait(handle, milliseconds, Now, frames);
-        Record(handle, "wait", frames);
+        Record(handle, "wait", First(frames));
     }
 
     /// <summary>The calling thread's wait on <paramref name="handle"/> returned <paramref name="result"/> (WAIT_OBJECT_0, WAIT_TIMEOUT, ..).</summary>
@@ -116,14 +145,19 @@ internal static unsafe class WaitObjects
 
     private static string Outcome(uint result)
     {
-        if (result == WaitObject0)
-        {
-            return "woke";
-        }
-
         if (result == WaitTimeout)
         {
             return "timed out";
+        }
+
+        if (result >= WaitAbandoned0 && result < WaitAbandoned0 + MaximumWaitObjects)
+        {
+            return "abandoned";
+        }
+
+        if (result < MaximumWaitObjects)
+        {
+            return "woke";
         }
 
         return $"wait returned 0x{result:x}";
@@ -131,24 +165,24 @@ internal static unsafe class WaitObjects
 
     private static void Record(nint handle, string verb)
     {
-        if (Objects.TryGetValue(handle, out var item))
-        {
-            item.Record(new WaitOperation(verb, Native.Kernel32.GetCurrentThreadId(), Now, Caller()));
-        }
+        Record(handle, verb, Caller());
     }
 
-    private static void Record(nint handle, string verb, nint[] frames)
+    private static void Record(nint handle, string verb, nint caller)
     {
         if (Objects.TryGetValue(handle, out var item))
         {
-            item.Record(new WaitOperation(verb, Native.Kernel32.GetCurrentThreadId(), Now, First(frames)));
+            item.Record(new WaitOperation(verb, Native.Kernel32.GetCurrentThreadId(), Now, caller));
         }
     }
 
-    /// <summary>The game's innermost return address above the shim, 0 when none was found.</summary>
+    /// <summary>
+    /// The game's innermost return address above the shim, 0 when none was found. One frame only: it is taken on every
+    /// signal and wake-up, the very calls whose timing the hang watch is watching.
+    /// </summary>
     private static nint Caller()
     {
-        return First(GameFrames());
+        return First(GameFrames(1));
     }
 
     private static nint First(nint[] frames)
@@ -185,7 +219,7 @@ internal static unsafe class WaitObjects
                 continue;
             }
 
-            text.Append(CultureInfo.InvariantCulture, $"\n{prefix}  thread {thread} waits {waited:F1} s ({Timeout(wait.Milliseconds)}) on handle 0x{wait.Handle:x}: ");
+            text.Append(CultureInfo.InvariantCulture, $"\n{prefix}  thread {thread} waits {waited:F1} s ({Timeout(wait.Milliseconds)}) on {Target(wait)}: ");
 
             if (Objects.TryGetValue(wait.Handle, out var item))
             {
@@ -205,6 +239,20 @@ internal static unsafe class WaitObjects
         }
 
         return $"{prefix}threads blocked on the game's events and semaphores:{text}";
+    }
+
+    /// <summary>What a wait is on: its handle, or for a wait on several which of them (the first is described).</summary>
+    private static string Target(ThreadWait wait)
+    {
+        if (wait.Several is not { Length: > 1 } several)
+        {
+            return $"handle 0x{wait.Handle:x}";
+        }
+
+        string which = wait.All ? "all" : "one";
+        string handles = string.Join(", ", several.Select(handle => $"0x{handle:x}"));
+
+        return $"{which} of {several.Length} handles ({handles}), the first 0x{wait.Handle:x}";
     }
 
     /// <summary>A handle the shims did not see created: a thread's (a join on it), or another object.</summary>
@@ -231,7 +279,7 @@ internal static unsafe class WaitObjects
     }
 
     /// <summary>The game frames of the calling thread above the shim, innermost first (<see cref="ReturnAddresses"/>); none without a runtime.</summary>
-    private static nint[] GameFrames()
+    private static nint[] GameFrames(int count)
     {
         var runtime = Shims.ShimContext.ActiveRuntime;
 
@@ -240,6 +288,6 @@ internal static unsafe class WaitObjects
             return [];
         }
 
-        return ReturnAddresses.Scan(runtime.Images, Frames);
+        return ReturnAddresses.Scan(runtime.Images, count);
     }
 }
