@@ -151,7 +151,7 @@ public sealed class GlobalDeclarations
 
         Variable variable;
 
-        if (type.Shape == TypeShape.Array)
+        if (type.Shape == TypeShape.Array || (_context.MemoryLocals && type.IsNumeric && !constant))
         {
             variable = _context.Variables.DeclareMemory(declarator.Text, type, shared: false, table: null);
         }

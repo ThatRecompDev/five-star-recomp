@@ -40,12 +40,12 @@ public sealed class StatementLowerer
         _context.Scope.Pop();
     }
 
-    /// <summary>A local variable: arrays in memory, everything else in slots.</summary>
+    /// <summary>A local variable: arrays in memory (numeric ones too with <see cref="LoweringContext.MemoryLocals"/>), everything else in slots.</summary>
     public Variable DeclareLocal(string name, HlslType type)
     {
         Variable variable;
 
-        if (type.Shape == TypeShape.Array)
+        if (type.Shape == TypeShape.Array || (_context.MemoryLocals && type.IsNumeric))
         {
             variable = _context.Variables.DeclareMemory(name, type, shared: false, table: null);
         }

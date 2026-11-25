@@ -39,6 +39,7 @@ public static class ShaderLowering
         var globals = new GlobalDeclarations(context);
         globals.Collect(declarations);
         var source = Entry(context);
+        context.MemoryLocals = DxilBackend.MemoryLocalsCases > 0 && MostCases(source) >= DxilBackend.MemoryLocalsCases;
         globals.Declare(declarations);
         context.Scope.Push();
 
@@ -155,6 +156,24 @@ public static class ShaderLowering
         }
 
         return flags;
+    }
+
+    /// <summary>The most cases one switch statement under <paramref name="node"/> has.</summary>
+    private static int MostCases(SyntaxNode node)
+    {
+        int most = 0;
+
+        if (node.Kind == SyntaxKind.Switch)
+        {
+            most = node.Children.Concat(node.BodyOrEmpty).Count(child => child.Kind == SyntaxKind.Case);
+        }
+
+        foreach (var child in node.Children.Concat(node.BodyOrEmpty))
+        {
+            most = Math.Max(most, MostCases(child));
+        }
+
+        return most;
     }
 
     private static SyntaxNode Entry(LoweringContext context)

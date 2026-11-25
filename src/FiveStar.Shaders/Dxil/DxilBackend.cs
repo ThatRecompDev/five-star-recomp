@@ -27,6 +27,12 @@ public static class DxilBackend
         ["gs"] = DxilShaderKind.Geometry,
     };
 
+    /// <summary>
+    /// With a switch of at least this many cases in the entry point (the superstep form's dispatch), numeric locals live
+    /// in memory instead of SSA slots; 0 (the default) never.
+    /// </summary>
+    public static int MemoryLocalsCases { get; set; }
+
     /// <summary>Whether the backend compiles programs of this profile (ps, vs, cs, ms, gs).</summary>
     public static bool Supports(string profile)
     {

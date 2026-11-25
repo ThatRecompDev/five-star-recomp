@@ -39,6 +39,7 @@ internal static class DxilCommand
             throw new ArgumentException("dxil <hlsl file or folder> [--out <dir>] [--validate] [--compare] [--stages cs,ps,vs] [--limit N] [--step K] [--jobs N] [--repeat N] [--dxc <path>]");
         }
 
+        DxilBackend.MemoryLocalsCases = arguments.IntegerOption("memory-locals") ?? 0;
         var files = Sources(arguments);
         var output = arguments.Option("out");
         using var validator = Validator(arguments);
