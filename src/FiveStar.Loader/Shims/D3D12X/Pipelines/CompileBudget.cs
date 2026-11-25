@@ -216,7 +216,7 @@ internal static unsafe class CompileBudget
     /// </summary>
     public static BuildMeasure Measure(long shaderBytes)
     {
-        var measure = new BuildMeasure(shaderBytes, PrivateBytes(), Running, System.Diagnostics.Stopwatch.GetTimestamp());
+        var measure = new BuildMeasure(shaderBytes, RamBackedBytes(), Running, System.Diagnostics.Stopwatch.GetTimestamp());
         Measures[measure] = 0;
         _ = Sampler.Value;
 
@@ -236,9 +236,9 @@ internal static unsafe class CompileBudget
             return;
         }
 
-        long grown = Math.Max(measure.Peak, PrivateBytes()) - measure.StartBytes;
+        long grown = Math.Max(measure.Peak, RamBackedBytes()) - measure.StartBytes;
         double seconds = System.Diagnostics.Stopwatch.GetElapsedTime(measure.Started).TotalSeconds;
-        ShimContext.Runtime.Log.Detail($"  [budget] {what}: {measure.ShaderBytes / BytesPerMegabyte:F2} MB of DXIL, estimate {Estimate(measure.ShaderBytes) / BytesPerGigabyte:F1} GB, private peak +{grown / BytesPerGigabyte:F2} GB over {seconds:F0} s, {measure.Running} compiles running at its start");
+        ShimContext.Runtime.Log.Detail($"  [budget] {what}: {measure.ShaderBytes / BytesPerMegabyte:F2} MB of DXIL, estimate {Estimate(measure.ShaderBytes) / BytesPerGigabyte:F1} GB, RAM-backed private peak +{grown / BytesPerGigabyte:F2} GB over {seconds:F0} s, {measure.Running} compiles running at its start");
     }
 
     private static void Sample()
@@ -248,7 +248,7 @@ internal static unsafe class CompileBudget
             return;
         }
 
-        long bytes = PrivateBytes();
+        long bytes = RamBackedBytes();
 
         foreach (var measure in Measures.Keys)
         {
@@ -403,7 +403,7 @@ internal static unsafe class CompileBudget
     /// </summary>
     private static void SampleGrowth()
     {
-        long bytes = Math.Max(0, PrivateBytes() - Diagnostics.WriteCombinedMemory.CachedBytes);
+        long bytes = RamBackedBytes();
 
         lock (GrowthSamples)
         {
@@ -425,6 +425,12 @@ internal static unsafe class CompileBudget
     private static long CountedBytes(long privateBytes)
     {
         return Math.Max(0, privateBytes - Diagnostics.WriteCombinedMemory.CachedBytes) + HelperPrivateBytes();
+    }
+
+    /// <summary>The loader's private bytes less its write-combined memory (the driver's mapping of video memory).</summary>
+    private static long RamBackedBytes()
+    {
+        return Math.Max(0, PrivateBytes() - Diagnostics.WriteCombinedMemory.CachedBytes);
     }
 
     private static long PrivateBytes()
