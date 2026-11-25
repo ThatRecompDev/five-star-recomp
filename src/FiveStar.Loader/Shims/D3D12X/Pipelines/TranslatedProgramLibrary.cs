@@ -145,12 +145,12 @@ internal sealed class TranslatedProgramLibrary : IProgramLibrary
                 return null;
             }
 
-            var program = new TranslatedProgram(name, stage, File.ReadAllBytes(path));
+            var program = new TranslatedProgram(name, stage, ProgramCode.Read(path));
             _loaded[name] = _recent.AddFirst(program);
 
             // A program made since (here or by the compile host) may name static samplers not made yet.
             ShimContext.ActiveRuntime?.D3D12X.Bindings.Window.StaticSamplers.Refresh();
-            Interlocked.Add(ref _heldBytes, program.Dxil.Length);
+            Interlocked.Add(ref _heldBytes, program.Code.Length);
             Trim();
 
             return program;
@@ -183,7 +183,7 @@ internal sealed class TranslatedProgramLibrary : IProgramLibrary
             var oldest = _recent.Last!.Value;
             _recent.RemoveLast();
             _loaded.Remove(oldest.Name);
-            Interlocked.Add(ref _heldBytes, -oldest.Dxil.Length);
+            Interlocked.Add(ref _heldBytes, -oldest.Code.Length);
         }
     }
 }

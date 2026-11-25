@@ -94,7 +94,7 @@ internal sealed class ProducerLinks
 
     private static TranslatedProgram Read(TranslatedProgram program, string path)
     {
-        return program with { Name = Path.GetFileNameWithoutExtension(path), Dxil = File.ReadAllBytes(path) };
+        return program with { Name = Path.GetFileNameWithoutExtension(path), Code = ProgramCode.Read(path) };
     }
 
     private static bool Made(Plan plan)
@@ -201,8 +201,8 @@ internal sealed class ProducerLinks
 
         try
         {
-            outputs = PsvSignatureParser.OfProgram(producer.Dxil);
-            inputs = PsvSignatureParser.OfProgram(pixel.Dxil);
+            outputs = PsvSignatureParser.OfProgram(producer.Dxil.ToArray());
+            inputs = PsvSignatureParser.OfProgram(pixel.Dxil.ToArray());
         }
         catch (InvalidDataException)
         {

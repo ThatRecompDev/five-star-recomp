@@ -44,8 +44,8 @@ public sealed unsafe class PipelineHostWarpTests
             using var device = GpuDevice.CreateWarp(debugLayer: false);
             var programs = new[]
             {
-                new Shims.D3D12X.Pipelines.TranslatedProgram("ms", HardwareStage.Ngg, Compile(work.FullName, "ms", MeshShader)),
-                new Shims.D3D12X.Pipelines.TranslatedProgram("ps", HardwareStage.Pixel, Compile(work.FullName, "ps", PixelShader)),
+                Shims.D3D12X.Pipelines.TranslatedProgram.Of("ms", HardwareStage.Ngg, Compile(work.FullName, "ms", MeshShader)),
+                Shims.D3D12X.Pipelines.TranslatedProgram.Of("ps", HardwareStage.Pixel, Compile(work.FullName, "ps", PixelShader)),
             };
             var iid = DesktopDevice.Device2Iid;
             var pipelineIid = DesktopDevice.PipelineStateIid;

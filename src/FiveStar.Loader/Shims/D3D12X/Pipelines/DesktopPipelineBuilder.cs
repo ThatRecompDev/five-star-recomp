@@ -31,7 +31,7 @@ internal static unsafe class DesktopPipelineBuilder
         foreach (var program in programs)
         {
             mesh |= program.Stage == HardwareStage.Ngg;
-            stream.AddShader(StageType(program.Stage), program.Dxil);
+            stream.AddShader(StageType(program.Stage), program.Code);
         }
 
         stream.AddBytes(PipelineStateSubObjectType.Blend, StatePadding.Blend(DesktopStateRules.Blend(description.Blend)));
@@ -63,7 +63,7 @@ internal static unsafe class DesktopPipelineBuilder
     {
         var stream = new DesktopStream();
         stream.AddPointer(PipelineStateSubObjectType.RootSignature, rootSignature);
-        stream.AddShader(PipelineStateSubObjectType.ComputeShader, program.Dxil);
+        stream.AddShader(PipelineStateSubObjectType.ComputeShader, program.Code);
 
         return stream;
     }

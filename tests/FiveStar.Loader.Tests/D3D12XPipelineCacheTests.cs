@@ -28,7 +28,7 @@ public sealed unsafe class D3D12XPipelineCacheTests
         {
             using var device = GpuDevice.CreateWarp(debugLayer: false);
             var (device2, root) = DesktopObjects(device.Device.NativePointer);
-            var program = new TranslatedProgram("cs", HardwareStage.Compute, Compile(folder.FullName));
+            var program = TranslatedProgram.Of("cs", HardwareStage.Compute, Compile(folder.FullName));
             var description = new ComputePipelineDescription(0, new ShaderSource(ShaderSourceKind.CacheCode, new byte[24]));
 
             var (first, firstSummary) = CreateOnce(folder.FullName, device2, root, program, description, TimeSpan.FromMinutes(1));
@@ -60,7 +60,7 @@ public sealed unsafe class D3D12XPipelineCacheTests
             using var device = GpuDevice.CreateWarp(debugLayer: false);
             var (device2, root) = DesktopObjects(device.Device.NativePointer);
             RayTracingPrograms.Note(Name, "#include \"rdna_bvh.hlsli\"", folder.FullName);
-            var program = new TranslatedProgram(Name, HardwareStage.Compute, Compile(folder.FullName));
+            var program = TranslatedProgram.Of(Name, HardwareStage.Compute, Compile(folder.FullName));
             var description = new ComputePipelineDescription(0, new ShaderSource(ShaderSourceKind.CacheCode, new byte[24]));
             var log = new LoaderLog(new StringWriter(), null, false);
 
@@ -93,7 +93,7 @@ public sealed unsafe class D3D12XPipelineCacheTests
         {
             using var device = GpuDevice.CreateWarp(debugLayer: false);
             var (device2, root) = DesktopObjects(device.Device.NativePointer);
-            var program = new TranslatedProgram("cs", HardwareStage.Compute, Compile(folder.FullName));
+            var program = TranslatedProgram.Of("cs", HardwareStage.Compute, Compile(folder.FullName));
             var description = new ComputePipelineDescription(0, new ShaderSource(ShaderSourceKind.CacheCode, new byte[24]));
             var target = new WarmTarget(0, null, description);
 

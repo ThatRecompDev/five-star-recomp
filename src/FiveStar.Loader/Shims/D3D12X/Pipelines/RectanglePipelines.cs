@@ -163,7 +163,7 @@ internal sealed unsafe class RectanglePipelines
             return 0;
         }
 
-        programs.Add(new TranslatedProgram(vertex.Name, HardwareStage.Geometry, shader));
+        programs.Add(TranslatedProgram.Of(vertex.Name, HardwareStage.Geometry, shader));
         var iid = DesktopDevice.PipelineStateIid;
         nint variant = 0;
         var hr = DesktopPipelineBuilder.Graphics(_device2, _rootSignature, recipe.Description, programs, &iid, &variant);
@@ -187,7 +187,7 @@ internal sealed unsafe class RectanglePipelines
 
         try
         {
-            var chunk = DxbcContainer.Parse(vertex.Dxil).Find(PsvSignatureParser.ChunkCode) ?? throw new InvalidDataException("no PSV0 chunk");
+            var chunk = DxbcContainer.Parse(vertex.Dxil.ToArray()).Find(PsvSignatureParser.ChunkCode) ?? throw new InvalidDataException("no PSV0 chunk");
             source = RectangleGeometryShader.Source(PsvSignatureParser.Parse(chunk.Data.Span).Outputs);
         }
         catch (Exception exception) when (exception is InvalidDataException or NotSupportedException)

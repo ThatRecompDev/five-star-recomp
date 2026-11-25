@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Runtime.InteropServices;
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.States;
@@ -33,6 +34,12 @@ internal sealed unsafe class GpuTextures : IDisposable
     private const long LoggedFailures = 8;
 
     private static readonly Guid ResourceIid = new("696442be-a72e-4059-bc79-5b5c98040fad");
+
+    [ThreadStatic]
+    private static byte* _kernelCopy;
+
+    [ThreadStatic]
+    private static nuint _kernelCopyBytes;
 
     private readonly object _watchGate = new();
     private readonly GameMemorySource _source;
@@ -138,27 +145,17 @@ internal sealed unsafe class GpuTextures : IDisposable
 
         // A watched texture's memory can be unmapped by another thread while it is read every frame: a plain read
         // faulted (an AccessViolation the guard cannot catch, boot v3), so its bytes are copied through the kernel first.
-        byte[]? copy = null;
-
         if (texture.Watched)
         {
-            copy = ReadThroughKernel(source, texture.Size);
+            source = ReadThroughKernel(source, texture.Size);
 
-            if (copy is null)
+            if (source == null)
             {
                 return;
             }
         }
 
-        fixed (byte* copied = copy)
-        {
-            if (copied != null)
-            {
-                source = copied;
-            }
-
-            Fill(device, texture, source);
-        }
+        Fill(device, texture, source);
     }
 
     private void Fill(nint device, GpuTexture texture, byte* source)
@@ -274,21 +271,28 @@ internal sealed unsafe class GpuTextures : IDisposable
         return texture;
     }
 
-    /// <summary>The bytes at <paramref name="source"/> read through the kernel (ReadProcessMemory); null when a page went away.</summary>
-    private static byte[]? ReadThroughKernel(byte* source, ulong size)
+    /// <summary>
+    /// The bytes at <paramref name="source"/> read through the kernel (ReadProcessMemory) into this thread's copy buffer,
+    /// valid until the thread's next call; null when a page went away. The buffer is native and kept: a managed array of
+    /// a watched texture's size (a 3840x2160 video plane, the 2048x2048 glyph cache) went to the large object heap every
+    /// frame, and each such allocation counts toward a full collection.
+    /// </summary>
+    private static byte* ReadThroughKernel(byte* source, ulong size)
     {
-        var copy = GC.AllocateUninitializedArray<byte>(checked((int)size));
-        nuint done = 0;
-
-        fixed (byte* target = copy)
+        if ((nuint)size > _kernelCopyBytes)
         {
-            if (Kernel32.ReadProcessMemory(Kernel32.GetCurrentProcess(), (nint)source, target, (nuint)size, &done) == 0 || done != (nuint)size)
-            {
-                return null;
-            }
+            _kernelCopy = (byte*)NativeMemory.Realloc(_kernelCopy, (nuint)size);
+            _kernelCopyBytes = (nuint)size;
         }
 
-        return copy;
+        nuint done = 0;
+
+        if (Kernel32.ReadProcessMemory(Kernel32.GetCurrentProcess(), (nint)source, _kernelCopy, (nuint)size, &done) == 0 || done != (nuint)size)
+        {
+            return null;
+        }
+
+        return _kernelCopy;
     }
 
     /// <summary>

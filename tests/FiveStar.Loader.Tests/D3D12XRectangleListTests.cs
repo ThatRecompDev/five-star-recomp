@@ -100,7 +100,7 @@ public sealed unsafe class D3D12XRectangleListTests
     private static nint Pipelines(TestRuntime test, string folder, string vertexName)
     {
         var vertex = Compile(folder, "vs", Vertex);
-        var programs = new List<TranslatedProgram> { new(vertexName, HardwareStage.Vertex, vertex), new("ps", HardwareStage.Pixel, Compile(folder, "ps", Pixel)) };
+        var programs = new List<TranslatedProgram> { TranslatedProgram.Of(vertexName, HardwareStage.Vertex, vertex), TranslatedProgram.Of("ps", HardwareStage.Pixel, Compile(folder, "ps", Pixel)) };
         var outputs = PsvSignatureParser.Parse(DxbcContainer.Parse(vertex).Find(PsvSignatureParser.ChunkCode)!.Data.Span).Outputs;
         var source = RectangleGeometryShader.Source(outputs);
         File.WriteAllBytes(Path.Combine(folder, RectangleGeometryShader.FileName(source)), Compile(folder, "gs", source));
