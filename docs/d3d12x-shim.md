@@ -792,7 +792,9 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   user SGPR holding a record-aligned window offset (a descriptor pointer the game passes as a root constant, which the
   tables do not show): the record dwords, a T#'s base and its address-map state, a V#'s base (or the heap index it
   holds), its map state and the first 10 dwords there (a constant buffer's values); then the game's own heap record at
-  the same index, to tell a record the window lacks from one the game never wrote.
+  the same index, to tell a record the window lacks from one the game never wrote. An entry `offset@byte` also shows
+  the dword at that byte of the V#'s buffer: `0x380@0x11c` is the loop count of `MSNC_VS_LinearDepthSkin_f1f2249c`,
+  dword 0x11c of the constant buffer whose V# is record 28 of its table.
 - `--probe-pipeline <text,...>` makes the mesh, pixel and compute programs whose name holds one of the texts with probe code (`MeshProbe`,
   `MeshProbes`), in any of its forms (two-phase, staged, the superstep form of the wave32 variant): every load site (a
   buffer, formatted or pointer load with the range check before it, an s_buffer_load's compare included) marks itself

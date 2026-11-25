@@ -26,6 +26,17 @@ internal static class ManagedExceptions
     {
         _log = log;
         AppDomain.CurrentDomain.FirstChanceException += OnFirstChance;
+        AppDomain.CurrentDomain.UnhandledException += OnUnhandled;
+    }
+
+    /// <summary>
+    /// An exception no catch took on a thread of the loader's own (a worker, a timer, a task's continuation): the
+    /// process ends with 0xE0434352, and the runtime writes the stack only to standard error, which a wrapped run does
+    /// not keep (issue #13's cold boot). The log gets it whole.
+    /// </summary>
+    private static void OnUnhandled(object? sender, UnhandledExceptionEventArgs args)
+    {
+        _log?.Error($"[clr] unhandled on thread {Environment.CurrentManagedThreadId} ({Thread.CurrentThread.Name ?? "unnamed"}), the process ends: {args.ExceptionObject}");
     }
 
     private static bool First(Type type)

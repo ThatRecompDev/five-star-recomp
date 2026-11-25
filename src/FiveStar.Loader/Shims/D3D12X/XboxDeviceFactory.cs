@@ -204,6 +204,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         if (WindowFeedback.Enabled)
         {
             Residency = new WindowResidency(SectionHeaps, MemoryViews, FrameThrottle, _log);
+            MemoryViews.Ask = Residency.Ask;
             _log.Info("  [d3d12_xs] --evict-windows: section windows open as programs ask for them and the least recently asked are released");
         }
 

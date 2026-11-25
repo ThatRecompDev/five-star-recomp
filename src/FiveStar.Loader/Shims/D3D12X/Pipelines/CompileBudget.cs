@@ -54,6 +54,9 @@ internal static unsafe class CompileBudget
     /// <summary>The least physical memory compiles leave free: the boot guard kills below 4 GB.</summary>
     public const long MinimumPhysicalReserve = 4L << 30;
 
+    /// <summary>The floor is at most this share of the machine's RAM (<see cref="Floor"/>).</summary>
+    private const ulong RamShare = 8;
+
     /// <summary>The most the game's expected growth adds to the reserve (<see cref="GrowthAllowance"/>).</summary>
     public const long MaximumGrowth = 4L << 30;
 
@@ -203,10 +206,23 @@ internal static unsafe class CompileBudget
         return Math.Clamp(grownOverMinute >> 1, 0, MaximumGrowth);
     }
 
-    /// <summary>The physical memory compiles leave free: 4 GB and the game's expected growth.</summary>
-    public static long PhysicalReserve(long growthAllowance)
+    /// <summary>The physical memory compiles leave free: the floor (<see cref="MinimumPhysicalReserve"/> by default) and the game's expected growth.</summary>
+    public static long PhysicalReserve(long growthAllowance, long floor = MinimumPhysicalReserve)
     {
-        return MinimumPhysicalReserve + growthAllowance;
+        return floor + growthAllowance;
+    }
+
+    /// <summary>
+    /// The least physical memory compiles leave free on this machine: <see cref="MinimumPhysicalReserve"/>, or an eighth
+    /// of its RAM when that is less. On a 15.6 GB machine (issue #13) the game alone leaves under 4.5 GB free, and with a
+    /// 4 GB floor no compile ever started: the cutscene stayed on one frame behind stand-ins.
+    /// </summary>
+    public static long PhysicalFloor => Floor(WarmMemoryGuard.TotalPhysical());
+
+    /// <summary>The floor for a machine of <paramref name="totalPhysical"/> bytes of RAM.</summary>
+    public static long Floor(ulong totalPhysical)
+    {
+        return Math.Min(MinimumPhysicalReserve, (long)(totalPhysical / RamShare));
     }
 
     /// <summary>Whether a compile of <paramref name="shaderBytes"/> waits for the load window to end.</summary>
@@ -617,7 +633,7 @@ internal static unsafe class CompileBudget
                 reserved = Remaining();
             }
 
-            return $"refused by load window {Interlocked.Read(ref _refusedLoad)}, urgent first {Interlocked.Read(ref _refusedUrgentFirst)}, one heavy {Interlocked.Read(ref _refusedHeavy)}, free memory {Interlocked.Read(ref _refusedMemory)}, commit {Interlocked.Read(ref _refusedCommit)}, {MaxCompiles} in flight {Interlocked.Read(ref _refusedInFlight)}, private ceiling {Interlocked.Read(ref _refusedCeiling)}; {reserved / BytesPerGigabyte:F1} GB reserved for running compiles, reserve {PhysicalReserve(Interlocked.Read(ref _growthAllowance)) / BytesPerGigabyte:F1} GB";
+            return $"refused by load window {Interlocked.Read(ref _refusedLoad)}, urgent first {Interlocked.Read(ref _refusedUrgentFirst)}, one heavy {Interlocked.Read(ref _refusedHeavy)}, free memory {Interlocked.Read(ref _refusedMemory)}, commit {Interlocked.Read(ref _refusedCommit)}, {MaxCompiles} in flight {Interlocked.Read(ref _refusedInFlight)}, private ceiling {Interlocked.Read(ref _refusedCeiling)}; {reserved / BytesPerGigabyte:F1} GB reserved for running compiles, reserve {PhysicalReserve(Interlocked.Read(ref _growthAllowance), PhysicalFloor) / BytesPerGigabyte:F1} GB";
         }
     }
 
@@ -626,10 +642,10 @@ internal static unsafe class CompileBudget
     {
         if (urgent)
         {
-            return MinimumPhysicalReserve;
+            return PhysicalFloor;
         }
 
-        return PhysicalReserve(Interlocked.Read(ref _growthAllowance));
+        return PhysicalReserve(Interlocked.Read(ref _growthAllowance), PhysicalFloor);
     }
 
     /// <summary>
