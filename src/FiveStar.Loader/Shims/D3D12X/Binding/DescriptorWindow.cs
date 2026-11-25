@@ -67,6 +67,18 @@ internal sealed unsafe class DescriptorWindow
     public const uint NullTableBase = SamplerBase + (MaxSamplers * SamplerRecordBytes);
     public const uint ViewBase = NullTableBase + (MaxTableRecords * ViewRecordBytes);
 
+    /// <summary>
+    /// Game view records the window has room for: the game's main view heap holds 1,245,184 descriptors, more than the
+    /// desktop's 1,000,000, so the regions past the records (<see cref="WindowGuard"/>, the debug rings) start after
+    /// this many. They started after <see cref="MaxViews"/> records before, under the records of game indices
+    /// 1,000,000 and up: the shim's mirror wrote those records into the store-trace ring, the window flags and the mesh
+    /// probe's ring (w24's ring count of 2,180,802,880).
+    /// </summary>
+    public const uint MaxWindowViews = 1u << 21;
+
+    /// <summary>The end of the room for view records.</summary>
+    public const uint RecordsEnd = ViewBase + (MaxWindowViews * ViewRecordBytes);
+
     /// <summary>The mesh fallback table: u0..u2 then t0 (BindlessRootSignature).</summary>
     private const uint FallbackTableSize = 4;
     private const uint FallbackUavs = 3;
@@ -116,8 +128,20 @@ internal sealed unsafe class DescriptorWindow
     /// </summary>
     public bool AttachViews(nint device, nint heap, uint views, uint increment)
     {
+        if (views > MaxWindowViews)
+        {
+            _log.Warn($"[d3d12_xs] descriptor window: a view heap of {views} descriptors; records past {MaxWindowViews} are not mirrored");
+            views = MaxWindowViews;
+        }
+
         uint records = ViewBase + (views * ViewRecordBytes);
         uint bytes = records;
+
+        // The window guard's counters past the room for records (rdna_prelude FIVESTAR_WINDOW_GUARD).
+        if (WindowGuard.Enabled && bytes < WindowGuard.Bytes)
+        {
+            bytes = WindowGuard.Bytes;
+        }
 
         // --trace-pool-stores: the store ring past the most view records the window can hold.
         if (DebugLayer.PoolStoreTrace.Enabled && bytes < DebugLayer.PoolStoreTrace.Bytes)

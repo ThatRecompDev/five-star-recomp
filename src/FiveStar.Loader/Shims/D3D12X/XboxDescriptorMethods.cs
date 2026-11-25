@@ -85,6 +85,11 @@ internal static unsafe class XboxDescriptorMethods
                 return;
             }
 
+            if (description != null && BufferRecords.Noting(BufferRecords.FieldlessConstantBuffer) && D3D12X.DescriptorHeaps.Find(handle, out _) is not null)
+            {
+                NoteConstantBuffer(description);
+            }
+
             ConstantBufferViewDescription desktop = default;
             ConstantBufferViewDescription* view = null;
 
@@ -166,6 +171,8 @@ internal static unsafe class XboxDescriptorMethods
             nint desktop = D3D12X.Objects.Unwrap(resource);
             D3D12X.DrawTrace?.ShaderResourceView(desktop, Destination(handle));
             var record = BufferRecords.Based(BufferRecords.ShaderResource(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: false), desktop, ViewKind.ShaderResource);
+            NoteFieldless(description, record, unordered: false);
+
             byte* copy = stackalloc byte[DepthViewDescriptions.ShaderResourceViewSize];
             desktop = BufferViewRanges.Fit(resource, desktop, description, copy, false, out void* fitted);
             void* view = TargetViewDescriptions.ShaderResourceView(desktop, fitted, copy);
@@ -234,6 +241,7 @@ internal static unsafe class XboxDescriptorMethods
             }
 
             var record = BufferRecords.Based(BufferRecords.UnorderedAccess(description), BufferRecords.GameAddress(resource), BufferRecords.FirstElement(description, unordered: true), desktop, ViewKind.UnorderedAccess);
+            NoteFieldless(description, record, unordered: true);
             desktop = BufferViewRanges.Fit(resource, desktop, description, copy, true, out void* fitted);
             var destination = D3D12X.DescriptorHeaps.Destination(handle, record);
 
@@ -248,6 +256,41 @@ internal static unsafe class XboxDescriptorMethods
         {
             UnmanagedGuard.Caught(exception, "XboxDescriptorMethods.CreateUnorderedAccessView");
         }
+    }
+
+    /// <summary>A buffer view whose desc leaves its record without V# fields (<see cref="BufferRecords.NoteFieldless"/>).</summary>
+    private static void NoteFieldless(void* description, BufferRecord record, bool unordered)
+    {
+        var view = (BufferViewDescription*)description;
+
+        if (view == null || view->Dimension != BufferViewDescription.BufferDimension || record.IsBuffer || !BufferRecords.Noting(BufferRecords.FieldlessView))
+        {
+            return;
+        }
+
+        if (unordered)
+        {
+            NoteView("UAV", view->Format, view->UavFlags, view->UavElements, view->UavStride);
+
+            return;
+        }
+
+        NoteView("SRV", view->Format, view->SrvFlags, view->SrvElements, view->SrvStride);
+    }
+
+    private static void NoteView(string kind, int format, int flags, uint elements, uint stride)
+    {
+        BufferRecords.NoteFieldless(BufferRecords.FieldlessView, $"a buffer {kind} of format {format}, flags 0x{flags:x}, {elements} elements of stride {stride}");
+    }
+
+    private static void NoteConstantBuffer(ConstantBufferViewDescription* description)
+    {
+        BufferRecords.NoteFieldless(BufferRecords.FieldlessConstantBuffer, $"a desktop CBV in a game heap (address 0x{description->Location:x}, 0x{description->Size:x} bytes)");
+    }
+
+    private static void NoteCopy(uint run, uint index)
+    {
+        BufferRecords.NoteFieldless(BufferRecords.FieldlessCopy, $"{run} descriptors copied in from a desktop heap at game index {index}");
     }
 
     /// <summary>With --watch-transient: the game range of a buffer UAV, by the desktop index its record names.</summary>
@@ -408,6 +451,11 @@ internal static unsafe class XboxDescriptorMethods
         {
             uint run = Least(count - done, heap.RunLength(index + done));
             nint desktop = heap.Destination(index + done, run, BufferRecord.None);
+
+            if (BufferRecords.Noting(BufferRecords.FieldlessCopy))
+            {
+                NoteCopy(run, index + done);
+            }
 
             if (desktop == 0)
             {

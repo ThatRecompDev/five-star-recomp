@@ -63,7 +63,7 @@ uint2 ptr_add(uint lo, uint hi, uint u, int s) {
 // heap indices from + 112; entries of {program id, address lo or byte offset, address hi or heap index | kind << 31,
 // value} from + 256. TRACE_BASE is DescriptorWindow.TraceBase.
 #ifdef FIVESTAR_STORE_TRACE
-static const uint TRACE_BASE = 0x01e94800u;
+static const uint TRACE_BASE = 0x04012100u;
 static const uint TRACE_ENTRIES = 65536u;
 void trace_entry(uint lo, uint hi, uint v) {
     RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
@@ -105,6 +105,21 @@ void TRACE_VSTORE(uint d0, uint d1, uint off, uint v) {   // a buffer store thro
     }
 #endif
 }
+// ---- Window guard (the loader's default; FIVESTAR_WINDOW_GUARD is the byte offset of its table in the window): a
+// store or atomic through a 32-bit pointer (high dword 0) would land in the descriptor window, whose records and debug
+// rings programs never write. It is dropped (an atomic goes to the sink after the table) and counted in slot
+// FIVESTAR_PROGRAM_ID & 1023 of the table: {program id, drops}.
+#ifdef FIVESTAR_WINDOW_GUARD
+#ifndef FIVESTAR_PROGRAM_ID
+#define FIVESTAR_PROGRAM_ID 0u
+#endif
+void window_guard_count() {
+    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    uint slot = FIVESTAR_WINDOW_GUARD + (FIVESTAR_PROGRAM_ID & 1023u) * 8u;
+    m.Store(slot, FIVESTAR_PROGRAM_ID);
+    m.InterlockedAdd(slot + 4u, 1u);
+}
+#endif
 uint PtrLoad(uint lo, uint hi, uint off) {   // off is signed (a dword offset or an SMEM offset)
     uint2 a = ptr_add(lo, hi, 0u, asint(off));
     if (hi == 0u) return MemLoad(a.x, 0u);
@@ -114,14 +129,22 @@ uint PtrLoad(uint lo, uint hi, uint off) {   // off is signed (a dword offset or
 }
 void PtrStore(uint lo, uint hi, uint off, uint v) {
     uint2 a = ptr_add(lo, hi, 0u, asint(off));
+#ifdef FIVESTAR_WINDOW_GUARD
+    if (hi == 0u) { window_guard_count(); return; }
+#else
     if (hi == 0u) { MemStore(a.x, 0u, v); return; }
+#endif
     TRACE_ADDR(a.x, a.y, v);
     uint2 p = gpu_page(a.x, a.y);
     RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(p.x + 1u)];
     b.Store(p.y & ~3u, v);
 }
 uint2 gpu_rw(uint lo, uint hi) {   // (RW heap index, byte address) of a pointer, for atomics
+#ifdef FIVESTAR_WINDOW_GUARD
+    if (hi == 0u) { window_guard_count(); return uint2(GPU_MEM_HEAP + 1u, FIVESTAR_WINDOW_GUARD + 1024u * 8u); }
+#else
     if (hi == 0u) return uint2(GPU_MEM_HEAP + 1u, lo);
+#endif
     uint2 p = gpu_page(lo, hi);
     return uint2(p.x + 1u, p.y);
 }// An access's view: (heap index, byte offset of base + off in it); rw takes the UAV of a game-memory base. Dword1
@@ -570,14 +593,15 @@ uint perm_b32(uint a, uint b, uint sel) {
 // the first time (probe_value), and m0 at GS_ALLOC_REQ (probe_alloc). At the end of the group thread 0 appends: {id,
 // group x y z; vertices, primitives as SetMeshOutputCounts got them, culled primitives, cull mask of primitives 0-31;
 // vertex 0's position; flags (bit 0: position written, bit 1: m0 noted), range, unmapped and null-record masks;
-// the values of sites 0-31; the mask of values noted; m0; the number of sites; id ^ PROBE_MARK}.
+// the values of sites 0-31; the mask of values noted; m0; the number of sites; id ^ PROBE_MARK; the mask of sites
+// that loaded through a 32-bit pointer (the window), the first such address thread 0 read (flags bit 2)}.
 #ifdef FIVESTAR_MESH_PROBE
 static const uint PROBE_RECORDS = 4096u;
 static const uint PROBE_RECORD_BYTES = 256u;
 static const uint PROBE_NULL_RECORD = 5u;
 static const uint PROBE_MARK = 0x50524f42u;   // a whole record's last dword: its id ^ this
-static uint g_probe_range, g_probe_unmapped, g_probe_record, g_probe_gi;
-groupshared uint g_probe_g[12];   // range, unmapped, null record, culled, cull mask, flags, position x y z w, values mask, m0
+static uint g_probe_range, g_probe_unmapped, g_probe_record, g_probe_window, g_probe_gi;
+groupshared uint g_probe_g[14];   // range, unmapped, null record, culled, cull mask, flags, position x y z w, values mask, m0, window mask, window address
 groupshared uint g_probe_v[32];
 uint probe_bit(uint site) { return 1u << min(site, 31u); }
 bool probe_sbuf_fits(uint site, bool fits) {
@@ -594,6 +618,10 @@ uint probe_BufLoadRW(uint site, uint heap_index, uint off) { probe_view(site, he
 uint4 probe_FmtLoad(uint site, uint heap_index, uint addr, uint code) { probe_view(site, heap_index); return FmtLoad(heap_index, addr, code); }
 uint probe_PtrLoad(uint site, uint lo, uint hi, uint off) {
     if (hi != 0u) { uint2 a = ptr_add(lo, hi, 0u, asint(off)); probe_view(site, gpu_page(a.x, a.y).x); }
+    else {   // a 32-bit pointer: the window (descriptor records); the first such address thread 0 reads is kept
+        g_probe_window |= probe_bit(site);
+        if (g_probe_gi == 0u && (g_probe_g[5] & 4u) == 0u) { g_probe_g[13] = lo + off; g_probe_g[5] |= 4u; }
+    }
     return PtrLoad(lo, hi, off);
 }
 void probe_value(uint site, uint v) {   // the register a site's line loaded, the first time on thread 0
@@ -608,7 +636,7 @@ void probe_alloc(uint m0) {   // GS_ALLOC_REQ's m0, the first time
 }
 void probe_begin(uint gi) {   // before the group's first barrier
     g_probe_gi = gi;
-    if (gi == 0u) { [unroll] for (uint i = 0u; i < 12u; i++) g_probe_g[i] = 0u; }
+    if (gi == 0u) { [unroll] for (uint i = 0u; i < 14u; i++) g_probe_g[i] = 0u; }
 }
 void probe_position(float4 p) {   // thread 0, writing vertex 0
     g_probe_g[5] |= 1u;
@@ -624,6 +652,7 @@ void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the 
     InterlockedOr(g_probe_g[0], g_probe_range);
     InterlockedOr(g_probe_g[1], g_probe_unmapped);
     InterlockedOr(g_probe_g[2], g_probe_record);
+    InterlockedOr(g_probe_g[12], g_probe_window);
     GroupMemoryBarrierWithGroupSync();
     if (gi != 0u) return;
     RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
@@ -636,5 +665,6 @@ void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the 
     m.Store4(at + 48u, uint4(g_probe_g[5], g_probe_g[0], g_probe_g[1], g_probe_g[2]));
     [unroll] for (uint k = 0u; k < 32u; k += 4u) m.Store4(at + 64u + k * 4u, uint4(g_probe_v[k], g_probe_v[k + 1u], g_probe_v[k + 2u], g_probe_v[k + 3u]));
     m.Store4(at + 192u, uint4(g_probe_g[10], g_probe_g[11], FIVESTAR_MESH_PROBE_SITES, FIVESTAR_MESH_PROBE ^ PROBE_MARK));
+    m.Store2(at + 208u, uint2(g_probe_g[12], g_probe_g[13]));
 }
 #endif

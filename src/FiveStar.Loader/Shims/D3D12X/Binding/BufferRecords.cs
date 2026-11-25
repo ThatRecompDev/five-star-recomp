@@ -41,6 +41,13 @@ internal static unsafe class BufferRecords
     /// <summary>Kept records logged per reason.</summary>
     private const int KeptLogged = 8;
 
+    /// <summary>Records written without V# fields, per kind (<see cref="NoteFieldless"/>).</summary>
+    public const int FieldlessView = 0;
+    public const int FieldlessConstantBuffer = 1;
+    public const int FieldlessCopy = 2;
+
+    private static readonly int[] FieldlessCounts = new int[FieldlessCopy + 1];
+
     /// <summary>Records that kept the heap index, per reason.</summary>
     private static readonly int[] KeptCounts = new int[ReasonCount];
 
@@ -156,6 +163,28 @@ internal static unsafe class BufferRecords
             $"[d3d12_xs] {kind} buffer record keeps the heap index: {Reasons[(int)reason]} (console address 0x{address:x}, {record.Records} records of stride {record.Stride}, format 0x{record.Format:x}{where})");
 
         return record;
+    }
+
+    /// <summary>
+    /// A record written without V# fields in the game's heaps although it may stand for a buffer: a buffer view whose
+    /// desc gives none (format unknown, no structure, not raw), a desktop CBV (the bytes behind its address had no
+    /// desktop buffer), or descriptors copied in from a desktop heap. A program reading such a record as a V# finds
+    /// num_records 0. The first <see cref="KeptLogged"/> of each kind are logged; false once they are.
+    /// </summary>
+    public static bool Noting(int kind)
+    {
+        return Volatile.Read(ref FieldlessCounts[kind]) < KeptLogged;
+    }
+
+    /// <summary>Logs one record without V# fields of <paramref name="kind"/> (callers test <see cref="Noting"/> first).</summary>
+    public static void NoteFieldless(int kind, string what)
+    {
+        int count = Interlocked.Increment(ref FieldlessCounts[kind]);
+
+        if (count <= KeptLogged)
+        {
+            ShimContext.Runtime.D3D12X.Warnings.Warn($"record-fieldless-{kind}-{count}", $"[d3d12_xs] a record without V# fields: {what}");
+        }
     }
 
     /// <summary>The console GPU address of a resource the game placed (slot 133); 0 for one the desktop placed.</summary>

@@ -61,7 +61,7 @@ internal sealed class ProgramProducer
     /// </summary>
     public string Header { get; init; } = ModeHeader();
 
-    /// <summary>The defines of the modes this process runs in: --user-data-constants and --evict-windows.</summary>
+    /// <summary>The defines of the modes this process runs in: --user-data-constants, --evict-windows and the window guard.</summary>
     public static string ModeHeader()
     {
         var header = new StringBuilder();
@@ -74,6 +74,11 @@ internal sealed class ProgramProducer
         if (Binding.WindowFeedback.Enabled)
         {
             header.Append(Binding.WindowFeedback.Header);
+        }
+
+        if (Binding.WindowGuard.Enabled)
+        {
+            header.Append(Binding.WindowGuard.Header);
         }
 
         return header.ToString();
@@ -154,7 +159,7 @@ internal sealed class ProgramProducer
             return Refused(name, NoProbe);
         }
 
-        hlsl = Header + hlsl;
+        hlsl = Header + Binding.WindowGuard.ProgramHeader(Header, name) + hlsl;
         var slow = hlsl.Length > _compiler.Options.LargeSourceLength || _slow.Contains(source);
 
         return new ProgramForm(name, new CompileRequest(Path.Combine(_folder, source), hlsl, profile, slow), null);
