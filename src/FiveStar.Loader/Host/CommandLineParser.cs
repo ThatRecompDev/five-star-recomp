@@ -574,6 +574,14 @@ internal sealed class CommandLineParser
         return true;
     }
 
+    /// <summary><c>--d3d12-nan-scan &lt;pipeline text&gt;</c>.</summary>
+    private bool SetNanScan()
+    {
+        _options.NanScan = Next();
+
+        return true;
+    }
+
     /// <summary><c>--check-view-liveness</c>.</summary>
     private bool SetViewLiveness()
     {
@@ -608,6 +616,8 @@ internal sealed class CommandLineParser
                 return SetFrameRate();
             case "--check-view-liveness":
                 return SetViewLiveness();
+            case "--d3d12-nan-scan":
+                return SetNanScan();
             case "--min-free-memory":
                 return SetMemoryFloor();
             case "--max-commit":

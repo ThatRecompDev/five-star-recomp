@@ -21,6 +21,7 @@ internal static class HostComposition
     {
         Shims.D3D12X.Present.FramePacer.Rate = options.FrameRate;
         Shims.D3D12X.DebugLayer.ViewLiveness.Enabled = options.CheckViewLiveness;
+        Shims.D3D12X.DebugLayer.NanScan.Filter = options.NanScan;
     }
 
     private static readonly TimeSpan LoadWindowSpan = TimeSpan.FromSeconds(120);

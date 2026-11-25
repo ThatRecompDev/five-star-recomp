@@ -69,7 +69,7 @@ internal static unsafe class XboxObjectMethods
     [HotPath]
     public static void Released(nint inner)
     {
-        if (DebugLayer.ViewLiveness.Enabled)
+        if (DebugLayer.ViewLiveness.Noting)
         {
             DebugLayer.ViewLiveness.Released(inner);
         }

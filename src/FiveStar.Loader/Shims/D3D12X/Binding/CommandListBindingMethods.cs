@@ -304,6 +304,11 @@ internal static unsafe class CommandListBindingMethods
     {
         GpuTimings.Work((nint)self, self->Inner, compute, ListActivity.Of(self)->Pipeline);
 
+        if (NanScan.Enabled)
+        {
+            NanScan.Before(self, compute);
+        }
+
         if (ViewLiveness.Enabled)
         {
             ViewLiveness.Check(self, compute);

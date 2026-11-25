@@ -49,5 +49,6 @@ internal unsafe struct ListActivity
         activity->Skipped = 0;
         activity->Serial = DebugLayer.GpuBreadcrumbs.Begin(list);
         DebugLayer.GpuTimings.Reset((nint)list);
+        DebugLayer.NanScan.Reset((nint)list);
     }
 }
