@@ -9,9 +9,10 @@ GTA VI does not run yet. Updated 26 November 2026.
 - **World image:** the city at night is on screen with sane exposure, but only light sources show (lamps, windows, car
   lights); the ground and buildings they should light stay black. Also wrong: blocky road lights, no bounced light
   (needs ray tracing).
-- **Device loss:** every boot that stays in the world a few minutes loses the GPU device (also before the 26 November
-  batch). The queues stop in different heavy compute passes (particles, hair, skinning); most likely Windows' 2 s GPU
-  timeout, since those passes write game memory in system RAM, which is very slow for the GPU.
+- **Device loss:** likely fixed. Textures the loader released kept descriptors pointing at them, and a pass reading
+  one lost the device; released textures' views are now nulled or moved to their replacement first. Two boots since
+  ran 8 and 11 minutes without a loss (before: every boot within 4-10 minutes). It was not the GPU timeout: the GPU
+  was idle most of each frame before the loss (#64).
 - **Startup freeze:** fixed. Boots no longer stand minutes on a black screen before the start screen.
 - **Materials:** fixed. Every texture the G-buffer samples now has data (streamed textures are re-read as their pages
   change).
@@ -24,7 +25,7 @@ GTA VI does not run yet. Updated 26 November 2026.
 
 | Problem | Next step |
 |---|---|
-| Device lost (0x887a0005) after minutes in the world | keep GPU-written game memory in video memory |
+| Device lost (0x887a0005) after minutes in the world | stale texture descriptors fixed; confirm over longer boots |
 | GPU writes to game memory in system RAM (16-byte records: 40 ms per 4 MB) | wide stores as one dword per thread (in testing); video-memory copies |
 | Surfaces get no direct light | the sky passes run again (were skipped); PIX capture of the lighting pass |
 | Blocky road lights | trace the shadow-mask pages and cascade shadow draws |
