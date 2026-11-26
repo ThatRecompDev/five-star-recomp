@@ -1,8 +1,10 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Runtime.InteropServices;
 using FiveStar.Shaders.Tests.Reference;
 using FiveStar.Shaders.Tests.Warp;
+using FiveStar.Shaders.Translation;
 
 namespace FiveStar.Shaders.Tests.Cases;
 
@@ -15,6 +17,9 @@ public static class BvhCases
 {
     private const int RecordDwords = 12;
     private const uint Untouched = 0x12345678;
+
+    /// <summary>The scene's base in game memory: above 4 GiB and above 1 TiB, so both high address bytes count.</summary>
+    private const ulong GameBase = 0x27E_0010_0000;
 
     /// <summary>What a node misses with under FIVESTAR_BVH_MISS: a triangle t_num inf over t_denom 1, a box no child.</summary>
     private static readonly uint[] TriangleMiss = [0x7f800000u, 0x3f800000u, 0u, 0u];
@@ -87,6 +92,71 @@ public static class BvhCases
             User = [0, 0, 0, 0],
             Buffers = [new BufferResource(0, memory.Words(), Writable: false)],
         };
+    }
+
+    /// <summary>
+    /// The mixed queries against the scene in game memory: the T# names a console address (bits 47:40 in dword1), whose
+    /// first 64 KiB page the address map maps to a buffer holding the scene; every fourth query's node is moved one page
+    /// on, into the unmapped page after it, and misses (a box no child, a triangle no hit) instead of reading zeros.
+    /// </summary>
+    public static ComputeCase GameMemory()
+    {
+        const ulong Page = 0x10000;
+        const int SceneHeap = 10;
+        const int NullView = 8;
+        var queries = BvhQueries.Mixed(10);
+        var memory = BvhScene.Build();
+        var options = new Options();
+
+        var records = queries.SelectMany(query => Record(query, options, 0)).ToArray();
+        var moved = queries.Select((query, index) => index % 4 == 3).ToArray();
+
+        for (var index = 0; index < records.Length; index++)
+        {
+            if (index % RecordDwords == 0 && moved[index / RecordDwords])
+            {
+                records[index] += (uint)(Page >> 3);
+            }
+
+            memory.WriteWord(4 * index, records[index]);
+        }
+
+        var window = BvhReference.Descriptor(BvhScene.Base, options.Sort, options.Grow, options.ReturnBarycentrics);
+        var expected = queries.Select((query, index) => Expect(memory, window, query, moved[index])).ToList();
+
+        var map = new AddressMap(1, NullView);
+        var bytes = new byte[map.Bytes];
+        map.Clear(bytes);
+        map.Map(bytes, GameBase, Page, SceneHeap, GameBase - (ulong)BvhScene.Base);
+
+        return new ComputeCase("bvh_game_memory_unmapped_miss", Program(options), 4, thread => [.. expected[thread.Id].Select(Expected.Exact)])
+        {
+            SecondDescriptor = GameDescriptor(window),
+            User = [0, 0, 0, 0],
+            Buffers =
+            [
+                new BufferResource(0, memory.Words(), Writable: false),
+                new BufferResource((int)AddressMap.HeapSlot, MemoryMarshal.Cast<byte, uint>(bytes).ToArray(), Writable: false),
+                new BufferResource(SceneHeap, memory.Words(), Writable: false),
+            ],
+        };
+    }
+
+    /// <summary>What a query gives: the reference over the scene, or a miss when its node was moved into the unmapped page.</summary>
+    private static uint[] Expect(BvhMemory memory, uint[] descriptor, BvhQuery query, bool moved)
+    {
+        if (moved)
+        {
+            return Miss(query);
+        }
+
+        return BvhReference.Intersect(memory, descriptor, query.Node, query.Ray);
+    }
+
+    /// <summary>The window T# with its base moved to <see cref="GameBase"/>: bits 39:8 in dword 0, bits 47:40 in dword 1's low byte.</summary>
+    private static uint[] GameDescriptor(uint[] window)
+    {
+        return [unchecked((uint)(GameBase >> 8)), window[1] | (uint)(GameBase >> 40), window[2], window[3]];
     }
 
     private static ComputeCase Make(string name, List<BvhQuery> queries, Options options)
