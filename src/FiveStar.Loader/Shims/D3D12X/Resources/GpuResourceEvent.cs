@@ -51,8 +51,14 @@ internal enum GpuResourceEvent
     /// <summary>A fill was refused: the console layout does not fit the desktop texture's subresources (left unfilled).</summary>
     UploadRefused,
 
-    /// <summary>A refresh found the texture's memory not readable (pages not mapped yet): left as it was.</summary>
+    /// <summary>A refresh found no page of the texture's memory mapped (or memory outside the XMem reservations not readable): left as it was.</summary>
     UploadUnreadable,
+
+    /// <summary>A refresh read a texture in an XMem reservation page by page, zeros for the pages mapped nowhere.</summary>
+    UploadGathered,
+
+    /// <summary>A slot-70 view made a texture over reserved memory no page of which is mapped yet (filled when pages map).</summary>
+    ViewCreatedUnmapped,
 
     /// <summary>A DirectStorage write or a new page mapping changed memory under a texture filled from memory.</summary>
     Written,

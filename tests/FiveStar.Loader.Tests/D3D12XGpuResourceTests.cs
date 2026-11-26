@@ -455,6 +455,67 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.True(textures.Counters[GpuResourceEvent.WrittenRefreshed] >= 1);
     }
 
+    /// <summary>
+    /// Pages the game maps at the GPU-only alias itself, not at the CPU range: the CPU range stays unmapped, so the
+    /// whole-range read refused the texture; it is read from the alias's pages (w108: UploadUnreadable on every refresh).
+    /// </summary>
+    [Fact]
+    public void A_texture_whose_pages_are_mapped_only_at_its_gpu_alias_is_filled_from_them()
+    {
+        using var test = TestRuntime.Create();
+        var (_, gpu, frames) = Reserved(test, mapped: false);
+        var device = new XboxDevice(test);
+        var description = Description();
+        var textures = test.Runtime.D3D12X.Textures;
+
+        byte[][] linear = [Pattern(Size, 13), Pattern(Size / 2, 14)];
+        WriteFrames(test, description, frames, linear);
+        var map = (delegate* unmanaged<nint, ulong, ulong*, nint>)test.Shim("xmem.dll", "XMemMapPhysicalPages");
+
+        fixed (ulong* pages = frames)
+        {
+            Assert.Equal(gpu, map(gpu, (ulong)frames.Length, pages));
+        }
+
+        PlaceTexture(device, gpu, description);
+        using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
+        CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
+
+        Assert.Equal(linear[0], probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
+        Assert.True(textures.Counters[GpuResourceEvent.UploadGathered] >= 1);
+    }
+
+    /// <summary>
+    /// A slot-70 view over reserved memory not mapped yet used to be a null descriptor for good; it now gets its texture,
+    /// which the pages' mapping fills before the next submission.
+    /// </summary>
+    [Fact]
+    public void A_view_made_before_its_pages_are_mapped_reads_them_once_they_are()
+    {
+        using var test = TestRuntime.Create();
+        var (cpu, gpu, frames) = Reserved(test, mapped: false);
+        var device = new XboxDevice(test);
+        var description = Description();
+        var textures = test.Runtime.D3D12X.Textures;
+
+        using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
+        CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
+        Assert.Equal(1, textures.Counters[GpuResourceEvent.ViewCreatedUnmapped]);
+        Assert.Equal(0, textures.Counters[GpuResourceEvent.ViewNull]);
+
+        byte[][] linear = [Pattern(Size, 15), Pattern(Size / 2, 16)];
+        WriteFrames(test, description, frames, linear);
+        var map = (delegate* unmanaged<nint, ulong, ulong*, nint>)test.Shim("xmem.dll", "XMemMapPhysicalPages");
+
+        fixed (ulong* pages = frames)
+        {
+            Assert.Equal(cpu, map(cpu, (ulong)frames.Length, pages));
+        }
+
+        RunEmptyList(device);
+        Assert.Equal(linear[0], probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
+    }
+
     [Fact]
     public void A_console_sampler_desc_becomes_the_desktop_sampler_it_describes()
     {

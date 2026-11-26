@@ -102,6 +102,11 @@ flowchart LR
   streamed texture and its views before the mips arrive, so the view's fill found the memory empty or unmapped
   (`UploadUnreadable`) and the material textures stayed black (w105). A 64-bit hash of the bytes skips unchanged
   memory. A fill whose console layout does not fit the desktop texture counts as `UploadRefused` (logged eight times).
+- **Textures in XMem reservations** are read page by page (`GameMemorySource.Gather`, `UploadGathered`): each 64 KiB
+  page from its CPU range or, when the game mapped it at the GPU-only alias itself, from there; zeros for a page mapped
+  nowhere (a mip not streamed in). The whole-range read refused every streamed texture with one unmapped page (w108:
+  `UploadUnreadable` 32,415 after 28,366 refreshes). A slot-70 view over such memory gets its texture even before a
+  page is mapped (`ViewCreatedUnmapped`) instead of a null descriptor that stayed null.
 - **CPU-mapped textures** (`GpuTextures.Watch`): a slot-133 texture the game maps (resource Map returns its memory)
   is written by the CPU whenever it likes; Bink decodes every video frame into its Y, Cr and Cb planes (1920x1080
   and 3840x2160 R8, mapped once). Such textures are checked once a frame, at the first ExecuteCommandLists after a
@@ -230,4 +235,4 @@ formats; none was seen.
 - Whether every GPU-only reservation aliases the CPU reservation before it; only the streaming pair is confirmed.
 - The slot-70 view desc's +0x3C (3 or -4 from a texture flag) and the sampler desc's +0x10 and +0x14.
 - Whether the game's copy calls should refresh textures without a new view (DirectStorage writes do).
-- Slot-70 views made while their memory was unreadable stay null descriptors (`ViewNull`; w105's 4x4 placeholders).
+- Slot-70 views over memory outside the XMem reservations that is unreadable stay null descriptors (`ViewNull`).
