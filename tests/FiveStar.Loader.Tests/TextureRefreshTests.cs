@@ -115,6 +115,66 @@ public sealed unsafe class TextureRefreshTests
         Assert.True(textures.Counters[GpuResourceEvent.UploadSkipped] > skipped);
     }
 
+    /// <summary>
+    /// Views of a filled texture: the first of a frame queues the check of its pages on the worker, the others in that
+    /// frame cost nothing; bytes the CPU wrote into reserved memory (which nothing reports) are found by the next
+    /// frame's view and uploaded before the submission after it.
+    /// </summary>
+    [Fact]
+    public void Views_check_a_texture_once_a_frame_and_find_what_the_cpu_wrote()
+    {
+        using var test = TestRuntime.Create();
+        var (gpu, frames) = Reserved(test);
+        var device = new XboxDevice(test);
+        var description = Description();
+        var textures = test.Runtime.D3D12X.Textures;
+        nint device12 = test.Runtime.D3D12X.Objects.DesktopDevice;
+
+        XgLayoutBuilder.Build(Desc(Rgba8Unorm, Size, Size, 1, Mips, description.Layout), out var surface);
+        byte[][] first = [Pattern(Size, 5), Pattern(Size / 2, 6)];
+        Write(test, surface, frames, first, 0, surface.Size);
+        PlaceTexture(device, gpu, description);
+
+        using var probe = new TextureProbe(device12);
+        nint handle = (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr;
+        textures.RefreshWatched(device12, 1);
+
+        for (int view = 0; view < 3; view++)
+        {
+            CreateView(device, gpu, description, handle);
+        }
+
+        Assert.Equal(1, textures.Counters[GpuResourceEvent.ViewCheckQueued]);
+        Assert.Equal(2, textures.Counters[GpuResourceEvent.ViewCheckSkipped]);
+        RunEmptyList(device);
+
+        // The CPU writes new mips into the mapped range (no DirectStorage, no mapping): the next frame's view finds them.
+        byte[][] second = [Pattern(Size, 7), Pattern(Size / 2, 8)];
+        WriteCpu(test, surface, gpu, second);
+        textures.RefreshWatched(device12, 2);
+        CreateView(device, gpu, description, handle);
+        RunEmptyList(device);
+
+        Assert.Equal(second[0], Bytes(probe.Read(Size, Size, 0, textures.Uploader.OrderBefore)));
+        Assert.Equal(second[1], Bytes(probe.Read(Size / 2, Size / 2, 1, textures.Uploader.OrderBefore)));
+    }
+
+    /// <summary>Tiles <paramref name="mips"/> straight into the CPU range behind GPU address <paramref name="gpu"/>, as the game's CPU would.</summary>
+    private static void WriteCpu(TestRuntime test, in XgSurface surface, nint gpu, byte[][] mips)
+    {
+        var cpu = (byte*)test.Runtime.XMemPhysical.CpuAddress(gpu);
+
+        for (int mip = 0; mip < mips.Length; mip++)
+        {
+            uint pitch = (uint)(Size >> mip) * sizeof(uint);
+
+            fixed (byte* linear = mips[mip])
+            {
+                Assert.Equal(0, XgCopier.Into(surface, cpu, 0, (uint)mip, linear, pitch, pitch * (uint)(Size >> mip)));
+            }
+        }
+    }
+
     private static byte[] Bytes(uint[] texels)
     {
         return texels.SelectMany(BitConverter.GetBytes).ToArray();

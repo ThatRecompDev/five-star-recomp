@@ -133,6 +133,34 @@ internal sealed unsafe class GpuTextures : IDisposable
         return texture;
     }
 
+    /// <summary>
+    /// A slot-70 view of the registered <paramref name="texture"/>: its memory may have new bytes the game wrote with the
+    /// CPU (nothing tells us of those), so all its pages are checked, but by the refresh worker against the per-page
+    /// hashes, before the next submission (which reads the view) and at most once a frame. A CPU-mapped texture is
+    /// checked every frame anyway. Before this each of w108's ~16k resolved views read and hashed the whole texture on
+    /// the game's thread.
+    /// </summary>
+    public void RefreshForView(GpuTexture texture)
+    {
+        if (texture.GpuWritten || texture.CopiedInto || texture.Watched || texture.Layout.PlaneCount != 1)
+        {
+            return;
+        }
+
+        long frame = Volatile.Read(ref _checkedFrame);
+
+        if (texture.UploadedHash != 0 && Interlocked.Exchange(ref texture.ViewCheckedFrame, frame) == frame)
+        {
+            Counters.Add(GpuResourceEvent.ViewCheckSkipped);
+
+            return;
+        }
+
+        texture.MarkPages(0, texture.Size);
+        Writes.Add(texture);
+        Counters.Add(GpuResourceEvent.ViewCheckQueued);
+    }
+
     /// <summary>Fills <paramref name="texture"/> from memory when it is not GPU-written, its memory is readable and its bytes changed.</summary>
     public void Refresh(nint device, GpuTexture texture)
     {

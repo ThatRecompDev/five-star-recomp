@@ -214,7 +214,7 @@ internal sealed unsafe class AddressShaderViews
         if (texture is not null && (texture.Matches(address, *resource) || (texture.GpuWritten && texture.SameExtent(address, *resource))))
         {
             _textures.Counters.Add(GpuResourceEvent.ViewResolved);
-            _textures.Refresh(device, texture);
+            _textures.RefreshForView(texture);
 
             return texture;
         }
