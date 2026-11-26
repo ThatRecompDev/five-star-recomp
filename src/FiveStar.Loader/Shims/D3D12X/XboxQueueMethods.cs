@@ -163,7 +163,7 @@ internal static unsafe class XboxQueueMethods
 
                 if (desktop[i] != list)
                 {
-                    ListSubmissions.WaitIfRunning(list);
+                    ListSubmissions.WaitIfRunning(list, (XboxQueueObject*)self);
                     MemoryWaitWriters.Submitted(list, (XboxQueueObject*)self);
                 }
             }
