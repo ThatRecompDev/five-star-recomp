@@ -67,11 +67,13 @@ public sealed class MeshRoundBoundTests : IClassFixture<WarpFixture>
         Assert.Contains("const uint SS_ROUNDS = 0x100u;", bounded, StringComparison.Ordinal);
         Assert.Contains("round bound 4096", runner.TranslateBarrierLoop(true, LoopCaps.Default), StringComparison.Ordinal);
 
-        // Every primitive starts culled after SetMeshOutputCounts, and an export's indices stay inside the vertex count.
+        // Every primitive starts as a degenerate triangle with its cull false after SetMeshOutputCounts (AMD keeps a
+        // cull once written true, so the export could not draw it again), and an export's indices stay inside the vertex count.
         foreach (string form in new[] { bounded, runner.TranslateBarrierLoop(false, LoopCaps.Default) })
         {
             int counts = form.IndexOf("SetMeshOutputCounts(", StringComparison.Ordinal);
-            Assert.Contains("prims[in_gi].cull = true;", form[counts..(counts + 300)], StringComparison.Ordinal);
+            Assert.Contains("tris[in_gi] = uint3(0u, 0u, 0u);\n    prims[in_gi].cull = false;", form[counts..(counts + 300)], StringComparison.Ordinal);
+            Assert.DoesNotContain("prims[in_gi].cull = true;", form[counts..(counts + 300)], StringComparison.Ordinal);
             Assert.Contains("tris[in_gi] = min(_i, _n - 1u); prims[in_gi].cull = (_p >> 31) != 0 || any(_i >= _n);", form, StringComparison.Ordinal);
         }
 
