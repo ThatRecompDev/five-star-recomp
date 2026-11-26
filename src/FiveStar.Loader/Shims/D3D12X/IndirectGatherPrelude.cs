@@ -84,6 +84,7 @@ internal static unsafe class IndirectGatherPrelude
 
             ZeroBudgets(list);
             RecordPasses(list);
+            Release(list);
             prelude.List.Close();
             queue.Submit(gameQueue, prelude);
             Count++;
@@ -113,7 +114,11 @@ internal static unsafe class IndirectGatherPrelude
         return (record.Target, record.Source, record.Kind, record.Stride);
     }
 
-    /// <summary>One pass per gather buffer zeroing its budget counter, then a UAV barrier before the clamps charge it.</summary>
+    /// <summary>
+    /// One pass per gather buffer zeroing its budget counter, then a UAV barrier before the clamps charge it. Each buffer
+    /// is made writable first by an explicit transition (COMMON, where every buffer is at the start of a submission, to
+    /// UNORDERED_ACCESS), as the clamp of one ExecuteIndirect does (<see cref="ClampBarriers"/>), not by implicit promotion.
+    /// </summary>
     private static void ZeroBudgets(nint list)
     {
         uint* zero = stackalloc uint[(int)IndirectGatherProgram.Constants];
@@ -128,6 +133,7 @@ internal static unsafe class IndirectGatherPrelude
             }
 
             last = record.Target;
+            BarrierWriter.Transition(list, last, States.ResourceStates.Common, States.ResourceStates.UnorderedAccess);
             ulong address = DesktopCalls.GpuAddress(last);
             Views(list, address, address);
             ((delegate* unmanaged<nint, uint, uint, uint*, uint, void>)ComObject.Slot(list, SetConstantsSlot))(list, IndirectGatherProgram.ConstantsParameter, IndirectGatherProgram.Constants, zero, 0);
@@ -135,6 +141,25 @@ internal static unsafe class IndirectGatherPrelude
 
             var barrier = new TransitionBarrier { Type = TransitionBarrier.UavType, Resource = last };
             BarrierWriter.Write(list, &barrier);
+        }
+    }
+
+    /// <summary>
+    /// After the passes, each gather buffer back to COMMON: the transition waits for the passes and makes their writes
+    /// visible before the prelude ends, so the segment that reads the records (as arguments, or a copy) after it on the
+    /// queue does not rely on the submission boundary alone (the gather test failed on an RX 7800 XT and passed elsewhere).
+    /// </summary>
+    private static void Release(nint list)
+    {
+        nint last = 0;
+
+        foreach (var record in Segment)
+        {
+            if (record.Target != last)
+            {
+                last = record.Target;
+                BarrierWriter.Transition(list, last, States.ResourceStates.UnorderedAccess, States.ResourceStates.Common);
+            }
         }
     }
 
