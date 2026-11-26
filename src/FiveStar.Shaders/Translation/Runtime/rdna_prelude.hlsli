@@ -295,6 +295,65 @@ void BufStore(uint heap_index, uint off, uint v) {
     b.Store(off & ~3u, v);
 }
 
+// ---- Wide stores: a compute program's store of n (2 to 4) dwords a lane (buffer_store_dwordxN, global_store_dwordxN).
+// Game memory is system memory, and a GPU store there is fast only when one store instruction covers whole sectors a
+// dword a lane: on an RTX 4090, 4 MB of 16-byte lane records (four dword stores, or one Store4) took 25-40 ms, 4 MB a
+// dword a lane 0.16 ms (PCIe speed). When every lane of the hardware wave stores into one view and each lane's record
+// follows the one before it, the wave writes the block a dword a lane instead: store k writes dword k * lanes + lane of
+// the block, taken from the lane that holds it. The same bytes reach memory; any other wave stores as before. Off with
+// the store and span traces, which name each dword's own store.
+#if defined(FIVESTAR_STORE_TRACE) || defined(FIVESTAR_SPAN_GUARD) || defined(FIVESTAR_WINDOW_GUARD)
+#define WIDE_STORES 0
+#else
+#define WIDE_STORES 1
+#endif
+bool wide_block(uint view, uint at, uint n) {
+    if (!WIDE_STORES || WaveActiveCountBits(true) != WaveGetLaneCount()) return false;
+    uint first_view = WaveReadLaneFirst(view), first = WaveReadLaneFirst(at);
+    return WaveActiveAllTrue(view == first_view && at == first + WaveGetLaneIndex() * n * 4u);
+}
+uint wide_dword(uint4 v, uint n, uint d) {   // dword d of the wave's block of n-dword records
+    uint lane = d / n, c = d - lane * n;
+    uint x = WaveReadLaneAt(v.x, lane), y = WaveReadLaneAt(v.y, lane), z = WaveReadLaneAt(v.z, lane), w = WaveReadLaneAt(v.w, lane);
+    return c == 0u ? x : (c == 1u ? y : (c == 2u ? z : w));
+}
+void wide_write(uint uav, uint first, uint4 v, uint n) {   // the block from byte first of the UAV at heap index uav
+    RWByteAddressBuffer b = ResourceDescriptorHeap[uav];
+    uint lanes = WaveGetLaneCount(), lane = WaveGetLaneIndex();
+    b.Store(first + lane * 4u, wide_dword(v, n, lane));
+    b.Store(first + (lanes + lane) * 4u, wide_dword(v, n, lanes + lane));
+    if (n > 2u) b.Store(first + (2u * lanes + lane) * 4u, wide_dword(v, n, 2u * lanes + lane));
+    if (n > 3u) b.Store(first + (3u * lanes + lane) * 4u, wide_dword(v, n, 3u * lanes + lane));
+}
+// A buffer store of n dwords through view heap_index at byte off, every dword in range (BufferEmitter).
+void BufStoreN(uint heap_index, uint off, uint4 v, uint n) {
+    uint at = off & ~3u;
+    if (wide_block(heap_index, at, n)) {
+        wide_write(uav_slot(WaveReadLaneFirst(heap_index)), WaveReadLaneFirst(at), v, n);
+        return;
+    }
+    BufStore(heap_index, off, v.x);
+    BufStore(heap_index, off + 4u, v.y);
+    if (n > 2u) BufStore(heap_index, off + 8u, v.z);
+    if (n > 3u) BufStore(heap_index, off + 12u, v.w);
+}
+// A global store of n dwords at pointer (lo, hi) (GlobalMemoryEmitter): wide when each lane's record is in one page of
+// game memory (the window, high dword 0, keeps PtrStore).
+void PtrStoreN(uint lo, uint hi, uint4 v, uint n) {
+    uint2 a = ptr_add(lo, hi, 0u, 0);
+    bool paged = a.y != 0u && a.y < GPU_MAP_SPANS && (a.x & 3u) == 0u && (a.x >> 16) == ((a.x + n * 4u - 1u) >> 16);
+    uint2 p = uint2(0u, 0u);
+    if (paged) p = gpu_page(a.x, a.y);
+    if (WaveActiveAllTrue(paged) && wide_block(p.x, p.y, n)) {
+        wide_write(WaveReadLaneFirst(p.x) + 1u, WaveReadLaneFirst(p.y), v, n);
+        return;
+    }
+    PtrStore(lo, hi, 0u, v.x);
+    PtrStore(lo, hi, 4u, v.y);
+    if (n > 2u) PtrStore(lo, hi, 8u, v.z);
+    if (n > 3u) PtrStore(lo, hi, 12u, v.w);
+}
+
 // ---- program waves. Translated code numbers lanes as the console does: 0 .. VW_WAVE-1 of a VW_WAVE-lane wave. The vw_*
 // operations take and return those numbers. With VW_EMULATE they stay correct on any hardware wave size:
 //   hardware wave = program wave: the native operation;
