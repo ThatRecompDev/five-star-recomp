@@ -45,9 +45,8 @@ internal static class RootSignatureParser
     private const uint Unbounded = uint.MaxValue;
     private const int MaxSgprs = byte.MaxValue;
 
-    /// <summary>D3D12_DESCRIPTOR_RANGE_TYPE_UAV, and the records of a UAV range kept (an unbounded one included).</summary>
+    /// <summary>D3D12_DESCRIPTOR_RANGE_TYPE_UAV.</summary>
     private const uint UavRange = 1;
-    private const uint MaxUavRecords = 8;
 
     public static bool TryParse(ReadOnlySpan<byte> blob, out RootLayout layout)
     {
@@ -151,7 +150,7 @@ internal static class RootSignatureParser
             {
                 layout.UavParameters[layout.UavRanges] = (byte)parameter;
                 layout.UavStarts[layout.UavRanges] = (ushort)start;
-                layout.UavCounts[layout.UavRanges] = (ushort)Math.Min(count, MaxUavRecords);
+                layout.UavCounts[layout.UavRanges] = (ushort)Math.Min(count, DescriptorWindow.MaxTableRecords - start);
                 layout.UavRanges++;
             }
 
