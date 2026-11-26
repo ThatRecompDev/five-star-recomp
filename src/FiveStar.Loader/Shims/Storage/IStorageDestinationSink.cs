@@ -12,4 +12,9 @@ internal interface IStorageDestinationSink
 {
     /// <summary>Writes <paramref name="data"/> to the request's destination; returns an HRESULT for the status array.</summary>
     int Write(in StorageRequest request, ReadOnlySpan<byte> data);
+
+    /// <summary>A request wrote <paramref name="bytes"/> bytes of system memory at <paramref name="address"/> (textures over it are stale).</summary>
+    void Wrote(nint address, ulong bytes)
+    {
+    }
 }

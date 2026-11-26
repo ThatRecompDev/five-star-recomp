@@ -251,6 +251,14 @@ internal sealed class GpuTextureRegistry : IDisposable
     /// </summary>
     private static bool Overlaps(GpuTexture[] sorted, ulong address, ulong bytes)
     {
+        int last = LastStartingBefore(sorted, address + bytes);
+
+        return last >= 0 && address < sorted[last].Address + sorted[last].Size;
+    }
+
+    /// <summary>The index of the last texture of <paramref name="sorted"/> that starts before <paramref name="end"/>; -1 for none.</summary>
+    private static int LastStartingBefore(GpuTexture[] sorted, ulong end)
+    {
         int low = 0;
         int high = sorted.Length - 1;
         int last = -1;
@@ -259,7 +267,7 @@ internal sealed class GpuTextureRegistry : IDisposable
         {
             int middle = low + ((high - low) >> 1);
 
-            if (sorted[middle].Address < address + bytes)
+            if (sorted[middle].Address < end)
             {
                 last = middle;
                 low = middle + 1;
@@ -270,7 +278,28 @@ internal sealed class GpuTextureRegistry : IDisposable
             }
         }
 
-        return last >= 0 && address < sorted[last].Address + sorted[last].Size;
+        return last;
+    }
+
+    /// <summary>The registered textures over any byte of the range (lock-free: registered ranges never overlap).</summary>
+    public IReadOnlyList<GpuTexture> Overlapping(ulong address, ulong bytes)
+    {
+        var sorted = Volatile.Read(ref _sorted);
+        int index = LastStartingBefore(sorted, address + bytes);
+
+        if (index < 0 || address >= sorted[index].Address + sorted[index].Size)
+        {
+            return [];
+        }
+
+        var found = new List<GpuTexture>();
+
+        for (; index >= 0 && address < sorted[index].Address + sorted[index].Size; index--)
+        {
+            found.Add(sorted[index]);
+        }
+
+        return found;
     }
 
     /// <summary>Once per present: releases the retired textures whose grace period ended.</summary>

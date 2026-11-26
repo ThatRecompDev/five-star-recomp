@@ -27,8 +27,10 @@ internal sealed unsafe class XMemPhysicalMemory : IDisposable
     private readonly XMemPageStore _pages;
     private readonly XMemReservationTable _reservations = new();
     private readonly List<(nint Address, nuint Size)> _placeholders = [];
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, nint> _frameAddresses = new();
     private XMemReservation? _lastCpuReservation;
     private Action<nint, ulong, ulong>? _pageChanged;
+    private Action<nint, ulong>? _written;
 
     public XMemPhysicalMemory(LoaderLog log)
     {
@@ -279,6 +281,12 @@ internal sealed unsafe class XMemPhysicalMemory : IDisposable
 
             int length = (int)Math.Min((ulong)data.Length, PageSize - inPage);
             data[..length].CopyTo(new Span<byte>((void*)(chunk.Window + (nint)(pageOffset + inPage)), length));
+
+            if (_frameAddresses.TryGetValue(frames[index], out nint mapped))
+            {
+                Volatile.Read(ref _written)?.Invoke(mapped + (nint)inPage, (ulong)length);
+            }
+
             data = data[length..];
             inPage = 0;
             index++;
@@ -338,6 +346,25 @@ internal sealed unsafe class XMemPhysicalMemory : IDisposable
         {
             Volatile.Write(ref _pageChanged, (Action<nint, ulong, ulong>)Delegate.Combine(_pageChanged, changed));
         }
+    }
+
+    /// <summary>
+    /// Adds <paramref name="written"/> to the calls made (address, bytes) when memory changes behind the CPU's back: a
+    /// DirectStorage request writes physical pages (<see cref="WriteFrames"/>, at the address the page is mapped at last)
+    /// or game memory (<see cref="NoteWritten"/>). Textures filled from that memory are stale until refreshed.
+    /// </summary>
+    public void ObserveWrites(Action<nint, ulong> written)
+    {
+        lock (_placeholders)
+        {
+            Volatile.Write(ref _written, (Action<nint, ulong>)Delegate.Combine(_written, written));
+        }
+    }
+
+    /// <summary>A DirectStorage request wrote <paramref name="bytes"/> bytes of game memory at <paramref name="address"/>.</summary>
+    public void NoteWritten(nint address, ulong bytes)
+    {
+        Volatile.Read(ref _written)?.Invoke(address, bytes);
     }
 
     /// <summary>Calls <paramref name="visit"/> (address, frame) for every page mapped now, in address order per reservation.</summary>
@@ -407,10 +434,30 @@ internal sealed unsafe class XMemPhysicalMemory : IDisposable
 
         if (mapped && previous != frame)
         {
+            NoteFrame(address, previous, frame);
             Volatile.Read(ref _pageChanged)?.Invoke(address, previous, frame);
         }
 
         return mapped;
+    }
+
+    /// <summary>
+    /// Keeps where each frame is mapped last (a page of <paramref name="address"/>), so a write into the frame names the
+    /// memory it changed; an unmapped frame's entry goes once nothing else took it.
+    /// </summary>
+    private void NoteFrame(nint address, ulong previous, ulong frame)
+    {
+        nint page = (nint)((ulong)address & ~(PageSize - 1));
+
+        if (previous != 0)
+        {
+            _frameAddresses.TryRemove(new KeyValuePair<ulong, nint>(previous, page));
+        }
+
+        if (frame != 0)
+        {
+            _frameAddresses[frame] = page;
+        }
     }
 
     private void CoalesceIfWhole(nint address, ulong size)
