@@ -834,6 +834,8 @@ internal sealed unsafe class DrawTrace
     {
         for (uint i = 0; i < count; i++)
         {
+            _probes.Submitted(lists[i]);
+
             if (_lists.TryGetValue(lists[i], out var state) && state.Traced)
             {
                 state.Traced = false;
@@ -1085,9 +1087,17 @@ internal sealed unsafe class DrawTrace
     /// <summary>Logs the probes; the GPU finished everything submitted.</summary>
     public void Report()
     {
-        _probes.Report(Resets);
+        bool waiting = _probes.Report(Resets);
         _queries.Report();
-        Volatile.Write(ref _reportAt, 0);
+        long next = 0;
+
+        // Probes of lists the game had not submitted yet: read at a later report, after those lists ran.
+        if (waiting)
+        {
+            next = Volatile.Read(ref _lastPresent) + ReportDelay;
+        }
+
+        Volatile.Write(ref _reportAt, next);
     }
 
     /// <summary>
