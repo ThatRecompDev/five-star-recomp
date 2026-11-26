@@ -122,7 +122,7 @@ public static class ComputeMemoryCases
         };
     }
 
-    // s_loads of several dwords through a console GPU address (prelude sptr_view, SPtrLoadAt): an s_load_dwordx8 16 bytes
+    // s_loads of several dwords through a console GPU address (prelude sptr_views, SPtrLoadAt): an s_load_dwordx8 16 bytes
     // before the end of a page reads its last four dwords from the next page, which maps to another buffer; an
     // s_load_dwordx4 inside the page reads its four from one view.
     private static ComputeCase ScalarLoadsAcrossPages()
