@@ -84,6 +84,9 @@ internal sealed unsafe class DrawTrace
     private long _presentWork;
     private bool _worldSeen;
     private readonly ConcurrentDictionary<nint, (int Game, int View)> _viewFormats = new();
+
+    /// <summary>Each render-target view's desc after its format: dimension, then the union's first four dwords (mip and slices).</summary>
+    private readonly ConcurrentDictionary<nint, (int Dimension, int Mip, int Second, int Third, int Fourth)> _viewShapes = new();
     private readonly ConcurrentDictionary<nint, string> _targetDescriptions = new();
     private readonly ConcurrentDictionary<nint, int> _dumped = new();
     private readonly ConcurrentDictionary<nint, byte> _indirectProbes = new();
@@ -238,9 +241,10 @@ internal sealed unsafe class DrawTrace
     }
 
     /// <summary>A render-target view of <paramref name="resource"/> (a wrapper or a desktop resource).</summary>
-    public void RenderTargetView(nint resource, nint handle, int gameFormat = 0, int viewFormat = 0)
+    public void RenderTargetView(nint resource, nint handle, int gameFormat = 0, int viewFormat = 0, int* description = null)
     {
         _viewFormats[handle] = (gameFormat, viewFormat);
+        NoteShape(handle, description);
         var wrapper = _d3d12.Objects.AsResource(resource);
         int home = wrapper == null ? States.ResourceStates.RenderTarget : wrapper->HomeState;
         nint desktop = _d3d12.Objects.Unwrap(resource);
@@ -508,7 +512,7 @@ internal sealed unsafe class DrawTrace
         var text = new StringBuilder($"  [draws] draw {draw}: list 0x{(nint)list:x}, {vertices} vertices x {instances}");
         text.Append($"\n      pipeline 0x{rectangles->Pipeline:x} topology {rectangles->Topology} variant {rectangles->VariantBound}: {pipeline}");
 
-        AppendTargets(text, state);
+        AppendTargets(text, state, list);
         text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x} ({DepthView(state.DepthStencil)})");
         text.Append(state.VertexBuffers);
         AppendUserData(text, CommandListBindings.Of(list), compute: false);
@@ -672,7 +676,7 @@ internal sealed unsafe class DrawTrace
 
         if (!compute)
         {
-            AppendTargets(text, state);
+            AppendTargets(text, state, list);
             text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x} ({DepthView(state.DepthStencil)})");
         }
 
@@ -1055,13 +1059,69 @@ internal sealed unsafe class DrawTrace
         return _lists.GetOrAdd((nint)list, static _ => new DrawTraceList());
     }
 
-    private void AppendTargets(StringBuilder text, DrawTraceList state)
+    /// <summary>
+    /// The bound render targets: each view's resource, home state and formats, its desc's dimension, mip and slices, the
+    /// resource's desktop flags and the state the list has it in before the draw.
+    /// </summary>
+    private void AppendTargets(StringBuilder text, DrawTraceList state, XboxObject* list)
     {
+        var states = _d3d12.ListStates.Find(list);
+
         foreach (nint handle in state.Targets)
         {
-            string target = _targetViews.TryGetValue(handle, out var view) ? $"resource 0x{view.Resource:x} {Describe(view.Resource)}, home state 0x{view.Home:x}{ViewFormat(handle)}" : "not a view this trace saw";
-            text.Append($"\n      rtv 0x{handle:x}: {target}");
+            if (!_targetViews.TryGetValue(handle, out var view))
+            {
+                text.Append($"\n      rtv 0x{handle:x}: not a view this trace saw");
+
+                continue;
+            }
+
+            int current = states is null ? view.Home : states.Current(view.Resource, view.Home);
+            text.Append($"\n      rtv 0x{handle:x}: resource 0x{view.Resource:x} {Describe(view.Resource)}, home state 0x{view.Home:x}{ViewFormat(handle)}");
+            text.Append($"; {ViewShape(handle)}, desktop flags 0x{Flags(view.Resource):x}, state before the draw 0x{current:x}");
         }
+    }
+
+    private void NoteShape(nint handle, int* description)
+    {
+        const int DimensionDword = 1;
+        const int MipDword = 2;
+        const int SecondDword = 3;
+        const int ThirdDword = 4;
+        const int FourthDword = 5;
+
+        if (description == null)
+        {
+            _viewShapes.TryRemove(handle, out _);
+
+            return;
+        }
+
+        _viewShapes[handle] = (description[DimensionDword], description[MipDword], description[SecondDword], description[ThirdDword], description[FourthDword]);
+    }
+
+    /// <summary>"desc dimension D, mip M, then a, b, c" (the slices or plane of that dimension); "no desc" for the whole resource.</summary>
+    private string ViewShape(nint handle)
+    {
+        if (!_viewShapes.TryGetValue(handle, out var shape))
+        {
+            return "no desc";
+        }
+
+        return $"desc dimension {shape.Dimension}, mip {shape.Mip}, then {shape.Second}, {shape.Third}, {shape.Fourth}";
+    }
+
+    private static int Flags(nint resource)
+    {
+        if (resource == 0)
+        {
+            return 0;
+        }
+
+        Marshal.AddRef(resource);
+        using var desktop = new ID3D12Resource(resource);
+
+        return (int)desktop.Description.Flags;
     }
 
     /// <summary>The view's format as the game asked for it and as the desktop got it (0: the resource's own).</summary>
