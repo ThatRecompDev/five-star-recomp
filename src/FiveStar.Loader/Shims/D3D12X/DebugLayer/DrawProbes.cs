@@ -102,7 +102,8 @@ internal sealed unsafe class DrawProbes
     /// <paramref name="key"/> and <paramref name="generation"/> name the game's list and how often it was reset; with
     /// <paramref name="png"/> the report also writes the image there.
     /// <paramref name="plane"/> 1 copies a depth-stencil's stencil plane (its R8 footprint, summarized as a histogram).
-    public void Record(nint device, nint list, nint target, int state, string label, nint key, long generation, string? png = null, int plane = 0)
+    /// With <paramref name="stage"/> the PNG is converted by <see cref="StagePixels"/> (<c>--dump-frame</c>).
+    public void Record(nint device, nint list, nint target, int state, string label, nint key, long generation, string? png = null, int plane = 0, bool stage = false)
     {
         Marshal.AddRef(device);
         using var desktop = new ID3D12Device(device);
@@ -151,7 +152,9 @@ internal sealed unsafe class DrawProbes
         lock (_gate)
         {
             uint depth = description.Dimension == ResourceDimension.Texture3D ? footprints[0].Footprint.Depth : 1;
-            _pending.Add(new Probe(label, buffer, (long)total, footprints[0], rows[0] * depth, (int)footprints[0].Footprint.Width, format, key, generation, png, _submissions.GetValueOrDefault(key), 0));
+            bool depthTarget = (description.Flags & ResourceFlags.AllowDepthStencil) != 0 && plane == 0;
+            var conversion = new Conversion(stage, depthTarget);
+            _pending.Add(new Probe(label, buffer, (long)total, footprints[0], rows[0] * depth, (int)footprints[0].Footprint.Width, format, key, generation, png, _submissions.GetValueOrDefault(key), 0, conversion));
         }
     }
 
@@ -295,6 +298,11 @@ internal sealed unsafe class DrawProbes
             var target = image is null ? Span<byte>.Empty : image.AsSpan(0, imageBytes);
             var summary = ReadbackPixels.Summarize(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format, target);
 
+            if (probe.Conversion.Stage && image is not null)
+            {
+                summary = Stage(probe, source, target, summary);
+            }
+
             string floats = FloatSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format)
                 + StencilSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format)
                 + UintSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format);
@@ -322,6 +330,28 @@ internal sealed unsafe class DrawProbes
                 System.Buffers.ArrayPool<byte>.Shared.Return(image);
             }
         }
+    }
+
+    /// <summary>
+    /// A <c>--dump-frame</c> PNG into <paramref name="target"/>: <see cref="StagePixels"/>' image when it reads the format,
+    /// else the RGBA8 rows <paramref name="summary"/> came with, else the raw bytes; the summary gains the channel statistics.
+    /// </summary>
+    private static string? Stage(Probe probe, ReadOnlySpan<byte> source, Span<byte> target, string? summary)
+    {
+        int pitch = (int)probe.Footprint.Footprint.RowPitch;
+        string? stats = StagePixels.Convert(source, pitch, probe.Width, (int)probe.Rows, probe.Format, probe.Conversion.Depth, target);
+
+        if (stats is not null)
+        {
+            return (summary ?? $"format {probe.Format}") + stats;
+        }
+
+        if (summary is null && StagePixels.Raw(source, pitch, probe.Width, (int)probe.Rows, probe.Format, target))
+        {
+            return $"format {probe.Format} written as its raw bytes";
+        }
+
+        return summary;
     }
 
     /// <summary>
@@ -552,5 +582,8 @@ internal sealed unsafe class DrawProbes
     }
 
     /// <summary>One recorded copy: its buffer and size, the copied footprint, the game's list and generation it was copied on, the list's submissions then, and the reports it waited.</summary>
-    private sealed record Probe(string Label, ID3D12Resource Buffer, long Bytes, PlacedSubresourceFootPrint Footprint, uint Rows, int Width, int Format, nint List, long Generation, string? Png, long Submissions, int Waits);
+    private sealed record Probe(string Label, ID3D12Resource Buffer, long Bytes, PlacedSubresourceFootPrint Footprint, uint Rows, int Width, int Format, nint List, long Generation, string? Png, long Submissions, int Waits, Conversion Conversion);
+
+    /// <summary>How a probe's PNG is made: by <see cref="StagePixels"/> (<c>--dump-frame</c>), and whether the copy is depth.</summary>
+    private readonly record struct Conversion(bool Stage, bool Depth);
 }

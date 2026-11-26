@@ -110,6 +110,31 @@ internal static class FloatScan
         return result;
     }
 
+    /// <summary>
+    /// The first <paramref name="limit"/> channel values of a read-back float texture, texel by texel (R11G11B10 only as
+    /// finite 0 or not); empty for a format that is not float.
+    /// </summary>
+    public static List<float> Values(ReadOnlySpan<byte> data, int rowPitch, int width, int rows, int format, int limit)
+    {
+        var (channels, bytes) = Layout(format);
+        var values = new List<float>();
+
+        for (int y = 0; y < rows && channels != 0; y++)
+        {
+            var row = data.Slice(y * rowPitch);
+
+            for (int x = 0; x < width; x++)
+            {
+                for (int channel = 0; channel < channels && values.Count < limit; channel++)
+                {
+                    values.Add(Channel(row, x, channel, channels, bytes));
+                }
+            }
+        }
+
+        return values;
+    }
+
     private static float Channel(ReadOnlySpan<byte> row, int x, int channel, int channels, int bytes)
     {
         if (bytes == 0)

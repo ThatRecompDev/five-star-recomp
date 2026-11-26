@@ -60,6 +60,29 @@ public sealed unsafe class D3D12XPipelineTests
     }
 
     [Fact]
+    public void Blending_is_turned_off_on_the_targets_whose_format_does_not_blend()
+    {
+        // PS_WindshieldWiperMask: R32_FLOAT, B4G4R4A4_UNORM and R8_UINT targets, a MAX blend on all eight; the desktop
+        // runtime refused the pipeline in every boot ("slot 2 is format (R8_UINT). This format does not support blending").
+        const int R8Uint = 62;
+        int[] formats = [41, 115, R8Uint];
+        var blend = DesktopStateBytes.DefaultBlend();
+        DesktopStateBytes.WriteTarget(blend, 0, true, [2, 2, 5, 2, 1, 1], 0x0F);
+
+        var shared = DesktopStateRules.Blend(blend, formats, format => format != R8Uint);
+        var none = DesktopStateRules.Blend(blend, formats, _ => true);
+        var unbound = DesktopStateRules.Blend(blend, [41, 0], format => format != 0);
+
+        // One blend for all targets: repeated on each, off on the integer one only.
+        Assert.Equal(1, shared[DesktopStateBytes.IndependentBlendField]);
+        Assert.Equal([1, 1, 0, 1], Enumerable.Range(0, 4).Select(slot => (int)shared[0x08 + (slot * 0x28)]));
+        Assert.Equal((5, 0x0F), (shared[0x08 + (3 * 0x28) + DesktopStateBytes.BlendOpField], shared[0x08 + (2 * 0x28) + DesktopStateBytes.WriteMaskField]));
+        Assert.Same(blend, none);
+        Assert.Same(blend, unbound);
+        Assert.Equal(0, blend[DesktopStateBytes.IndependentBlendField]);
+    }
+
+    [Fact]
     public void Derive_overrides_are_read_at_their_stride_with_the_desc_after_the_kind()
     {
         using var memory = new NativeBlocks();

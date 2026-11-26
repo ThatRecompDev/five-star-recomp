@@ -88,6 +88,18 @@ Some programs only serve ray tracing but trace no rays. They are held by name (`
 
 Boot w70e held only the tracing programs and lost the device after the world loaded. w71 also skipped these and survived the world load.
 
+Nothing else is held: 64 of the 25,908 programs hold an `image_bvh` instruction, and a program named for ray tracing
+that traces none is built and run. `--skip-pipelines Raytrac` is therefore not needed and holds three such passes of
+a world boot (w172), none of which has a stand-in:
+
+| Pass | What it does |
+|---|---|
+| `deferred_tiled~CS_LaserLightShadowRaytracingFallback` | 9 instructions: stores "no hit" (0x7f7fffff) per element of the buffer the held `CS_LaserLightShadowRaytracing` would fill |
+| `shadowmask~CS_GenerateShadowMasks_Raytraced`, `_RaytracedCheckerboard` | sample the cascades (34 `image_sample_c_lz`) and write the shadow masks; the only non-hair mask generators that boot creates |
+
+The other fallbacks (`CS_PPR_RaytraceFallback`, `CS_ScreenProbes_TraceRays_Fallback`, `CS_Primary_Gather_Fallback`,
+`CS_GatherAndShadeAlpha_Fallback`, the `_Voxels` forms) trace none either.
+
 
 The loader builds no acceleration structure without `--raytracing` (XboxBvhBuilder builds nothing), so programs it
 makes on demand define `FIVESTAR_BVH_MISS` (`BvhMiss`, part of the program cache identity): every node misses and

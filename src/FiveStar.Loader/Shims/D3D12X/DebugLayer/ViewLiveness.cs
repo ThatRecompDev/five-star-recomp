@@ -40,8 +40,8 @@ internal static unsafe class ViewLiveness
     /// <summary>Whether tables are checked (views are noted then too).</summary>
     public static bool Enabled { get; set; }
 
-    /// <summary>Whether views are noted: for the checks, for <see cref="NanScan"/> or for <see cref="DispatchCaptures"/>.</summary>
-    public static bool Noting => Enabled || NanScan.Enabled || DispatchCaptures.Enabled;
+    /// <summary>Whether views are noted: for the checks, <see cref="NanScan"/>, <see cref="ViewTrace"/> or <see cref="DispatchCaptures"/>.</summary>
+    public static bool Noting => Enabled || NanScan.Enabled || ViewTrace.Enabled || DispatchCaptures.Enabled;
 
     /// <summary>The descs views were written with, by desktop CPU handle: kept only for <see cref="DispatchCaptures"/>.</summary>
     private static readonly ConcurrentDictionary<nint, ViewDescriptionBytes> Descriptions = new();
