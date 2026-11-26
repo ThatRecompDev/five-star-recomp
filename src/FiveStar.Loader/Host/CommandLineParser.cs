@@ -820,6 +820,11 @@ internal sealed class CommandLineParser
                 _options.IndirectGather = true;
 
                 return true;
+            case "--indirect-batch":
+                _options.IndirectGather = true;
+                _options.IndirectBatch = true;
+
+                return true;
             case "--indirect-gather-strict":
                 _options.IndirectGather = true;
                 _options.IndirectGatherStrict = true;

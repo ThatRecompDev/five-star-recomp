@@ -65,4 +65,27 @@ internal sealed unsafe class UserDataRing
 
         return _gpu + offset;
     }
+
+    /// <summary>
+    /// <paramref name="blocks"/> consecutive blocks for the CPU to fill (<paramref name="data"/>, write only: the ring is
+    /// write-combined) and their GPU address; a run that would wrap past the ring's end is skipped and taken again from
+    /// its start. Reused as the user data blocks are (<see cref="IndirectBatch"/>'s job tables).
+    /// </summary>
+    [HotPath]
+    public ulong Reserve(uint blocks, out byte* data)
+    {
+        ulong first;
+
+        do
+        {
+            long end = Interlocked.Add(ref _next, blocks);
+            first = (ulong)(end - blocks) % Blocks;
+        }
+        while (first + blocks > Blocks);
+
+        ulong offset = first * BlockBytes;
+        data = _data + offset;
+
+        return _gpu + offset;
+    }
 }
