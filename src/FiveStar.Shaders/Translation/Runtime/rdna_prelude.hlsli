@@ -258,13 +258,19 @@ uint buf_stride(uint d1) { return (d1 >> 16) & 0x3fffu; }
 // below the base (20 bytes below for a 20-byte record), so such an access is out of range in every mode.
 // num_records is dword2; the offset is the VGPR offset plus the instruction offset. Once per access buf_limit gives
 // the end the dwords must fit under and buf_offset the checked offset; each dword then costs one compare (buf_fits).
+// Whether index * stride reaches 4 GiB is tested without a division: NVIDIA's driver refused pipelines whose guarded
+// stores depend on 0xffffffff / stride (E_OUTOFMEMORY in CreateComputePipelineState and CreateGraphicsPipelineState,
+// RTX 3060, driver 32.0.16.1714). The stride has 14 bits, so with index = hi * 2^18 + lo the product is
+// (hi * stride + (lo * stride >> 18)) * 2^18 + a rest below 2^18, and no step passes 32 bits.
+bool buf_index_overflows(uint index, uint stride) {
+    return (index >> 18) * stride + (((index & 0x3ffffu) * stride) >> 18) >= 0x4000u;
+}
 uint buf_limit(uint d1, uint d2, uint d3, uint index) {
     uint sel = (d3 >> 28) & 3u;
     uint structured = select(index < d2, select(sel == 0u, buf_stride(d1), 0xffffffffu), 0u);
     uint unchecked = select(d2 == 0u, 0u, 0xffffffffu);
     uint limit = select(sel == 3u, d2, select(sel == 2u, unchecked, structured));
-    uint stride = buf_stride(d1);
-    return select(stride != 0u && index > 0xffffffffu / max(stride, 1u), 0u, limit);
+    return select(buf_index_overflows(index, buf_stride(d1)), 0u, limit);
 }
 uint buf_offset(uint d3, uint offset, uint soffset) {
     return select(((d3 >> 28) & 3u) == 3u, offset + soffset, offset);
@@ -274,7 +280,7 @@ bool buf_fits(uint start, uint limit) { return limit >= 4u && start <= limit - 4
 // s_buffer_load: the whole offset against num_records, counted in bytes (stride 0) or in strides.
 uint sbuf_limit(uint d1, uint d2) {
     uint stride = max(buf_stride(d1), 1u);
-    return select(d2 > 0xffffffffu / stride, 0xffffffffu, d2 * stride);
+    return select(buf_index_overflows(d2, stride), 0xffffffffu, d2 * stride);
 }
 
 uint BufLoad(uint heap_index, uint off) {
