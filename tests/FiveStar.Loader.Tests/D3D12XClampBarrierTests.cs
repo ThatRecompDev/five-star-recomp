@@ -1,0 +1,102 @@
+// Copyright (c) 2026 Five Star Recomp contributors.
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+using System.Runtime.InteropServices;
+using FiveStar.Loader.Shims.D3D12X;
+using Xunit;
+
+namespace FiveStar.Loader.Tests;
+
+/// <summary>
+/// The argument scratch's barriers per clamped ExecuteIndirect: three legacy transitions, or enhanced barriers with
+/// none between one execution and the next clamp.
+/// </summary>
+public sealed unsafe class D3D12XClampBarrierTests
+{
+    private const int Slots = 96;
+    private const int ResourceBarrierSlot = 26;
+    private const int BarrierSlot = 80;
+    private const uint ComputeSync = 0x80;
+    private const uint IndirectSync = 0x800;
+    private const uint IndirectAccess = 0x200;
+
+    private static int _transitions;
+    private static int _barriers;
+    private static uint _lastSyncBefore;
+    private static uint _lastSyncAfter;
+    private static uint _lastAccessAfter;
+
+    [Fact]
+    public void Legacy_transitions_take_three_barriers_per_execution()
+    {
+        Cycle(enhanced: false, first: false);
+
+        Assert.Equal(3, _transitions);
+        Assert.Equal(0, _barriers);
+    }
+
+    [Fact]
+    public void Enhanced_barriers_take_one_per_clamp_and_none_after_the_execution()
+    {
+        Cycle(enhanced: true, first: false);
+
+        Assert.Equal(0, _transitions);
+        Assert.Equal(1, _barriers);
+        Assert.Equal(ComputeSync, _lastSyncBefore);
+        Assert.Equal(IndirectSync, _lastSyncAfter);
+        Assert.Equal(IndirectAccess, _lastAccessAfter);
+    }
+
+    [Fact]
+    public void The_recordings_first_clamp_in_a_buffer_orders_it_after_earlier_runs()
+    {
+        Cycle(enhanced: true, first: true);
+
+        Assert.Equal(0, _transitions);
+        Assert.Equal(2, _barriers);
+    }
+
+    private static void Cycle(bool enhanced, bool first)
+    {
+        _transitions = 0;
+        _barriers = 0;
+        var vtable = (nint*)NativeMemory.AllocZeroed(Slots, (nuint)sizeof(nint));
+        var list = (nint*)NativeMemory.AllocZeroed(1, (nuint)sizeof(nint));
+        bool before = ClampBarriers.Enhanced;
+
+        try
+        {
+            vtable[ResourceBarrierSlot] = (nint)(delegate* unmanaged<nint, uint, void*, void>)&ResourceBarrier;
+            vtable[BarrierSlot] = (nint)(delegate* unmanaged<nint, uint, uint*, void>)&Barrier;
+            *list = (nint)vtable;
+            ClampBarriers.Enhanced = enhanced;
+
+            ClampBarriers.BeforeClamp((nint)list, 0x1000, first);
+            ClampBarriers.AfterClamp((nint)list, 0x1000);
+            ClampBarriers.AfterExecute((nint)list, 0x1000);
+        }
+        finally
+        {
+            ClampBarriers.Enhanced = before;
+            NativeMemory.Free(list);
+            NativeMemory.Free(vtable);
+        }
+    }
+
+    [UnmanagedCallersOnly]
+    private static void ResourceBarrier(nint self, uint count, void* barriers)
+    {
+        _transitions += (int)count;
+    }
+
+    /// <summary>ID3D12GraphicsCommandList7::Barrier: one group of buffer barriers (SyncBefore, SyncAfter, AccessBefore, AccessAfter, ...).</summary>
+    [UnmanagedCallersOnly]
+    private static void Barrier(nint self, uint count, uint* groups)
+    {
+        _barriers += (int)count;
+        var barrier = *(uint**)(groups + 2);
+        _lastSyncBefore = barrier[0];
+        _lastSyncAfter = barrier[1];
+        _lastAccessAfter = barrier[3];
+    }
+}

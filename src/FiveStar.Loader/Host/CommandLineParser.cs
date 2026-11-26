@@ -738,6 +738,10 @@ internal sealed class CommandLineParser
                 _options.MeshLaunch = true;
 
                 return true;
+            case "--clamp-enhanced-barriers":
+                _options.ClampEnhancedBarriers = true;
+
+                return true;
             case "--gc-sustained":
                 _options.SustainedGc = true;
 

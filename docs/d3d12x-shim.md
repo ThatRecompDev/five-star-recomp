@@ -401,7 +401,11 @@ A recording also has a budget of 2^27 work items, as victory-gta6's clamp has (a
 group 64, a mesh group 128): a record that does not fit what is left runs empty and charges nothing (a counter in
 the scratch buffer, zeroed by the recording's first clamp, charged by compare-exchange). Each record alone stayed in
 bounds, but the opening cutscene lost the device at about 300 s (5 s without progress on every queue) once linked
-G-buffer pipelines drew from culling output that skipped passes had left stale.
+G-buffer pipelines drew from culling output that skipped passes had left stale. The scratch takes three legacy
+transitions per execution (COMMON to UNORDERED_ACCESS, to INDIRECT_ARGUMENT, back to COMMON); the first waits for the
+previous indirect execution though it read another piece, so a list's indirect draws never overlap. With
+`--clamp-enhanced-barriers` (`ClampBarriers`) it takes enhanced buffer barriers instead: one before the recording's
+first clamp in the buffer, one per clamp from its compute writes to the argument fetch.
 
 A compute list names only compute states (VERTEX_AND_CONSTANT_BUFFER, UNORDERED_ACCESS, NON_PIXEL_SHADER_RESOURCE,
 INDIRECT_ARGUMENT, COPY_DEST, COPY_SOURCE, acceleration structure) and a copy list only the copy ones
