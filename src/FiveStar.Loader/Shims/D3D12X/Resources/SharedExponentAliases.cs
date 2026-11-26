@@ -152,7 +152,8 @@ internal static unsafe class SharedExponentAliases
                 records = ScanLimit;
             }
 
-            for (uint i = 0; i < records && table + ((i + 1) * DescriptorWindow.ViewRecordBytes) <= DescriptorWindow.RecordsEnd; i++)
+            // 64-bit: a table offset near 4 GiB must not wrap past the check (as in DepthTwins' writer scan).
+            for (uint i = 0; i < records && (ulong)table + ((i + 1UL) * DescriptorWindow.ViewRecordBytes) <= DescriptorWindow.RecordsEnd; i++)
             {
                 uint? index = DebugLayer.DepthUavs.HeapIndex((uint*)(window + table + (i * DescriptorWindow.ViewRecordBytes)));
 
