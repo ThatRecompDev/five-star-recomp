@@ -9,6 +9,6 @@ namespace FiveStar.Loader.Diagnostics;
 /// (the wait stub), or a DLL our code called for <see cref="CpuBucket.Ours"/>; <paramref name="Function"/>: the start of
 /// the innermost game function on the stack, when no frame of ours is inside it; <paramref name="Site"/>: the game's
 /// return address into our code, when the thread is in it; <paramref name="Wait"/>: the loader wait it is in
-/// (<see cref="BlockingWaits"/>); <paramref name="Ours"/>: a frame of our code comes before any game frame.
+/// (<see cref="BlockingWaits"/>); <paramref name="Ours"/>: a frame of our code comes before any game frame; <paramref name="Method"/> and <paramref name="Shim"/>: the starts of the innermost and outermost managed functions there (<see cref="ManagedNames"/>).
 /// </summary>
-internal readonly record struct CpuSample(CpuBucket Bucket, ulong Pc, ulong Function, ulong Site, string? Wait, bool Ours = false);
+internal readonly record struct CpuSample(CpuBucket Bucket, ulong Pc, ulong Function, ulong Site, string? Wait, bool Ours = false, ulong Method = 0, ulong Shim = 0);

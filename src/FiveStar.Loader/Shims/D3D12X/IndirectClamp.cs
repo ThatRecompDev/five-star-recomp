@@ -212,8 +212,26 @@ internal static unsafe class IndirectClamp
     {
         GpuTimings.Work((nint)self, list, compute: true, GpuTimings.IndirectClampPipeline);
         ClampBarriers.BeforeClamp(list, scratch, first);
-        ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetRootSignatureSlot))(list, _root);
+        BindRoot(self, list);
         ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetPipelineSlot))(list, _pipeline);
+    }
+
+    /// <summary>
+    /// The program's root signature, unless the list still has it from the clamp before (an indirect draw leaves it
+    /// bound: <see cref="CommandListBindings.ComputeDesktopRoot"/>). Its root views and constants are set by every clamp.
+    /// </summary>
+    [HotPath]
+    private static void BindRoot(XboxObject* self, nint list)
+    {
+        var bindings = CommandListBindings.Of(self);
+
+        if (bindings->ComputeDesktopRoot == CommandListBindings.ClampRoot)
+        {
+            return;
+        }
+
+        ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetRootSignatureSlot))(list, _root);
+        bindings->ComputeDesktopRoot = CommandListBindings.ClampRoot;
     }
 
     /// <summary>
@@ -304,7 +322,7 @@ internal static unsafe class IndirectClamp
 
         if (state->LaunchSegment == 0)
         {
-            ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetRootSignatureSlot))(list, _root);
+            BindRoot(self, list);
             ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetPipelineSlot))(list, _pipeline);
 
             // The zero pass reads and writes nothing else; every root view names the budget.

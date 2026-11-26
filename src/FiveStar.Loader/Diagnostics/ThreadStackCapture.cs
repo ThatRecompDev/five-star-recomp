@@ -66,9 +66,12 @@ internal static unsafe class ThreadStackCapture
 
     /// <summary>
     /// <see cref="Capture(uint, ReadOnlySpan{CodeRange}, Span{ulong})"/> with at most <paramref name="capacity"/> stack
-    /// bytes copied, and, when <paramref name="scanAbove"/> holds for the frame the walk ended at (JIT code, which it
-    /// cannot unwind), the first return address into <paramref name="caller"/> above that frame in the copy: the
-    /// game's call into the code the thread is in (<see cref="ReturnAddresses"/>'s test); 0 when there is none.
+    /// bytes copied, the walk going on through JIT frames with unwind data, and, when <paramref name="scanAbove"/> holds
+    /// for the frame it ended at (code without unwind data, as a generated bridge), the first return address into
+    /// <paramref name="caller"/> above that frame in the copy: the game's call into the code the thread is in
+    /// (<see cref="ReturnAddresses"/>'s test); 0 when there is none. The scan alone, from the first JIT frame up, can
+    /// meet a stale return address an unused slot of our frames still holds, and name a game function that only ran
+    /// before the call (a likely reason w104 and w109 named fn 0x555ee70, whose own calls IDA shows are game code).
     /// </summary>
     public static int Capture(uint threadId, ReadOnlySpan<CodeRange> modules, Span<ulong> pcs, long capacity, Func<ulong, bool> scanAbove, Func<ulong, bool> caller, out ulong site)
     {
@@ -85,7 +88,7 @@ internal static unsafe class ThreadStackCapture
                 return 0;
             }
 
-            int count = Walk(context, stack, modules, pcs);
+            int count = Walk(context, stack, modules, pcs, throughJit: true);
 
             if (count > 0 && scanAbove(pcs[count - 1]))
             {
@@ -192,7 +195,13 @@ internal static unsafe class ThreadStackCapture
         return stack;
     }
 
-    private static int Walk(byte* context, StackCopy stack, ReadOnlySpan<CodeRange> modules, Span<ulong> pcs, CodeRange stopAt = default)
+    /// <summary>
+    /// Unwinds the copy from the context into <paramref name="pcs"/>, innermost first, stopping at a frame in
+    /// <paramref name="stopAt"/>. With <paramref name="throughJit"/> JIT frames whose unwind data the runtime gives are
+    /// unwound too (the thread already runs again, so asking the runtime cannot wait on it); a frame without any (a
+    /// generated bridge) still ends the walk.
+    /// </summary>
+    private static int Walk(byte* context, StackCopy stack, ReadOnlySpan<CodeRange> modules, Span<ulong> pcs, CodeRange stopAt = default, bool throughJit = false)
     {
         int count = 0;
 
@@ -207,8 +216,9 @@ internal static unsafe class ThreadStackCapture
             }
 
             pcs[count++] = pc;
+            bool known = InModules(pc, modules);
 
-            if (!InModules(pc, modules) || !stack.Holds(rsp))
+            if ((!known && !throughJit) || !stack.Holds(rsp))
             {
                 break;
             }
@@ -216,7 +226,7 @@ internal static unsafe class ThreadStackCapture
             ulong imageBase = 0;
             nint function = Ntdll.RtlLookupFunctionEntry(pc, &imageBase, 0);
 
-            if (function == 0 && count > 1)
+            if (function == 0 && (count > 1 || !known))
             {
                 break;
             }
