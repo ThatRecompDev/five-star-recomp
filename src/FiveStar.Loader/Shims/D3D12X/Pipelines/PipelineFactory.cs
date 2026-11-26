@@ -439,7 +439,9 @@ internal sealed unsafe class PipelineFactory
         stream.Release();
 
         var heavy = stream.ShaderBytes >= HeavyShaderBytes;
-        Func<PipelineResult> make = loadHere ? () => Build(stream, wanted, names) : () => LoadOrBuild(stream, wanted, names);
+        // Build loads a cached pipeline itself, under the compile budget: the driver's recompiles on load take its memory
+        // too (w149, which loaded them without it, reached 35 GB private in 90 s).
+        Func<PipelineResult> make = () => Build(stream, wanted, names);
 
         if (deferral is not null)
         {
@@ -447,24 +449,6 @@ internal sealed unsafe class PipelineFactory
         }
 
         return StandIns.Create(make, result, names, named, heavy, small);
-    }
-
-    /// <summary>
-    /// On a build thread: the cached pipeline of <paramref name="stream"/>, loaded without a compile slot (it is not a
-    /// build of ours), else <see cref="Build"/>.
-    /// </summary>
-    private PipelineResult LoadOrBuild(DesktopStream stream, Guid iid, string what)
-    {
-        nint cached = 0;
-
-        if (Cache is not null && !HResult.Failed(Cache.Load(stream, &iid, &cached)))
-        {
-            stream.Dispose();
-
-            return new PipelineResult(HResult.Ok, cached);
-        }
-
-        return Build(stream, iid, what);
     }
 
     /// <summary>
