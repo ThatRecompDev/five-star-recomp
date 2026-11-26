@@ -91,7 +91,7 @@ flowchart LR
   texture's state. The CPU does not wait: an upload takes one of 16 slots (list, allocator, upload buffer, a reference
   to the texture) and waits only for that slot's previous upload, and every game ExecuteCommandLists first has its
   queue wait on the GPU for the uploads before it. A slot keeps its texture alive until its copy is done, so a texture
-  retired and released right after a fill is not freed under the copy. Waiting for each upload on the game's threads
+  retired and released right after a fill is not freed under the copy. Only taking a slot and submitting its copy hold the uploader's lock: the detile into the slot's upload buffer and the recording of its list run on the filling thread, so fills from several threads (the refresh worker's settle, the frame's check of CPU-mapped textures) detile at once, and a slot being filled is busy for the others. Waiting for each upload on the game's threads
   cost a fifth of a frame after the story load. The upload buffer is system memory, the GPU's non-local segment, whose
   budget is half the machine's physical memory (16.3 GB on a 32 GB machine), and the heaps over the game's XMem
   sections take from the same budget: the address map opens one over every mapped page's section
@@ -127,7 +127,7 @@ flowchart LR
 - **CPU-mapped textures** (`GpuTextures.Watch`): a slot-133 texture the game maps (resource Map returns its memory)
   is written by the CPU whenever it likes; Bink decodes every video frame into its Y, Cr and Cb planes (1920x1080
   and 3840x2160 R8, mapped once). Such textures are checked once a frame, at the first ExecuteCommandLists after a
-  present, and uploaded when the hash changed. Before this the planes kept the zeros of their creation.
+  present, and uploaded when the hash changed. Before this the planes kept the zeros of their creation. A check refreshes them on the refresh worker's thread budget (half the logical processors), each read and hashed on its own thread and the uploads in turn: one after another on the submitting thread they took up to tens of ms of every w109 world frame before its first submission. Watched textures the registry retired are no longer walked.
 - **GPU copies into a texture** (list slots 85, 86, `TextureCopies`) write only the desktop texture; on the console
   they write its memory. Such a texture is no longer refreshed from memory (`GpuTexture.CopiedInto`, counted as
   `UploadKeptCopy`), as victory-gta6 does. The 2048x2048 A8 glyph cache the controls hint samples (`FText`) is mapped,
