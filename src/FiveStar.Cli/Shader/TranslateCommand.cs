@@ -3,6 +3,7 @@
 
 using System.Globalization;
 using FiveStar.Graphics.Programs;
+using FiveStar.Shaders.Analysis;
 using FiveStar.Shaders.Cache;
 using FiveStar.Shaders.Compilation;
 using FiveStar.Shaders.Disassembly;
@@ -101,6 +102,7 @@ internal static class TranslateCommand
 
         var results = translator.Run(programs, options);
         Report(results);
+        ReportNativeWaves(results, options.OutputFolder);
         WriteManifest(compiler, options.OutputFolder);
 
         return results;
@@ -252,6 +254,21 @@ internal static class TranslateCommand
         }
 
         return stages;
+    }
+
+    /// <summary>How many translated pixel, vertex and mesh programs need no wave emulation (their header says so).</summary>
+    private static void ReportNativeWaves(IReadOnlyList<ProgramResult> results, string folder)
+    {
+        const int HeaderLines = 2;
+
+        var heads = results.Where(result => result.Stage is "ps" or "vs" or "ms")
+            .Select(result => Path.Combine(folder, result.Name + ".hlsl")).Where(File.Exists)
+            .Select(path => WaveFacts.Read(string.Join("\n", File.ReadLines(path).Take(HeaderLines)))).ToList();
+
+        if (heads.Count > 0)
+        {
+            Console.WriteLine($"wave emulation: {heads.Count(facts => facts.Native)} of {heads.Count} pixel, vertex and mesh programs need none");
+        }
     }
 
     private static void Report(IReadOnlyList<ProgramResult> results)
