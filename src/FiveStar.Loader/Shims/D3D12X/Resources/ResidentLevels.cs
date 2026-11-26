@@ -51,18 +51,91 @@ internal static unsafe class ResidentLevels
             resource.Width = Math.Max(1UL, resource.Width >> first);
             resource.Height = Math.Max(1u, resource.Height >> first);
             resource.MipLevels -= (ushort)first;
-
-            int skipped = Math.Max(0, first - dwords[MostDetailedMipDword]);
-            dwords[MostDetailedMipDword] = Math.Max(0, dwords[MostDetailedMipDword] - first);
-
-            if (dwords[MipLevelsDword] != AllLevels)
-            {
-                dwords[MipLevelsDword] = Math.Max(1, Math.Min(dwords[MipLevelsDword] - skipped, resource.MipLevels - dwords[MostDetailedMipDword]));
-            }
-
-            *(float*)(dwords + MinLodClampDword) = Math.Max(0, *(float*)(dwords + MinLodClampDword) - first);
+            Renumber(dwords, first, resource.MipLevels);
 
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Renumbers <paramref name="view"/>, of <paramref name="resource"/>, for <paramref name="registered"/> when that
+    /// is the texture of the levels from one the view does not read before (another view of the same texture made it);
+    /// false, with the view as it was, when it is not.
+    /// </summary>
+    public static bool Onto(in ResourceDescription resource, in ResourceDescription registered, ref AddressViewDescription view)
+    {
+        fixed (AddressViewDescription* fields = &view)
+        {
+            int dropped = Dropped(resource, registered);
+
+            if (dropped <= 0 || dropped > First(resource, (int*)fields))
+            {
+                return false;
+            }
+
+            Renumber((int*)fields, dropped, registered.MipLevels);
+
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// The levels <paramref name="whole"/> has before those of <paramref name="part"/>, the texture of its smaller
+    /// levels at the same bytes (0: the same texture); -1 when it is not that.
+    /// </summary>
+    public static int Dropped(in ResourceDescription whole, in ResourceDescription part)
+    {
+        int dropped = whole.MipLevels - part.MipLevels;
+
+        if (dropped < 0 || whole.Format != part.Format || whole.Dimension != part.Dimension || whole.DepthOrArraySize != part.DepthOrArraySize
+            || whole.Layout != part.Layout || Math.Max(1UL, whole.Width >> dropped) != part.Width || Math.Max(1u, whole.Height >> dropped) != part.Height)
+        {
+            return -1;
+        }
+
+        if (dropped == 0)
+        {
+            return 0;
+        }
+
+        bool plain = whole.Dimension == ResourceTexture2D && whole.DepthOrArraySize <= 1 && whole.SampleCount <= 1;
+
+        if (plain && SameBytes(whole, dropped))
+        {
+            return dropped;
+        }
+
+        return -1;
+    }
+
+    /// <summary>A Texture2D SRV desc's levels counted from <paramref name="dropped"/> levels later, in a texture of <paramref name="levels"/>.</summary>
+    internal static void Renumber(int* view, int dropped, int levels)
+    {
+        int skipped = Math.Max(0, dropped - view[MostDetailedMipDword]);
+        view[MostDetailedMipDword] = Math.Max(0, view[MostDetailedMipDword] - dropped);
+
+        if (view[MipLevelsDword] != AllLevels)
+        {
+            view[MipLevelsDword] = Math.Max(1, Math.Min(view[MipLevelsDword] - skipped, levels - view[MostDetailedMipDword]));
+        }
+
+        *(float*)(view + MinLodClampDword) = Math.Max(0, *(float*)(view + MinLodClampDword) - dropped);
+    }
+
+    /// <summary>Whether <paramref name="view"/>, an SRV desc, is a Texture2D one: its levels can be counted from another.</summary>
+    internal static bool Renumbers(int* view)
+    {
+        return view[1] == ViewTexture2D;
+    }
+
+    /// <summary>A Texture2D SRV desc's levels counted in a texture with <paramref name="added"/> larger levels before them.</summary>
+    internal static void Later(int* view, int added)
+    {
+        view[MostDetailedMipDword] += added;
+
+        if (*(float*)(view + MinLodClampDword) > 0)
+        {
+            *(float*)(view + MinLodClampDword) += added;
         }
     }
 

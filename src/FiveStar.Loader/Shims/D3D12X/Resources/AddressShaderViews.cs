@@ -55,7 +55,9 @@ internal sealed unsafe class AddressShaderViews
         }
 
         var desktop = *view;
+        var before = DebugLayer.ViewCensus.Enabled ? _textures.Registry.Find(view->Address) : null;
         var texture = Resolve(device, resource, &desktop);
+        Census(resource, view, before, texture, views);
         int viewFormat = DepthFormats.ShaderView(view->Format);
         nint target = 0;
 
@@ -91,6 +93,23 @@ internal sealed unsafe class AddressShaderViews
         Noted(handle, texture, target, &desktop);
 
         return texture;
+    }
+
+    /// <summary>--trace-views: the view counted by its levels and what it read (<see cref="DebugLayer.ViewCensus"/>).</summary>
+    private void Census(ResourceDescription* resource, AddressViewDescription* view, GpuTexture? before, GpuTexture? texture, long views)
+    {
+        if (!DebugLayer.ViewCensus.Enabled)
+        {
+            return;
+        }
+
+        DebugLayer.ViewCensus.Note(resource, view, before, texture);
+        string? report = DebugLayer.ViewCensus.Report(views);
+
+        if (report is not null)
+        {
+            _log.Info(report);
+        }
     }
 
     /// <summary>
@@ -369,17 +388,19 @@ internal sealed unsafe class AddressShaderViews
     {
         var levels = *resource;
 
+        // Another view of the same texture made one that holds this view's levels: both read it.
+        if (registered is not null && registered.Address == view->Address && ResidentLevels.Onto(levels, registered.Console, ref *view))
+        {
+            _textures.Counters.Add(GpuResourceEvent.ViewResident);
+            _textures.Counters.Add(GpuResourceEvent.ViewResolved);
+            _textures.RefreshForView(registered);
+
+            return registered;
+        }
+
         if (ResidentLevels.Reduce(ref levels, ref *view))
         {
             _textures.Counters.Add(GpuResourceEvent.ViewResident);
-
-            if (registered is not null && registered.Matches(view->Address, levels))
-            {
-                _textures.Counters.Add(GpuResourceEvent.ViewResolved);
-                _textures.RefreshForView(registered);
-
-                return registered;
-            }
         }
 
         var texture = _textures.CreateForView(device, view->Address, &levels, view->Format);

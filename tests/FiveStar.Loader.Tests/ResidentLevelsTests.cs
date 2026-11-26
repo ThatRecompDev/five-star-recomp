@@ -76,6 +76,43 @@ public sealed unsafe class ResidentLevelsTests
         Assert.Equal((1024ul, (ushort)9, 3), (resource.Width, resource.MipLevels, Word(array, MostDetailedMip)));
     }
 
+    /// <summary>
+    /// The game makes three views of a texture (w180: 1024x1024 with 9 mips, then from levels 3 and 4): each one's
+    /// texture retired the last one's at the same address and its views went null.
+    /// </summary>
+    [Fact]
+    public void Views_of_one_texture_from_several_levels_read_one_texture()
+    {
+        var whole = Resource(1024, 1024, 9, Bc1);
+        var fromThree = whole;
+        var third = View(SrvTexture2D, first: 3, levels: 6, clamp: 0);
+        Assert.True(ResidentLevels.Reduce(ref fromThree, ref third));
+
+        var fourth = View(SrvTexture2D, first: 4, levels: 5, clamp: 0);
+        var main = View(SrvTexture2D, first: 0, levels: 9, clamp: 0);
+
+        Assert.True(ResidentLevels.Onto(whole, fromThree, ref fourth));
+        Assert.Equal((1, 5), (Word(fourth, MostDetailedMip), Word(fourth, MipLevels)));
+        Assert.False(ResidentLevels.Onto(whole, fromThree, ref main));
+        Assert.Equal((3, -1), (ResidentLevels.Dropped(whole, fromThree), ResidentLevels.Dropped(fromThree, whole)));
+    }
+
+    [Fact]
+    public void A_released_texture_s_views_read_the_larger_texture_of_its_levels_from_its_first()
+    {
+        var whole = Resource(1024, 1024, 9, Bc1);
+        var small = Resource(128, 128, 6, Bc1);
+        var released = new GpuTexture(0x279aaa60000, small, 1, Bc1, 0, false, new XgSurface { Size = 0x3000 });
+        var larger = new GpuTexture(0x279aaa60000, whole, 2, Bc1, 0, false, new XgSurface { Size = 0xab000 });
+        var other = new GpuTexture(0x279aaa60000, Resource(256, 512, 8, Bc1), 3, Bc1, 0, false, new XgSurface { Size = 0x2b000 });
+        var view = View(SrvTexture2D, first: 1, levels: 5, clamp: 0);
+
+        Assert.Equal((3, 0, 0), (ReleasedTextureViews.Added(released, larger), ReleasedTextureViews.Added(released, other), ReleasedTextureViews.Added(larger, released)));
+
+        ResidentLevels.Later((int*)&view, 3);
+        Assert.Equal((4, 5), (Word(view, MostDetailedMip), Word(view, MipLevels)));
+    }
+
     private static ResourceDescription Resource(uint width, uint height, ushort mips, int format)
     {
         return new ResourceDescription
