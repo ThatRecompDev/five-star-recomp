@@ -15,7 +15,9 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// The disk cache of built desktop pipelines (docs/d3d12x-pipelines.md, Disk cache): ID3D12PipelineLibrary1
 /// segments in one folder, each pipeline named by <see cref="DesktopStream.Key"/>. Finished segments are mapped and
 /// only read; new pipelines go to this process's active library, which is sealed and written to a segment file of its
-/// own every <see cref="SaveInterval"/>, after <see cref="SaveBatch"/> new pipelines and at disposal.
+/// own at most <see cref="FlushDelay"/> after a pipeline is stored, after <see cref="SaveBatch"/> new pipelines and at
+/// disposal, so a boot that is killed or crashes loses at most a few seconds of driver builds (it lost up to a minute's,
+/// thousands at a boot's start, which the next boot built again while the game waited on a black screen).
 /// Segments the driver refuses (another adapter or driver version) are deleted; past <see cref="MaximumBytes"/> the
 /// oldest segments are deleted when the cache opens.
 /// </summary>
@@ -25,7 +27,7 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
     public const string FolderName = "pipeline-cache";
 
     /// <summary>Pipelines stored since the last write that make the saver write at once, keeping the active library small.</summary>
-    private const int SaveBatch = 2048;
+    private const int SaveBatch = 256;
     private const long MaximumBytes = 32L << 30;
     private const double BytesPerMegabyte = 1 << 20;
     /// <summary>
@@ -35,7 +37,11 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
     private const string Format = "fivestar pipeline cache 2";
     private const string IdFormat = "yyyyMMdd-HHmmss-fff";
 
-    private static readonly TimeSpan SaveInterval = TimeSpan.FromMinutes(1);
+    /// <summary>The most a stored pipeline waits for its segment file to be written.</summary>
+    private static readonly TimeSpan FlushDelay = TimeSpan.FromSeconds(5);
+
+    /// <summary>How often the saver looks for segments other processes wrote (<see cref="Refresh"/>).</summary>
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(1);
 
     /// <summary>Segment files named in this process, over every cache it opens: two never share a name.</summary>
     private static int _sequence;
@@ -201,9 +207,9 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
     }
 
     /// <summary>
-    /// Writes the active library to its segment file every <see cref="SaveInterval"/>, and after every
-    /// <see cref="SaveBatch"/> stored pipelines, until disposal; then takes the segments other processes wrote meanwhile
-    /// (<see cref="Refresh"/>).
+    /// Writes the active library to its segment file within <see cref="FlushDelay"/> of a stored pipeline, and after
+    /// every <see cref="SaveBatch"/> stored pipelines, until disposal; every <see cref="RefreshInterval"/> it also takes
+    /// the segments other processes wrote meanwhile (<see cref="Refresh"/>).
     /// </summary>
     public void StartSaving()
     {
@@ -272,11 +278,18 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
     private void SaveLoop()
     {
         WaitHandle[] wakers = [_stop.WaitHandle, _wake];
+        var refreshed = Stopwatch.StartNew();
 
-        while (WaitHandle.WaitAny(wakers, SaveInterval) != 0)
+        // Saves only when something was stored (Save returns at once otherwise), so an idle boot writes nothing.
+        while (WaitHandle.WaitAny(wakers, FlushDelay) != 0)
         {
             Save();
-            Refresh();
+
+            if (refreshed.Elapsed >= RefreshInterval)
+            {
+                Refresh();
+                refreshed.Restart();
+            }
         }
     }
 
