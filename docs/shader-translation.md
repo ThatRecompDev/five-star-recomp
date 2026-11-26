@@ -471,7 +471,8 @@ strip. The record size `GS_VTX_DW` is derived from the LDS write offsets between
 | FMA | `mad` (the prelude's exact `fma32` exists but is slow): fused on AMD and NVIDIA, unfused on WARP. `v_mad_f32`, `v_mac_f32`, `v_madak_f32` and `v_madmk_f32`, unfused on AMD, are `mad_unfused`: a `precise` product and sum, which dxc does not mark fast, so no driver contracts them (NVIDIA did) |
 | `v_fract_f32` | `fract_f32`: `frac`, clamped to 0x3F7FFFFF as AMD does (`frac` of a small negative value rounds to 1.0 on NVIDIA) |
 
-**Mesh fallback contract** (register space 9, bound through a descriptor table):
+**Mesh fallback contract** (register space 9, bound through a descriptor table; not as root descriptors, since the
+compute shader reads the capacities of `u0` and `u1` with GetDimensions, which root descriptors leave undefined):
 
 | Binding | Content |
 |---|---|
