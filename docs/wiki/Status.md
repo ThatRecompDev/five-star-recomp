@@ -46,7 +46,12 @@ clouds and a plane. The G-buffer albedo is still black: the deferred pixel shade
 exports, blend state, masks and views check out), and the texture contents they sample are being traced. Speed: a
 list the game re-records no longer waits on the CPU for its previous run, which took our submit path from about 191 to
 12 ms a frame and the world frame from 1,096 to 969 ms (w102); the GPU is now idle more than half of each frame, so
-the next work is the game's CPU side. On 25 November the device removals that ended
+the next work is the game's CPU side. A thread sampler (`--cpu-sample`) shows why: the game's five render-recording
+threads spend most of their time in our command-list shims, and `--watch-hang`, used by every timing boot until then,
+added a stack scan to each of the game's ~3,300 waits a second (now cheap, and left off in timing boots). The black
+albedo comes from empty material textures: the game streams their mips into memory after creating them, sometimes
+mapped only at the GPU address or a page at a time, and nothing filled them again; streamed textures are now re-read
+page by page as their memory changes, on a worker thread. On 25 November the device removals that ended
 every boot ~25–35 s after the world started loading were traced to the game's ray-tracing compute passes walking
 acceleration structures we never build; those pipelines now stay stand-ins unless `--raytracing` is given, and a boot
 ran 18 minutes in the world with no removal. Literal samplers (shadow comparison, clamp) now get their own samplers. The overwrite of the game's
