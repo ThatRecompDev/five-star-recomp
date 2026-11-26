@@ -6,8 +6,10 @@ GTA VI does not run yet. Updated 26 November 2026.
 
 - **Boots to the world.** Logo, intro, first-run screens, story load and the opening cutscene (art, credits, dialogue,
   sound) run at 30 fps. The 3D world draws from about present 950.
-- **World image:** the city at night is on screen, lit and correctly exposed. Still wrong: blocky shadows (fix being
-  tested), banding in bloom and flares, no bounced light (needs ray tracing).
+- **World image:** the city at night is on screen with sane exposure, but only light sources show (lamps, windows, car
+  lights); the ground and buildings they should light stay black. Also wrong: blocky road lights, no bounced light
+  (needs ray tracing).
+- **Device loss:** boots since the 26 November translator batch lose the GPU device before the world; being bisected.
 - **Materials:** fixed. Every texture the G-buffer samples now has data (streamed textures are re-read as their pages
   change).
 - **Speed:** a world frame takes about 390 ms (about 2.5 fps), down from 1,100 ms.
@@ -19,8 +21,9 @@ GTA VI does not run yet. Updated 26 November 2026.
 
 | Problem | Next step |
 |---|---|
-| Blocky shadows on near geometry | trace the shadow-mask pages and cascade shadow draws |
-| Banding in bloom and flares | check the bloom chain's formats |
+| Device lost (0x887a0005) in boots since the translator batch | boot the batch alone, then revert what caused it |
+| Surfaces get no direct light | trace the lighting pass of one frame to where it goes black |
+| Blocky road lights | trace the shadow-mask pages and cascade shadow draws |
 | Heaviest GPU passes: depth pre-pass mesh shader 95 ms, deferred G-buffer 77 ms, our indirect clamp 58 ms | `--mesh-launch` (no per-draw clamp), one clamp per list |
 | Texture refresh 84 ms a frame on the submit path | refresh only what the frame reads, off the submit thread |
 | Ray tracing | not built; those passes are skipped |
