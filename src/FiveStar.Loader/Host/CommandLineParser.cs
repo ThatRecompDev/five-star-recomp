@@ -645,6 +645,10 @@ internal sealed class CommandLineParser
                 return SetNanScan(option);
             case "--retire-unmapped-textures":
                 return SetRetireUnmapped();
+            case "--keep-unmapped-textures":
+                _options.KeepUnmappedTextures = true;
+
+                return true;
             case "--min-free-memory":
                 return SetMemoryFloor();
             case "--max-commit":
