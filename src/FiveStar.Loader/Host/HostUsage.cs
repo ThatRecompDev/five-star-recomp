@@ -55,6 +55,8 @@ internal static class HostUsage
                                  and compiled on first use unless --translated-dir has them
           --translated-dir <dir> translated DXIL programs (fivestar shader translate), optional
           --program-cache <dir>  programs made on first use (default: <work-dir>\program-cache)
+          --shader-overrides <dir> hand-written <program>.hlsl or .dxil replacing those programs' translations
+                                 (fivestar shader override-init starts one); needs programs made on first use
           --no-on-demand         only --translated-dir provides programs
           --dxc <path>           dxcompiler.dll (or dxc.exe, or their folder) for programs made on first use;
                                  default: FIVESTAR_DXC, beside the loader, then the Windows SDK

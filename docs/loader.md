@@ -388,6 +388,7 @@ the first program is made (`[d3d12_xs] programs made on demand with ...`).
 | `--input <file>` | the keyboard-and-mouse gamepad mapping |
 | `--shader-dir <dir>`, `--translated-dir <dir>` | extracted FSSM programs (the D3D12.X pipeline slots then create pipelines) and, optionally, their translated DXIL |
 | `--program-cache <dir>`, `--no-on-demand`, `--dxc <path>`, `--shader-jobs <n>`, `--shader-backend dxil\|dxc`, `--max-driver-compiles <n>`, `--compile-ceiling <GB>` | programs translated and compiled on first use ([d3d12x-pipelines.md](d3d12x-pipelines.md#programs-on-demand)): their folder, off, the `dxcompiler.dll`, the threads, the compiler (default the DXIL backend, dxc as its fallback) |
+| `--shader-overrides <dir>` | hand-written `<program>.hlsl` or `.dxil` run in place of those programs' translations, under their own cache names; `fivestar shader override-init` starts one ([shader-translation.md](shader-translation.md#replacing-a-translation)) |
 | `--ffx <dll>` | the PC FidelityFX API DLL the game's FidelityFX calls go to ([middleware.md](middleware.md)) |
 | `--d3d12-debug`, `--d3d12-gpu-validation` | the D3D12 debug layer (and GPU-based validation) and DRED, with their messages and the removal report in the log ([d3d12x-shim.md](d3d12x-shim.md)); needs the Graphics Tools optional feature |
 | `--d3d12-dred` | DRED alone (auto-breadcrumbs, page faults and the removal report), without the debug layer, which slows every call |
