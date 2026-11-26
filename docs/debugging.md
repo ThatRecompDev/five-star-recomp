@@ -210,10 +210,10 @@ space rather than keep the fragmented commit.
 
 | Step | What happens |
 |---|---|
-| Loader start | `GFSDK_Aftermath_EnableGpuCrashDumps` (DX, deferred shader debug info). The API version is found by asking 0x3ff down to 0x200 until the DLL stops answering `FAIL_VersionMismatch` |
-| Device creation | `GFSDK_Aftermath_DX12_Initialize` with markers, resource tracking, shader debug info (and call stacks with markers). The D3D12 debug layer makes it fail (`FAIL_D3DDebugLayerNotCompatible`): dumps still come, without those |
+| Loader start | `GFSDK_Aftermath_EnableGpuCrashDumps` (DX; deferred shader debug info only with `--aftermath-shader-info`). The API version is found by asking 0x3ff down to 0x200 until the DLL stops answering `FAIL_VersionMismatch` |
+| Device creation | `GFSDK_Aftermath_DX12_Initialize` with flags 0 by default; `--aftermath-markers` adds markers and call stacks (0x40000001), `--aftermath-resources` resource tracking (0x2, names the resource at a page fault), `--aftermath-shader-info` shader debug info (0x8). Shader debug info and resource tracking took boot w181 from about 28 to 45 GB working set by present 937 (84,000 pipelines). The D3D12 debug layer makes it fail (`FAIL_D3DDebugLayerNotCompatible`): dumps still come, without those |
 | Pipeline creation | each shader's `GFSDK_Aftermath_GetShaderHash` over its DXIL is noted with the pipeline |
-| GPU fault | `crash-<time>.nv-gpudmp`, `shader-<id>.nvdbg` per shader the GPU ran, `shaders-<time>.tsv` (hash, stage, pipeline, programs); the log gets `[aftermath] crash dump:` with the device status, the faulting GPU VA and the resource there, the active shaders named by our pipelines, and each context's last marker |
+| GPU fault | `crash-<time>.nv-gpudmp`, `shader-<id>.nvdbg` per shader the GPU ran (with `--aftermath-shader-info`), `shaders-<time>.tsv` (hash, stage, pipeline, programs); the log gets `[aftermath] crash dump:` with the device status, the faulting GPU VA and the resource there, the active shaders named by our pipelines, and each context's last marker |
 | Device-loss end | after its 3 s, waits up to 10 s for the dump (`GFSDK_Aftermath_GetCrashDumpStatus` Finished or failed) |
 
 Open the dump in Nsight Graphics (File > Open, `.nv-gpudmp`). Add the dump folder to its shader debug info search

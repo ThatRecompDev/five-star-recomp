@@ -455,6 +455,12 @@ internal sealed record HostOptions
     /// <summary>An Aftermath event marker per draw, dispatch and copy, and call stacks (<c>--aftermath-markers</c>).</summary>
     public bool AftermathMarkers { get; set; }
 
+    /// <summary>Aftermath resource tracking, which names the resource at a page fault (<c>--aftermath-resources</c>).</summary>
+    public bool AftermathResources { get; set; }
+
+    /// <summary>Aftermath shader debug info for every pipeline (<c>--aftermath-shader-info</c>): much memory.</summary>
+    public bool AftermathShaderInfo { get; set; }
+
     /// <summary>Present a test pattern instead of the game's frame (<c>--present-test</c>).</summary>
     public bool PresentTest { get; set; }
 
