@@ -34,10 +34,10 @@ internal static class ValuExpressions
             // llvm-objdump order: fmaak = vdst, src0, vsrc1, K; fmamk = vdst, src0, K, vsrc1 (src0 * K + vsrc1).
             "v_fmaak_f32" or "v_fmamk_f32" => $"mad({f(Source0)}, {f(Source1)}, {f(Source2)})",
             "v_madak_f32" or "v_madmk_f32" => $"mad_unfused({f(Source0)}, {f(Source1)}, {f(Source2)})",
-            "v_min_f32" => $"min({f(Source0)}, {f(Source1)})",
-            "v_max_f32" => $"max({f(Source0)}, {f(Source1)})",
-            "v_min3_f32" => $"min(min({f(Source0)}, {f(Source1)}), {f(Source2)})",
-            "v_max3_f32" => $"max(max({f(Source0)}, {f(Source1)}), {f(Source2)})",
+            "v_min_f32" => $"min_sz({f(Source0)}, {f(Source1)})",
+            "v_max_f32" => $"max_sz({f(Source0)}, {f(Source1)})",
+            "v_min3_f32" => $"min_sz(min_sz({f(Source0)}, {f(Source1)}), {f(Source2)})",
+            "v_max3_f32" => $"max_sz(max_sz({f(Source0)}, {f(Source1)}), {f(Source2)})",
             "v_med3_f32" => $"med3({f(Source0)}, {f(Source1)}, {f(Source2)})",
             _ => Transcendental(op, f, u, i),
         };
@@ -53,9 +53,9 @@ internal static class ValuExpressions
             "v_exp_f32" => $"exp2({f(Source0)})",
             "v_log_f32" => $"log2({f(Source0)})",
 
-            // v_sin/v_cos take the angle in revolutions.
-            "v_sin_f32" => $"sin({f(Source0)} * 6.2831853)",
-            "v_cos_f32" => $"cos({f(Source0)} * 6.2831853)",
+            // v_sin/v_cos take the angle in turns: whole turns off first (prelude sin_turns, cos_turns).
+            "v_sin_f32" => $"sin_turns({f(Source0)})",
+            "v_cos_f32" => $"cos_turns({f(Source0)})",
             "v_fract_f32" => $"fract_f32({f(Source0)})",
             "v_floor_f32" => $"floor({f(Source0)})",
             "v_ceil_f32" => $"ceil({f(Source0)})",

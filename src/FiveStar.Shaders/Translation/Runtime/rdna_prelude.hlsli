@@ -669,9 +669,19 @@ float fract_f32(float x) { float f = frac(x); return f >= 1.0 ? asfloat(0x3f7fff
 float fract_f16(float x) { float f = frac(x); return f >= 0.999755859375 ? 0.99951171875 : f; }
 // V_MED3_F32: with a NaN among the three the hardware gives their minimum (min skips the NaN; victory-fork 36eb0b4).
 float med3(float a, float b, float c) { float lo = min(a, b); float m = max(lo, min(max(a, b), c)); return (isnan(a) || isnan(b) || isnan(c)) ? min(lo, c) : m; }
+// V_MIN_F32 / V_MAX_F32 (and the f16 and three-operand forms) order -0 below +0: of a -0 and a +0, min gives -0 and
+// max +0, where min and max may give either (VIctory bf84134, facts only). A NaN operand is skipped as by min/max.
+float min_sz(float a, float b) { return (a == 0.0 && b == 0.0) ? asfloat(asuint(a) | asuint(b)) : min(a, b); }
+float max_sz(float a, float b) { return (a == 0.0 && b == 0.0) ? asfloat(asuint(a) & asuint(b)) : max(a, b); }
 uint med3u(uint a, uint b, uint c) { return max(min(a, b), min(max(a, b), c)); }
 int med3i(int a, int b, int c) { return max(min(a, b), min(max(a, b), c)); }
 float round_ne(float x) { return round(x); }
+// V_SIN_F32 / V_COS_F32 take the angle in turns. The whole turns come off first, exactly (x - round_ne(x) is in
+// [-0.5, 0.5]), so a large angle keeps its fraction instead of losing it in the scale to radians; a half turn's sine and
+// a quarter turn's cosine are exactly +0, and sin(-0) stays -0 (VIctory 0b499d7, facts only). Hash and dither code of the
+// form frac(sin(k * x) * big) read structured noise before.
+float sin_turns(float x) { float r = x - round_ne(x); return x == 0.0 ? x : (abs(r) == 0.5 ? 0.0 : sin(r * 6.2831853)); }
+float cos_turns(float x) { float r = x - round_ne(x); return abs(r) == 0.25 ? 0.0 : cos(r * 6.2831853); }
 uint bfe_u(uint v, uint off, uint w) { off &= 31; w &= 31; return w == 0 ? 0 : (v >> off) & ((1u << w) - 1); }
 uint bfe_i(uint v, uint off, uint w) { off &= 31; w &= 31; if (w == 0) return 0; if (off + w >= 32) return asuint(asint(v) >> off); int s = asint(v << (32 - off - w)); return asuint(s >> (32 - w)); }
 
