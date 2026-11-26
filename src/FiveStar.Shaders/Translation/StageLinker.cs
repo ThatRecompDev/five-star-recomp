@@ -72,6 +72,8 @@ public static partial class StageLinker
             linked = CopyHalf(linked, layout.Members, half);
         }
 
+        linked = OutputNarrowing.Apply(linked, layout.Narrowed);
+
         return Drop(linked, dropped);
     }
 
@@ -154,7 +156,7 @@ public static partial class StageLinker
                 || pixelHlsl.Contains($"pin.{member.Groups["name"].Value}", StringComparison.Ordinal);
         });
 
-        return pixelHlsl[..group.Index] + string.Join("\n", kept) + pixelHlsl[(group.Index + group.Length)..];
+        return InputNarrowing.Apply(pixelHlsl[..group.Index] + string.Join("\n", kept) + pixelHlsl[(group.Index + group.Length)..]);
     }
 
     /// <summary>A key for the consumer inputs a link depends on: producers linked to equal inputs are the same.</summary>
@@ -282,6 +284,9 @@ public static partial class StageLinker
 
         public List<(string Member, int Register, bool High)> Halves { get; } = [];
 
+        /// <summary>Producer members declared narrower, as wide as the consumer reads them (<see cref="OutputNarrowing"/>).</summary>
+        public List<(OutStructMember Member, int Width)> Narrowed { get; } = [];
+
         /// <summary>Declares the producer member of one consumer element, or adds one.</summary>
         public void Place(PsvElement element)
         {
@@ -303,7 +308,14 @@ public static partial class StageLinker
 
             if (member is not null)
             {
-                Take(member, prefix);
+                int columns = 0;
+
+                if (element.Rows == 1)
+                {
+                    columns = element.Columns;
+                }
+
+                Take(member, prefix, columns);
 
                 return;
             }
@@ -329,12 +341,25 @@ public static partial class StageLinker
             return _lines.Concat(Members.Where(member => !_placed.Contains(member)).Select(member => "  " + member.Declaration));
         }
 
-        private void Take(OutStructMember? member, string prefix)
+        /// <summary>Declares a producer member, narrowed to <paramref name="columns"/> when the consumer reads fewer (0: as declared).</summary>
+        private void Take(OutStructMember? member, string prefix, int columns = 0)
         {
-            if (member is not null && _placed.Add(member))
+            if (member is null || !_placed.Add(member))
+            {
+                return;
+            }
+
+            var narrowed = OutputNarrowing.Narrowed(member, columns);
+
+            if (narrowed is null)
             {
                 _lines.Add("  " + prefix + member.Declaration);
+
+                return;
             }
+
+            Narrowed.Add((member, columns));
+            _lines.Add("  " + prefix + narrowed);
         }
     }
 }
