@@ -211,6 +211,7 @@ internal static unsafe class ListStateSlots
             if (DebugLayer.TargetClears.Any)
             {
                 DebugLayer.TargetClears.Bound(inner, count, handles, single != 0);
+                DebugLayer.ReplacedTargets.BoundDepth(depth);
             }
 
             ((delegate* unmanaged<nint, uint, nint*, int, nint*, void>)ComObject.Slot(inner, DesktopSetRenderTargets))(inner, count, handles, single, depthStencil);
