@@ -6,11 +6,11 @@ GTA VI does not run yet. Updated 26 November 2026.
 
 - **Boots to the world.** Logo, intro, first-run screens, story load and the opening cutscene (art, credits, dialogue,
   sound) run at 30 fps. The 3D world draws from about present 950.
-- **World image:** the city at night is on screen and lit (the lit HDR matches the reference port's range). Still wrong:
-  blocky shadows, banding in bloom, exposure about 4 stops dark, no bounced light (needs ray tracing).
+- **World image:** the city at night is on screen, lit and correctly exposed. Still wrong: blocky shadows (fix being
+  tested), banding in bloom and flares, no bounced light (needs ray tracing).
 - **Materials:** fixed. Every texture the G-buffer samples now has data (streamed textures are re-read as their pages
   change).
-- **Speed:** a world frame takes about 540 ms (about 2 fps), down from 1,100 ms. The GPU's main queue is now the limit.
+- **Speed:** a world frame takes about 390 ms (about 2.5 fps), down from 1,100 ms.
   Targets: 30 fps, then 60.
 - **AMD:** world geometry draws since #55.
 - **Memory:** a 10-minute boot grows to about 39 GB private, mostly video memory our textures hold; being reduced.
