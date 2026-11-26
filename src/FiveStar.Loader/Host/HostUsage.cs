@@ -217,6 +217,10 @@ internal static class HostUsage
                                  pixel and compute programs per wave, with the first float site whose value is NaN or Inf
           --d3d12-dump-targets   the draw trace, and in the frame after each captured present every render and depth
                                  target read back when a list leaves it, as PNG in the capture folder
+          --dump-frame <n>       the draw trace, and in the frame after present n every target and UAV texture at
+                                 least 480 wide read back after each pass that wrote it (64 at most), as
+                                 NN-pass-WxH-fmtF.png (HDR exposed, normals and depth mapped; stats in the log)
+          --dump-frame-dir <dir> where --dump-frame writes (default frame-<n>)
           --capture-dir <dir>    write read-back planes and render targets there as PNG
           --capture-presents <n,...> present numbers whose plane is read back (default 60,300,900,1500)
           --pix-capture <n,...>  PIX GPU capture of those presents (WinPixGpuCapturer.dll, winget Microsoft.PIX)
