@@ -159,20 +159,51 @@ internal sealed unsafe class AddressShaderViews
         }
     }
 
-    /// <summary>A buffer view at an address; false (with why in <paramref name="reason"/>) when it gets no desktop buffer.</summary>
+    /// <summary>
+    /// A buffer view at an address; false (with why in <paramref name="reason"/>) when it gets no desktop buffer. A null
+    /// one whose record keeps the heap index is counted apart: only there does a program read the descriptor (a record
+    /// with the view's console address is read through the address map).
+    /// </summary>
     private bool BufferView(nint device, AddressViewDescription* view, nint handle, Binding.BufferRecord record, ref GpuResourceEvent reason)
     {
         _textures.Counters.Add(GpuResourceEvent.ViewBuffer);
+        var outcome = _buffers.Create(device, view, handle, record);
 
-        if (_buffers.Create(device, view, handle, record, out bool covered))
+        switch (outcome)
         {
-            return true;
+            case BufferViewOutcome.Created:
+                return true;
+            case BufferViewOutcome.Clamped:
+                _textures.Counters.Add(GpuResourceEvent.ViewBufferClamped);
+
+                return true;
+            case BufferViewOutcome.Raw:
+                _textures.Counters.Add(GpuResourceEvent.ViewBufferRaw);
+
+                return true;
         }
 
-        reason = covered ? GpuResourceEvent.ViewNullBufferRange : GpuResourceEvent.ViewNullBufferUncovered;
-        _warnings.Warn($"slot70-buffer-{reason}", $"[d3d12_xs] ID3D12Device.X::Slot70: a buffer view at 0x{view->Address:x} (format {view->Format}) {Explain(reason)}: null descriptor");
+        reason = outcome == BufferViewOutcome.Uncovered ? GpuResourceEvent.ViewNullBufferUncovered : GpuResourceEvent.ViewNullBufferRange;
+
+        if (record.Base == 0)
+        {
+            _textures.Counters.Add(GpuResourceEvent.ViewNullBufferKeptIndex);
+        }
+
+        var desc = (Binding.BufferViewDescription*)view;
+        _warnings.Warn($"slot70-buffer-{outcome}-{desc->Format}-{desc->SrvFlags}-{record.Base == 0}", $"[d3d12_xs] ID3D12Device.X::Slot70: a buffer view at 0x{view->Address:x} (format {desc->Format}, first element {desc->SrvFirstElement}, {desc->SrvElements} elements, stride {desc->SrvStride}, flags {desc->SrvFlags}; record {Based(record)}): {outcome}, null descriptor");
 
         return false;
+    }
+
+    private static string Based(Binding.BufferRecord record)
+    {
+        if (record.Base == 0)
+        {
+            return "keeps the heap index: programs read this descriptor";
+        }
+
+        return "holds the console address: programs read through the address map";
     }
 
     /// <summary>--typeless-depth: a depth texture in its typeless family reads its depth plane where the typed one read nothing.</summary>
