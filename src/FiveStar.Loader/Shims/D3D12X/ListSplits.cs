@@ -191,6 +191,11 @@ internal static unsafe class ListSplits
         {
             ShimContext.Runtime.D3D12X.RenderTargets.Ensure(self, list, state->TargetCount, (nint*)state->Targets, state->SingleHandle != 0);
         }
+
+        if ((state->Set & ListReplayState.DepthStencilBit) != 0)
+        {
+            ShimContext.Runtime.D3D12X.RenderTargets.EnsureDepth(self, list, (nint)state->DepthStencil);
+        }
     }
 
     internal static void RestoreGraphics(ListReplayState* state, nint list)

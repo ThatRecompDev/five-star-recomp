@@ -167,7 +167,7 @@ internal static unsafe class ResourceBarrierSlots
 
         int home = wrapper->HomeState;
         int current = states.Current(resource, home);
-        after = ResourceStates.Allowed(after, wrapper->Flags);
+        after = ResourceStates.DepthReadable(ResourceStates.ShaderReadable(ResourceStates.Allowed(after, wrapper->Flags)), wrapper->Flags);
 
         if (current == after)
         {

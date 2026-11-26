@@ -41,7 +41,7 @@ internal static class ResourceStates
 
     /// <summary>D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET, _DEPTH_STENCIL and _UNORDERED_ACCESS.</summary>
     public const int AllowRenderTarget = 0x1;
-    private const int AllowDepthStencil = 0x2;
+    public const int AllowDepthStencil = 0x2;
     private const int AllowUnorderedAccess = 0x4;
 
     /// <summary>
@@ -76,6 +76,45 @@ internal static class ResourceStates
         }
 
         return created;
+    }
+
+    /// <summary>
+    /// <paramref name="state"/> with both shader-resource states when it names one and no write: a table a root
+    /// signature makes visible to every stage is checked against both (error #538), and the console makes no such
+    /// difference. On a compute list the pixel state is left out again (<see cref="ResourceBarrierSlots"/>).
+    /// </summary>
+    [HotPath]
+    public static int ShaderReadable(int state)
+    {
+        const int ShaderResource = NonPixelShaderResource | PixelShaderResource;
+        const int Writes = RenderTarget | UnorderedAccess | DepthWrite | CopyDest | ResolveDest;
+
+        if ((state & ShaderResource) == 0 || (state & Writes) != 0)
+        {
+            return state;
+        }
+
+        return state | ShaderResource;
+    }
+
+    /// <summary>
+    /// <paramref name="state"/> for a depth texture (<paramref name="flags"/> with ALLOW_DEPTH_STENCIL): a read state
+    /// the console's layouts let a depth be tested in (GENERIC_READ, shader resource) becomes DEPTH_READ with its
+    /// shader-resource and copy-source states, since the desktop tests a depth only in DEPTH_READ or DEPTH_WRITE (error
+    /// #538). Other states and other textures as they are.
+    /// </summary>
+    [HotPath]
+    public static int DepthReadable(int state, int flags)
+    {
+        const int Readable = NonPixelShaderResource | PixelShaderResource | CopySource;
+        const int Writes = RenderTarget | UnorderedAccess | DepthWrite | CopyDest | ResolveDest;
+
+        if ((flags & AllowDepthStencil) == 0 || (state & Readable) == 0 || (state & Writes) != 0)
+        {
+            return state;
+        }
+
+        return DepthRead | (state & Readable);
     }
 
     /// <summary>Records the dimension, home state and desktop flags on a resource wrapper (null is ignored).</summary>
