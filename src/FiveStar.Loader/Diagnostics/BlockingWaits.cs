@@ -51,6 +51,17 @@ internal static class BlockingWaits
         return $"waiting in {what} for {Stopwatch.GetElapsedTime(since).TotalMilliseconds:F0} ms";
     }
 
+    /// <summary>The wait the thread is in now, or null; allocates nothing (the CPU sampler asks at every sample).</summary>
+    public static string? Current(uint thread)
+    {
+        if (!Slots.TryGetValue(thread, out var slot))
+        {
+            return null;
+        }
+
+        return slot.What;
+    }
+
     /// <summary>The time spent in each wait so far, summed over every thread, longest first.</summary>
     public static string Summary()
     {

@@ -200,6 +200,12 @@ internal sealed record HostOptions
     /// <summary>How long the managed CPU profile samples.</summary>
     public TimeSpan ProfileManagedLength { get; set; }
 
+    /// <summary>With --run, sample the game's threads at this interval (<c>--cpu-sample</c>).</summary>
+    public TimeSpan? CpuSampleInterval { get; set; }
+
+    /// <summary>How often the CPU sampler logs its table.</summary>
+    public TimeSpan CpuSampleReport { get; set; }
+
     /// <summary>With --run, also trace calls into these mapped images (<c>--trace-module</c>).</summary>
     public List<string> TracedModules { get; } = [];
 
