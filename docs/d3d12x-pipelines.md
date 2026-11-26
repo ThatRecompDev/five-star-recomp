@@ -249,6 +249,15 @@ refusals of that rule in 28 minutes, while its compiles grew private bytes by on
 of 4 MiB of DXIL or more are left to a last pass in the parent, one at a time, after the shards end. A shard ended by a
 memory limit or Ctrl+C leaves its pipelines to that pass or to a new run, which skips what the cache holds.
 
+**Modes.** The warm-up takes the boot's translation and pipeline modes from its own options, and a mode change
+leaves the cached pipelines unused: `--mesh-launch` gives mesh programs a payload (a new program-cache folder) and its
+pipelines an amplification stage (a new DXIL key). Boot w115 ran `--mesh-launch` on a cache warmed without it: 3,121
+programs were made on demand (none in w113 without it, on the same cache), ready after 58 s on average, and it skipped
+3.3 million draws and dispatches against w113's 1.4 million. Warm with the boot's exact modes before the
+first boot of a new mode:
+`fivestar-loader --warm-pipelines <shaders.rpf> --warm-used-only --shader-dir <fssm> --program-cache <dir> --pipeline-cache <dir> --mesh-launch --typed-image-views --skip-pipelines <the boot's list> --warm-jobs 2 --min-free-memory 6 --max-commit 100 --log warm.log`
+(with `fivestar run --warm`, put the same options after `--`).
+
 Slot 86 streams and slot 55 derives are not in the console cache; the journal brings them to the warm-up.
 
 **Journal.** A boot appends every description whose pipeline a command list first sets (all five slots, derives

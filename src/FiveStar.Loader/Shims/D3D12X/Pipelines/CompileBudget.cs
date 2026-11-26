@@ -55,6 +55,13 @@ internal static unsafe class CompileBudget
     /// </summary>
     public const long HeavyShaderBytes = 2L << 20;
 
+    /// <summary>
+    /// DXIL from which a compile leaves one of the <see cref="MaxCompiles"/> slots to smaller ones (<see cref="SlotFor"/>):
+    /// in boot w115 two mesh-shader compiles of 1 to 4 MB held both slots of --max-driver-compiles 2 for minutes, 3,996
+    /// compiles were refused for the slots, and pipelines of a few hundred kilobytes stayed stand-ins behind them.
+    /// </summary>
+    public const long ReservedSlotBytes = 1L << 20;
+
     /// <summary>The least physical memory compiles leave free: the boot guard kills below 4 GB.</summary>
     public const long MinimumPhysicalReserve = 4L << 30;
 
@@ -135,6 +142,7 @@ internal static unsafe class CompileBudget
     private static long _refusedCommit;
     private static long _refusedCeiling;
     private static long _refusedInFlight;
+    private static long _refusedReservedSlot;
     private static readonly List<CompileTicket> Compiles = [];
     private static int _waiting;
     private static int _urgentWaiting;
@@ -568,7 +576,7 @@ internal static unsafe class CompileBudget
                 return null;
             }
 
-            if (!tiny && !MemoryRoom(estimate, urgent))
+            if (!tiny && !MemoryRoom(shaderBytes, estimate, urgent))
             {
                 return null;
             }
@@ -628,7 +636,7 @@ internal static unsafe class CompileBudget
     /// reservations (an urgent compile's only the floor and its own estimate); counts the rule that refused. Call under
     /// the gate.
     /// </summary>
-    private static bool MemoryRoom(long estimate, bool urgent)
+    private static bool MemoryRoom(long shaderBytes, long estimate, bool urgent)
     {
         // The running compiles' reservations (Reservation): their whole estimates at first. Subtracting all their
         // growth (as before boot w11b) let seven run at once, since the growth was mostly textures; keeping the whole
@@ -657,12 +665,29 @@ internal static unsafe class CompileBudget
             return Refused(ref _refusedInFlight);
         }
 
+        if (!SlotFor(shaderBytes >= ReservedSlotBytes, Compiles.Count(compile => compile.Estimate >= Estimate(ReservedSlotBytes)), MaxCompiles))
+        {
+            return Refused(ref _refusedReservedSlot);
+        }
+
         if (!UnderCeiling(estimate, _runningLarge, CountedBytes(PrivateBytes()), remaining, MaxCompiles, CeilingBytes))
         {
             return Refused(ref _refusedCeiling);
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Whether a compile may take a slot beside <paramref name="runningBig"/> compiles of <see cref="ReservedSlotBytes"/>
+    /// or more: a smaller one always (the in-flight cap still applies), a big one while it leaves one of
+    /// <paramref name="maxCompiles"/> slots free; with a single slot, always.
+    /// </summary>
+    public static bool SlotFor(bool big, int runningBig, int maxCompiles)
+    {
+        int kept = 1;
+
+        return !big || maxCompiles <= kept || runningBig < maxCompiles - kept;
     }
 
     /// <summary>Counts a refusal by its rule.</summary>
@@ -688,7 +713,7 @@ internal static unsafe class CompileBudget
                 reserved = Remaining();
             }
 
-            return $"refused by load window {Interlocked.Read(ref _refusedLoad)}, urgent first {Interlocked.Read(ref _refusedUrgentFirst)}, one heavy {Interlocked.Read(ref _refusedHeavy)}, free memory {Interlocked.Read(ref _refusedMemory)}, commit {Interlocked.Read(ref _refusedCommit)}, {MaxCompiles} in flight {Interlocked.Read(ref _refusedInFlight)}, private ceiling {Interlocked.Read(ref _refusedCeiling)}; {reserved / BytesPerGigabyte:F1} GB reserved for running compiles, reserve {PhysicalReserve(Interlocked.Read(ref _growthAllowance), PhysicalFloor) / BytesPerGigabyte:F1} GB";
+            return $"refused by load window {Interlocked.Read(ref _refusedLoad)}, urgent first {Interlocked.Read(ref _refusedUrgentFirst)}, one heavy {Interlocked.Read(ref _refusedHeavy)}, free memory {Interlocked.Read(ref _refusedMemory)}, commit {Interlocked.Read(ref _refusedCommit)}, {MaxCompiles} in flight {Interlocked.Read(ref _refusedInFlight)}, slot kept for compiles under 1 MB {Interlocked.Read(ref _refusedReservedSlot)}, private ceiling {Interlocked.Read(ref _refusedCeiling)}; {reserved / BytesPerGigabyte:F1} GB reserved for running compiles, reserve {PhysicalReserve(Interlocked.Read(ref _growthAllowance), PhysicalFloor) / BytesPerGigabyte:F1} GB";
         }
     }
 
