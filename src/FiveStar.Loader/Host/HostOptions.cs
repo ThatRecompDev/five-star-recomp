@@ -290,8 +290,11 @@ internal sealed record HostOptions
     /// <summary><c>--output WxH</c>: the title's output size, one of its modes (Mods.OutputSizePatches); null keeps its settings'.</summary>
     public (int Width, int Height)? OutputSize { get; set; }
 
-    /// <summary>With <c>--indirect-gather-strict</c>, every memory write, dispatch and memory wait ends gathering as before the narrower rules.</summary>
-    public bool IndirectGatherStrict { get; set; }
+    /// <summary>
+    /// Every memory write, dispatch and memory wait ends gathering (the default); <c>--indirect-gather-relaxed</c> turns on the
+    /// narrower rules, which drew lights as squares in some boots until they are proven.
+    /// </summary>
+    public bool IndirectGatherStrict { get; set; } = true;
 
     /// <summary>With <c>--indirect-batch</c> (and gathering), indirect records not gathered are clamped in one pass per stretch between barriers after writes.</summary>
     public bool IndirectBatch { get; set; }
