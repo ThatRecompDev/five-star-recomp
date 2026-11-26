@@ -100,6 +100,7 @@ internal sealed unsafe class DrawTrace
     private readonly GameMemorySource _memory;
     private readonly XboxDeviceFactory _d3d12;
     private readonly LoaderLog _log;
+    private readonly DrawQueries _queries;
     private long _draws;
     private long _windowEnd = FirstDraws;
     private long _reportAt;
@@ -111,6 +112,7 @@ internal sealed unsafe class DrawTrace
     {
         _capture = capture;
         _probes = new DrawProbes(log);
+        _queries = new DrawQueries(log);
         _census = new DrawCensus(log);
         _memory = memory;
         _d3d12 = d3d12;
@@ -524,6 +526,7 @@ internal sealed unsafe class DrawTrace
         }
 
         Write(text);
+        _queries.Begin(_d3d12.Objects.DesktopDevice, list->Inner, (nint)list, $"draw {draw} on list 0x{(nint)list:x} {pipeline}");
     }
 
     /// <summary>The window records at <see cref="TraceRecords.Offsets"/> from the user SGPRs (<c>--d3d12-trace-records</c>).</summary>
@@ -687,6 +690,11 @@ internal sealed unsafe class DrawTrace
         Write(text);
         _indirectProbes[(nint)list] = 0;
 
+        if (!compute)
+        {
+            _queries.Begin(_d3d12.Objects.DesktopDevice, list->Inner, (nint)list, $"indirect on list 0x{(nint)list:x} {Label(rectangles->Pipeline)}");
+        }
+
         if (ProbeTraced)
         {
             ProbeRecords(list, state, compute);
@@ -806,6 +814,8 @@ internal sealed unsafe class DrawTrace
             return;
         }
 
+        _queries.End(list->Inner, (nint)list);
+
         foreach (nint handle in state.Targets.Take(TargetsReadBack).Append(state.DepthStencil))
         {
             if (handle == 0 || !_targetViews.TryGetValue(handle, out var target))
@@ -849,6 +859,7 @@ internal sealed unsafe class DrawTrace
         long draw = Interlocked.Read(ref _draws);
         var state = List(list);
         Watch(list, state, $"draw {draw}", boundOnly: true);
+        _queries.End(list->Inner, (nint)list);
 
         bool traced = state.ProbeNext;
         state.ProbeNext = false;
@@ -961,6 +972,7 @@ internal sealed unsafe class DrawTrace
     public void Report()
     {
         _probes.Report(Resets);
+        _queries.Report();
         Volatile.Write(ref _reportAt, 0);
     }
 
