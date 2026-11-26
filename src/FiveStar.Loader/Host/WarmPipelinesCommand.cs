@@ -30,6 +30,9 @@ internal static unsafe class WarmPipelinesCommand
     {
         ShimContext.UseLog(log);
 
+        // --skip-pipelines holds the same pipelines as in a boot (refused, like ray tracing without --raytracing).
+        SkippedPipelines.Texts = options.SkipPipelines;
+
         // --min-free-memory and --max-commit end the warm-up as they end a boot, its helper processes with it.
         if (options.MinimumFreeMemory != 0 || options.MaximumCommit != 0)
         {
