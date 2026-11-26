@@ -117,6 +117,7 @@ internal sealed unsafe class DrawTrace
         _probes = new DrawProbes(log);
         _queries = new DrawQueries(log);
         _census = new DrawCensus(log);
+
         _memory = memory;
         _d3d12 = d3d12;
         _log = log;
