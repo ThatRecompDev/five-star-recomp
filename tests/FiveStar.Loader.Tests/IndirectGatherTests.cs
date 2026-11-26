@@ -196,7 +196,7 @@ public sealed unsafe class IndirectGatherTests
     }
 
     [Fact]
-    public void A_dispatch_that_stores_to_no_buffer_and_a_kept_memory_wait_leave_gathering_open()
+    public void A_dispatch_that_stores_to_no_buffer_leaves_gathering_open_and_a_memory_wait_ends_it()
     {
         IndirectGather.Enabled = true;
         var list = (XboxObject*)System.Runtime.InteropServices.NativeMemory.AllocZeroed(XboxInterfaces.CommandListObjectSize);
@@ -208,9 +208,15 @@ public sealed unsafe class IndirectGatherTests
             IndirectGather.Dispatched(list, Pipeline);
             IndirectGather.AfterWork(list, true, Pipeline);
 
-            IndirectGather.WaitRecorded(list);
             IndirectGather.Synced(list, IndirectGatherCloser.EnhancedBarrier);
             Assert.True(IndirectGather.IsOpen(list));
+
+            // A memory wait: its queue Wait is released at a present or its timeout, so a prelude before the segment
+            // could read arguments not yet written (w128).
+            IndirectGather.WaitRecorded(list);
+            Assert.False(IndirectGather.IsOpen(list));
+            Assert.Equal(IndirectGatherMiss.MemoryWait, (IndirectGatherMiss)ListIndirectScratch.Of(list)->GatherClosed);
+            IndirectGather.Reset(list);
 
             // A dispatch of a pipeline that may store to a buffer is a writer.
             IndirectGather.Dispatched(list, Pipeline + 1);
@@ -218,12 +224,8 @@ public sealed unsafe class IndirectGatherTests
             Assert.False(IndirectGather.IsOpen(list));
             Assert.Equal(IndirectGatherMiss.AfterDispatch, (IndirectGatherMiss)ListIndirectScratch.Of(list)->GatherClosed);
 
-            // Strict: every dispatch writes, and every memory wait ends gathering.
+            // Strict: every dispatch writes.
             IndirectGather.Strict = true;
-            IndirectGather.Reset(list);
-            IndirectGather.WaitRecorded(list);
-            Assert.False(IndirectGather.IsOpen(list));
-
             IndirectGather.Reset(list);
             IndirectGather.Dispatched(list, Pipeline);
             IndirectGather.Synced(list, IndirectGatherCloser.EnhancedBarrier);
