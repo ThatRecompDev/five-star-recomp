@@ -33,7 +33,8 @@ internal static partial class PureExpression
             return false;
         }
 
-        foreach (Match call in CallPattern().Matches(value))
+        // Match by match: a MatchCollection keeps every match in a growing list, and values hold hundreds of calls.
+        for (var call = CallPattern().Match(value); call.Success; call = call.NextMatch())
         {
             if (!PureFunctions.Contains(call.Groups[1].Value))
             {
