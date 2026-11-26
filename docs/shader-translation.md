@@ -179,7 +179,9 @@ epilogue's, is kept.
 The superstep form first drops the wave operations whose result nothing reads (`DeadWaveOperations`: a ballot into an
 SGPR half or an scc write that is dead after it, by liveness over the block graph), after reading a lane's own bit of a
 ballot from the mask bool it took (`BallotBits`: `lane_bit(lo, hi)` of `vw_ballot(m).x` and `.y` is `m` while
-neither half nor `m` is written, since every thread of the console wave deposits its bit). Over the 8,765 mesh
+neither half nor `m` is written, since every thread of the console wave deposits its bit; a wave32 program needs only
+`.x`, so its `lane_bit(lo, 0u)` of a 32-bit mask such as `s_cselect_b32 s8, exec, 0` counts too, which took
+`CS_PedStandardSkinning` from 57 ballots and 115 `lane_bit`s to 20 and 50). Over the 8,765 mesh
 programs the stops fell from 1,340,858 to 406,824; none has more than 500 left (207 had before), and
 `MSNC_VS_LinearDepthSkin_f1f2249c` went from 611 to 180. The other forms drop them too (pixel programs without the
 own-bit rewrite, since helper lanes take no part in an HLSL ballot): dxc keeps an unused `WaveActiveBallot`. In every
@@ -333,6 +335,12 @@ read 0; the mesh probe of `MS_VS_Transform_PositionOnly` found one format load o
 
 Per access, `buf_limit` gives the end the dwords must fit under and `buf_offset` the checked offset (soffset counts
 for raw V#s). Each dword then costs one compare (`buf_fits`); formatted accesses check the element's first dword.
+A `buffer_load/store_dwordx2-x4` makes one compare when all its dwords are in range (`buf_fits_all`: the last fits and
+its offset does not wrap) and then one `Load2-4` / `Store2-4` through one descriptor (`BufLoadV`, `BufLoadRWV`,
+`BufStoreV`, and `BufStoreN` in compute); partly in range, a rolled loop checks and moves each dword as before
+(`BufStoreEach` for stores). On `CS_PedStandardSkinning` that took the DXIL backend's output from 281,224 to 267,040
+bytes (1,395 to 1,135 raw loads, 481 to 283 raw stores, 793 to 333 heap handles) with the same replay outputs. `s_buffer_load` keeps a select
+per dword: those loads are uniform and branch-free, and a range branch per site grew the constant-heavy programs.
 The shim's records carry the OOB_SELECT of their view's kind (raw 3, structured 0, typed and constant buffers 1).
 
 Audit against the GFX10 rules, per access kind (the corpus's 25,885 programs as a census; `ComputeBufferRuleCases` has
@@ -896,10 +904,50 @@ compiled once into `<out>/linked/<name>.<hash>.dxil`. `--unlinked` creates the p
 for comparison. Results go to `<out>/link-<adapter>.jsonl` (`unlinked-<adapter>.jsonl`) with the fields, limits and
 resume rules of `pso`. A cache shader that matches several programs (same code) stands for the first compiled one.
 
-```nfivestar shader rect-gs <out> [--jobs N]
-```n
+```
+fivestar shader rect-gs <out> [--jobs N]
+```
+
 Compiles the rectangle-list geometry shader of every compiled vertex program of `<out>` into `<out>/rect-gs/`, one
 file per distinct output signature ([d3d12x-shim.md](d3d12x-shim.md#rectangle-lists)).
+
+### Dispatch replay
+
+```
+fivestar shader replay <capture> [--adapter hardware|warp|<index>] [--hlsl <file> | --translator current] [--runs N]
+                       [--tolerance F] [--shown N] [--backend hlsl|dxil|dxil-only] [--dxc <path>] [--debug-layer]
+                       [--group-wave] [--save-outputs <dir>] [--expected <dir>]
+```
+
+Runs a compute dispatch the loader captured (`--capture-dispatch`, [loader.md](loader.md)) on a fresh device: the
+captured DXIL, an HLSL file (compiled as it is, with the capture's runtime headers) or the captured FSSM translated by
+this build (`fivestar shader translate`'s options, after the defines the loader put before it). Each of N runs (10)
+copies the inputs back, binds the bindless root as the loader does and dispatches between two timestamp queries; it
+prints the DXIL size, the compile time, every run's GPU time and the median, and for each resource the program can
+write whether the first run's bytes equal the captured output (bit for bit, or within `--tolerance` on dwords read as
+float32; the count of differing dwords and the first `--shown` offsets). Exit code 1 when one differs.
+`--save-outputs` writes the first run's outputs as `<resource>.bin`, and `--expected` compares with such a folder
+instead of the capture, so two translator builds can be checked against each other. `--group-wave` runs the
+translator's wave32 variant of a wave64-pinned program, as the loader does on GPUs without 64-lane waves.
+
+| Capture file | Holds |
+|---|---|
+| `capture.json` | pipeline, program files, user data (128 dwords; root constants or a root CBV), group counts (an ExecuteIndirect's records resolved), the view heap's size and fallback table, the resources (D3D12_RESOURCE_DESC fields, footprints per texture subresource, blobs before and after, fills and patches), the descriptors (heap index, SRV or UAV, resource, the 40 desc bytes in hex), notes |
+| `blobs/<id>.in`, `.out` | a resource's bytes before and after the dispatch (a texture by its footprints) |
+| `blobs/window-<offset>.bin` | the descriptor window's bytes of a table the program reads |
+| `program/` | `program.dxil`, `program.fssm`, `program.hlsl`, `includes/` |
+
+The descriptor window, an address map naming a raw view pair over each captured range of game memory at its console
+address, and the reserved slots (window, map, null views, null textures) are written by the capture, so a replay sees
+the heap indices and addresses the program saw. A captured view that does not fit its resource (dimension, format
+outside a typeless resource's family, mips or slices past it; creating one removes the device with
+DXGI_ERROR_INVALID_CALL and no debug message) is written as a null view and listed as `skipped`. Not kept: sampler descriptors (linear clamp in the replay), window
+records past the tables found (a pointer the program builds itself reads null records), game memory reached only through
+pointers loaded from memory, pages the address map has no view of (zeros), multisampled textures and the stencil plane.
+Buffers are copied in the state the list left them in (no transition; the debug layer reports it), and
+`--translator current` compiles the program's main form, not a wave variant. Graphics draws are not captured: they would
+need the pipeline's fixed-function state, the render and depth targets, vertex and index buffers and the vertex and
+pixel programs linked, all of which the draw trace (`--d3d12-trace-draws`) already reads.
 
 ## Testing
 

@@ -24,6 +24,10 @@ internal static class HostComposition
         Shims.D3D12X.DebugLayer.NanScan.Filter = options.NanScan;
         Shims.D3D12X.DebugLayer.NanScan.Dwords = options.NanScanDwords;
 
+        Shims.D3D12X.DebugLayer.DispatchCaptures.Specs = options.CaptureDispatch;
+        Shims.D3D12X.DebugLayer.DispatchCaptures.Folder = options.CaptureDispatchDirectory;
+        Shims.D3D12X.DebugLayer.DispatchCaptures.TranslatedFolder = options.TranslatedDirectory;
+
         Shims.D3D12X.Resources.GpuTextureRegistry.RetireUnmapped = options.RetireUnmappedTextures;
         Shims.D3D12X.Resources.GpuTextureRegistry.RetireUnreferenced = !options.KeepUnmappedTextures;
         Shims.D3D12X.Resources.GpuTextureRegistry.StaleInFirstPage = options.StaleInFirstPage;
