@@ -116,4 +116,19 @@ internal enum GpuResourceEvent
 
     /// <summary>A null slot-70 buffer view whose record keeps the heap index: the one kind a program reads.</summary>
     ViewNullBufferKeptIndex,
+
+    /// <summary>A view still held of a texture about to be released became a null view (<see cref="ReleasedTextureViews"/>).</summary>
+    ReleaseViewNulled,
+
+    /// <summary>A view still held of a texture about to be released was written over the texture of its shape that replaced it.</summary>
+    ReleaseViewRepointed,
+
+    /// <summary>With view liveness noted: a view of a released texture the texture views did not know of (left as it was).</summary>
+    ReleaseViewUnaccounted,
+
+    /// <summary>A released texture had a shared-exponent shadow, no longer copied into.</summary>
+    ReleaseDroppedShadow,
+
+    /// <summary>A released depth texture had depth twins, forgotten.</summary>
+    ReleaseDroppedTwin,
 }
