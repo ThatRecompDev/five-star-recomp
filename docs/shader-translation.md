@@ -908,6 +908,7 @@ file per distinct output signature ([d3d12x-shim.md](d3d12x-shim.md#rectangle-li
 ```
 fivestar shader replay <capture> [--adapter hardware|warp|<index>] [--hlsl <file> | --translator current] [--runs N]
                        [--tolerance F] [--shown N] [--backend hlsl|dxil|dxil-only] [--dxc <path>] [--debug-layer]
+                       [--group-wave] [--save-outputs <dir>] [--expected <dir>]
 ```
 
 Runs a compute dispatch the loader captured (`--capture-dispatch`, [loader.md](loader.md)) on a fresh device: the
@@ -917,6 +918,9 @@ copies the inputs back, binds the bindless root as the loader does and dispatche
 prints the DXIL size, the compile time, every run's GPU time and the median, and for each resource the program can
 write whether the first run's bytes equal the captured output (bit for bit, or within `--tolerance` on dwords read as
 float32; the count of differing dwords and the first `--shown` offsets). Exit code 1 when one differs.
+`--save-outputs` writes the first run's outputs as `<resource>.bin`, and `--expected` compares with such a folder
+instead of the capture, so two translator builds can be checked against each other. `--group-wave` runs the
+translator's wave32 variant of a wave64-pinned program, as the loader does on GPUs without 64-lane waves.
 
 | Capture file | Holds |
 |---|---|

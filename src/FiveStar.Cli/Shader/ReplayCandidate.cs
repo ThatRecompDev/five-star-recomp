@@ -38,8 +38,11 @@ internal sealed record ReplayCandidate(string Source, byte[] Dxil, double? Compi
         return Compile(compiler, work, capture.Program, File.ReadAllText(path), $"HLSL {path}");
     }
 
-    /// <summary>The captured FSSM translated by this build, with the defines the loader put before the program.</summary>
-    public static ReplayCandidate FromTranslator(CaptureFolder folder, DispatchCapture capture, IShaderCompiler compiler)
+    /// <summary>
+    /// The captured FSSM translated by this build, with the defines the loader put before the program; with
+    /// <paramref name="groupWave"/> the wave32 variant of a wave64-pinned program, as the loader runs it on such GPUs.
+    /// </summary>
+    public static ReplayCandidate FromTranslator(CaptureFolder folder, DispatchCapture capture, IShaderCompiler compiler, bool groupWave = false)
     {
         if (capture.Program.Fssm is null)
         {
@@ -54,10 +57,17 @@ internal sealed record ReplayCandidate(string Source, byte[] Dxil, double? Compi
             throw new InvalidOperationException($"the translator refused {capture.Program.Name}: {program.Status} {program.Reason}");
         }
 
-        var work = Work(folder, capture, useCaptured: false);
-        var hlsl = (capture.Program.Header ?? string.Empty) + program.Hlsl;
+        var body = program.Hlsl;
 
-        return Compile(compiler, work, capture.Program, hlsl, "current translator");
+        if (groupWave)
+        {
+            body = program.GroupWave?.Hlsl ?? throw new InvalidOperationException($"{capture.Program.Name} has no wave32 variant: {program.GroupWave?.Reason ?? "not wave64-pinned"}");
+        }
+
+        var work = Work(folder, capture, useCaptured: false);
+        var hlsl = (capture.Program.Header ?? string.Empty) + body;
+
+        return Compile(compiler, work, capture.Program, hlsl, groupWave ? "current translator, wave32 variant" : "current translator");
     }
 
     private static ReplayCandidate Compile(IShaderCompiler compiler, string work, CapturedProgram program, string hlsl, string source)
