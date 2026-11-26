@@ -419,6 +419,9 @@ internal sealed record HostOptions
     /// <summary><c>--no-lighting-waits</c>: the lighting pipelines are skipped while stand-ins, as any other (EssentialPipelines).</summary>
     public bool NoLightingWaits { get; set; }
 
+    /// <summary><c>--no-map-readback</c>: a Map of a small GPU-written target leaves the game's memory as it is (MapReadback).</summary>
+    public bool NoMapReadback { get; set; }
+
     /// <summary>Run the XDsp convolution effects on the CPU instead of returning silence (<c>--xdsp-convolution</c>).</summary>
     public bool XDspConvolution { get; set; }
 

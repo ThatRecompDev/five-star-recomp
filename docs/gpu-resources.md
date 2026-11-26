@@ -73,6 +73,9 @@ flowchart LR
 - **Slot 133** (`GpuTextures.CreatePlaced`): a committed desktop texture in its home state ([Barriers](#barriers)).
   With ALLOW_RENDER_TARGET, ALLOW_DEPTH_STENCIL or ALLOW_UNORDERED_ACCESS it is GPU-written and never filled from
   memory; otherwise it is filled at creation.
+  Its texels reach the game's memory only at a Map of a one-row target (`MapReadback`, off with `--no-map-readback`):
+  the game reads its exposure statistics from a 1x1 and a 5x1 RGBA32F target that way; the GPU first finishes all
+  submitted work, then the row is read back and written at offset 0 (facts after Leonida).
 - **Slot 70** (`AddressShaderViews`): the registered texture at the view's address with the same extent and format
   (a GPU-written one with the same extent, whatever its format); else, when every byte of the desc's XG layout is
   readable, a new texture without RT/DS/UAV flags in PIXEL | NON_PIXEL_SHADER_RESOURCE, in the view's format when its

@@ -773,6 +773,10 @@ internal sealed class CommandLineParser
                 _options.NoLightingWaits = true;
 
                 return true;
+            case "--no-map-readback":
+                _options.NoMapReadback = true;
+
+                return true;
             case "--clamp-enhanced-barriers":
                 _options.ClampEnhancedBarriers = true;
 
