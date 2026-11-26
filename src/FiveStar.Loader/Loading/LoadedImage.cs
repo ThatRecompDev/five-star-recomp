@@ -11,6 +11,8 @@ internal sealed class LoadedImage
     /// <summary>The executable sections' RVA ranges, read from the headers on first use (<see cref="InCode"/>).</summary>
     private (uint Start, uint End)[]? _code;
 
+    private byte[]? _codePages;
+
     public LoadedImage(string name, string path, PeImage pe, nint imageBase)
     {
         Name = name;
@@ -93,6 +95,12 @@ internal sealed class LoadedImage
 
         return false;
     }
+
+    /// <summary>
+    /// One byte per page of the image for its users to remember what they learnt of it (0 while unknown). The stack
+    /// scans keep whether a code page is readable here: code sections get their protection once, when mapped.
+    /// </summary>
+    public byte[] CodePages => _codePages ??= new byte[(Size + Native.Win32Constants.PageSize - 1) / Native.Win32Constants.PageSize];
 
     public nint Va(uint rva)
     {

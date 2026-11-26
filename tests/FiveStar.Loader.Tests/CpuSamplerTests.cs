@@ -79,6 +79,10 @@ public sealed class CpuSamplerTests
 
         Assert.True(log.Contains("all game threads: game 0.0 %, ours 0.0 %, system 0.0 %, blocked 100.0 %", StringComparison.Ordinal), log);
         Assert.True(log.Contains("blocked: NtDelayExecution in ours: no game caller 100.0 %", StringComparison.Ordinal), log);
+
+        // The thread does not run while it sleeps: after its first snapshot its sample is counted again without one.
+        var reused = System.Text.RegularExpressions.Regex.Match(log, @"(\d+) samples counted again without a snapshot");
+        Assert.True(reused.Success && int.Parse(reused.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) > 0, log);
     }
 
     [Fact]

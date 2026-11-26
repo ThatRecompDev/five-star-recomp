@@ -20,7 +20,8 @@ internal sealed unsafe class CpuSampler
 {
     private const int ThreadsPerTick = 8;
     private const int MaxFrames = 32;
-    private const long CopyBytes = 256 * 1024;
+    /// <summary>Stack bytes copied per snapshot: enough for the walk and the scan above our frames, not the whole stack.</summary>
+    private const long CopyBytes = 64 * 1024;
     private const int TopAll = 12;
     private const int TopThreads = 12;
     private const int TopPerThread = 4;
@@ -37,6 +38,11 @@ internal sealed unsafe class CpuSampler
     private readonly CpuSampleNames _names;
     private readonly (CodeRange Range, string Name)[] _stubs = WaitStubs.Find();
     private readonly Func<ulong, bool> _isCaller;
+    private readonly Func<uint, CpuSample> _take;
+    private readonly ulong[] _pcs = new ulong[MaxFrames];
+    private CpuAddressMap _map = new([], [], [], pc => pc);
+    private ulong _first;
+    private ulong _last;
 
     public CpuSampler(ImageTable images, CallTrace trace, LoaderLog log)
     {
@@ -44,6 +50,7 @@ internal sealed unsafe class CpuSampler
         _log = log;
         _names = new CpuSampleNames(images, trace, _stubs);
         _isCaller = IsGameCaller;
+        _take = Take;
     }
 
     /// <summary>Parses <c>&lt;ms&gt;[:&lt;s&gt;]</c> (the report period defaults to 10 s); false unless both are positive.</summary>
@@ -86,9 +93,11 @@ internal sealed unsafe class CpuSampler
     /// <summary>One report period: the game threads now, sampled until it ends, then the report.</summary>
     internal void Window(int window, TimeSpan interval, TimeSpan report)
     {
-        var map = Map();
-        var threads = GameThreads();
-        var tallies = threads.ToDictionary(id => id, _ => new Dictionary<CpuSample, int>());
+        _map = Map();
+        (_first, _last) = ReturnAddresses.Bounds(_images.All);
+
+        using var threads = new CpuThreads(GameThreads());
+        var tallies = threads.Ids.ToDictionary(id => id, _ => new Dictionary<CpuSample, int>());
         var clock = Stopwatch.StartNew();
         long busy = 0;
         int next = 0;
@@ -96,40 +105,56 @@ internal sealed unsafe class CpuSampler
         while (clock.Elapsed < report)
         {
             long start = Stopwatch.GetTimestamp();
-            next = Tick(map, threads, tallies, next);
+            next = Tick(threads, tallies, next);
             busy += Stopwatch.GetTimestamp() - start;
             Thread.Sleep(interval);
         }
 
         Report(window, clock.Elapsed, Stopwatch.GetElapsedTime(0, busy), interval, tallies);
+        _log.Info($"{Prefix}  {threads.Reused} samples counted again without a snapshot (blocked, no cycles run since)");
     }
 
     /// <summary>Samples the next <see cref="ThreadsPerTick"/> threads from <paramref name="next"/>; returns where the next tick starts.</summary>
-    private int Tick(CpuAddressMap map, uint[] threads, Dictionary<uint, Dictionary<CpuSample, int>> tallies, int next)
+    private int Tick(CpuThreads threads, Dictionary<uint, Dictionary<CpuSample, int>> tallies, int next)
     {
-        Span<ulong> pcs = stackalloc ulong[MaxFrames];
-        int count = Math.Min(ThreadsPerTick, threads.Length);
+        int count = Math.Min(ThreadsPerTick, threads.Count);
 
         for (int i = 0; i < count; i++)
         {
-            uint id = threads[(next + i) % threads.Length];
-            int frames = ThreadStackCapture.Capture(id, map.Modules, pcs, CopyBytes, map.Managed, _isCaller, out ulong site);
-            var sample = map.Classify(pcs[..frames], site, BlockingWaits.Current(id));
-            var tally = tallies[id];
+            int index = (next + i) % threads.Count;
+            var sample = threads.Sample(index, _take);
+            var tally = tallies[threads.Ids[index]];
             tally[sample] = tally.GetValueOrDefault(sample) + 1;
         }
 
-        return (next + count) % Math.Max(threads.Length, 1);
+        return (next + count) % Math.Max(threads.Count, 1);
     }
 
-    /// <summary>A return address into a mapped image's code with a call before it: the game's call into our code.</summary>
+    /// <summary>A snapshot of the thread, placed by the window's map.</summary>
+    private CpuSample Take(uint id)
+    {
+        int frames = ThreadStackCapture.Capture(id, _map.Modules, _pcs, CopyBytes, _map.Managed, _isCaller, out ulong site);
+
+        return _map.Classify(_pcs.AsSpan(0, frames), site, BlockingWaits.Current(id));
+    }
+
+    /// <summary>
+    /// A return address into a mapped image's code with a call before it: the game's call into our code. Asked of every
+    /// slot of the scanned stack, so a value outside the images costs one compare and a code page is asked of the
+    /// system once (<see cref="ReturnAddresses.CallBytesReadable(LoadedImage, nint)"/>).
+    /// </summary>
     private bool IsGameCaller(ulong value)
     {
-        var image = _images.FindByAddress((nint)value);
+        if (value < _first || value >= _last)
+        {
+            return false;
+        }
+
+        var image = ReturnAddresses.Find(_images.All, (nint)value);
 
         return image is not null
             && ReturnAddresses.InCode(image, (nint)value)
-            && ReturnAddresses.CallBytesReadable((nint)value)
+            && ReturnAddresses.CallBytesReadable(image, (nint)value)
             && ReturnAddresses.AfterCall((byte*)value);
     }
 
