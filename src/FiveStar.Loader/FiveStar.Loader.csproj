@@ -30,6 +30,7 @@
   <ItemGroup>
     <!-- Opus decoding for the xapu.dll queue (BSD-3-Clause, THIRD_PARTY_NOTICES.md). -->
     <PackageReference Include="Concentus" />
+    <PackageReference Include="Concentus.Native.NetCore" />
   </ItemGroup>
 
   <ItemGroup>
