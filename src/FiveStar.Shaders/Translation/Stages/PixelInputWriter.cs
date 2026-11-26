@@ -79,21 +79,41 @@ internal sealed class PixelInputWriter
             return;
         }
 
-        var first = attribute;
-
+        // The padded layout declares both halves of every parameter up to this one; the unpadded one (a producer is
+        // linked to these inputs) only the halves the program reads.
         if (padded)
         {
-            first = halves.Count / HalfMembers;
+            for (var index = halves.Count / HalfMembers; index <= attribute; index++)
+            {
+                halves.Add($"  float4 attrlo{index} : ATTRLO{index};");
+                halves.Add($"  float4 attrhi{index} : ATTRHI{index};");
+            }
         }
 
-        for (var index = first; index <= attribute; index++)
+        MapReadHalves(halves, modes, attribute, padded);
+    }
+
+    /// <summary>
+    /// Only the halves the program reads are taken from the inputs, so the trimmed pixel shader keeps no other
+    /// (<see cref="StageLinker.TrimInputs"/>) and a linked mesh program's outputs fit its 32 KB: both halves of every read
+    /// parameter overflowed it for G-buffer pairs (PS_TexturedDeferred with MS_VS_TransformD, w97).
+    /// </summary>
+    private void MapReadHalves(List<string> halves, HashSet<string> modes, int attribute, bool padded)
+    {
+        foreach (var half in (string[])["lo", "hi"])
         {
-            halves.Add($"  float4 attrlo{index} : ATTRLO{index};");
-            halves.Add($"  float4 attrhi{index} : ATTRHI{index};");
-        }
+            if (!modes.Contains("f16" + half))
+            {
+                continue;
+            }
 
-        _state.InputMap.Add($"  float4 attrlo{attribute} = pin.attrlo{attribute};");
-        _state.InputMap.Add($"  float4 attrhi{attribute} = pin.attrhi{attribute};");
+            if (!padded)
+            {
+                halves.Add($"  float4 attr{half}{attribute} : ATTR{half.ToUpperInvariant()}{attribute};");
+            }
+
+            _state.InputMap.Add($"  float4 attr{half}{attribute} = pin.attr{half}{attribute};");
+        }
     }
 
     /// <summary>A signature register the program does not read: declared only to keep the register layout.</summary>
