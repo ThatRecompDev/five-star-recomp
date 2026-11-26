@@ -35,6 +35,9 @@ internal sealed unsafe class DrawProbes
     private const int Float16 = 54;
     private const long SkipsLogged = 100;
 
+    /// <summary>Reports a probe waits for its list's submission before it is logged as never run.</summary>
+    private const int ReportsBeforeGivingUp = 3;
+
     /// <summary>DXGI_FORMAT_R32G8X24_TYPELESS, D32_FLOAT_S8X24_UINT, R32_FLOAT_X8X24_TYPELESS, R32_TYPELESS and D32_FLOAT.</summary>
     private const int DepthStencil32Typeless = 19;
     private const int DepthStencil32 = 20;
@@ -85,6 +88,7 @@ internal sealed unsafe class DrawProbes
     private readonly object _gate = new();
     private readonly List<Probe> _pending = [];
     private readonly List<Probe> _reported = [];
+    private readonly Dictionary<nint, long> _submissions = [];
     private readonly LoaderLog _log;
     private long _liveBytes;
     private long _skipped;
@@ -147,7 +151,7 @@ internal sealed unsafe class DrawProbes
         lock (_gate)
         {
             uint depth = description.Dimension == ResourceDimension.Texture3D ? footprints[0].Footprint.Depth : 1;
-            _pending.Add(new Probe(label, buffer, (long)total, footprints[0], rows[0] * depth, (int)footprints[0].Footprint.Width, format, key, generation, png));
+            _pending.Add(new Probe(label, buffer, (long)total, footprints[0], rows[0] * depth, (int)footprints[0].Footprint.Width, format, key, generation, png, _submissions.GetValueOrDefault(key), 0));
         }
     }
 
@@ -171,23 +175,49 @@ internal sealed unsafe class DrawProbes
         return (uint)(plane * mips * slices);
     }
 
+    /// <summary>The game submitted its list <paramref name="key"/>: probes recorded on it before may be read once the GPU finished.</summary>
+    public void Submitted(nint key)
+    {
+        lock (_gate)
+        {
+            _submissions[key] = _submissions.GetValueOrDefault(key) + 1;
+        }
+    }
+
     /// <summary>
-    /// Logs what every recorded probe holds; the GPU has finished the lists that recorded them. Buffers of lists reset
-    /// since their probe (<paramref name="generation"/> of a list key) are released.
+    /// Logs what every probe whose list was submitted since it was recorded holds; the GPU has finished those lists.
+    /// A probe of a list not yet submitted waits for a later report: read before its list ran, a buffer holds zeros (boot
+    /// w116d read the exposure textures as all zero on two frames whose lists the game submitted after the report).
+    /// Buffers of lists reset since their probe (<paramref name="generation"/> of a list key) are released. Returns
+    /// whether probes still wait.
     /// </summary>
-    public void Report(Func<nint, long> generation)
+    public bool Report(Func<nint, long> generation)
     {
         lock (_gate)
         {
             ReleaseReset(generation);
+            var waiting = new List<Probe>();
 
             foreach (var probe in _pending)
             {
-                _log.Info($"  [draws] after {probe.Label}: {Summary(probe)}");
+                bool ran = _submissions.GetValueOrDefault(probe.List) > probe.Submissions;
+
+                if (!ran && probe.Waits < ReportsBeforeGivingUp)
+                {
+                    waiting.Add(probe with { Waits = probe.Waits + 1 });
+
+                    continue;
+                }
+
+                string summary = ran ? Summary(probe) : "not read, its list was not submitted";
+                _log.Info($"  [draws] after {probe.Label}: {summary}");
                 _reported.Add(probe);
             }
 
             _pending.Clear();
+            _pending.AddRange(waiting);
+
+            return waiting.Count > 0;
         }
     }
 
@@ -521,6 +551,6 @@ internal sealed unsafe class DrawProbes
         return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"; uint zero {zero * Percent / total:F1}%, float-like {floatLike * Percent / total:F1}%, sign set {negative * Percent / total:F1}%; commonest {top}");
     }
 
-    /// <summary>One recorded copy: its buffer and size, the copied footprint, and the game's list and generation it was copied on.</summary>
-    private sealed record Probe(string Label, ID3D12Resource Buffer, long Bytes, PlacedSubresourceFootPrint Footprint, uint Rows, int Width, int Format, nint List, long Generation, string? Png);
+    /// <summary>One recorded copy: its buffer and size, the copied footprint, the game's list and generation it was copied on, the list's submissions then, and the reports it waited.</summary>
+    private sealed record Probe(string Label, ID3D12Resource Buffer, long Bytes, PlacedSubresourceFootPrint Footprint, uint Rows, int Width, int Format, nint List, long Generation, string? Png, long Submissions, int Waits);
 }
