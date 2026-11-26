@@ -122,28 +122,48 @@ internal sealed class GpuTextureRegistry : IDisposable
         }
     }
 
+    /// <summary>
+    /// Adds <paramref name="texture"/> and retires the textures its range overlaps. Registered ranges never overlap, so
+    /// those form one run of the sorted array, found by binary search, and the new array is the run's prefix, the
+    /// texture and its suffix. It used to copy and sort the whole array on every registration: with 15,000 textures a
+    /// loading screen's registrations kept the thread that creates the views busy for seconds a frame, and the game's
+    /// 30 s hang watchdog ended the boot.
+    /// </summary>
     public void Register(GpuTexture texture)
     {
         lock (_gate)
         {
-            var kept = new List<GpuTexture>(_sorted.Length + 1);
+            var sorted = _sorted;
+            var (first, count) = OverlapRun(sorted, texture.Address, texture.Size);
 
-            foreach (var entry in _sorted)
+            for (int index = first; index < first + count; index++)
             {
-                if (entry.Address < texture.Address + texture.Size && texture.Address < entry.Address + entry.Size)
-                {
-                    Retire(entry, texture);
-                }
-                else
-                {
-                    kept.Add(entry);
-                }
+                Retire(sorted[index], texture);
             }
 
-            kept.Add(texture);
-            kept.Sort((left, right) => left.Address.CompareTo(right.Address));
-            Volatile.Write(ref _sorted, kept.ToArray());
+            var next = new GpuTexture[sorted.Length - count + 1];
+            Array.Copy(sorted, 0, next, 0, first);
+            next[first] = texture;
+            Array.Copy(sorted, first + count, next, first + 1, sorted.Length - first - count);
+            Volatile.Write(ref _sorted, next);
         }
+    }
+
+    /// <summary>
+    /// The run of <paramref name="sorted"/> overlapping [<paramref name="address"/>, + <paramref name="bytes"/>): its first
+    /// index and length; with no overlap, the index the range belongs at and 0.
+    /// </summary>
+    internal static (int First, int Count) OverlapRun(GpuTexture[] sorted, ulong address, ulong bytes)
+    {
+        int last = LastStartingBefore(sorted, address + bytes);
+        int first = last + 1;
+
+        while (first > 0 && address < sorted[first - 1].Address + sorted[first - 1].Size)
+        {
+            first--;
+        }
+
+        return (first, last + 1 - first);
     }
 
     /// <summary>
@@ -190,14 +210,22 @@ internal sealed class GpuTextureRegistry : IDisposable
         }
     }
 
-    /// <summary>Marks the textures over the range as over unmapped memory (from now) or not, under the lock; how many changed.</summary>
+    /// <summary>
+    /// Marks the textures over the range as over unmapped memory (from now) or not, under the lock; how many changed.
+    /// Only the run over the range is visited (<see cref="OverlapRun"/>): each page the game maps or unmaps used to scan
+    /// all 15,000 textures, which kept the page-mapping thread busy through a loading screen.
+    /// </summary>
     private int Mark(ulong address, ulong bytes, bool unmapped)
     {
         int changed = 0;
+        var sorted = _sorted;
+        var (first, count) = OverlapRun(sorted, address, bytes);
 
-        foreach (var entry in _sorted)
+        for (int index = first; index < first + count; index++)
         {
-            if (entry.Address < address + bytes && address < entry.Address + entry.Size && entry.OverUnmapped != unmapped)
+            var entry = sorted[index];
+
+            if (entry.OverUnmapped != unmapped)
             {
                 Unmark(entry);
 
