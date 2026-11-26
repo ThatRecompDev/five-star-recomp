@@ -63,6 +63,41 @@ public sealed unsafe class D3D12XGpuResourceTests
         registry.Dispose();
     }
 
+    /// <summary>Kept aliases stay within their bytes: past them the oldest kept, of any range, is released after its grace.</summary>
+    [Fact]
+    public void Kept_aliases_past_their_bytes_release_the_oldest()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        var registry = new GpuTextureRegistry(() => [], () => []);
+        long cap = GpuTextureRegistry.KeptAliasBytes;
+
+        try
+        {
+            GpuTextureRegistry.KeptAliasBytes = (long)TextureBytes * 2;
+
+            // Three ranges each reused once: three kept, one past the cap.
+            foreach (ulong address in new ulong[] { 0x10000, 0x20000, 0x30000 })
+            {
+                registry.Register(Texture(test, device, address));
+                registry.Register(Texture(test, device, address));
+            }
+
+            // The oldest is aged (held until its grace ends), the newest two kept.
+            Assert.Equal(3 * (long)TextureBytes, registry.KeptBytes);
+            registry.Advance(GpuTextureRegistry.AliasGraceFrames);
+
+            Assert.Equal(1, registry.Released);
+            Assert.Equal(2 * (long)TextureBytes, registry.KeptBytes);
+            Assert.Equal(2, registry.RetiredCount);
+            registry.Dispose();
+        }
+        finally
+        {
+            GpuTextureRegistry.KeptAliasBytes = cap;
+        }
+    }
+
     [Fact]
     public void A_retired_texture_waits_for_the_work_the_queues_had_submitted_when_it_was_retired()
     {
@@ -238,8 +273,8 @@ public sealed unsafe class D3D12XGpuResourceTests
         nint device = test.Runtime.D3D12X.Objects.DesktopDevice;
         var heaps = new PlacedTextureHeaps { EmptyMilliseconds = 0 };
 
-        // Five 64 MB textures: four fill the first 256 MB heap, the fifth starts a second.
-        var description = new ResourceDescription { Dimension = Texture2D, Width = 4096, Height = 4096, DepthOrArraySize = 1, MipLevels = 1, Format = Rgba8Unorm, SampleCount = 1 };
+        // Five 16 MB textures: four fill the first 64 MB heap, the fifth starts a second.
+        var description = new ResourceDescription { Dimension = Texture2D, Width = 2048, Height = 2048, DepthOrArraySize = 1, MipLevels = 1, Format = Rgba8Unorm, SampleCount = 1 };
         var textures = new List<nint>();
 
         for (int i = 0; i < 5; i++)
@@ -248,9 +283,9 @@ public sealed unsafe class D3D12XGpuResourceTests
             textures.Add(texture);
         }
 
-        Assert.Contains("live in 2 heaps (0.5 GB, 0.3 GB used)", heaps.Summary, StringComparison.Ordinal);
+        Assert.Contains("live in 2 heaps (0.1 GB, 0.1 GB used)", heaps.Summary, StringComparison.Ordinal);
         textures.ForEach(texture => FiveStar.Loader.Native.ComObject.Release(texture));
-        Assert.Contains("0 live in 1 heaps (0.2 GB, 0.0 GB used), 1 empty heaps returned", heaps.Summary, StringComparison.Ordinal);
+        Assert.Contains("0 live in 1 heaps (0.1 GB, 0.0 GB used), 1 empty heaps returned", heaps.Summary, StringComparison.Ordinal);
     }
 
     [Fact]

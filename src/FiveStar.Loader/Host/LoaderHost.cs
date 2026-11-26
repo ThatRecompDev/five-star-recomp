@@ -543,7 +543,11 @@ internal sealed class LoaderHost
             Shims.D3D12X.Pipelines.CompileBudget.ExpectedBytes,
             pages,
             (long)d3d12.SectionHeaps.Opened,
-            helpers);
+            helpers,
+            d3d12.Textures.Placed.UsedBytes,
+            d3d12.Textures.Registry.UnmappedBytes,
+            d3d12.Textures.Registry.KeptBytes,
+            d3d12.Textures.Uploader.StagingBytes);
 
         return CommitAccounting.Format(figures);
     }
