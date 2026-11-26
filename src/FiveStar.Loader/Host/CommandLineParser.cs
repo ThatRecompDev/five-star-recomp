@@ -845,7 +845,7 @@ internal sealed class CommandLineParser
                 _options.OutputSize = OutputSize(Next());
 
                 return true;
-            case "--aftermath" or "--aftermath-dll" or "--aftermath-markers":
+            case "--aftermath" or "--aftermath-dll" or "--aftermath-markers" or "--aftermath-resources" or "--aftermath-shader-info":
                 return SetAftermath(option);
             default:
                 throw new CommandLineException($"unknown argument {option}");
@@ -1179,7 +1179,7 @@ internal sealed class CommandLineParser
 
     /// <summary>
     /// <c>--aftermath [dir]</c> (the folder is optional: the next argument when it is not an option, else
-    /// <c>aftermath</c>), <c>--aftermath-dll &lt;path&gt;</c> and <c>--aftermath-markers</c>; the last two imply the first.
+    /// <c>aftermath</c>), <c>--aftermath-dll &lt;path&gt;</c> and the feature switches, which imply it.
     /// </summary>
     private bool SetAftermath(string option)
     {
@@ -1192,6 +1192,14 @@ internal sealed class CommandLineParser
         else if (option == "--aftermath-markers")
         {
             _options.AftermathMarkers = true;
+        }
+        else if (option == "--aftermath-resources")
+        {
+            _options.AftermathResources = true;
+        }
+        else if (option == "--aftermath-shader-info")
+        {
+            _options.AftermathShaderInfo = true;
         }
         else if (_index + 1 < _args.Length && !_args[_index + 1].StartsWith('-'))
         {
