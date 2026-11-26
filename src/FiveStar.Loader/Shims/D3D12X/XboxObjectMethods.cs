@@ -174,7 +174,9 @@ internal static unsafe class XboxObjectMethods
 
                 if (self->Dimension != States.ResourceStates.BufferDimension)
                 {
-                    ShimContext.Runtime.D3D12X.Textures.Watch(self->GameAddress);
+                    var d3d12x = ShimContext.Runtime.D3D12X;
+                    d3d12x.Textures.Watch(self->GameAddress);
+                    Resources.MapReadback.OnMap(d3d12x.Objects.DesktopDevice, d3d12x.Textures, d3d12x.FrameThrottle, self->GameAddress, game);
                 }
 
                 return HResult.Ok;
