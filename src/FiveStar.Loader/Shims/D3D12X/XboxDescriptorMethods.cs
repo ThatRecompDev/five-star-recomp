@@ -699,7 +699,7 @@ internal static unsafe class XboxDescriptorMethods
                 home = game->HomeState;
             }
 
-            ViewLiveness.Written(destination, desktop, ViewLiveness.Shape(desktop, view, unordered), home);
+            ViewLiveness.Written(destination, desktop, ViewLiveness.Shape(desktop, view, unordered), home, view);
         }
     }
 

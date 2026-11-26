@@ -299,6 +299,61 @@ void BufStore(uint heap_index, uint off, uint v) {
     b.Store(off & ~3u, v);
 }
 
+// ---- Accesses of n (2 to 4) dwords a lane (buffer_load/store_dwordxN): one view and one vector Load/Store when every
+// dword is in range, else each dword with its own check as above, in a loop kept rolled so the rare case costs one
+// access in the program, not n. Every dword fits exactly when the last does and its offset does not wrap (a wrapped
+// dword lies past a failing one), so one compare decides. s_buffer_load keeps its dwords: uniform, branch-free loads
+// whose range branch would cost the constant-heavy programs more blocks (and compile time) than it saves.
+bool buf_fits_all(uint start, uint limit, uint n) { uint last = (n - 1u) * 4u; return start <= 0xffffffffu - last && buf_fits(start + last, limit); }
+uint4 BufLoadV(uint heap_index, uint off, uint start, uint limit, uint n) {   // heap_index and off as for BufLoad
+    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(view_slot(heap_index))];
+    uint a = off & ~3u;
+    if (buf_fits_all(start, limit, n)) {
+        if (n == 2u) return uint4(b.Load2(a), 0u, 0u);
+        if (n == 3u) return uint4(b.Load3(a), 0u);
+        return b.Load4(a);
+    }
+    uint4 r = uint4(0u, 0u, 0u, 0u);
+    [loop] for (uint k = 0u; k < n; k++) {
+        if (buf_fits(start + k * 4u, limit)) r = select(uint4(0u, 1u, 2u, 3u) == k, b.Load(a + k * 4u), r);
+    }
+    return r;
+}
+uint4 BufLoadRWV(uint heap_index, uint off, uint start, uint limit, uint n) {   // the same through the UAV
+    FIVESTAR_COHERENT RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
+    uint a = off & ~3u;
+    if (buf_fits_all(start, limit, n)) {
+        if (n == 2u) return uint4(b.Load2(a), 0u, 0u);
+        if (n == 3u) return uint4(b.Load3(a), 0u);
+        return b.Load4(a);
+    }
+    uint4 r = uint4(0u, 0u, 0u, 0u);
+    [loop] for (uint k = 0u; k < n; k++) {
+        if (buf_fits(start + k * 4u, limit)) r = select(uint4(0u, 1u, 2u, 3u) == k, b.Load(a + k * 4u), r);
+    }
+    return r;
+}
+// A store of n dwords partly out of range: each dword in range with its hooks (d0, d1 the V#'s, at its offset from the
+// base for TRACE_VSTORE), in a loop kept rolled as for the loads.
+void BufStoreEach(uint heap_index, uint off, uint start, uint limit, uint4 v, uint n, uint d0, uint d1, uint at) {
+    [loop] for (uint k = 0u; k < n; k++) {
+        uint w = k == 0u ? v.x : (k == 1u ? v.y : (k == 2u ? v.z : v.w));
+        if (buf_fits(start + k * 4u, limit)) { vstore_span(d1); TRACE_VSTORE(d0, d1, at + k * 4u, w); BufStore(heap_index, off + k * 4u, w); }
+    }
+}
+// A store of n dwords, every one in range (buf_fits_all).
+void BufStoreV(uint heap_index, uint off, uint4 v, uint n) {
+    TRACE_VIEW(heap_index, off, v.x);
+    TRACE_VIEW(heap_index, off + 4u, v.y);
+    if (n > 2u) TRACE_VIEW(heap_index, off + 8u, v.z);
+    if (n > 3u) TRACE_VIEW(heap_index, off + 12u, v.w);
+    FIVESTAR_COHERENT RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
+    uint a = off & ~3u;
+    if (n == 2u) b.Store2(a, v.xy);
+    else if (n == 3u) b.Store3(a, v.xyz);
+    else b.Store4(a, v);
+}
+
 // ---- Wide stores: a compute program's store of n (2 to 4) dwords a lane (buffer_store_dwordxN, global_store_dwordxN).
 // Game memory is system memory, and a GPU store there is fast only when one store instruction covers whole sectors a
 // dword a lane: on an RTX 4090, 4 MB of 16-byte lane records (four dword stores, or one Store4) took 25-40 ms, 4 MB a
@@ -336,10 +391,7 @@ void BufStoreN(uint heap_index, uint off, uint4 v, uint n) {
         wide_write(uav_slot(WaveReadLaneFirst(heap_index)), WaveReadLaneFirst(at), v, n);
         return;
     }
-    BufStore(heap_index, off, v.x);
-    BufStore(heap_index, off + 4u, v.y);
-    if (n > 2u) BufStore(heap_index, off + 8u, v.z);
-    if (n > 3u) BufStore(heap_index, off + 12u, v.w);
+    BufStoreV(heap_index, off, v, n);
 }
 // A global store of n dwords at pointer (lo, hi) (GlobalMemoryEmitter): wide when each lane's record is in one page of
 // game memory (the window, high dword 0, keeps PtrStore).
@@ -850,7 +902,9 @@ uint probe_PtrLoad(uint site, uint lo, uint hi, uint off) { probe_pointer(site, 
 uint probe_SPtrLoad(uint site, uint lo, uint hi, uint off) { probe_pointer(site, lo, hi, off); return SPtrLoad(lo, hi, off); }
 uint probe_SPtrLoadAt(uint site, uint4 view, uint delta, uint lo, uint hi, uint off) { probe_pointer(site, lo, hi, off); return SPtrLoadAt(view, delta, lo, hi, off); }
 uint probe_SBufLoad(uint site, uint heap_index, uint off) { probe_view(site, heap_index); return SBufLoad(heap_index, off); }
-void probe_value(uint site, uint v) {   // the register a site's line loaded, the first time on thread 0
+// A vector load is one site, marked when any of its dwords is out of range.
+uint4 probe_BufLoadV(uint site, uint h, uint off, uint start, uint limit, uint n) { probe_view(site, h); probe_sbuf_fits(site, buf_fits_all(start, limit, n)); return BufLoadV(h, off, start, limit, n); }
+uint4 probe_BufLoadRWV(uint site, uint h, uint off, uint start, uint limit, uint n) { probe_view(site, h); probe_sbuf_fits(site, buf_fits_all(start, limit, n)); return BufLoadRWV(h, off, start, limit, n); }void probe_value(uint site, uint v) {   // the register a site's line loaded, the first time on thread 0
     if (g_probe_gi != 0u || site >= 32u || (g_probe_g[10] & (1u << site)) != 0u) return;
     g_probe_v[site] = v;
     g_probe_g[10] |= 1u << site;

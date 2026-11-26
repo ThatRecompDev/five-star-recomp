@@ -59,6 +59,9 @@ internal sealed unsafe class GameMemoryViews
     private readonly Dictionary<(nint Section, ulong Window, ulong Chunk), nint> _buffers = [];
     private readonly Dictionary<(nint Section, ulong Start), HashSet<ulong>> _resident = [];
     private readonly Dictionary<ulong, (nint Section, ulong Start)> _pageWindow = [];
+
+    /// <summary>The desktop buffer and byte offset of each view pair's byte 0 (<see cref="Locate"/>).</summary>
+    private readonly Dictionary<uint, (nint Buffer, ulong Offset)> _viewSources = [];
     private readonly XMemPhysicalMemory _memory;
     private readonly SectionHeaps _heaps;
     private readonly AddressMap _map = new(MapSpans, DescriptorWindow.UnmappedSlot);
@@ -481,6 +484,11 @@ internal sealed unsafe class GameMemoryViews
                 {
                     buffers.Add(buffer);
                 }
+
+                if (_pairs.TryGetValue(view, out uint pair))
+                {
+                    _viewSources.Remove(pair);
+                }
             }
 
             if (_data == null || !_resident.Remove(key, out var pages))
@@ -528,8 +536,39 @@ internal sealed unsafe class GameMemoryViews
         }
     }
 
+    /// <summary>
+    /// The desktop buffer the map reads <paramref name="address"/> from and the byte's offset in it, as a program reads
+    /// it now (<see cref="DebugLayer.DispatchCaptures"/> copies game memory with it); false for a page without a view.
+    /// </summary>
+    public bool Locate(ulong address, out nint buffer, out ulong offset)
+    {
+        buffer = 0;
+        offset = 0;
+
+        lock (_gate)
+        {
+            if (_data == null)
+            {
+                return false;
+            }
+
+            var (view, field) = AddressMap.Read(new ReadOnlySpan<byte>(_data, _map.Bytes), address);
+
+            if (!_viewSources.TryGetValue(view, out var source) || source.Buffer == 0)
+            {
+                return false;
+            }
+
+            buffer = source.Buffer;
+            offset = source.Offset + field + (address & PageMask);
+
+            return true;
+        }
+    }
+
     private void WriteViews(nint resource, ulong offset, ulong bytes, uint pair, bool writable)
     {
+        _viewSources[pair] = (resource, offset);
         uint dwords = (uint)(bytes / DwordBytes);
         var read = BufferViewDescription.RawShaderResource(dwords, offset / DwordBytes);
         var write = BufferViewDescription.RawUnorderedAccess(dwords, offset / DwordBytes);

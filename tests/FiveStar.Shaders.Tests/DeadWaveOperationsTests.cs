@@ -141,4 +141,21 @@ public sealed class DeadWaveOperationsTests : IClassFixture<WarpFixture>
         Assert.Equal("  active = active && (m_s4);", lines[4]);
         Assert.Equal("  v1 = select(lane_bit(s4, s5), 1u, v1);", lines[6]);
     }
+
+    [Fact]
+    public void A_wave32_lanes_own_bit_needs_only_the_low_half()
+    {
+        List<string> lines =
+        [
+            "  uint _t1 = vw_ballot(m_s8).x;",
+            "  s8 = _t1;",
+            "  if (active) v1 = (lane_bit(s8, 0u) ? v4 : v3);",
+            "  pc = PC_END;",
+        ];
+        var blocks = new List<CodeBlock> { new(0, lines, new BlockExit(BlockExitKind.End, null, null, null)) };
+
+        Assert.Equal(0, BallotBits.Substitute([.. blocks.Select(block => block with { Lines = [.. block.Lines] })]));
+        Assert.Equal(1, BallotBits.Substitute(blocks, wave32: true));
+        Assert.Equal("  if (active) v1 = ((m_s8) ? v4 : v3);", lines[2]);
+    }
 }
