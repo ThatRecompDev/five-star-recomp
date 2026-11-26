@@ -32,10 +32,24 @@ internal sealed unsafe class XboxDevice
         var iid = Guid.Empty;
         nint device = 0;
         Assert.Equal(0, create(0, parameters, &iid, &device));
+
         Device = device;
+        Test = test;
     }
 
     public nint Device { get; }
+
+    /// <summary>The runtime the device was made in.</summary>
+    public TestRuntime Test { get; }
+
+    /// <summary>
+    /// The first fills of the textures made so far, as the next submission makes them: a test that reads a new texture
+    /// without submitting anything waits for them here.
+    /// </summary>
+    public void SettleNewTextures()
+    {
+        Test.Runtime.D3D12X.Textures.Writes.SettleFirsts(Test.Runtime.D3D12X.Objects.DesktopDevice);
+    }
 
     public static nint* Vtable(nint obj)
     {

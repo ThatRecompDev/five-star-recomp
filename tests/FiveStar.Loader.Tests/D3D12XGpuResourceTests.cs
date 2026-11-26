@@ -877,6 +877,9 @@ public sealed unsafe class D3D12XGpuResourceTests
         var create = (delegate* unmanaged<nint, nint, ResourceDescription*, uint, void*, Guid*, nint*, int>)XboxDevice.Vtable(device.Device)[133];
         Assert.Equal(0, create(device.Device, address, &description, ShaderResourceLayout, null, &iid, &resource));
 
+        // Its first fill is the refresh worker's, before the next submission.
+        device.SettleNewTextures();
+
         return resource;
     }
 
@@ -889,6 +892,9 @@ public sealed unsafe class D3D12XGpuResourceTests
         words[TextureMipLevelsWord] = Mips;
         var create = (delegate* unmanaged<nint, ResourceDescription*, AddressViewDescription*, nint, void>)XboxDevice.Vtable(device.Device)[70];
         create(device.Device, &description, &view, handle);
+
+        // Its first fill is the refresh worker's, before the next submission.
+        device.SettleNewTextures();
     }
 
     private static void Tile(ResourceDescription description, nint memory, byte[][] mips)
