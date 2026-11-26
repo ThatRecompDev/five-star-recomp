@@ -45,6 +45,7 @@ public sealed unsafe class D3D12XBarrierTests
     private const int CopySource = 0x800;
     private const int CopyDest = 0x400;
     private const int DepthWrite = 0x10;
+    private const int UnorderedAccessFlag = 0x4;
     private const int DepthRead = 0x20;
     private const int GenericRead = 0xAC3;
     private const int D32S8 = 20;
@@ -220,6 +221,20 @@ public sealed unsafe class D3D12XBarrierTests
         Assert.DoesNotContain("[d3d12-debug] error", log.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_game_uav_barrier_on_a_buffer_names_no_resource_and_one_on_a_texture_names_it()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        nint texture = Texture(device, RenderTargetAndUav, UnorderedAccess);
+        nint buffer = Buffer(device);
+
+        // The game's buffers are views of the desktop buffers over its memory, which every queue uses (#1047).
+        Assert.Equal(0, ResourceBarrierSlots.UavTarget(test.Runtime.D3D12X.Objects, buffer));
+        Assert.Equal(test.Runtime.D3D12X.Objects.Unwrap(texture), ResourceBarrierSlots.UavTarget(test.Runtime.D3D12X.Objects, texture));
+        Assert.Equal(0, ResourceBarrierSlots.UavTarget(test.Runtime.D3D12X.Objects, 0));
+    }
+
     [Theory]
     [InlineData(PixelShaderResource, NonPixelShaderResource | PixelShaderResource)]
     [InlineData(NonPixelShaderResource | CopySource, NonPixelShaderResource | PixelShaderResource | CopySource)]
@@ -238,6 +253,22 @@ public sealed unsafe class D3D12XBarrierTests
     public void A_depth_view_finds_its_depth_in_a_state_it_can_use(int current, bool readOnly, int expected)
     {
         Assert.Equal(expected, RenderTargetStates.DepthState(current, readOnly));
+    }
+
+    private static nint Buffer(XboxDevice device)
+    {
+        const int BufferDimension = 1;
+        const int RowMajor = 1;
+        const uint Bytes = 65536;
+
+        int* properties = stackalloc int[] { DefaultHeap, 0, 0, 0, 0 };
+        var desc = new ResourceDescription { Dimension = BufferDimension, Width = Bytes, Height = 1, DepthOrArraySize = 1, MipLevels = 1, SampleCount = 1, Layout = RowMajor, Flags = UnorderedAccessFlag };
+        Guid iid = ResourceIid;
+        nint resource = 0;
+        var create = (delegate* unmanaged<nint, int*, int, ResourceDescription*, int, void*, Guid*, nint*, int>)XboxDevice.Vtable(device.Device)[CreateCommittedResourceSlot];
+        Assert.Equal(0, create(device.Device, properties, 0, &desc, 0, null, &iid, &resource));
+
+        return resource;
     }
 
     private static nint Texture(XboxDevice device, int flags, int state, int format = Rgba8Unorm)
