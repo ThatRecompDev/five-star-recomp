@@ -272,6 +272,50 @@ public sealed unsafe class D3D12XGpuResourceTests
     }
 
     [Fact]
+    public void Placing_and_releasing_textures_round_after_round_reuses_the_heaps()
+    {
+        using var test = TestRuntime.Create();
+        _ = new XboxDevice(test);
+        nint device = test.Runtime.D3D12X.Objects.DesktopDevice;
+        var heaps = new PlacedTextureHeaps();
+
+        var random = new Random(5);
+        var live = new List<nint>();
+        long firstBytes = 0;
+
+        // 4 MB textures, 40 live at most: 160 MB, three 64 MB heaps. Half go and come back each round.
+        var description = new ResourceDescription { Dimension = Texture2D, Width = 1024, Height = 1024, DepthOrArraySize = 1, MipLevels = 1, Format = Rgba8Unorm, SampleCount = 1 };
+
+        for (int round = 0; round < 20; round++)
+        {
+            while (live.Count < 40)
+            {
+                Assert.Equal(0, heaps.Create(device, &description, ShaderResourceState, null, out nint texture));
+                live.Add(texture);
+            }
+
+            if (round == 0)
+            {
+                firstBytes = heaps.Bytes;
+            }
+
+            Assert.Equal(firstBytes, heaps.Bytes);
+            Assert.Equal(40L << 22, heaps.UsedBytes);
+
+            foreach (var texture in live.OrderBy(_ => random.Next()).Take(20).ToList())
+            {
+                FiveStar.Loader.Native.ComObject.Release(texture);
+                live.Remove(texture);
+            }
+
+            Assert.Equal(20L << 22, heaps.UsedBytes);
+        }
+
+        live.ForEach(texture => FiveStar.Loader.Native.ComObject.Release(texture));
+        Assert.Equal(0, heaps.UsedBytes);
+    }
+
+    [Fact]
     public void A_shared_heap_that_stays_empty_goes_back_but_one_empty_heap_stays()
     {
         using var test = TestRuntime.Create();
