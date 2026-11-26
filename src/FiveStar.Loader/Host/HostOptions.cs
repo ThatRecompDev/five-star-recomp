@@ -284,6 +284,12 @@ internal sealed record HostOptions
     /// <summary><c>--no-draws</c>: no pipeline is built and every draw and dispatch is skipped, to measure the game's own CPU frame (SkippedPipelines.All).</summary>
     public bool NoDraws { get; set; }
 
+    /// <summary>A compute queue of ours keeps the GPU clocked while the game submits (<c>--gpu-keep-awake</c>, <c>--gpu-keep-awake-turns</c>).</summary>
+    public Shims.D3D12X.Present.GpuKeepAwakeMode GpuKeepAwake { get; set; }
+
+    /// <summary><c>--output WxH</c>: the title's output size, one of its modes (Mods.OutputSizePatches); null keeps its settings'.</summary>
+    public (int Width, int Height)? OutputSize { get; set; }
+
     /// <summary>With <c>--indirect-gather-strict</c>, every memory write, dispatch and memory wait ends gathering as before the narrower rules.</summary>
     public bool IndirectGatherStrict { get; set; }
 
