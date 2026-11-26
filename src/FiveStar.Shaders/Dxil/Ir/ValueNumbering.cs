@@ -11,12 +11,8 @@ namespace FiveStar.Shaders.Dxil.Ir;
 /// Common-subexpression removal over the dominator tree: an instruction that computes what an instruction in a
 /// dominating block already computed is replaced by that one. Pure instructions (arithmetic, comparisons, casts,
 /// selects, extracts, addresses, readnone <c>dx.op</c> calls and constant-buffer loads) match in any dominated block;
-/// other memory reads (raw buffer and texture loads, samples) in a dominated block too, but only while nothing with an
-/// effect (a write, an atomic, a barrier) and no block of more than one predecessor (a join or a loop header, which a
-/// path with a write may reach) came between them in the walk: a generation counter, as LLVM's EarlyCSE keeps. Matched
-/// within a block only, the reads of one descriptor's words (SPtrLoad) were made again in every block, and so were the
-/// handles made from them: LLVM's early-cse and gvn over the backend's output still removed 40 to 80% of the handles of
-/// the hot programs. Wave operations are not readnone (their result depends on the active lanes) and
+/// other memory reads (raw buffer and texture loads, samples) only later in the same block with no write, atomic or
+/// call with an effect between them. Wave operations are not readnone (their result depends on the active lanes) and
 /// never match. <see cref="DeadCode"/> then drops what is
 /// no longer read. The translator repeats the same handle creations, address-map lookups and range arithmetic for
 /// every access to one buffer; a large compute program loses about a fifth of its instructions.
@@ -181,10 +177,6 @@ public static class ValueNumbering
         private readonly BasicBlock _entry;
         private readonly Dictionary<Value, Value> _replaced = [];
         private readonly Dictionary<Key, Value> _available = [];
-        private readonly Dictionary<Key, (Value Value, int Generation)> _reads = [];
-        private readonly HashSet<BasicBlock> _joins = [];
-        private int _generation;
-        private int _lastGeneration;
         private readonly HashSet<Value> _entryValues = [];
         private readonly List<Instruction> _hoisted = [];
 
@@ -197,31 +189,26 @@ public static class ValueNumbering
         public void Run()
         {
             var tree = DominatorTree.Of(_function);
-            FindJoins();
-            var scopes = new Stack<Scope>();
-            scopes.Push(new Scope(_entry, [], [], 0, false));
+            var scopes = new Stack<(BasicBlock Block, List<Key> Added, bool Entered)>();
+            scopes.Push((_entry, [], false));
 
             while (scopes.Count > 0)
             {
-                var scope = scopes.Pop();
+                var (block, added, entered) = scopes.Pop();
 
-                if (scope.Entered)
+                if (entered)
                 {
-                    scope.Added.ForEach(key => _available.Remove(key));
-                    Undo(scope.Reads);
+                    added.ForEach(key => _available.Remove(key));
 
                     continue;
                 }
 
-                // A block starts from its immediate dominator's generation as that block ended: what a sibling subtree
-                // wrote reaches it only through a join, which starts a generation of its own.
-                _generation = scope.Generation;
-                scopes.Push(scope with { Entered = true });
-                Number(scope.Block, scope.Added, scope.Reads);
+                scopes.Push((block, added, true));
+                Number(block, added);
 
-                foreach (var child in tree.Children(scope.Block))
+                foreach (var child in tree.Children(block))
                 {
-                    scopes.Push(new Scope(child, [], [], _generation, false));
+                    scopes.Push((child, [], false));
                 }
             }
 
@@ -229,60 +216,16 @@ public static class ValueNumbering
             RewritePhis(_function, _replaced);
         }
 
-        /// <summary>The blocks more than one block branches to (joins and loop headers): reads before them do not reach past them.</summary>
-        private void FindJoins()
+        private void Number(BasicBlock block, List<Key> added)
         {
-            var seen = new HashSet<BasicBlock>();
-
-            foreach (var block in _function.Blocks)
-            {
-                foreach (var successor in block.Successors.Distinct())
-                {
-                    if (!seen.Add(successor))
-                    {
-                        _joins.Add(successor);
-                    }
-                }
-            }
-        }
-
-        /// <summary>Leaving a dominator subtree: the reads it made available go, those of its dominators come back.</summary>
-        private void Undo(List<ReadUndo> reads)
-        {
-            for (int index = reads.Count - 1; index >= 0; index--)
-            {
-                var undo = reads[index];
-
-                if (undo.Had)
-                {
-                    _reads[undo.Key] = undo.Previous;
-                }
-                else
-                {
-                    _reads.Remove(undo.Key);
-                }
-            }
-        }
-
-        /// <summary>A generation no read was made in yet.</summary>
-        private void NewGeneration()
-        {
-            _generation = ++_lastGeneration;
-        }
-
-        private void Number(BasicBlock block, List<Key> added, List<ReadUndo> reads)
-        {
-            if (_joins.Contains(block))
-            {
-                NewGeneration();
-            }
+            var local = new Dictionary<Key, Value>();
 
             foreach (var phi in block.Phis)
             {
                 Rewrite(phi, _replaced);
             }
 
-            block.Body.RemoveAll(instruction => Replace(block, instruction, added, reads));
+            block.Body.RemoveAll(instruction => Replace(block, instruction, added, local));
             Rewrite(block.Terminator!, _replaced);
 
             if (ReferenceEquals(block, _entry))
@@ -295,14 +238,14 @@ public static class ValueNumbering
         /// Rewrites the operands, then replaces the instruction by an earlier equal one or, when it is pure and reads
         /// only constants and entry values, moves it to the entry, where every block sees it (true: remove it here).
         /// </summary>
-        private bool Replace(BasicBlock block, Instruction instruction, List<Key> added, List<ReadUndo> reads)
+        private bool Replace(BasicBlock block, Instruction instruction, List<Key> added, Dictionary<Key, Value> local)
         {
             Rewrite(instruction, _replaced);
             var kind = KindOf(instruction);
 
             if (kind == Kind.Effect)
             {
-                NewGeneration();
+                local.Clear();
 
                 return false;
             }
@@ -313,20 +256,16 @@ public static class ValueNumbering
             }
 
             var key = new Key(instruction);
+            var table = kind == Kind.Pure ? _available : local;
 
-            if (kind == Kind.Read)
-            {
-                return ReplaceRead(instruction, key, reads);
-            }
-
-            if (_available.TryGetValue(key, out var earlier))
+            if (table.TryGetValue(key, out var earlier))
             {
                 _replaced[instruction] = earlier;
 
                 return true;
             }
 
-            _available[key] = instruction;
+            table[key] = instruction;
 
             if (kind == Kind.Pure && !ReferenceEquals(block, _entry) && Hoistable(instruction))
             {
@@ -341,24 +280,6 @@ public static class ValueNumbering
             {
                 added.Add(key);
             }
-
-            return false;
-        }
-
-        /// <summary>A memory read: replaced by an equal one of a dominating block made in this generation, else kept as the latest.</summary>
-        private bool ReplaceRead(Instruction instruction, Key key, List<ReadUndo> reads)
-        {
-            bool had = _reads.TryGetValue(key, out var earlier);
-
-            if (had && earlier.Generation == _generation)
-            {
-                _replaced[instruction] = earlier.Value;
-
-                return true;
-            }
-
-            reads.Add(new ReadUndo(key, had, earlier));
-            _reads[key] = (instruction, _generation);
 
             return false;
         }
@@ -384,12 +305,6 @@ public static class ValueNumbering
             return true;
         }
     }
-
-    /// <summary>A block of the dominator-tree walk: what it made available, and the generation it starts from.</summary>
-    private readonly record struct Scope(BasicBlock Block, List<Key> Added, List<ReadUndo> Reads, int Generation, bool Entered);
-
-    /// <summary>A read made available in a scope, and what the key held before (restored on leaving it).</summary>
-    private readonly record struct ReadUndo(Key Key, bool Had, (Value Value, int Generation) Previous);
 
     private enum Kind
     {
