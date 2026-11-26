@@ -62,6 +62,8 @@ internal static class HostComposition
     {
         Shims.D3D12X.MeshLaunch.Enabled = options.MeshLaunch;
         Shims.D3D12X.ClampBarriers.Requested = options.ClampEnhancedBarriers;
+        Shims.D3D12X.IndirectGather.Enabled = options.IndirectGather;
+        Shims.D3D12X.Binding.PipelineStores.Enabled = options.IndirectGather;
         Shims.D3D12X.Binding.GpuUploadHeaps.Enabled = options.GpuUploadHeaps;
 
         Shims.D3D12X.DebugLayer.DrawCensus.Passes = options.CensusPasses;
