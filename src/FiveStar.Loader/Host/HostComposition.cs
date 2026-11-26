@@ -67,10 +67,11 @@ internal static class HostComposition
         Shims.D3D12X.ClampBarriers.Requested = options.ClampEnhancedBarriers;
 
         Shims.D3D12X.IndirectGather.Enabled = options.IndirectGather;
-        Shims.D3D12X.Present.GpuKeepAwake.Mode = options.GpuKeepAwake;
         Shims.D3D12X.IndirectGather.Strict = options.IndirectGatherStrict;
         Shims.D3D12X.IndirectBatch.Enabled = options.IndirectBatch;
         Shims.D3D12X.Binding.PipelineStores.Enabled = options.IndirectGather;
+
+        Shims.D3D12X.Present.GpuKeepAwake.Mode = options.GpuKeepAwake;
         Shims.D3D12X.Pipelines.DepthFormats.TypelessDepth = options.TypelessDepth;
         Shims.D3D12X.Binding.GpuUploadHeaps.Enabled = options.GpuUploadHeaps;
 
