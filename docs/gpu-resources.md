@@ -102,6 +102,11 @@ flowchart LR
   streamed texture and its views before the mips arrive, so the view's fill found the memory empty or unmapped
   (`UploadUnreadable`) and the material textures stayed black (w105). A 64-bit hash of the bytes skips unchanged
   memory. A fill whose console layout does not fit the desktop texture counts as `UploadRefused` (logged eight times).
+- **Written textures refresh incrementally** (`TextureRefreshWorker`): a write marks the 64 KiB pages it touched; a
+  background thread reads those pages, compares each with its hash from the last upload, and uploads only the
+  subresources (mips, slices) a changed page lies in (`XgSubresourceSpans`, counted as `UploadPartial`). A
+  submission takes what is left and waits for refreshes in progress, so a texture written before it is current. A
+  texture never filled is still filled whole. w109's whole-texture refresh on the submitting thread cost 19 ms a frame.
 - **Textures in XMem reservations** are read page by page (`GameMemorySource.Gather`, `UploadGathered`): each 64 KiB
   page from its CPU range or, when the game mapped it at the GPU-only alias itself, from there; zeros for a page mapped
   nowhere (a mip not streamed in). The whole-range read refused every streamed texture with one unmapped page (w108:

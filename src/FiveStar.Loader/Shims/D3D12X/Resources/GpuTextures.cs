@@ -42,7 +42,6 @@ internal sealed unsafe class GpuTextures : IDisposable
     private static nuint _kernelCopyBytes;
 
     private readonly object _watchGate = new();
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<GpuTexture, byte> _written = new();
     private readonly GameMemorySource _source;
     private readonly DesktopResourceDescriptions _descriptions;
     private readonly LoaderLog _log;
@@ -55,6 +54,7 @@ internal sealed unsafe class GpuTextures : IDisposable
         _source = source;
         _descriptions = descriptions;
         _log = log;
+        Writes = new TextureRefreshWorker(this, source);
     }
 
     public GpuTextureRegistry Registry { get; } = GpuTextureRegistry.OfQueues();
@@ -157,6 +157,15 @@ internal sealed unsafe class GpuTextures : IDisposable
     /// </summary>
     private void Refresh(nint device, GpuTexture texture, bool throughKernel)
     {
+        // One refresh of a texture at a time: the refresh worker and a view's refresh would race on its page hashes.
+        lock (texture.RefreshGate)
+        {
+            RefreshLocked(device, texture, throughKernel);
+        }
+    }
+
+    private void RefreshLocked(nint device, GpuTexture texture, bool throughKernel)
+    {
         byte* source = _source.Find(texture.Address, texture.Size);
 
         if (source == null)
@@ -219,9 +228,15 @@ internal sealed unsafe class GpuTextures : IDisposable
         }
     }
 
+    /// <summary>
+    /// Uploads the whole texture from <paramref name="source"/> unless its bytes are the ones last uploaded; the hash is
+    /// kept per page (<see cref="GpuTexture.PageHashes"/>), so a later write refreshes only what it changed
+    /// (<see cref="TextureRefreshWorker"/>).
+    /// </summary>
     private void Fill(nint device, GpuTexture texture, byte* source)
     {
-        ulong hash = ContentHash.Of(source, texture.Size);
+        var pages = TextureRefreshWorker.HashPages(texture, source);
+        ulong hash = TextureRefreshWorker.Combined(pages);
 
         if (hash == texture.UploadedHash)
         {
@@ -232,12 +247,19 @@ internal sealed unsafe class GpuTextures : IDisposable
 
         if (Uploader.Upload(device, texture, source))
         {
+            texture.PageHashes = pages;
             texture.UploadedHash = hash;
             Counters.Add(GpuResourceEvent.Upload);
 
             return;
         }
 
+        ReportFailure(texture);
+    }
+
+    /// <summary>Counts and logs (the first eight of each) an upload <see cref="Uploader"/> did not make.</summary>
+    internal void ReportFailure(GpuTexture texture)
+    {
         var failure = Uploader.Failure;
 
         // No failure named: the console layout does not fit the desktop texture (Uploader.Subresources), which once left
@@ -269,35 +291,43 @@ internal sealed unsafe class GpuTextures : IDisposable
     {
         foreach (var texture in Registry.Overlapping(address, bytes))
         {
-            if (!texture.GpuWritten && !texture.CopiedInto && _written.TryAdd(texture, 0))
-            {
-                Counters.Add(GpuResourceEvent.Written);
-            }
-        }
-    }
-
-    /// <summary>Refreshes the textures <see cref="MarkWritten"/> named that are still registered, reading through the kernel.</summary>
-    public void RefreshWritten(nint device)
-    {
-        if (_written.IsEmpty)
-        {
-            return;
-        }
-
-        foreach (var texture in _written.Keys)
-        {
-            if (!_written.TryRemove(texture, out _) || Registry.Find(texture.Address) != texture || texture.GpuWritten || texture.CopiedInto)
+            if (texture.GpuWritten || texture.CopiedInto)
             {
                 continue;
             }
 
-            Counters.Add(GpuResourceEvent.WrittenRefreshed);
-
-            if (texture.Layout.PlaneCount == 1)
-            {
-                Refresh(device, texture, throughKernel: true);
-            }
+            ulong start = Math.Max(address, texture.Address) - texture.Address;
+            ulong end = Math.Min(address + bytes, texture.Address + texture.Size) - texture.Address;
+            texture.MarkPages(start, end);
+            Writes.Add(texture);
         }
+    }
+
+    /// <summary>
+    /// Before a submission: the textures <see cref="MarkWritten"/> named are current (the refresh worker did most of
+    /// them meanwhile; this thread takes the rest and waits for the ones in progress).
+    /// </summary>
+    public void RefreshWritten(nint device)
+    {
+        Writes.Settle(device);
+    }
+
+    /// <summary>The written textures' refresh, off the submitting thread (<see cref="TextureRefreshWorker"/>).</summary>
+    internal TextureRefreshWorker Writes { get; }
+
+    /// <summary>
+    /// Refills the whole of <paramref name="texture"/> from memory read through the kernel, as a first fill or when its
+    /// page hashes are unknown (the refresh worker's fallback).
+    /// </summary>
+    internal void RefreshWhole(nint device, GpuTexture texture)
+    {
+        Refresh(device, texture, throughKernel: true);
+    }
+
+    /// <summary>This thread's copy buffer of at least <paramref name="size"/> bytes.</summary>
+    internal static byte* CopyBuffer(ulong size)
+    {
+        return KernelCopy(size);
     }
 
     /// <summary>
@@ -366,6 +396,7 @@ internal sealed unsafe class GpuTextures : IDisposable
 
     public void Dispose()
     {
+        Writes.Dispose();
         Registry.Dispose();
         Uploader.Dispose();
     }

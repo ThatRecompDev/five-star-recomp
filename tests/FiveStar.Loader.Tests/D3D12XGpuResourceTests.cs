@@ -413,12 +413,12 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.True(textures.Counters[GpuResourceEvent.Written] >= 1);
         Assert.Equal(filled, textures.Counters[GpuResourceEvent.Upload]);
 
-        // The next submission refreshes it, once.
+        // The next submission refreshes it (the pages it changed), once.
         RunEmptyList(device);
         Assert.Equal(linear[0], probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
-        Assert.Equal(filled + 1, textures.Counters[GpuResourceEvent.Upload]);
+        Assert.Equal(filled + 1, textures.Counters[GpuResourceEvent.Upload] + textures.Counters[GpuResourceEvent.UploadPartial]);
         RunEmptyList(device);
-        Assert.Equal(filled + 1, textures.Counters[GpuResourceEvent.Upload]);
+        Assert.Equal(filled + 1, textures.Counters[GpuResourceEvent.Upload] + textures.Counters[GpuResourceEvent.UploadPartial]);
         Assert.True(cpu != 0);
     }
 
