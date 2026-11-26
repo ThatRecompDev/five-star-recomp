@@ -42,11 +42,9 @@ internal static unsafe class ListSubmissions
     private static long _inOrder;
     private static long _longWaits;
 
-    /// <summary>Submissions that had to wait on the CPU for the list's previous run.</summary>
-    public static long Waits => Interlocked.Read(ref _waits);
-
-    /// <summary>Submissions of a new recording while the last run went on: on another queue (a GPU wait), on the same queue (none).</summary>
-    public static (long QueueWaits, long InOrder) NewRecordings => (Interlocked.Read(ref _queueWaits), Interlocked.Read(ref _inOrder));
+    /// <summary>The waits for lists' previous runs, for the sample line and the device's summary.</summary>
+    public static string Summary =>
+        $"{Interlocked.Read(ref _waits)} submissions waited on the CPU for the list's previous run; new recordings while it ran: {Interlocked.Read(ref _queueWaits)} waited for it on the GPU (another queue), {Interlocked.Read(ref _inOrder)} ran after it in their queue's order";
 
     /// <summary>
     /// Before a submission to <paramref name="queue"/>: when the previous run of <paramref name="list"/> (a wrapper) has
