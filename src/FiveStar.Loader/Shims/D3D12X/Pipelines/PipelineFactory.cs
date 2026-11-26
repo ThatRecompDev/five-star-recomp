@@ -121,6 +121,15 @@ internal sealed unsafe class PipelineFactory
 
     public int Graphics(GraphicsPipelineDescription description, Guid* iid, nint* result)
     {
+        // --no-draws: a stand-in that never builds, before any program is looked for or made (nor the journal written).
+        if (SkippedPipelines.All)
+        {
+            string names = ProgramNames(description.Shaders);
+            *result = StandIns.Unbuilt(names);
+
+            return Remember(description, HResult.Ok, result, names);
+        }
+
         var deferral = Deferral(Journal?.Contains(description) ?? false, () => Journal?.Record(description));
         var lacking = Lacking(description.Shaders);
 
@@ -182,6 +191,14 @@ internal sealed unsafe class PipelineFactory
 
     public int Compute(ComputePipelineDescription description, Guid* iid, nint* result)
     {
+        // --no-draws: a stand-in that never builds, before any program is looked for or made.
+        if (SkippedPipelines.All)
+        {
+            *result = StandIns.Unbuilt(ProgramNames([description.Shader]));
+
+            return HResult.Ok;
+        }
+
         var deferral = Deferral(Journal?.Contains(description) ?? false, () => Journal?.Record(description));
         var lacking = Lacking([description.Shader]);
         var small = description.Shader.Bytes.Length <= SmallComputeShaderBytes;

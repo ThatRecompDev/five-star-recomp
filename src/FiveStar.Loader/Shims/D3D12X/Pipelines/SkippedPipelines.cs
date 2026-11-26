@@ -17,6 +17,14 @@ internal static class SkippedPipelines
     /// <summary>The texts; empty for none.</summary>
     public static IReadOnlyList<string> Texts { get; set; } = [];
 
+    /// <summary>
+    /// <c>--no-draws</c>: every pipeline is held, so no program is translated or compiled and every draw and dispatch of
+    /// the game is skipped. The game runs as before (its code, streaming, memory, our shims) with a black picture: the
+    /// frame time is then the game's own CPU and ours outside the draws, the floor no GPU work can lower. After Kelvaroq's
+    /// 0061 (<c>VICTORY_NO_DRAWS</c>, GPL-3.0, facts only), itself after Cold Project VI, which measured 42-53 ms a frame so.
+    /// </summary>
+    public static bool All { get; set; }
+
     /// <summary>The texts of a comma-separated list, blanks dropped.</summary>
     public static IReadOnlyList<string> Parse(string list)
     {
@@ -38,7 +46,7 @@ internal static class SkippedPipelines
     /// <summary>True when one of <paramref name="texts"/> skips the pipeline of <paramref name="names"/>; the first time, logged.</summary>
     public static bool Skips(string names, IReadOnlyList<string> texts)
     {
-        if (RayTracingPrograms.Skips(names))
+        if (All || RayTracingPrograms.Skips(names))
         {
             return true;
         }

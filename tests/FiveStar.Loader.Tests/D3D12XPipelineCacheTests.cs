@@ -85,6 +85,49 @@ public sealed unsafe class D3D12XPipelineCacheTests
     }
 
     [DxcFact]
+    public void With_no_draws_every_pipeline_is_a_stand_in_that_never_builds()
+    {
+        var folder = Directory.CreateTempSubdirectory("fivestar-nodraws-");
+
+        try
+        {
+            using var device = GpuDevice.CreateWarp(debugLayer: false);
+            var (device2, root) = DesktopObjects(device.Device.NativePointer);
+            var program = TranslatedProgram.Of("cs", HardwareStage.Compute, Compile(folder.FullName));
+            var description = new ComputePipelineDescription(0, new ShaderSource(ShaderSourceKind.CacheCode, new byte[24]));
+            var log = new LoaderLog(new StringWriter(), null, false);
+
+            var builds = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
+            builds.Start();
+            var standIns = new StandInPipelines(TimeSpan.FromMinutes(1), builds, builds, new OnceLog(log));
+            var factory = new PipelineFactory(device2, root, new FixedProgramLibrary(program), new ProgramSignatures(folder.FullName), new OnceLog(log), null, standIns, null);
+            var iid = DesktopDevice.PipelineStateIid;
+            nint pipeline;
+            SkippedPipelines.All = true;
+
+            try
+            {
+                // A buildable pipeline with a minute's budget: without --no-draws it comes back built.
+                Assert.Equal(0, factory.Compute(description, &iid, &pipeline));
+            }
+            finally
+            {
+                SkippedPipelines.All = false;
+            }
+
+            Assert.NotEqual(0, pipeline);
+            Assert.Equal(0, standIns.Desktop(pipeline, out bool pending));
+            Assert.True(pending);
+            DesktopDevice.Release(root);
+            DesktopDevice.Release(device2);
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
+    }
+
+    [DxcFact]
     public void A_journal_pipeline_prebuilt_at_device_creation_is_loaded_by_the_game_without_a_stand_in()
     {
         var folder = Directory.CreateTempSubdirectory("fivestar-prebuild-");
