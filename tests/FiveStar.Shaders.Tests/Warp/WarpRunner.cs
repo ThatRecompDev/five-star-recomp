@@ -105,8 +105,7 @@ public sealed class WarpRunner
     {
         return Run(recording =>
         {
-            var layout = job.RootDescriptors ? RootLayout.FallbackRoot : RootLayout.FallbackTable;
-            var root = recording.Own(PipelineFactory.RootSignature(_device.Device, job.Bindings.RootConstantCount, layout, _userData));
+            var root = recording.Own(PipelineFactory.RootSignature(_device.Device, job.Bindings.RootConstantCount, RootLayout.FallbackTable, _userData));
             recording.CreateHeaps(job.Bindings);
             var formats = recording.CreateTargets(job.Framebuffer);
 
@@ -116,7 +115,7 @@ public sealed class WarpRunner
 
             recording.BeginStatistics();
             recording.SetComputeRoot(root, job.Bindings);
-            BindFallback(recording, job, buffers, compute: true);
+            recording.List.SetComputeRootDescriptorTable(1, recording.ResourceTable(FallbackSlot));
             recording.List.SetPipelineState(compute);
             recording.List.Dispatch((uint)job.Groups, 1, 1);
 
@@ -124,7 +123,7 @@ public sealed class WarpRunner
             Transition(recording, buffers.Indices, ResourceStates.UnorderedAccess, ResourceStates.IndexBuffer);
             Transition(recording, buffers.Counter, ResourceStates.UnorderedAccess, ResourceStates.IndirectArgument);
             recording.SetGraphicsRoot(root, job.Bindings);
-            BindFallback(recording, job, buffers, compute: false);
+            recording.List.SetGraphicsRootDescriptorTable(1, recording.ResourceTable(FallbackSlot));
             recording.List.SetPipelineState(draw);
 
             DrawIndirect(recording, job, buffers);
@@ -141,40 +140,12 @@ public sealed class WarpRunner
         var indices = recording.FilledBuffer([.. job.StaleIndices], job.IndexBytes, ResourceStates.UnorderedAccess, flags);
         var counter = recording.FilledBuffer([0, 1, 0, 0, 0, 0, 0, 0], CounterBytes, ResourceStates.UnorderedAccess, flags);
 
-        if (!job.RootDescriptors)
-        {
-            recording.CreateRawUav(vertices, job.VertexBytes / 4, FallbackSlot);
-            recording.CreateRawUav(indices, job.IndexBytes / 4, FallbackSlot + 1);
-            recording.CreateRawUav(counter, CounterBytes / 4, FallbackSlot + 2);
-            recording.CreateRawSrv(vertices, job.VertexBytes / 4, FallbackSlot + 3);
-        }
+        recording.CreateRawUav(vertices, job.VertexBytes / 4, FallbackSlot);
+        recording.CreateRawUav(indices, job.IndexBytes / 4, FallbackSlot + 1);
+        recording.CreateRawUav(counter, CounterBytes / 4, FallbackSlot + 2);
+        recording.CreateRawSrv(vertices, job.VertexBytes / 4, FallbackSlot + 3);
 
         return (vertices, indices, counter);
-    }
-
-    private static void BindFallback(
-        Recording recording, MeshFallbackJob job, (ID3D12Resource Vertices, ID3D12Resource Indices, ID3D12Resource Counter) buffers, bool compute)
-    {
-        var list = recording.List;
-
-        if (!job.RootDescriptors && compute)
-        {
-            list.SetComputeRootDescriptorTable(1, recording.ResourceTable(FallbackSlot));
-        }
-        else if (!job.RootDescriptors)
-        {
-            list.SetGraphicsRootDescriptorTable(1, recording.ResourceTable(FallbackSlot));
-        }
-        else if (compute)
-        {
-            list.SetComputeRootUnorderedAccessView(1, buffers.Vertices.GPUVirtualAddress);
-            list.SetComputeRootUnorderedAccessView(2, buffers.Indices.GPUVirtualAddress);
-            list.SetComputeRootUnorderedAccessView(3, buffers.Counter.GPUVirtualAddress);
-        }
-        else
-        {
-            list.SetGraphicsRootShaderResourceView(4, buffers.Vertices.GPUVirtualAddress);
-        }
     }
 
     private void DrawIndirect(
