@@ -15,6 +15,12 @@ internal enum GpuResourceEvent
     /// <summary>A slot-70 view found a registered texture.</summary>
     ViewResolved,
 
+    /// <summary>
+    /// A slot-70 view of a GPU-written texture's extent found it among those a newer texture replaced at its address (the
+    /// game still draws into it through its old depth or target views): it reads that one, not a null view.
+    /// </summary>
+    ViewResolvedReplaced,
+
     /// <summary>A slot-70 view made a texture from the memory at its address.</summary>
     ViewCreatedTexture,
 
