@@ -183,17 +183,18 @@ uint PtrLoad(uint lo, uint hi, uint off) {   // off is signed (a dword offset or
 // at 0. Scaleform's FTexTG programs read their S# at a root constant + index * 16 (SamplerLoads).
 static const uint SAMPLER_WINDOW_BASE = 0x04008000u;
 // Scalar loads (s_load, s_buffer_load): their address is in SGPRs, the same on every lane of a console wave as a T#
-// is, so the view they read is too: no NonUniformResourceIndex (a vector load's lanes may be in different pages). An
-// s_load of several dwords (64 bytes at most, so in one 64 KiB page or two) walks the address map once per load
-// (sptr_views: the views and offsets of its first byte's page and of the next page) and reads each dword from the page
-// it falls in with selects (SPtrLoadAt): no branch per dword. A per-dword fallback through the map for loads crossing a
-// page put two paths at every dword and grew programs with thousands of s_loads by up to 22% (cascade shadows'
-// CS_ShadowRenderTiledCascadesCBPPPC 1.56 to 1.91 MB of DXIL, 14.9 GB in the driver's compile).
+// is, but their views still go through NonUniformResourceIndex and each dword through the map (SPtrLoadAt reads as
+// SPtrLoad; sptr_views is left to dead-code elimination). On an RX 7800 XT the uniform form ended a retail game's boot
+// in a device hang with a page fault at an address no allocation held, 1,200 to 2,000 presents in, every boot; the
+// non-uniform form ran 9,024 and 13,796 presents without one. A hardware wave holding several program waves (wave
+// emulation, VW_WAVE < 64) is one way the index differs across it (ScalarViewWaveTests); the wave64 programs that
+// also needed it are not explained. A non-uniform index through the select of SPtrLoadAt's two views crashed the AMD
+// compiler in CreatePipelineState (the PS_DeferredTextured family), so the form is the per-dword one again.
 uint SPtrLoad(uint lo, uint hi, uint off) {
     uint2 a = ptr_add(lo, hi, 0u, asint(off));
     if (hi == 0u) return MemLoad(a.x, 0u);
     uint2 p = gpu_page(a.x, a.y);
-    ByteAddressBuffer b = ResourceDescriptorHeap[p.x];
+    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(p.x)];
     return b.Load(p.y & ~3u);
 }
 uint4 sptr_views(uint lo, uint hi, uint off) {
@@ -207,10 +208,7 @@ uint4 sptr_views(uint lo, uint hi, uint off) {
 }
 // Dword `delta` bytes past the first of an s_load whose dword is at `lo` + `off` (`hi` only for the probes).
 uint SPtrLoadAt(uint4 views, uint delta, uint lo, uint hi, uint off) {
-    uint split = 0x10000u - ((lo + off - delta) & 0xffffu);
-    bool next = delta >= split;
-    ByteAddressBuffer b = ResourceDescriptorHeap[select(next, views.z, views.x)];
-    return b.Load(select(next, views.w + (delta - split), views.y + delta) & ~3u);
+    return SPtrLoad(lo, hi, off);
 }
 uint SamplerPtrLoad(uint lo, uint hi, uint off) {
     if (hi == 0u) return MemLoad(SAMPLER_WINDOW_BASE + lo, off);
@@ -284,7 +282,7 @@ uint BufLoad(uint heap_index, uint off) {
     return b.Load(off & ~3u);
 }
 uint SBufLoad(uint heap_index, uint off) {   // an s_buffer_load: the V# is in SGPRs (SPtrLoad)
-    ByteAddressBuffer b = ResourceDescriptorHeap[view_slot(heap_index)];
+    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(view_slot(heap_index))];
     return b.Load(off & ~3u);
 }
 uint BufLoadRW(uint heap_index, uint off) {   // load through a UAV slot (buffer also written by this shader)
