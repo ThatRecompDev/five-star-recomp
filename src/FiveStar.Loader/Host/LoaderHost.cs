@@ -189,6 +189,7 @@ internal sealed class LoaderHost
         }
 
         EnableDebugging();
+        EnablePixCapture();
 
         if (_options.D3D12TraceQueues)
         {
@@ -214,6 +215,20 @@ internal sealed class LoaderHost
         {
             _runtime.FidelityFx.Load(_options.FidelityFxLibrary);
         }
+    }
+
+    /// <summary>--pix-capture: WinPixGpuCapturer.dll loaded now, before the game creates its device.</summary>
+    private void EnablePixCapture()
+    {
+        if (_options.PixCapturePresents.Count == 0)
+        {
+            return;
+        }
+
+        string directory = _options.PixCaptureDirectory ?? Path.GetFullPath("pix-captures");
+        var pix = new PixGpuCapture(_options.PixCapturePresents, directory, _log);
+        pix.Load();
+        _runtime.D3D12X.Presenter.Pix = pix;
     }
 
     /// <summary>--d3d12-debug (debug layer and DRED) or --d3d12-dred (DRED alone).</summary>

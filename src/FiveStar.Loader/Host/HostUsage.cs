@@ -219,6 +219,8 @@ internal static class HostUsage
                                  target read back when a list leaves it, as PNG in the capture folder
           --capture-dir <dir>    write read-back planes and render targets there as PNG
           --capture-presents <n,...> present numbers whose plane is read back (default 60,300,900,1500)
+          --pix-capture <n,...>  PIX GPU capture of those presents (WinPixGpuCapturer.dll, winget Microsoft.PIX)
+          --pix-capture-dir <dir>  where the present-N.wpix files go (default pix-captures)
           --present-test         present moving color bars instead of the game's frame (checks the swap chain)
           --raytracing          XboxBvhBuilder.dll's CPU paths: console acceleration-structure sizes and BLAS
                                  rehydration into game memory (off: desktop sizes, nothing written)

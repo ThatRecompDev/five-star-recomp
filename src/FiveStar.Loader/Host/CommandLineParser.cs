@@ -136,10 +136,8 @@ internal sealed class CommandLineParser
                 return SetBreadcrumbs(option);
             case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--log-draws" or "--capture-when-world" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
                 return SetTraceDraws(option);
-            case "--capture-dir":
-                return SetCaptureDirectory();
-            case "--capture-presents":
-                return SetCapturePresents();
+            case "--capture-dir" or "--capture-presents" or "--pix-capture" or "--pix-capture-dir":
+                return SetCapture(option);
             case "--present-test":
                 return SetPresentTest();
             case "--raytracing" or "--raytracing-gpu" or "--no-rt-stand-ins":
@@ -1152,6 +1150,29 @@ internal sealed class CommandLineParser
         }
 
         return true;
+    }
+
+    /// <summary>The PNG readback (<c>--capture-dir</c>, <c>--capture-presents</c>) and PIX GPU captures (<c>--pix-capture</c>, <c>--pix-capture-dir</c>).</summary>
+    private bool SetCapture(string option)
+    {
+        switch (option)
+        {
+            case "--capture-dir":
+                return SetCaptureDirectory();
+            case "--capture-presents":
+                return SetCapturePresents();
+            case "--pix-capture-dir":
+                _options.PixCaptureDirectory = Path.GetFullPath(Next());
+
+                return true;
+            default:
+                foreach (string present in Next().Split(',', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    _options.PixCapturePresents.Add(long.Parse(present, CultureInfo.InvariantCulture));
+                }
+
+                return true;
+        }
     }
 
     private bool SetPresentTest()
