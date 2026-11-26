@@ -437,6 +437,13 @@ internal sealed record HostOptions
     /// <summary>The shipped BVH builder's constructor runs for an inventory of its pipelines, never built (<c>--raytracing-gpu</c>).</summary>
     public bool RayTracingGpuInventory { get; set; }
 
+    /// <summary>
+    /// <c>--rt-traversal</c>: the game's BVH traversal programs run (with <see cref="RayTracing"/>'s paths, which build
+    /// and rehydrate the structures they walk); passes still held by --skip-pipelines keep their stand-in outputs, but the
+    /// screen-probe light is no longer overwritten with grey.
+    /// </summary>
+    public bool RtTraversal { get; set; }
+
     /// <summary><c>--no-rt-stand-ins</c>: held ray-tracing passes leave their outputs as they are (RtStandIns).</summary>
     public bool NoRtStandIns { get; set; }
 
