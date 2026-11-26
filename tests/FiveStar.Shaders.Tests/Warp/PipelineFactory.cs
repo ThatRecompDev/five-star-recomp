@@ -66,10 +66,19 @@ public static class PipelineFactory
         });
     }
 
-    /// <summary>VS (+ GS) + PS, no culling, no blending, no depth.</summary>
+    /// <summary>VS (+ GS) + PS, no culling, no blending; depth written with test ALWAYS when the framebuffer has one.</summary>
     public static ID3D12PipelineState Graphics(ID3D12Device device, ID3D12RootSignature root, GraphicsJob job, Format[] targets)
     {
         var topology = job.Points ? PrimitiveTopologyType.Point : PrimitiveTopologyType.Triangle;
+        var depthFormat = Format.Unknown;
+        var depthState = DepthStencilDescription.None;
+
+        if (job.Framebuffer.Depth)
+        {
+            depthFormat = Format.D32_Float;
+            depthState = new DepthStencilDescription(true, DepthWriteMask.All, ComparisonFunction.Always);
+        }
+
         var description = new GraphicsPipelineStateDescription
         {
             RootSignature = root,
@@ -77,11 +86,11 @@ public static class PipelineFactory
             PixelShader = job.PixelShader,
             PrimitiveTopologyType = topology,
             RenderTargetFormats = targets,
-            DepthStencilFormat = Format.Unknown,
+            DepthStencilFormat = depthFormat,
             SampleDescription = new SampleDescription(1, 0),
             RasterizerState = RasterizerDescription.CullNone,
             BlendState = NoBlending(),
-            DepthStencilState = DepthStencilDescription.None,
+            DepthStencilState = depthState,
             SampleMask = uint.MaxValue,
         };
 

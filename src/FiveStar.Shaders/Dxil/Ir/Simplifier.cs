@@ -18,6 +18,7 @@ namespace FiveStar.Shaders.Dxil.Ir;
 public static class Simplifier
 {
     private const int Rounds = 2;
+    private const int MinimumJoins = 2;
 
     /// <summary>Wave and quad operations whose value depends only on their operands and the lanes that run them.</summary>
     private static readonly FrozenSet<int> WaveReadOperations = new[]
@@ -33,6 +34,7 @@ public static class Simplifier
     {
         for (var round = 0; round < Rounds && function.Blocks.Count > 0; round++)
         {
+            BranchFacts.Apply(function, module);
             var replaced = new Dictionary<Value, Value>();
             MergeChains(function, replaced);
             var tree = DominatorTree.Of(function);
@@ -144,11 +146,76 @@ public static class Simplifier
             }
         }
 
+        MergeJoins(block, replaced);
         var waveReads = new Dictionary<ValueNumbering.Key, Value>();
 
         block.Body.RemoveAll(instruction => Replace(instruction, module, replaced, waveReads));
         Resolve(block.Terminator!, replaced);
         FoldBranch(block, module);
+    }
+
+    /// <summary>
+    /// Two phis of a block that take the same values from the same blocks are one (VIctory's fork, opt.rs
+    /// Module::merge): the translator's registers often hold one value along every path into a join.
+    /// </summary>
+    private static void MergeJoins(BasicBlock block, Dictionary<Value, Value> replaced)
+    {
+        if (block.Phis.Count < MinimumJoins)
+        {
+            return;
+        }
+
+        var joins = new Dictionary<int, List<Instruction>>();
+
+        foreach (var phi in block.Phis.Where(phi => !replaced.ContainsKey(phi)))
+        {
+            // Order-free: the same pairs in any order hash alike; SameIncoming decides.
+            var key = HashCode.Combine(phi.Type, phi.Operands.Count);
+
+            for (var index = 0; index < phi.Operands.Count; index++)
+            {
+                key += HashCode.Combine(phi.Targets[index], phi.Operands[index]);
+            }
+
+            if (!joins.TryGetValue(key, out var candidates))
+            {
+                joins[key] = [phi];
+
+                continue;
+            }
+
+            var first = candidates.FirstOrDefault(candidate => ReferenceEquals(candidate.Type, phi.Type) && SameIncoming(candidate, phi));
+
+            if (first is not null)
+            {
+                replaced[phi] = first;
+
+                continue;
+            }
+
+            candidates.Add(phi);
+        }
+    }
+
+    /// <summary>Whether two phis take the same value from each block (the hash key aside).</summary>
+    private static bool SameIncoming(Instruction first, Instruction second)
+    {
+        if (first.Operands.Count != second.Operands.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < second.Operands.Count; index++)
+        {
+            var position = first.Targets.IndexOf(second.Targets[index]);
+
+            if (position < 0 || !ReferenceEquals(first.Operands[position], second.Operands[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>True when the instruction is replaced by a constant, an operand or an earlier wave read.</summary>
@@ -198,14 +265,118 @@ public static class Simplifier
             case Opcode.Binary:
                 return ConstantFolding.Binary(module, (BinaryOp)instruction.Code, operands[0], operands[1]);
             case Opcode.Compare:
-                return ConstantFolding.Compare(module, (Predicate)instruction.Code, operands[0], operands[1]);
+                return ConstantFolding.Compare(module, (Predicate)instruction.Code, operands[0], operands[1]) ?? WidenedBit(instruction);
             case Opcode.Cast:
-                return ConstantFolding.Cast(module, (CastOp)instruction.Code, operands[0], instruction.Type);
+                return ConstantFolding.Cast(module, (CastOp)instruction.Code, operands[0], instruction.Type) ?? CastBack(instruction);
             case Opcode.Select:
-                return ConstantFolding.Select(operands[0], operands[1], operands[^1]);
+                return ConstantFolding.Select(operands[0], operands[1], operands[^1]) ?? SelectedBit(instruction);
             default:
                 return null;
         }
+    }
+
+    // The folds below follow VIctory (fork https://github.com/fxceless/victory-fork,
+    // crates/victory-shader/src/emit/bitcode/opt.rs, Module::simplify, commit 1684989): Copyright (c) the VIctory
+    // contributors, GPL-3.0-or-later. See THIRD_PARTY_NOTICES.md.
+
+    /// <summary>A bit widened and compared with 0 again (<c>zext i1 x != 0</c>) is the bit.</summary>
+    private static Value? WidenedBit(Instruction compare)
+    {
+        var operands = compare.Operands;
+
+        var widen = Of(operands[0], Opcode.Cast);
+
+        if ((Predicate)compare.Code != Predicate.NotEqual || !IsInteger(operands[1], 0) || widen is null || (CastOp)widen.Code != CastOp.ZExt
+            || !ReferenceEquals(widen.Operands[0].Type, compare.Type))
+        {
+            return null;
+        }
+
+        return widen.Operands[0];
+    }
+
+    /// <summary>
+    /// A bitcast to its own type, a bitcast there and back, and a value widened and narrowed again are the value they
+    /// started from (the bits are the same).
+    /// </summary>
+    private static Value? CastBack(Instruction cast)
+    {
+        var value = cast.Operands[0];
+        var op = (CastOp)cast.Code;
+
+        if (op == CastOp.Bitcast && ReferenceEquals(value.Type, cast.Type))
+        {
+            return value;
+        }
+
+        var inner = Of(value, Opcode.Cast);
+
+        if (inner is null || !ReferenceEquals(inner.Operands[0].Type, cast.Type))
+        {
+            return null;
+        }
+
+        var first = (CastOp)inner.Code;
+
+        if ((op == CastOp.Bitcast && first == CastOp.Bitcast) || (op == CastOp.Trunc && first is CastOp.ZExt or CastOp.SExt))
+        {
+            return inner.Operands[0];
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// <c>select c, true, false</c> of bits is <c>c</c>; and under the same condition an inner select is one of its
+    /// operands (two guarded writes of one register in a row), which may leave the select of one value.
+    /// </summary>
+    private static Value? SelectedBit(Instruction select)
+    {
+        var operands = select.Operands;
+        var condition = operands[0];
+
+        for (var inner = Of(operands[1], Opcode.Select); inner is not null && ReferenceEquals(inner.Operands[0], condition); inner = Of(operands[1], Opcode.Select))
+        {
+            operands[1] = inner.Operands[1];
+        }
+
+        for (var inner = Of(operands[^1], Opcode.Select); inner is not null && ReferenceEquals(inner.Operands[0], condition); inner = Of(operands[^1], Opcode.Select))
+        {
+            operands[^1] = inner.Operands[^1];
+        }
+
+        if (ReferenceEquals(operands[1], operands[^1]))
+        {
+            return operands[1];
+        }
+
+        if (select.Type.Bits == 1 && IsInteger(operands[1], 1) && IsInteger(operands[^1], 0))
+        {
+            return condition;
+        }
+
+        return null;
+    }
+
+    /// <summary>The value as an instruction of <paramref name="opcode"/>, or null.</summary>
+    private static Instruction? Of(Value value, Opcode opcode)
+    {
+        var instruction = value as Instruction;
+
+        if (instruction is null || instruction.Opcode != opcode)
+        {
+            return null;
+        }
+
+        return instruction;
+    }
+
+    /// <summary>Whether the value is the integer constant <paramref name="bits"/> (a set bit is 1 or -1).</summary>
+    private static bool IsInteger(Value value, long bits)
+    {
+        var constant = value as Constant;
+
+        return constant is not null && constant.IsInteger && (constant.Bits == bits || (bits == 1 && constant.Type.Bits == 1 && constant.Bits != 0));
     }
 
     private static bool IsWaveRead(Instruction instruction)

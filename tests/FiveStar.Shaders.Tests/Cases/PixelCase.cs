@@ -24,6 +24,12 @@ public sealed record PixelCase(string Name, string Program, int Outputs, Func<Pi
     /// <summary>Drawn with the half-coverage triangle (x + y &lt;= 6) instead of the fullscreen one.</summary>
     public bool HalfCoverage { get; init; }
 
+    /// <summary>
+    /// DB_SHADER_CONTROL of the program (a pixel block with the default input layout: persp_center, pos_x..pos_w); the
+    /// draw then has a depth buffer (<see cref="Warp.Framebuffer.Depth"/>). Null: no pixel block, no depth.
+    /// </summary>
+    public uint? DbShaderControl { get; init; }
+
     /// <summary>Translated with typed image views (TranslationOptions.TypedImageViews).</summary>
     public bool TypedViews { get; init; }
 

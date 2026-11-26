@@ -14,6 +14,9 @@ public sealed record Framebuffer(int Count, int Width, int Height, int ViewportW
 
     public const uint ClearFloatBits = 0x7FBADBAD;
 
+    /// <summary>A D32_FLOAT depth buffer too, cleared to 1.0, written by every pixel (depth test ALWAYS).</summary>
+    public bool Depth { get; init; }
+
     /// <summary>Targets whose viewport is the target size (geometry given in pixels of the target).</summary>
     public static Framebuffer Exact(int count, int width, int height)
     {
