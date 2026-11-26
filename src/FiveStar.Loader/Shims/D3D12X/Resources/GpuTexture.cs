@@ -68,6 +68,9 @@ internal sealed class GpuTexture
     /// <summary>The content hash of the bytes last uploaded; 0 before the first upload.</summary>
     public ulong UploadedHash { get; set; }
 
+    /// <summary>The frame (present count) a slot-70 view last queued the check of the texture's pages; long.MinValue for none.</summary>
+    public long ViewCheckedFrame = long.MinValue;
+
     /// <summary>Pages per word of the written-pages bitmap.</summary>
     private const int DirtyWordBits = 64;
 

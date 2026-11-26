@@ -265,6 +265,9 @@ public sealed unsafe class D3D12XGpuResourceTests
         using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
         CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
 
+        // The view queues the check of the texture's pages; the next submission has it done.
+        RunEmptyList(device);
+
         for (uint mip = 0; mip < Mips; mip++)
         {
             uint extent = (uint)Size >> (int)mip;
@@ -276,8 +279,8 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.NotEqual(0, placed);
         Assert.Equal(1, counters[GpuResourceEvent.ViewResolved]);
 
-        // The empty memory at creation, then the tiled bytes the view found changed.
-        Assert.Equal(2, counters[GpuResourceEvent.Upload]);
+        // The empty memory at creation, then the tiled bytes the view's check found changed.
+        Assert.Equal(2, counters[GpuResourceEvent.Upload] + counters[GpuResourceEvent.UploadPartial]);
     }
 
     [Fact]
@@ -348,6 +351,7 @@ public sealed unsafe class D3D12XGpuResourceTests
         Tile(description, cpu, linear);
         using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
         CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
+        RunEmptyList(device);
 
         Assert.Equal(linear[0], probe.Read(Size, Size, 0, uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
         Assert.Equal(1, counters[GpuResourceEvent.Upload]);
@@ -439,7 +443,8 @@ public sealed unsafe class D3D12XGpuResourceTests
 
         using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
         CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
-        Assert.True(textures.Counters[GpuResourceEvent.UploadUnreadable] >= 2);
+        Assert.True(textures.Counters[GpuResourceEvent.UploadUnreadable] >= 1);
+        Assert.Equal(1, textures.Counters[GpuResourceEvent.ViewCheckQueued]);
         Assert.Equal(0, textures.Counters[GpuResourceEvent.Upload]);
 
         // The view stays the game's; mapping the pages and the next submission fill the texture behind it.

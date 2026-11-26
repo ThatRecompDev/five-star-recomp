@@ -107,6 +107,12 @@ flowchart LR
   subresources (mips, slices) a changed page lies in (`XgSubresourceSpans`, counted as `UploadPartial`). A
   submission takes what is left and waits for refreshes in progress, so a texture written before it is current. A
   texture never filled is still filled whole. w109's whole-texture refresh on the submitting thread cost 19 ms a frame.
+- **A slot-70 view of a registered texture** (`GpuTextures.RefreshForView`) marks all its pages for that worker instead
+  of reading and hashing the texture on the game's thread: the CPU may have written its memory, which nothing
+  reports, so every page is compared with its hash, off the thread, before the next submission. The first view of
+  a texture in a frame queues the check (`ViewCheckQueued`); later ones that frame cost nothing (`ViewCheckSkipped`),
+  so bytes the CPU writes between two views of one frame are taken at the next frame's view. CPU-mapped textures are
+  left to the frame check.
 - **Textures in XMem reservations** are read page by page (`GameMemorySource.Gather`, `UploadGathered`): each 64 KiB
   page from its CPU range or, when the game mapped it at the GPU-only alias itself, from there; zeros for a page mapped
   nowhere (a mip not streamed in). The whole-range read refused every streamed texture with one unmapped page (w108:
