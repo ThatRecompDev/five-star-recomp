@@ -27,7 +27,7 @@ internal static unsafe class BufferCopies
         try
         {
             ListSegments.Of(self)->Commands++;
-            IndirectGather.Wrote(self);
+            IndirectGather.Wrote(self, IndirectGatherMiss.AfterCopy);
             nint desktopDestination = Desktop(destination, ref destinationOffset);
             nint desktopSource = Desktop(source, ref sourceOffset);
             GpuBreadcrumbs.Before(self, RecordedCommand.CopyBuffer);

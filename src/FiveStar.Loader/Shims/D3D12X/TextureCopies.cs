@@ -48,7 +48,7 @@ internal static unsafe class TextureCopies
         try
         {
             ListSegments.Of(self)->Commands++;
-            IndirectGather.Wrote(self);
+            IndirectGather.Wrote(self, IndirectGatherMiss.AfterCopy);
             var memory = D3D12X.GameMemory;
 
             if (bytes == 0 || !memory.TryFind(destination, out var to) || !memory.TryFind(source, out var from) || to.Resource == 0 || from.Resource == 0)
@@ -76,7 +76,7 @@ internal static unsafe class TextureCopies
         try
         {
             ListSegments.Of(self)->Commands++;
-            IndirectGather.Wrote(self);
+            IndirectGather.Wrote(self, IndirectGatherMiss.AfterCopy);
 
             if (destination == null || source == null)
             {
@@ -118,7 +118,7 @@ internal static unsafe class TextureCopies
         try
         {
             ListSegments.Of(self)->Commands++;
-            IndirectGather.Wrote(self);
+            IndirectGather.Wrote(self, IndirectGatherMiss.AfterCopy);
 
             var states = D3D12X.ListStates.For(self);
             var to = new TextureCopyLocation { Resource = destination };
