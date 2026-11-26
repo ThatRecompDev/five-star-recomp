@@ -250,7 +250,7 @@ internal sealed class LoaderHost
         if (dumps is not null)
         {
             _runtime.D3D12X.Aftermath = dumps;
-            DeviceLoss.BeforeEnd = dumps.WaitForDump;
+            DeviceLoss.BeforeEnd = dumps.Report;
         }
     }
 

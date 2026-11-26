@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Diagnostics;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Diagnostics;
@@ -40,8 +41,11 @@ internal static class DeviceLoss
     /// <summary>Where the end is logged; null logs nothing.</summary>
     public static LoaderLog? Log { get; set; }
 
-    /// <summary>Runs after the grace period, before the end: waits for reports written elsewhere (an Aftermath crash dump); null for none.</summary>
-    public static Action? BeforeEnd { get; set; }
+    /// <summary>
+    /// Runs at once on the device-loss thread with the sign, before the grace period is waited out: reports written
+    /// elsewhere (an Aftermath crash dump), which may take longer than the grace; null for none.
+    /// </summary>
+    public static Action<string>? BeforeEnd { get; set; }
 
     /// <summary>Ends the process with an exit code (tests replace it).</summary>
     public static Action<int> End { get; set; } = code =>
@@ -65,7 +69,7 @@ internal static class DeviceLoss
         }
 
         Log?.Error($"[device lost] {sign}: new GPU work is dropped and the process ends in {GraceSeconds:F0} s (exit code {ExitCode}); {MemorySnapshot.Summary()}");
-        var thread = new Thread(Finish) { IsBackground = true, Name = "fivestar device loss" };
+        var thread = new Thread(() => Finish(sign)) { IsBackground = true, Name = "fivestar device loss" };
         thread.Start();
     }
 
@@ -75,10 +79,17 @@ internal static class DeviceLoss
         Volatile.Write(ref _lost, 0);
     }
 
-    private static void Finish()
+    private static void Finish(string sign)
     {
-        Thread.Sleep((int)(GraceSeconds * MillisecondsPerSecond));
-        BeforeEnd?.Invoke();
+        var started = Stopwatch.StartNew();
+        BeforeEnd?.Invoke(sign);
+        int left = (int)((GraceSeconds * MillisecondsPerSecond) - started.ElapsedMilliseconds);
+
+        if (left > 0)
+        {
+            Thread.Sleep(left);
+        }
+
         Log?.Error($"[device lost] ending the process (exit code {ExitCode}); {MemorySnapshot.Summary()}");
         End(ExitCode);
     }
