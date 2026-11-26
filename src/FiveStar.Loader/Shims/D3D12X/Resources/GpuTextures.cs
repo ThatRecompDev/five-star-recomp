@@ -124,6 +124,7 @@ internal sealed unsafe class GpuTextures : IDisposable
         bool gpuWritten = (description->Flags & GpuWrittenFlags) != 0;
         var texture = Register(address, description, desktop, desc.Format, state, gpuWritten);
         Refresh(device, texture);
+        ZeroIfUnfilled(device, texture);
 
         return hr;
     }
@@ -181,6 +182,7 @@ internal sealed unsafe class GpuTextures : IDisposable
         }
 
         Refresh(device, texture);
+        ZeroIfUnfilled(device, texture);
 
         return texture;
     }
@@ -360,6 +362,34 @@ internal sealed unsafe class GpuTextures : IDisposable
 
     /// <summary>"views' textures over memory never mapped X GB of Y, upload buffers Z GB": the memory this class holds besides the registered textures.</summary>
     public string MemorySummary => FormattableString.Invariant($"views' textures over memory never mapped {UnmappedViewBytes / BytesPerGigabyte:F2} GB of {UnmappedViewBudget / BytesPerGigabyte:F2}, upload buffers {Uploader.StagingBytes / BytesPerGigabyte:F2} GB");
+
+    /// <summary>
+    /// A read-only texture its first refresh did not fill (its memory not mapped or not readable yet) is filled with zeros:
+    /// a placed texture takes a range of a shared heap that an earlier texture used, and D3D12 does not clear it, so it
+    /// read the old texture's bytes. Since the heaps went back and were reused more (9480a6f), w120 drew full-screen
+    /// green and red stripes behind the credits. A committed texture is zero already; the zeros cost one upload.
+    /// </summary>
+    private void ZeroIfUnfilled(nint device, GpuTexture texture)
+    {
+        if (texture.GpuWritten || texture.Layout.PlaneCount != 1 || !PlacedTextureHeaps.Enabled)
+        {
+            return;
+        }
+
+        lock (texture.RefreshGate)
+        {
+            if (texture.UploadedHash != 0)
+            {
+                return;
+            }
+
+            byte* zeros = KernelCopy(texture.Size);
+            new Span<byte>(zeros, checked((int)texture.Size)).Clear();
+            _readStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            Fill(device, texture, zeros);
+            Counters.Add(GpuResourceEvent.UploadZeros);
+        }
+    }
 
     /// <summary>Fills <paramref name="texture"/> from memory when it is not GPU-written, its memory is readable and its bytes changed.</summary>
     public void Refresh(nint device, GpuTexture texture)

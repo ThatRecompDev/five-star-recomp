@@ -83,11 +83,17 @@ public sealed unsafe class D3D12XGpuResourceTests
                 registry.Register(Texture(test, device, address));
             }
 
-            // The oldest is aged (held until its grace ends), the newest two kept.
-            Assert.Equal(3 * (long)TextureBytes, registry.KeptBytes);
-            registry.Advance(GpuTextureRegistry.AliasGraceFrames);
+            // At the present: the oldest kept is still named by a view record and stays; the next oldest is aged (held
+            // until its grace ends), the newest kept.
+            var released = new List<GpuTexture>();
+            registry.Referenced = texture => texture.Address == 0x10000;
+            registry.Releasing = released.Add;
+            registry.Advance(1);
 
-            Assert.Equal(1, registry.Released);
+            Assert.Equal(3 * (long)TextureBytes, registry.KeptBytes);
+            registry.Advance(1 + GpuTextureRegistry.AliasGraceFrames);
+
+            Assert.Equal(0x20000UL, Assert.Single(released).Address);
             Assert.Equal(2 * (long)TextureBytes, registry.KeptBytes);
             Assert.Equal(2, registry.RetiredCount);
             registry.Dispose();
@@ -620,6 +626,45 @@ public sealed unsafe class D3D12XGpuResourceTests
 
         Assert.Equal(linear[0], probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
         Assert.True(textures.Counters[GpuResourceEvent.UploadGathered] >= 1);
+    }
+
+    /// <summary>
+    /// A placed texture nothing could fill yet reads zeros: its heap range may hold an older texture's bytes, which D3D12
+    /// does not clear (w120's green and red stripes behind the credits).
+    /// </summary>
+    [Fact]
+    public void A_placed_texture_its_memory_cannot_fill_yet_reads_zeros()
+    {
+        using var test = TestRuntime.Create();
+        var (_, gpu, _) = Reserved(test, mapped: false);
+        var (mappedCpu, mappedGpu, _) = Reserved(test, mapped: true);
+
+        var device = new XboxDevice(test);
+        var description = Description();
+        var textures = test.Runtime.D3D12X.Textures;
+        bool placed = PlacedTextureHeaps.Enabled;
+
+        try
+        {
+            PlacedTextureHeaps.Enabled = true;
+
+            // One texture filled from memory (not zeroed), one over memory with no page mapped (zeroed).
+            Tile(description, mappedCpu, [Pattern(Size, 21), Pattern(Size / 2, 22)]);
+            using var filled = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
+            CreateView(device, mappedGpu, description, (nint)filled.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
+            Assert.Equal(0, textures.Counters[GpuResourceEvent.UploadZeros]);
+
+            using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
+            CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
+
+            Assert.Equal(1, textures.Counters[GpuResourceEvent.UploadZeros]);
+            Assert.All(probe.Read(Size, Size, 0, textures.Uploader.OrderBefore), texel => Assert.Equal(0u, texel));
+            Assert.NotEqual(0UL, textures.Registry.Find((ulong)gpu)!.UploadedHash);
+        }
+        finally
+        {
+            PlacedTextureHeaps.Enabled = placed;
+        }
     }
 
     /// <summary>
