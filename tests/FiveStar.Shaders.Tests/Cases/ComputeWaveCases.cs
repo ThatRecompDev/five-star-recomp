@@ -153,7 +153,17 @@ public static class ComputeWaveCases
             v_mov_b32_e32 v22, v13
             """;
 
-        return new ComputeCase(UniformFirstLane, Program, 3, thread => [12u, 12u, (thread.GroupIndex & 1) == 0 ? 12u : (uint)thread.GroupIndex]) { Wave = 64, User = [7] };
+        static uint Written(ComputeThread thread)
+        {
+            if ((thread.GroupIndex & 1) == 0)
+            {
+                return 12u;
+            }
+
+            return (uint)thread.GroupIndex;
+        }
+
+        return new ComputeCase(UniformFirstLane, Program, 3, thread => [12u, 12u, Written(thread)]) { Wave = 64, User = [7] };
     }
 
     // GpuParticleSort~CS_GpuSorting_Sort's merge-path search: a divergent loop whose lanes leave at different trips. The

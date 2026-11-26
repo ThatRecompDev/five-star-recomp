@@ -34,6 +34,7 @@ public sealed unsafe class LlvmPostPass
     private const int BitcodeSizeOffset = 20;
     private const int PartCountOffset = 28;
     private const int PartTableOffset = 32;
+    private const int PartHeaderBytes = 8;
 
     private static readonly Guid OptimizerClass = new("ae2cd79f-cc22-453f-9b6b-b124e7a5204c");
     private static readonly Guid OptimizerInterface = new("25740e2e-9cba-401b-9119-4fb42f39f270");
@@ -66,6 +67,7 @@ public sealed unsafe class LlvmPostPass
         var program = parts[index].Data;
         var bitcode = Run(program);
         var part = new byte[ProgramHeaderBytes + bitcode.Length];
+
         program.AsSpan(0, ProgramHeaderBytes).CopyTo(part);
         BinaryPrimitives.WriteUInt32LittleEndian(part.AsSpan(ProgramSizeOffset), (uint)(part.Length / sizeof(uint)));
         BinaryPrimitives.WriteUInt32LittleEndian(part.AsSpan(BitcodeSizeOffset), (uint)bitcode.Length);
@@ -128,7 +130,7 @@ public sealed unsafe class LlvmPostPass
         {
             var offset = BinaryPrimitives.ReadInt32LittleEndian(container.AsSpan(PartTableOffset + (index * sizeof(uint))));
             var size = BinaryPrimitives.ReadInt32LittleEndian(container.AsSpan(offset + sizeof(uint)));
-            parts.Add((Encoding.ASCII.GetString(container, offset, sizeof(uint)), container.AsSpan(offset + (2 * sizeof(uint)), size).ToArray()));
+            parts.Add((Encoding.ASCII.GetString(container, offset, sizeof(uint)), container.AsSpan(offset + PartHeaderBytes, size).ToArray()));
         }
 
         return parts;

@@ -68,7 +68,7 @@ internal sealed class CompileHost : IBackendRunner
         _executable = executable;
         _validator = validator;
         RequestLimit = answerLimit;
-        _here = new InProcessBackend(validator);
+        _here = new InProcessBackend(validator, null);
     }
 
     /// <summary>How long a request waits for its answer from now on (the constructor's limit; tests shorten it for one request).</summary>

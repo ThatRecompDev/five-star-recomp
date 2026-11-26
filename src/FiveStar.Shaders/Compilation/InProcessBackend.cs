@@ -23,7 +23,7 @@ public sealed class InProcessBackend : IBackendRunner
 
     /// <param name="validatorPath">dxil.dll, whose validator checks every container; null checks none.</param>
     /// <param name="postPass">LLVM passes over each container (<c>--dxil-llvm-opt</c>); null runs none.</param>
-    public InProcessBackend(string? validatorPath, LlvmPostPass? postPass = null)
+    public InProcessBackend(string? validatorPath, LlvmPostPass? postPass)
     {
         _validatorPath = validatorPath;
         _postPass = postPass;
