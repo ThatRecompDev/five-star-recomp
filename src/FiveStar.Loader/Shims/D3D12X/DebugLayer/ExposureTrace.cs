@@ -9,20 +9,18 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 
 /// <summary>
 /// <c>--trace-exposure &lt;n&gt;</c>, for the white picture after the opening cutscene: every n presents each one-row
-/// target the game maps (<see cref="MapReadback"/>, its exposure statistics) logs the floats the game then reads, and
-/// the exposure and tonemap pipelines (<see cref="Pipelines"/>) get <see cref="NanScan"/> with values shown: small float
-/// textures texel by texel, 8 floats of every buffer and CBV, and their null and released views named. Off by default.
+/// target the game maps (<see cref="MapReadback"/>, its exposure statistics) logs the floats the game then reads, the
+/// row MapReadback's own copy brought back. Nothing is added to the game's lists: the first form also ran
+/// <see cref="NanScan"/> over the exposure passes, and its copies hung the GPU at ComputeLuxCompressionInfo (w167).
+/// Off by default.
 /// </summary>
 internal static unsafe class ExposureTrace
 {
-    /// <summary>Name parts of the exposure, average-luminance and tonemap pipelines (FSSM names of build 1.0.2.1).</summary>
+    /// <summary>Name parts of the exposure, average-luminance and tonemap pipelines (FSSM names of build 1.0.2.1), for <c>--d3d12-nan-scan</c>.</summary>
     public const string Pipelines = "Exposure,avgLuminanceCompute,Tonemap";
 
     /// <summary>The floats shown of a mapped target: five RGBA32F texels.</summary>
     private const int ShownFloats = 20;
-
-    /// <summary>Floats shown of each scanned buffer and CBV when <c>--d3d12-nan-scan-dwords</c> is not given.</summary>
-    public static readonly (int Offset, int Count) ScanDwords = (0, 8);
 
     private static readonly ConcurrentDictionary<ulong, long> Logged = new();
 
