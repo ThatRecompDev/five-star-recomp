@@ -11,24 +11,27 @@ namespace FiveStar.Shaders.Translation.Waves;
 /// blocks: <c>lane_bit(lo, hi)</c> of two SGPR halves that hold <c>vw_ballot(m).x</c> and <c>.y</c> is <c>m</c> while
 /// neither half nor <c>m</c> has been written since, because every thread of the console wave deposits its bit. The
 /// ballot then often has no other reader and <see cref="DeadWaveOperations"/> drops it: in
-/// MSNC_VS_LinearDepthSkin_f1f2249c most of the ballots left were read only this way. Within one block, in order.
+/// MSNC_VS_LinearDepthSkin_f1f2249c most of the ballots left were read only this way. Within one block, in order. A
+/// wave32 program's lanes are all below 32, so there <c>lane_bit(lo, x)</c> needs only the low half, whatever x is
+/// (<c>0u</c> for a 32-bit mask: <c>s_cselect_b32 s8, exec, 0</c> then <c>v_cndmask</c> on s8, 115 of them in
+/// CS_PedStandardSkinning).
 /// </summary>
 internal static partial class BallotBits
 {
-    /// <summary>Replaces such reads in <paramref name="blocks"/>; how many.</summary>
-    public static int Substitute(List<CodeBlock> blocks)
+    /// <summary>Replaces such reads in <paramref name="blocks"/> of a program of <paramref name="wave32"/> lanes or 64; how many.</summary>
+    public static int Substitute(List<CodeBlock> blocks, bool wave32 = false)
     {
         int replaced = 0;
 
         foreach (var lines in blocks.Select(block => block.Lines))
         {
-            replaced += SubstituteBlock(lines);
+            replaced += SubstituteBlock(lines, wave32);
         }
 
         return replaced;
     }
 
-    private static int SubstituteBlock(List<string> lines)
+    private static int SubstituteBlock(List<string> lines, bool wave32)
     {
         // SGPR half -> (mask bool, half) it holds.
         var halves = new Dictionary<string, (string Mask, char Half)>(StringComparer.Ordinal);
@@ -36,7 +39,7 @@ internal static partial class BallotBits
 
         for (int i = 0; i < lines.Count; i++)
         {
-            string line = Replace(lines[i], halves, ref replaced);
+            string line = Replace(lines[i], halves, wave32, ref replaced);
             lines[i] = line;
             Invalidate(line, halves);
 
@@ -55,13 +58,17 @@ internal static partial class BallotBits
         return replaced;
     }
 
-    private static string Replace(string line, Dictionary<string, (string Mask, char Half)> halves, ref int replaced)
+    private static string Replace(string line, Dictionary<string, (string Mask, char Half)> halves, bool wave32, ref int replaced)
     {
         int count = 0;
         string result = LaneBitPattern().Replace(line, call =>
         {
-            if (halves.TryGetValue(call.Groups["lo"].Value, out var lo) && halves.TryGetValue(call.Groups["hi"].Value, out var hi)
-                && lo.Mask == hi.Mask && lo.Half == 'x' && hi.Half == 'y')
+            if (!halves.TryGetValue(call.Groups["lo"].Value, out var lo) || lo.Half != 'x')
+            {
+                return call.Value;
+            }
+
+            if (wave32 || (halves.TryGetValue(call.Groups["hi"].Value, out var hi) && lo.Mask == hi.Mask && hi.Half == 'y'))
             {
                 count++;
 
@@ -96,7 +103,7 @@ internal static partial class BallotBits
     [GeneratedRegex(@"^\s*(?<name>[A-Za-z_]\w*) = (?<value>_t\d+);\s*$")]
     private static partial Regex CopyPattern();
 
-    [GeneratedRegex(@"\blane_bit\((?<lo>[A-Za-z_]\w*), (?<hi>[A-Za-z_]\w*)\)")]
+    [GeneratedRegex(@"\blane_bit\((?<lo>[A-Za-z_]\w*), (?<hi>\w+)\)")]
     private static partial Regex LaneBitPattern();
 
     [GeneratedRegex(@"(?<![.\w])(?<name>[A-Za-z_]\w*)\s*(?:[-+*/&|^]|<<|>>)?=(?!=)")]
