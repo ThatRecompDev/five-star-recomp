@@ -91,6 +91,8 @@ internal static class HostUsage
           --typeless-targets     GPU-written R8G8B8A8/B8G8R8A8/B8G8R8X8/R8 UNORM textures made typeless, so a view in
                                  their sRGB or integer member reads as the game asked (off by default)
           --kept-aliases <n>     textures retired over exactly one reused range kept alive for older descriptors (default 1)
+          --unmapped-view-budget <MiB>  textures slot-70 views make over reserved memory no page of which is mapped yet,
+                                 at most this much (default 1024); past it such views are null descriptors
           --max-driver-compiles <n>  driver pipeline compiles of 256 KB of DXIL or more at once (default one per 5 GB of RAM, 2 to 12)
           --compile-ceiling <GB> no such compile starts while private bytes and the running ones' expected arenas
                                  would pass this (default none: free RAM less the game's growth decides); one

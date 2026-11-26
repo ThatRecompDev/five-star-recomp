@@ -119,6 +119,12 @@ flowchart LR
   a texture in a frame queues the check (`ViewCheckQueued`); later ones that frame cost nothing (`ViewCheckSkipped`),
   so bytes the CPU writes between two views of one frame are taken at the next frame's view. CPU-mapped textures are
   left to the frame check.
+- **Views over memory never mapped** (`ViewCreatedUnmapped`) make textures only within `--unmapped-view-budget` (MiB,
+  default 1024) of live such textures: a texture stops counting when a page under it is mapped or it is released.
+  Past the budget such a view is a null descriptor (`ViewUnmappedOverBudget`). They count as over unmapped memory in
+  the summary, so `--retire-unmapped-textures` retires them too. w110/w111b made 134k-227k of them; the placed heaps
+  grew to 12 GB against the game's 7 GB of physical pages. The texture counters line ends with their live bytes, the
+  bytes of the retired textures kept over their range, and the uploader's upload buffers (one past 32 MiB is not kept).
 - **Textures in XMem reservations** are read page by page (`GameMemorySource.Gather`, `UploadGathered`): each 64 KiB
   page from its CPU range or, when the game mapped it at the GPU-only alias itself, from there; zeros for a page mapped
   nowhere (a mip not streamed in). The whole-range read refused every streamed texture with one unmapped page (w108:

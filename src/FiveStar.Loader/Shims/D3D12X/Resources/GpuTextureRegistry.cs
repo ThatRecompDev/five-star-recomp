@@ -117,7 +117,7 @@ internal sealed class GpuTextureRegistry : IDisposable
             {
                 int retired = _aliasCount + _retired.Count + _agedAliases.Count;
 
-                return $"{_sorted.Length} textures, retired {retired} (aliased {_aliasCount + _agedAliases.Count}), released {_released}, {_unmapped} retired as their memory was unmapped, {_overUnmapped.Count} live over unmapped memory ({_unmappedBytes / BytesPerGigabyte:F2} GB)";
+                return $"{_sorted.Length} textures, retired {retired} (aliased {_aliasCount + _agedAliases.Count}, {AliasBytes() / BytesPerGigabyte:F2} GB), released {_released}, {_unmapped} retired as their memory was unmapped, {_overUnmapped.Count} live over unmapped memory ({_unmappedBytes / BytesPerGigabyte:F2} GB)";
             }
         }
     }
@@ -355,11 +355,30 @@ internal sealed class GpuTextureRegistry : IDisposable
         }
 
         // Released outside the lock: a release runs the driver and the placed range's owner (PlacedTextureHeaps).
+        var releasing = Releasing;
+
         foreach (var texture in due)
         {
+            releasing?.Invoke(texture);
             ComObject.Release(texture.Desktop);
         }
     }
+
+    /// <summary>The bytes of the retired textures kept over their range (under the lock).</summary>
+    private long AliasBytes()
+    {
+        long bytes = _agedAliases.Sum(entry => (long)entry.Texture.Size);
+
+        foreach (var queue in _aliases.Values)
+        {
+            bytes += queue.Sum(texture => (long)texture.Size);
+        }
+
+        return bytes;
+    }
+
+    /// <summary>Called with each texture this registry releases, just before (its owner's accounting).</summary>
+    public Action<GpuTexture>? Releasing { get; set; }
 
     /// <summary>
     /// Takes, oldest first, the textures retired by <paramref name="lastFrame"/> whose work is done. A texture's work is

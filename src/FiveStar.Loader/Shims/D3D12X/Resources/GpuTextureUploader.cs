@@ -45,6 +45,9 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
     private const int WaitMilliseconds = 100;
     private const int MaxWaits = 600;
 
+    /// <summary>An upload buffer past this (32 MiB) is not kept for fills that need less.</summary>
+    private const ulong LargeStaging = 32UL << 20;
+
     /// <summary>This thread's footprints of the fill it is making (several threads fill at once).</summary>
     [ThreadStatic]
     private static Footprints? _layout;
@@ -54,6 +57,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
     private static string? _failure;
 
     private readonly object _gate = new();
+    private long _stagingBytes;
     private readonly UploadSlot?[] _slots = new UploadSlot?[Slots];
     private readonly AutoResetEvent _completed = new(false);
     private ID3D12Device? _device;
@@ -425,10 +429,16 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
 
     private void EnsureStaging(UploadSlot slot, ulong size)
     {
-        if (size <= slot.Size)
+        // A slot keeps its upload buffer, write-combined memory, for the next fill; one a large texture grew past
+        // LargeStaging goes back once a fill that fits in less takes the slot (16 slots each kept their largest).
+        bool shrink = slot.Size > LargeStaging && size <= LargeStaging;
+
+        if (size <= slot.Size && !shrink)
         {
             return;
         }
+
+        Interlocked.Add(ref _stagingBytes, -(long)slot.Size);
 
         // A failed creation or Map leaves no upload buffer, never the disposed one.
         slot.Staging?.Dispose();
@@ -442,7 +452,12 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         staging.Map(0, null, &data).CheckError();
         slot.Data = (byte*)data;
         slot.Size = size;
+
+        Interlocked.Add(ref _stagingBytes, (long)size);
     }
+
+    /// <summary>The bytes of the upload buffers the slots keep (write-combined system memory).</summary>
+    public long StagingBytes => Interlocked.Read(ref _stagingBytes);
 
     private static ID3D12Resource UploadBuffer(ID3D12Device device, ulong size)
     {
