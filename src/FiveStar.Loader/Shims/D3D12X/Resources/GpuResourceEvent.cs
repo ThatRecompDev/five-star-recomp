@@ -66,6 +66,9 @@ internal enum GpuResourceEvent
     /// <summary>A view of a texture retired over unmapped memory, no record naming it, became a null view.</summary>
     ViewNulled,
 
+    /// <summary>A placed texture its first refresh did not fill was filled with zeros (its heap range held an older texture's bytes).</summary>
+    UploadZeros,
+
     /// <summary>A DirectStorage write or a new page mapping changed memory under a texture filled from memory.</summary>
     Written,
 
