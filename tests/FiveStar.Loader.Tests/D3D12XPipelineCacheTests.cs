@@ -212,6 +212,80 @@ public sealed unsafe class D3D12XPipelineCacheTests
         }
     }
 
+    [DxcFact]
+    public void A_built_pipeline_reaches_a_segment_file_within_seconds_without_a_clean_exit()
+    {
+        // A boot killed after a build: the next one (a second cache on the folder, the first never disposed meanwhile)
+        // finds the pipeline. Segments were written once a minute, so a kill lost the boot's first minute of builds.
+        var folder = Directory.CreateTempSubdirectory("fivestar-psoflush-");
+
+        try
+        {
+            using var device = GpuDevice.CreateWarp(debugLayer: false);
+            var (device2, root) = DesktopObjects(device.Device.NativePointer);
+            var program = TranslatedProgram.Of("cs", HardwareStage.Compute, Compile(folder.FullName));
+            var description = new ComputePipelineDescription(0, new ShaderSource(ShaderSourceKind.CacheCode, new byte[24]));
+            var log = new LoaderLog(new StringWriter(), null, false);
+
+            var (killed, factory) = CacheAndFactory(folder.FullName, device2, root, program, log);
+            killed.StartSaving();
+            Assert.Equal(PrebuildOutcome.Built, new JournalPrebuild(factory, killed).Build(new WarmTarget(0, null, description)));
+            var key = Key(factory, description);
+            var written = Stopwatch.StartNew();
+
+            while (Directory.GetFiles(folder.FullName, "*" + PipelineLibraryFile.Extension).Length == 0 && written.Elapsed < TimeSpan.FromSeconds(30))
+            {
+                Thread.Sleep(100);
+            }
+
+            using (var next = PipelineLibraryCache.Open(folder.FullName, device2, log)!)
+            {
+                Assert.True(next.Contains(key), $"no segment after {written.Elapsed.TotalSeconds:F1} s");
+            }
+
+            Assert.True(written.Elapsed < TimeSpan.FromSeconds(15), $"written after {written.Elapsed.TotalSeconds:F1} s");
+            killed.Dispose();
+            DesktopDevice.Release(root);
+            DesktopDevice.Release(device2);
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
+    }
+
+    [DxcFact]
+    public void Journaled_pipelines_missing_from_the_cache_are_counted_and_followed_until_built()
+    {
+        var folder = Directory.CreateTempSubdirectory("fivestar-coverage-");
+
+        try
+        {
+            using var device = GpuDevice.CreateWarp(debugLayer: false);
+            var (device2, root) = DesktopObjects(device.Device.NativePointer);
+            var program = TranslatedProgram.Of("cs", HardwareStage.Compute, Compile(folder.FullName));
+            var description = new ComputePipelineDescription(0, new ShaderSource(ShaderSourceKind.CacheCode, new byte[24]));
+            var target = new WarmTarget(0, null, description);
+            var log = new LoaderLog(new StringWriter(), null, false);
+
+            var (cache, factory) = CacheAndFactory(folder.FullName, device2, root, program, log);
+            var coverage = new JournalCoverage(factory, cache, log);
+            Assert.Equal(1, coverage.Check([target]));
+            Assert.Equal((1, 0, 0), (coverage.Missing, coverage.Built, coverage.Unchecked));
+
+            new JournalPrebuild(factory, cache).Build(target);
+            Assert.Equal(1, coverage.Built);
+            Assert.StartsWith("1 of 1 built and cached, 0 left", coverage.Progress(), StringComparison.Ordinal);
+            cache.Dispose();
+            DesktopDevice.Release(root);
+            DesktopDevice.Release(device2);
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void A_segment_of_another_build_is_deleted()
     {
@@ -268,6 +342,29 @@ public sealed unsafe class D3D12XPipelineCacheTests
         cache.Dispose();
 
         return (direct, cache.Summary);
+    }
+
+    /// <summary>A cache on <paramref name="folder"/> with its segments open, and a factory that builds into it.</summary>
+    private static (PipelineLibraryCache Cache, PipelineFactory Factory) CacheAndFactory(string folder, nint device2, nint root, TranslatedProgram program, LoaderLog log)
+    {
+        var warnings = new OnceLog(log);
+        var builds = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
+        builds.Start();
+
+        var cache = PipelineLibraryCache.Open(folder, device2, log)!;
+        Assert.True(cache.WaitForSegments(TimeSpan.FromMinutes(1)));
+        var factory = new PipelineFactory(device2, root, new FixedProgramLibrary(program), new ProgramSignatures(folder), warnings, null, new StandInPipelines(TimeSpan.Zero, builds, builds, warnings), cache);
+
+        return (cache, factory);
+    }
+
+    private static string Key(PipelineFactory factory, ComputePipelineDescription description)
+    {
+        var recipe = factory.PrepareCompute(description)!;
+        var key = recipe.Stream.Key;
+        recipe.Stream.Dispose();
+
+        return key;
     }
 
     private static (nint Device2, nint Root) DesktopObjects(nint device)
