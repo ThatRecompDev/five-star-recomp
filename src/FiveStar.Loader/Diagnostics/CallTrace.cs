@@ -25,6 +25,7 @@ internal sealed unsafe class CallTrace
 
     private readonly object _gate = new();
     private readonly List<string> _names = [];
+    private readonly Dictionary<nint, string> _thunks = [];
     private readonly CodeHeap _heap;
     private readonly nint _ring;
     private readonly nint _counts;
@@ -91,8 +92,23 @@ internal sealed unsafe class CallTrace
 
         code.MovR10((ulong)target);
         code.JmpR10();
+        nint thunk = _heap.Write(code.ToArray());
 
-        return _heap.Write(code.ToArray());
+        lock (_gate)
+        {
+            _thunks[thunk] = name;
+        }
+
+        return thunk;
+    }
+
+    /// <summary>The name a thunk made by <see cref="Wrap"/> records, or null for any other address.</summary>
+    public string? NameOf(nint thunk)
+    {
+        lock (_gate)
+        {
+            return _thunks.GetValueOrDefault(thunk);
+        }
     }
 
     /// <summary>The calls through each wrapped name so far (several imports of one name are added up).</summary>

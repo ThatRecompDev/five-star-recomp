@@ -39,6 +39,9 @@ internal static unsafe class ThreadStackCapture
     /// <summary>Stack bytes copied at most, from rsp up.</summary>
     private const long CopyCapacity = 1 << 20;
 
+    /// <summary>Stack bytes scanned for the game's caller above the frame a walk ended at: our managed frames sit below it.</summary>
+    private const ulong ScannedBytes = 64 * 1024;
+
     private static readonly object Gate = new();
     private static byte* _copy;
 
@@ -59,6 +62,61 @@ internal static unsafe class ThreadStackCapture
 
             return Walk(context, stack, modules, pcs);
         }
+    }
+
+    /// <summary>
+    /// <see cref="Capture(uint, ReadOnlySpan{CodeRange}, Span{ulong})"/> with at most <paramref name="capacity"/> stack
+    /// bytes copied, and, when <paramref name="scanAbove"/> holds for the frame the walk ended at (JIT code, which it
+    /// cannot unwind), the first return address into <paramref name="caller"/> above that frame in the copy: the
+    /// game's call into the code the thread is in (<see cref="ReturnAddresses"/>'s test); 0 when there is none.
+    /// </summary>
+    public static int Capture(uint threadId, ReadOnlySpan<CodeRange> modules, Span<ulong> pcs, long capacity, Func<ulong, bool> scanAbove, Func<ulong, bool> caller, out ulong site)
+    {
+        byte* raw = stackalloc byte[ContextSize + ContextAlignment];
+        byte* context = Aligned(raw);
+        site = 0;
+
+        lock (Gate)
+        {
+            var stack = Snapshot(threadId, context, Math.Min(capacity, CopyCapacity));
+
+            if (stack.Bytes < 0)
+            {
+                return 0;
+            }
+
+            int count = Walk(context, stack, modules, pcs);
+
+            if (count > 0 && scanAbove(pcs[count - 1]))
+            {
+                site = FirstCaller(stack, *(ulong*)(context + RspOffset), caller);
+            }
+
+            return count;
+        }
+    }
+
+    /// <summary>The first value from <paramref name="from"/> (an address in the copy) up that passes <paramref name="caller"/>, or 0.</summary>
+    private static ulong FirstCaller(StackCopy stack, ulong from, Func<ulong, bool> caller)
+    {
+        if (!stack.Holds(from))
+        {
+            return 0;
+        }
+
+        ulong end = Math.Min((ulong)stack.Copy + (ulong)stack.Bytes, from + ScannedBytes);
+
+        for (ulong slot = from; slot + sizeof(ulong) <= end; slot += sizeof(ulong))
+        {
+            ulong value = *(ulong*)slot;
+
+            if (caller(value))
+            {
+                return value;
+            }
+        }
+
+        return 0;
     }
 
     /// <summary>
@@ -100,7 +158,7 @@ internal static unsafe class ThreadStackCapture
     }
 
     /// <summary>The thread's context and stack copy (<see cref="StackCopy.Bytes"/> -1 when it could not be read); called under <see cref="Gate"/>.</summary>
-    private static StackCopy Snapshot(uint threadId, byte* context)
+    private static StackCopy Snapshot(uint threadId, byte* context, long capacity = CopyCapacity)
     {
         // The calling thread is never read: suspending itself, it would never resume and would keep the gate (a hang
         // watch walking every thread of the process did, and every later sample and report waited on it).
@@ -121,7 +179,7 @@ internal static unsafe class ThreadStackCapture
             _copy = (byte*)NativeMemory.Alloc((nuint)CopyCapacity);
         }
 
-        long bytes = ThreadSnapshot.Take(thread, context, _copy, CopyCapacity);
+        long bytes = ThreadSnapshot.Take(thread, context, _copy, capacity);
         _ = Kernel32.CloseHandle(thread);
         var stack = new StackCopy(*(ulong*)(context + RspOffset), (nint)_copy, bytes);
 
