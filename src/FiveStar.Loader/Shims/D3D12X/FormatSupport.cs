@@ -12,6 +12,9 @@ internal static unsafe class FormatSupport
     public const uint RenderTarget = 0x4000;
     public const uint TypedUnorderedAccess = 0x2000000;
 
+    /// <summary>D3D12_FORMAT_SUPPORT1_BLENDABLE.</summary>
+    public const uint Blendable = 0x8000;
+
     /// <summary>ID3D12Device::CheckFeatureSupport and D3D12_FEATURE_FORMAT_SUPPORT.</summary>
     private const int CheckFeatureSupportSlot = 13;
     private const int FormatSupportFeature = 3;
@@ -32,6 +35,12 @@ internal static unsafe class FormatSupport
         }
 
         return data[Support1Dword];
+    }
+
+    /// <summary>Whether <paramref name="device"/> blends on a target in <paramref name="format"/>.</summary>
+    public static bool Blends(nint device, int format)
+    {
+        return (Support1(device, format) & Blendable) != 0;
     }
 
     /// <summary>Whether <paramref name="device"/> renders to <paramref name="format"/>.</summary>
