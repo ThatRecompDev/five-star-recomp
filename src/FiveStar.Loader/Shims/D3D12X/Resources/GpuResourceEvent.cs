@@ -89,4 +89,22 @@ internal enum GpuResourceEvent
 
     /// <summary>A slot-70 view of a texture checked already this frame: nothing to do.</summary>
     ViewCheckSkipped,
+
+    /// <summary>A null slot-70 view: a buffer view at an address no desktop buffer covers.</summary>
+    ViewNullBufferUncovered,
+
+    /// <summary>A null slot-70 view: a buffer view off its buffer's element size, past its end or a raw view off 16 bytes.</summary>
+    ViewNullBufferRange,
+
+    /// <summary>A null slot-70 view: a texture view inside a GPU-written texture whose extent it does not match.</summary>
+    ViewNullInsideWritten,
+
+    /// <summary>A null slot-70 view: a view of a texture in a typed depth format, which takes no SRV.</summary>
+    ViewNullDepth,
+
+    /// <summary>A null slot-70 view: no texture at the address and none could be made from its memory.</summary>
+    ViewNullNoTexture,
+
+    /// <summary>A slot-70 view of a typeless depth texture (<c>--typeless-depth</c>) that would have been null.</summary>
+    ViewDepthResolved,
 }

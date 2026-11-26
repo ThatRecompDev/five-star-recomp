@@ -122,4 +122,58 @@ internal static class DepthFormats
     {
         return format is >= ConsoleD16S8 and <= ConsoleX16G8;
     }
+
+    /// <summary>
+    /// <c>--typeless-depth</c>: depth textures in a typed desktop depth format (D32_FLOAT, D24_UNORM_S8_UINT, D16_UNORM,
+    /// D32_FLOAT_S8X24_UINT) are made in its typeless family, so the shader views the game places at their addresses
+    /// read the depth plane instead of a null view (a typed depth texture takes no SRV), as VIctory and its fork make the
+    /// depth textures shaders read.
+    /// </summary>
+    public static bool TypelessDepth { get; set; }
+
+    /// <summary>The typed depth formats and their typeless family and depth-plane SRV format, in step.</summary>
+    private static readonly (int Typed, int Typeless, int ShaderView)[] Families =
+    [
+        (D32, R32Typeless, R32Float), (D24S8, R24G8Typeless, R24X8), (D16, R16Typeless, R16Unorm), (D32S8, R32G8X24Typeless, R32X8X24),
+    ];
+
+    /// <summary>DXGI_FORMAT_R32_TYPELESS, R24G8_TYPELESS and R16_TYPELESS.</summary>
+    public const int R32Typeless = 39;
+    public const int R24G8Typeless = 44;
+    public const int R16Typeless = 53;
+
+    /// <summary>The typeless family of a typed depth format with <see cref="TypelessDepth"/>; any other format unchanged.</summary>
+    public static int TypelessResource(int format)
+    {
+        foreach (var family in Families)
+        {
+            if (TypelessDepth && family.Typed == format)
+            {
+                return family.Typeless;
+            }
+        }
+
+        return format;
+    }
+
+    /// <summary>
+    /// For a typeless depth family member: the typed depth format a view without a desc takes and its depth-plane SRV
+    /// format; false for any other format.
+    /// </summary>
+    public static bool TryTypelessFamily(int format, out int typed, out int shaderView)
+    {
+        foreach (var family in Families)
+        {
+            if (family.Typeless == format)
+            {
+                (typed, shaderView) = (family.Typed, family.ShaderView);
+
+                return true;
+            }
+        }
+
+        (typed, shaderView) = (0, 0);
+
+        return false;
+    }
 }
