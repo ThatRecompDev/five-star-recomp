@@ -257,6 +257,14 @@ internal sealed class LoaderHost
         try
         {
             var patches = PatchFileReader.ReadPaths(_options.Patches);
+
+            var output = _options.OutputSize;
+
+            if (output is not null)
+            {
+                patches.AddRange(OutputSizePatches.For(output.Value.Width, output.Value.Height));
+            }
+
             _runtime.Patcher.Add(patches);
 
             if (patches.Count > 0)
