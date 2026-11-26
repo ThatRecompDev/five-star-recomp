@@ -8,6 +8,9 @@ public sealed record ReplayOutcome(IReadOnlyDictionary<string, byte[]> Outputs, 
 {
     private const int Halves = 2;
 
+    /// <summary>Captured views that did not fit their resource, written as null views (<see cref="ViewFit"/>).</summary>
+    public IReadOnlyList<string> Skipped { get; init; } = [];
+
     /// <summary>The median run time.</summary>
     public double MedianMilliseconds
     {

@@ -914,7 +914,9 @@ float32; the count of differing dwords and the first `--shown` offsets). Exit co
 
 The descriptor window, an address map naming a raw view pair over each captured range of game memory at its console
 address, and the reserved slots (window, map, null views, null textures) are written by the capture, so a replay sees
-the heap indices and addresses the program saw. Not kept: sampler descriptors (linear clamp in the replay), window
+the heap indices and addresses the program saw. A captured view that does not fit its resource (dimension, format
+outside a typeless resource's family, mips or slices past it; creating one removes the device with
+DXGI_ERROR_INVALID_CALL and no debug message) is written as a null view and listed as `skipped`. Not kept: sampler descriptors (linear clamp in the replay), window
 records past the tables found (a pointer the program builds itself reads null records), game memory reached only through
 pointers loaded from memory, pages the address map has no view of (zeros), multisampled textures and the stencil plane.
 Buffers are copied in the state the list left them in (no transition; the debug layer reports it), and

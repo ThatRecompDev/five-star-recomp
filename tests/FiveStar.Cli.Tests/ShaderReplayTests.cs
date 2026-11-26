@@ -79,6 +79,30 @@ public sealed class ShaderReplayTests : IDisposable
         Assert.NotNull(candidate.CompileMilliseconds);
     }
 
+    /// <summary>
+    /// w162's captures held a BC7_UNORM_SRGB SRV over a BC5_UNORM texture: creating it removed the RTX 4090 device
+    /// (DXGI_ERROR_INVALID_CALL, no debug message), so the replay writes a null view for a view that does not fit.
+    /// </summary>
+    [Fact]
+    public void A_view_that_does_not_fit_its_texture_is_found_before_it_is_created()
+    {
+        var bc5 = new CapturedResource("t", "texture", (int)ResourceDimension.Texture2D, 256, 256, 1, 7, (int)Format.BC5_UNorm, 0, 0, null, null);
+        var bc7 = bc5 with { Format = (int)Format.BC7_Typeless };
+
+        byte[] Srv(Format format, uint most, uint mips) => Bytes(new ShaderResourceViewDescription
+        {
+            Format = format,
+            ViewDimension = ShaderResourceViewDimension.Texture2D,
+            Shader4ComponentMapping = ShaderComponentMapping.Default,
+            Texture2D = new Texture2DShaderResourceView { MostDetailedMip = most, MipLevels = mips },
+        });
+
+        Assert.NotNull(ViewFit.Problem(bc5, CapturedViewKind.ShaderResource, Srv(Format.BC7_UNorm_SRgb, 1, 6)));
+        Assert.Null(ViewFit.Problem(bc7, CapturedViewKind.ShaderResource, Srv(Format.BC7_UNorm_SRgb, 1, 6)));
+        Assert.NotNull(ViewFit.Problem(bc7, CapturedViewKind.ShaderResource, Srv(Format.BC7_UNorm_SRgb, 2, 6)));
+        Assert.Null(ViewFit.Problem(bc5, CapturedViewKind.ShaderResource, Srv(Format.BC5_UNorm, 0, uint.MaxValue)));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_folder))

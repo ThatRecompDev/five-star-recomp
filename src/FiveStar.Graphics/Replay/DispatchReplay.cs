@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 Five Star Recomp contributors.
+// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Graphics.Pipelines;
@@ -51,7 +51,7 @@ public sealed class DispatchReplay
 
         var outputs = bindings.Resources.Values.Where(resource => resource.HasOutput).ToDictionary(resource => resource.Captured.Id, resource => resource.Output(), StringComparer.Ordinal);
 
-        return new ReplayOutcome(outputs, Milliseconds(stamps, runs, queue.TimestampFrequency));
+        return new ReplayOutcome(outputs, Milliseconds(stamps, runs, queue.TimestampFrequency)) { Skipped = [.. bindings.Skipped] };
     }
 
     /// <summary>One run: inputs back, bindings, the dispatches between two timestamps; the first run's outputs read back.</summary>

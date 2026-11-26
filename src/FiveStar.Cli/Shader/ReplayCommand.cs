@@ -52,7 +52,23 @@ internal static class ReplayCommand
     /// <summary>Runs <paramref name="candidate"/> over the capture and compares each output with its reference.</summary>
     internal static ReplayReport Replay(GpuDevice device, CaptureFolder folder, DispatchCapture capture, ReplayCandidate candidate, int runs, float? tolerance, int shown)
     {
-        var outcome = new DispatchReplay(device.Device).Run(folder, capture, candidate.Dxil, runs);
+        ReplayOutcome outcome;
+
+        try
+        {
+            outcome = new DispatchReplay(device.Device).Run(folder, capture, candidate.Dxil, runs);
+        }
+        catch (InvalidOperationException)
+        {
+            // The debug layer's messages say what removed the device; they would be lost with the exception.
+            foreach (var error in device.TakeErrors())
+            {
+                Console.Error.WriteLine($"  debug layer: {error}");
+            }
+
+            throw;
+        }
+
         var differences = new List<OutputDifference>();
 
         foreach (var resource in capture.Resources.Where(resource => resource.Output is not null))
@@ -136,6 +152,11 @@ internal static class ReplayCommand
 
             var offsets = string.Join(", ", difference.FirstOffsets.Select(offset => $"0x{offset:x}"));
             Console.WriteLine($"  {difference.Resource}: {difference.Differing} dwords differ of {difference.Compared} bytes, first at {offsets}");
+        }
+
+        foreach (var skipped in report.Outcome.Skipped)
+        {
+            Console.WriteLine($"  skipped: {skipped}");
         }
 
         foreach (var error in report.DebugErrors)

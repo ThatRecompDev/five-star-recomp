@@ -24,17 +24,38 @@ internal sealed unsafe class ReplayBindings : IDisposable
     private readonly ID3D12DescriptorHeap _samplers;
     private readonly ID3D12Resource? _userData;
     private readonly DispatchCapture _capture;
+    private readonly List<string> _skipped = [];
 
     public ReplayBindings(ID3D12Device device, CaptureFolder folder, DispatchCapture capture)
     {
         _device = device;
         _capture = capture;
 
-        Resources =capture.Resources.ToDictionary(resource => resource.Id, resource => new ReplayResource(device, folder, resource), StringComparer.Ordinal);
+        var resources = new Dictionary<string, ReplayResource>(StringComparer.Ordinal);
+        Resources = resources;
+
+        foreach (var resource in capture.Resources)
+        {
+            var step = $"creating {resource.Id} ({resource.Label}: dimension {resource.Dimension}, {resource.Width}x{resource.Height}x{resource.DepthOrArraySize}, {resource.MipLevels} mips, format {resource.Format}, flags 0x{resource.Flags:x})";
+
+            try
+            {
+                resources[resource.Id] = new ReplayResource(device, folder, resource);
+            }
+            catch (SharpGen.Runtime.SharpGenException exception)
+            {
+                throw new InvalidOperationException($"{step} failed: {exception.Message}", exception);
+            }
+
+            CheckDevice(step);
+        }
+
         _views = device.CreateDescriptorHeap(new DescriptorHeapDescription(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, Math.Max(capture.HeapSize, 1), DescriptorHeapFlags.ShaderVisible));
         _samplers = device.CreateDescriptorHeap(new DescriptorHeapDescription(DescriptorHeapType.Sampler, Math.Max(capture.SamplerHeapSize, 1), DescriptorHeapFlags.ShaderVisible));
+        CheckDevice("creating the descriptor heaps");
         WriteViews();
         WriteSamplers();
+        CheckDevice("writing the samplers");
 
         if (!capture.UserConstants)
         {
@@ -43,6 +64,9 @@ internal sealed unsafe class ReplayBindings : IDisposable
     }
 
     public IReadOnlyDictionary<string, ReplayResource> Resources { get; }
+
+    /// <summary>The captured views that did not fit their resource (<see cref="ViewFit"/>), written as null views.</summary>
+    public IReadOnlyList<string> Skipped => _skipped;
 
     /// <summary>Sets the heaps, the root signature and its two parameters (user data, fallback table) on the list.</summary>
     public void Bind(ID3D12GraphicsCommandList list, ID3D12RootSignature root)
@@ -94,7 +118,16 @@ internal sealed unsafe class ReplayBindings : IDisposable
 
             if (view.Resource is not null)
             {
+                var captured = Resources[view.Resource].Captured;
+                var problem = ViewFit.Problem(captured, view.Kind, bytes);
                 resource = Resources[view.Resource].Resource;
+
+                if (problem is not null)
+                {
+                    _skipped.Add($"{view.Kind} at heap index {view.Index} of {view.Resource} ({captured.Label}): {problem}; a null view instead");
+                    bytes = ViewFit.Null(captured, view.Kind, bytes);
+                    resource = null;
+                }
             }
 
             if (view.Kind == CapturedViewKind.UnorderedAccess)
@@ -105,6 +138,19 @@ internal sealed unsafe class ReplayBindings : IDisposable
             {
                 _device.CreateShaderResourceView(resource, Description<ShaderResourceViewDescription>(bytes), handle);
             }
+
+            CheckDevice($"writing the {view.Kind} at heap index {view.Index} of {view.Resource ?? "null"} (desc {view.Description})");
+        }
+    }
+
+    /// <summary>Throws naming <paramref name="step"/> when the device is removed after it, so a removal names the call that caused it.</summary>
+    private void CheckDevice(string step)
+    {
+        var reason = _device.DeviceRemovedReason;
+
+        if (reason.Failure)
+        {
+            throw new InvalidOperationException($"device removed after {step}: {reason}");
         }
     }
 
