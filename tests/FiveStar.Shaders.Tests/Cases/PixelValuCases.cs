@@ -16,6 +16,8 @@ public static class PixelValuCases
             FmaMac(),
             Transcendental(),
             SinLargeArgument(),
+            SinWholeTurns(),
+            SignedZeroMinMax(),
             RoundLdexp(),
             NanRules(),
             Modifiers(),
@@ -29,6 +31,8 @@ public static class PixelValuCases
             ConvertPack(),
         ];
     }
+
+    private const uint NegativeZero = 0x80000000;
 
     private static uint F(double value) => FloatBits.Of(value);
 
@@ -135,6 +139,46 @@ public static class PixelValuCases
              Expected.Near(Math.Sin(2 * Math.PI * -0.375), 1e-5), Expected.Near(Math.Sin(2 * Math.PI * 0.875), 1e-5),
              Expected.Near(Math.Cos(2 * Math.PI * 0.0625), 1e-5)],
             F(100.125), F(-200.375), F(255.875), F(250.0625));
+    }
+
+    // Whole turns come off before the scale to radians: a far angle keeps its fraction, a half turn's sine and a quarter
+    // turn's cosine are exactly +0, and the sine of -0 is -0 (VIctory 0b499d7).
+    private static PixelCase SinWholeTurns()
+    {
+        const string Program = """
+            v_sin_f32_e32 v20, s0
+            v_cos_f32_e32 v21, s1
+            v_sin_f32_e32 v22, s2
+            v_sin_f32_e32 v23, s3
+            v_cos_f32_e32 v24, s3
+            """;
+
+        return PixelCase.Uniform(
+            "sin_whole_turns",
+            Program,
+            [Expected.Exact(0), Expected.Exact(0), Expected.Exact(NegativeZero), Expected.Near(1, 1e-5), Expected.Near(0, 1e-5)],
+            F(0.5), F(0.25), NegativeZero, F(1048576.25));
+    }
+
+    // Of a -0 and a +0, min gives -0 and max +0 in either order, the three-operand forms likewise (VIctory bf84134).
+    private static PixelCase SignedZeroMinMax()
+    {
+        const string Program = """
+            v_mov_b32_e32 v1, s1
+            v_mov_b32_e32 v2, s0
+            v_min_f32_e32 v20, s0, v1
+            v_min_f32_e32 v21, s1, v2
+            v_max_f32_e32 v22, s0, v1
+            v_max_f32_e32 v23, s1, v2
+            v_min3_f32 v24, s1, v1, v2
+            v_max3_f32 v25, s0, v2, v1
+            """;
+
+        return PixelCase.Uniform(
+            "signed_zero_min_max",
+            Program,
+            [Expected.Exact(NegativeZero), Expected.Exact(NegativeZero), Expected.Exact(0), Expected.Exact(0), Expected.Exact(NegativeZero), Expected.Exact(0)],
+            NegativeZero, 0);
     }
 
     // rndne rounds half to even (-0.5 gives -0.0); v_fract clamps below 1.0; ldexp is exact.
