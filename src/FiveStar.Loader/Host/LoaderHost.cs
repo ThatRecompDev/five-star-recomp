@@ -343,11 +343,17 @@ internal sealed class LoaderHost
         return result;
     }
 
-    /// <summary>--sample-threads (with --profile-threads) and --profile-managed.</summary>
+    /// <summary>--sample-threads (with --profile-threads), --profile-managed and --cpu-sample.</summary>
     private void StartSampling()
     {
         var interval = _options.SampleThreads;
         var profileStart = _options.ProfileManagedStart;
+        var cpuInterval = _options.CpuSampleInterval;
+
+        if (cpuInterval.HasValue)
+        {
+            new CpuSampler(_runtime.Images, _runtime.Trace, _log).Start(cpuInterval.Value, _options.CpuSampleReport);
+        }
 
         if (interval.HasValue)
         {

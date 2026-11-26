@@ -173,22 +173,35 @@ internal sealed unsafe class ManagedProfile
 
     private bool StartsInGame(uint id)
     {
-        nint thread = Kernel32.OpenThread(QueryInformation, 0, id);
-
-        if (thread == 0 || _main is null)
+        if (_main is null)
         {
-            if (thread != 0)
-            {
-                _ = Kernel32.CloseHandle(thread);
-            }
-
             return false;
         }
 
+        nint start = StartAddress(id);
+
+        return start != 0 && _main.Contains(start);
+    }
+
+    /// <summary>The thread's start address (Win32StartAddress), 0 when it cannot be read.</summary>
+    internal static nint StartAddress(uint id)
+    {
+        nint thread = Kernel32.OpenThread(QueryInformation, 0, id);
+
+        if (thread == 0)
+        {
+            return 0;
+        }
+
         nint start = 0;
-        bool known = Ntdll.NtQueryInformationThread(thread, Win32StartAddressClass, &start, sizeof(nint), null) == 0;
+
+        if (Ntdll.NtQueryInformationThread(thread, Win32StartAddressClass, &start, sizeof(nint), null) != 0)
+        {
+            start = 0;
+        }
+
         _ = Kernel32.CloseHandle(thread);
 
-        return known && _main.Contains(start);
+        return start;
     }
 }

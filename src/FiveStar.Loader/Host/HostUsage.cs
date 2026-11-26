@@ -27,6 +27,8 @@ internal static class HostUsage
           --profile-threads      with --sample-threads: also log the main image's busiest functions on running threads
           --profile-managed <start>[:<seconds>]  from <start> s into the run sample managed stacks for <seconds> (20)
                                  into <log>.managed.nettrace; fivestar profile summary reads it
+          --cpu-sample <ms>[:<s>] with --run: sample up to 8 game threads every ms; every s seconds (10) log where
+                                 they were: game functions, our shims, system DLLs, blocked waits
           --trace-module <dll>   with --run: the call trace also records calls into this mapped image
           --sample-threads <s>   with --run: every s seconds log the calls per shim since the last sample,
                                  DirectStorage totals and every thread's stack

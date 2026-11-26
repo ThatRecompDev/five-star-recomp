@@ -3,7 +3,6 @@
 
 using System.Diagnostics;
 using System.Runtime;
-using System.Runtime.InteropServices;
 using FiveStar.Loader.Loading;
 using FiveStar.Loader.Native;
 
@@ -26,17 +25,9 @@ internal sealed unsafe class ThreadProfiler
     private const int TopThreads = 16;
     private const int TopModules = 6;
     private const long NoGcBudget = 16L << 20;
-    /// <summary>A system-call stub: mov r10, rcx; mov eax, n; test; jne; syscall; ret; int 2e; ret.</summary>
-    private const ulong StubBytes = 0x20;
     private const string Managed = "managed";
     private const double Percent = 100.0;
     private const string Prefix = "  [profile] ";
-
-    private static readonly (string Module, string[] Calls)[] WaitCalls =
-    [
-        ("ntdll.dll", ["NtWaitForSingleObject", "NtWaitForMultipleObjects", "NtWaitForAlertByThreadId", "NtDelayExecution", "NtRemoveIoCompletion", "NtRemoveIoCompletionEx", "NtWaitForWorkViaWorkerFactory", "NtSignalAndWaitForSingleObject", "NtWaitForKeyedEvent", "NtReplyWaitReceivePort", "NtAlpcSendWaitReceivePort"]),
-        ("win32u.dll", ["NtUserMsgWaitForMultipleObjectsEx", "NtUserGetMessage", "NtUserWaitMessage", "NtGdiDdDDIWaitForSynchronizationObjectFromCpu", "NtGdiDdDDIWaitForVerticalBlankEvent2"]),
-    ];
 
     private readonly ImageTable _images;
     private readonly LoaderLog _log;
@@ -57,7 +48,7 @@ internal sealed unsafe class ThreadProfiler
             return;
         }
 
-        var waits = WaitStubs();
+        CodeRange[] waits = [.. WaitStubs.Find().Select(stub => stub.Range)];
         var names = ModuleNames();
         var inclusive = new Dictionary<uint, int>();
         var innermost = new Dictionary<uint, int>();
@@ -269,7 +260,7 @@ internal sealed unsafe class ThreadProfiler
     }
 
     /// <summary>Precompiled managed code: the loader's and the framework's assemblies.</summary>
-    private static bool IsAssembly(string module)
+    internal static bool IsAssembly(string module)
     {
         return module.StartsWith("FiveStar.", StringComparison.OrdinalIgnoreCase)
             || module.StartsWith("System.", StringComparison.OrdinalIgnoreCase)
@@ -360,33 +351,6 @@ internal sealed unsafe class ThreadProfiler
         }
 
         return *(uint*)function;
-    }
-
-    /// <summary>
-    /// The system-call stubs a blocked thread sits in. Any other innermost frame runs, in user mode or in the kernel
-    /// (VirtualQuery's walk, for one, is inside ntdll's ZwQueryVirtualMemory).
-    /// </summary>
-    private static CodeRange[] WaitStubs()
-    {
-        var stubs = new List<CodeRange>();
-
-        foreach (var (module, calls) in WaitCalls)
-        {
-            if (!NativeLibrary.TryLoad(module, out nint handle))
-            {
-                continue;
-            }
-
-            foreach (string call in calls)
-            {
-                if (NativeLibrary.TryGetExport(handle, call, out nint stub))
-                {
-                    stubs.Add(new CodeRange((ulong)stub, (ulong)stub + StubBytes));
-                }
-            }
-        }
-
-        return [.. stubs];
     }
 
     private static string Format(Dictionary<uint, int> counts)

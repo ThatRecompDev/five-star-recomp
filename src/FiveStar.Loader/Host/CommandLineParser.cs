@@ -117,7 +117,7 @@ internal sealed class CommandLineParser
                 return SetRealInput(option);
             case "--sample-threads":
                 return SetSampleThreads();
-            case "--profile-threads" or "--profile-managed":
+            case "--profile-threads" or "--profile-managed" or "--cpu-sample":
                 return SetProfile(option);
             case "--trace-module":
                 return Add(_options.TracedModules);
@@ -777,7 +777,7 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    /// <summary>--profile-threads, or --profile-managed &lt;start&gt;[:&lt;seconds&gt;].</summary>
+    /// <summary>--profile-threads, --profile-managed &lt;start&gt;[:&lt;seconds&gt;] or --cpu-sample &lt;ms&gt;[:&lt;seconds&gt;].</summary>
     private bool SetProfile(string option)
     {
         if (option == "--profile-threads")
@@ -788,6 +788,18 @@ internal sealed class CommandLineParser
         }
 
         string value = Next();
+
+        if (option == "--cpu-sample")
+        {
+            if (!Diagnostics.CpuSampler.TryParse(value, out var interval, out var report))
+            {
+                throw new CommandLineException($"--cpu-sample {value}: expected <milliseconds>[:<report seconds>]");
+            }
+
+            (_options.CpuSampleInterval, _options.CpuSampleReport) = (interval, report);
+
+            return true;
+        }
 
         if (!Diagnostics.ManagedProfile.TryParse(value, out var start, out var length))
         {
