@@ -281,6 +281,9 @@ internal sealed record HostOptions
     /// <summary>Indirect records clamped in one prelude per list segment where nothing earlier in it wrote them (<c>--indirect-gather</c>).</summary>
     public bool IndirectGather { get; set; }
 
+    /// <summary>A compute queue of ours keeps the GPU clocked while the game submits (<c>--gpu-keep-awake</c>, <c>--gpu-keep-awake-turns</c>).</summary>
+    public Shims.D3D12X.Present.GpuKeepAwakeMode GpuKeepAwake { get; set; }
+
     /// <summary>With <c>--indirect-gather-strict</c>, every memory write, dispatch and memory wait ends gathering as before the narrower rules.</summary>
     public bool IndirectGatherStrict { get; set; }
 

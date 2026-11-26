@@ -113,6 +113,14 @@ buffer before a read (`crates/victory-gpu/src/resource.rs` `alias_of`, `texture.
 `2e5001c` and `51f1627` gave the NaN rules of `v_med3`, `v_fract_f16` and `v_cmp_lg` in the shader prelude and
 `VectorCompareEmitter`.
 
+## VIctory-7900XTX
+
+https://github.com/avatarmanz/VIctory-7900XTX, GPL-3.0-or-later, a fork in the VIctory family (copyright the VIctory
+contributors). Commit `5f86fa3` (`crates/victory-gpu/src/host/awake.rs`, `VICTORY_CARD_AWAKE`) is ported with its notice in
+`src/FiveStar.Loader/Shims/D3D12X/Present/GpuKeepAwake.cs` (`--gpu-keep-awake`): one group of 64 threads counting on a
+compute queue of ours while the title submitted within 250 ms, at most two dispatches in flight, and the 20 s turns.
+Its measurements are cited in the source and docs.
+
 ## Kelvaroq
 
 https://github.com/fablinoo/kelvaroq, revision `132217b5734b06cd8d40ac2e6889f46b2768ee4b`, GPL-3.0, a fork in the VIctory
