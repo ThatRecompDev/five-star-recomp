@@ -258,6 +258,7 @@ internal static unsafe class XboxDescriptorMethods
             byte* copy = stackalloc byte[DepthViewDescriptions.DepthStencilViewSize];
             void* view = DepthViewDescriptions.DepthStencilView(desktop, description, copy);
             CreateDesktopView(self, CreateDepthStencilViewSlot, desktop, view, Destination(handle));
+            D3D12X.RenderTargets.NoteDepth(D3D12X.Objects, Destination(handle), resource, view);
 
             if (DepthTwins.Enabled && view != null)
             {

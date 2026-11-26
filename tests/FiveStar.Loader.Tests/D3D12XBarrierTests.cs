@@ -44,6 +44,15 @@ public sealed unsafe class D3D12XBarrierTests
     private const int PixelShaderResource = 0x80;
     private const int CopySource = 0x800;
     private const int CopyDest = 0x400;
+    private const int DepthWrite = 0x10;
+    private const int DepthRead = 0x20;
+    private const int GenericRead = 0xAC3;
+    private const int D32S8 = 20;
+    private const int DsvHeapType = 3;
+    private const int Texture2DDepthView = 3;
+    private const int ReadOnlyDepthAndStencil = 0x3;
+    private const int CreateDepthStencilViewSlot = 21;
+    private const int SetRenderTargetsSlot = 50;
     private const uint AllSubresources = 0xFFFFFFFF;
     private const uint Size = 64;
     private const uint RowPitch = 256;
@@ -172,7 +181,66 @@ public sealed unsafe class D3D12XBarrierTests
         Assert.Equal(expected, ResourceStates.Allowed(state, flags));
     }
 
-    private static nint Texture(XboxDevice device, int flags, int state)
+    [Fact]
+    public void A_depth_the_game_moved_to_generic_read_is_tested_in_depth_read_and_written_in_depth_write()
+    {
+        var log = new StringWriter();
+        using var test = TestRuntime.Create(log: log);
+        var d3d12x = test.Runtime.D3D12X;
+
+        if (Environment.GetEnvironmentVariable(DebugVariable) == "1")
+        {
+            d3d12x.Debugging.Enable(false);
+        }
+
+        var device = new XboxDevice(test);
+        nint queue = device.Queue();
+        nint fence = device.Fence();
+
+        nint depth = Texture(device, DepthStencilFlag, DepthWrite, D32S8);
+        nint readOnly = DepthView(device, depth, ReadOnlyDepthAndStencil);
+        nint writable = DepthView(device, depth, 0);
+        nint desktop = d3d12x.Objects.Unwrap(depth);
+
+        // The console lets a depth be tested in GENERIC_READ; the desktop only in DEPTH_READ or DEPTH_WRITE (#538).
+        nint list = device.DirectList();
+        Barrier(list, depth, DepthWrite, GenericRead);
+        var states = d3d12x.ListStates.Find((XboxObject*)list)!;
+        int afterBarrier = states.Current(desktop, DepthWrite);
+
+        SetDepthTarget(list, readOnly);
+        int readOnlyBound = states.Current(desktop, DepthWrite);
+        SetDepthTarget(list, writable);
+        int writableBound = states.Current(desktop, DepthWrite);
+        Submit(queue, fence, list, 1);
+
+        Assert.Equal(DepthRead | NonPixelShaderResource | PixelShaderResource | CopySource, afterBarrier);
+        Assert.Equal(afterBarrier, readOnlyBound);
+        Assert.Equal(DepthWrite, writableBound);
+        Assert.DoesNotContain("[d3d12-debug] error", log.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(PixelShaderResource, NonPixelShaderResource | PixelShaderResource)]
+    [InlineData(NonPixelShaderResource | CopySource, NonPixelShaderResource | PixelShaderResource | CopySource)]
+    [InlineData(PixelShaderResource | UnorderedAccess, PixelShaderResource | UnorderedAccess)]
+    [InlineData(CopySource, CopySource)]
+    public void A_shader_resource_state_takes_both_stages(int state, int expected)
+    {
+        Assert.Equal(expected, ResourceStates.ShaderReadable(state));
+    }
+
+    [Theory]
+    [InlineData(GenericRead, true, DepthRead | NonPixelShaderResource | PixelShaderResource | CopySource)]
+    [InlineData(PixelShaderResource, true, DepthRead | PixelShaderResource)]
+    [InlineData(DepthWrite, true, DepthWrite)]
+    [InlineData(DepthRead | PixelShaderResource, false, DepthWrite)]
+    public void A_depth_view_finds_its_depth_in_a_state_it_can_use(int current, bool readOnly, int expected)
+    {
+        Assert.Equal(expected, RenderTargetStates.DepthState(current, readOnly));
+    }
+
+    private static nint Texture(XboxDevice device, int flags, int state, int format = Rgba8Unorm)
     {
         int* properties = stackalloc int[] { DefaultHeap, 0, 0, 0, 0 };
         var desc = new ResourceDescription
@@ -182,7 +250,7 @@ public sealed unsafe class D3D12XBarrierTests
             Height = Size,
             DepthOrArraySize = 1,
             MipLevels = 1,
-            Format = Rgba8Unorm,
+            Format = format,
             SampleCount = 1,
             Flags = flags,
         };
@@ -206,6 +274,28 @@ public sealed unsafe class D3D12XBarrierTests
         ((delegate* unmanaged<nint, nint, void*, nint, void>)XboxDevice.Vtable(device.Device)[CreateRenderTargetViewSlot])(device.Device, resource, null, handle);
 
         return handle;
+    }
+
+    /// <summary>A depth-stencil view of <paramref name="resource"/> (D32_FLOAT_S8X24_UINT, 2D) with D3D12_DSV_FLAGS <paramref name="flags"/>.</summary>
+    private static nint DepthView(XboxDevice device, nint resource, int flags)
+    {
+        var desc = new DescriptorHeapDescription { Type = DsvHeapType, Count = 1 };
+        Guid iid = HeapIid;
+        nint heap = 0;
+        var create = (delegate* unmanaged<nint, DescriptorHeapDescription*, Guid*, nint*, int>)XboxDevice.Vtable(device.Device)[CreateDescriptorHeapSlot];
+        Assert.Equal(0, create(device.Device, &desc, &iid, &heap));
+
+        nint handle = ((delegate* unmanaged<nint, nint>)XboxDevice.Vtable(heap)[HeapCpuStartSlot])(heap);
+        int* view = stackalloc int[] { D32S8, Texture2DDepthView, flags, 0, 0, 0 };
+        ((delegate* unmanaged<nint, nint, int*, nint, void>)XboxDevice.Vtable(device.Device)[CreateDepthStencilViewSlot])(device.Device, resource, view, handle);
+
+        return handle;
+    }
+
+    /// <summary>List slot 50 (OMSetRenderTargets) with no colour target and the depth-stencil view <paramref name="view"/>.</summary>
+    private static void SetDepthTarget(nint list, nint view)
+    {
+        ((delegate* unmanaged<nint, uint, nint*, int, nint*, void>)XboxDevice.Vtable(list)[SetRenderTargetsSlot])(list, 0, null, 0, &view);
     }
 
     /// <summary>List slot 26 with one transition as the game would write it (the console states it believes in).</summary>
