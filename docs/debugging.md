@@ -7,6 +7,7 @@ Three tools find faults. Each one sees a different set of them.
 | The loader's fault reporter (`fivestar-loader --run`, [loader.md](loader.md#running-the-executable)) | hardware exceptions whose first 12 frames include a mapped image, from inside the process: image RVA, `.pdata` function, code bytes, registers, the last traced shim calls | faults in game code. It is the first thing to read. |
 | `fivestar-dbg` (`src/FiveStar.Debugger`) | every exception in the process, from outside it, at first and second chance: module loads, debug output, symbolised stacks, minidumps, the page heap | faults inside coreclr, ntdll's heap manager, a driver or the fault reporter itself, heap corruption, and crashes that leave no log |
 | `--d3d12-debug`, `--d3d12-gpu-validation` ([d3d12x-shim.md](d3d12x-shim.md#debug-layer)) | D3D12 API misuse and GPU faults: debug-layer messages and the DRED report after a device removal | `DXGI_ERROR_DEVICE_REMOVED`, hangs on the GPU, wrong descriptors or barriers |
+| `--aftermath [dir]` ([below](#aftermath)) | GPU faults on NVIDIA as the driver saw them: faulting GPU address and resource, the shaders running, event markers | a removal DRED and the debug layer say nothing about |
 
 ## fivestar-dbg
 
@@ -196,8 +197,32 @@ allocator is released, counted in the sample line's `command objects`. The manag
 `System.GC.ConserveMemory` 5 (the loader's project file): the GC compacts the large object heap once it is half free
 space rather than keep the fragmented commit.
 
+## Aftermath
+
+`--aftermath [dir]` (`AftermathCrashDumps`) writes NVIDIA Nsight Aftermath GPU crash dumps. The SDK is not shipped:
+
+1. Download the Nsight Aftermath SDK from https://developer.nvidia.com/nsight-aftermath (NVIDIA developer login).
+2. Copy `lib\x64\GFSDK_Aftermath_Lib.x64.dll` next to `fivestar-loader.exe`, pass `--aftermath-dll <path>`, or set
+   `NSIGHT_AFTERMATH_SDK` to the SDK folder. Without it the loader logs one line and runs on.
+3. Run with `--aftermath` (folder `aftermath`) or `--aftermath <dir>`; add `--aftermath-markers` for an event marker per
+   draw, dispatch, ExecuteIndirect, copy and barrier (`Draw 0x<pipeline> <programs>`) and call stacks. Markers cost CPU
+   per operation; leave them off for timing-sensitive boots.
+
+| Step | What happens |
+|---|---|
+| Loader start | `GFSDK_Aftermath_EnableGpuCrashDumps` (DX, deferred shader debug info). The API version is found by asking 0x3ff down to 0x200 until the DLL stops answering `FAIL_VersionMismatch` |
+| Device creation | `GFSDK_Aftermath_DX12_Initialize` with markers, resource tracking, shader debug info (and call stacks with markers). The D3D12 debug layer makes it fail (`FAIL_D3DDebugLayerNotCompatible`): dumps still come, without those |
+| Pipeline creation | each shader's `GFSDK_Aftermath_GetShaderHash` over its DXIL is noted with the pipeline |
+| GPU fault | `crash-<time>.nv-gpudmp`, `shader-<id>.nvdbg` per shader the GPU ran, `shaders-<time>.tsv` (hash, stage, pipeline, programs); the log gets `[aftermath] crash dump:` with the device status, the faulting GPU VA and the resource there, the active shaders named by our pipelines, and each context's last marker |
+| Device-loss end | after its 3 s, waits up to 10 s for the dump (`GFSDK_Aftermath_GetCrashDumpStatus` Finished or failed) |
+
+Open the dump in Nsight Graphics (File > Open, `.nv-gpudmp`). Add the dump folder to its shader debug info search
+paths (Tools > Options) so it finds the `.nvdbg` files; the shaders then show at the faulting instruction.
 ## Unknown
 
+- Aftermath: the summary reads only the leading fields of the decoder's structs (shader info, event marker info,
+  page-fault resource info) as laid out in the SDK headers so far; a release that reorders them garbles that log line,
+  not the dump.
 - Whether ntdll keeps honouring `PEB.NtGlobalFlag` set at the create-process event in later Windows releases (checked
   on Windows 11 build 26200).
 

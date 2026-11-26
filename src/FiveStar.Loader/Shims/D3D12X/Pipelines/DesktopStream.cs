@@ -249,10 +249,35 @@ internal sealed unsafe class DesktopStream : IDisposable
             MeshLaunch.Mark(*result);
         }
 
+        if (hr >= 0)
+        {
+            NoteShaders(*result);
+        }
+
         // The desc points at the programs' native bytes, which this stream keeps alive.
         GC.KeepAlive(this);
 
         return hr;
+    }
+
+    /// <summary>With <c>--aftermath</c>: each shader's Aftermath hash, noted for <paramref name="pipeline"/> (<see cref="DebugLayer.AftermathShaderTable"/>).</summary>
+    public void NoteShaders(nint pipeline)
+    {
+        var shaders = DebugLayer.AftermathCrashDumps.Active?.Shaders;
+
+        if (shaders is null || !shaders.Enabled)
+        {
+            return;
+        }
+
+        foreach (var (offset, bytecode) in _shaders)
+        {
+            // The subobject's type tag is the pointer-aligned word before its payload (Begin).
+            var stage = (PipelineStateSubObjectType)BitConverter.ToInt32(CollectionsMarshal.AsSpan(_bytes)[(offset - PipelineLayout.PointerSize)..]);
+            shaders.Note(pipeline, stage, bytecode.Pointer, bytecode.Length);
+        }
+
+        GC.KeepAlive(this);
     }
 
     /// <summary>Frees the native copy <see cref="Describe"/> made; the next call makes a new one.</summary>
