@@ -543,7 +543,11 @@ internal sealed class LoaderHost
             Shims.D3D12X.Pipelines.CompileBudget.ExpectedBytes,
             pages,
             (long)d3d12.SectionHeaps.Opened,
-            helpers);
+            helpers,
+            d3d12.Textures.Placed.UsedBytes,
+            d3d12.Textures.Registry.UnmappedBytes,
+            d3d12.Textures.Registry.KeptBytes,
+            d3d12.Textures.Uploader.StagingBytes);
 
         return CommitAccounting.Format(figures);
     }
@@ -583,7 +587,7 @@ internal sealed class LoaderHost
 
         string audio = $"audio: {_runtime.Audio.Summary}; XDsp {_runtime.XDsp.Submitted} commands";
 
-        return $"DirectStorage {_runtime.Storage.Summary()}; {pipelines}; {_runtime.D3D12X.Presenter.Presents} presents, {_runtime.D3D12X.FrameThrottle.Summary}; {Shims.D3D12X.ListSubmissions.Summary}; {_runtime.D3D12X.Residency?.Summary ?? "section windows resident"}; {_runtime.Input.Summary}; {audio}; {memory}; {MemorySnapshot.Summary()}; {WriteCombinedMemory.Summary()}; {Commit(pages, helpers)}; {CommandObjectCounts.Summary}; {Shims.D3D12X.Binding.RawBufferViews.Summary}; {Shims.D3D12X.Binding.RtStandIns.Summary}{GpuTimes()}{ViewChecks()}";
+        return $"DirectStorage {_runtime.Storage.Summary()}; {pipelines}; {_runtime.D3D12X.Presenter.Presents} presents, {_runtime.D3D12X.FrameThrottle.Summary}; {Shims.D3D12X.ListSubmissions.Summary}; {_runtime.D3D12X.Residency?.Summary ?? "section windows resident"}; {_runtime.Input.Summary}; {audio}; {memory}; {MemorySnapshot.Summary()}; {WriteCombinedMemory.Summary()}; {Commit(pages, helpers)}; {CommandObjectCounts.Summary}; {Shims.D3D12X.Binding.RawBufferViews.Summary}; {Shims.D3D12X.Binding.RtStandIns.Summary}{Shims.D3D12X.IndirectGather.Summary}{GpuTimes()}{ViewChecks()}";
     }
 
     /// <summary>"; gpu over N frames: ..." with <c>--gpu-timings</c> (<see cref="Shims.D3D12X.DebugLayer.GpuTimings"/>), else empty.</summary>

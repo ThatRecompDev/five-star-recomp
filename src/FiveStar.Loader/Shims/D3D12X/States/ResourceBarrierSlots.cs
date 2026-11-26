@@ -40,6 +40,7 @@ internal static unsafe class ResourceBarrierSlots
         try
         {
             ListSegments.Of(self)->Commands++;
+            IndirectGather.Close(self);
 
             if (barriers == null || count == 0)
             {

@@ -50,13 +50,52 @@ public sealed unsafe class D3D12XGpuResourceTests
         registry.Register(Texture(test, device, 0x10800));
         registry.Register(Texture(test, device, 0x10800));
 
+        var released = new List<GpuTexture>();
+        registry.Releasing = released.Add;
         registry.Advance(GpuTextureRegistry.GraceFrames - 1);
         Assert.Equal(0, registry.Released);
         registry.Advance(GpuTextureRegistry.GraceFrames);
 
         Assert.Equal(1, registry.Released);
         Assert.Equal(1, registry.RetiredCount);
+        Assert.Equal(0x10000UL, Assert.Single(released).Address);
+        Assert.Contains("aliased 1, 0.00 GB", registry.Summary, StringComparison.Ordinal);
         registry.Dispose();
+    }
+
+    /// <summary>Kept aliases stay within their bytes: past them the oldest kept, of any range, is released after its grace.</summary>
+    [Fact]
+    public void Kept_aliases_past_their_bytes_release_the_oldest()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        var registry = new GpuTextureRegistry(() => [], () => []);
+        long cap = GpuTextureRegistry.KeptAliasBytes;
+
+        try
+        {
+            GpuTextureRegistry.KeptAliasBytes = (long)TextureBytes * 2;
+
+            // Three ranges each reused once: three kept, one past the cap.
+            foreach (ulong address in new ulong[] { 0x10000, 0x20000, 0x30000 })
+            {
+                registry.Register(Texture(test, device, address));
+                registry.Register(Texture(test, device, address));
+            }
+
+            // The oldest is aged (held until its grace ends), the newest two kept.
+            Assert.Equal(3 * (long)TextureBytes, registry.KeptBytes);
+            registry.Advance(GpuTextureRegistry.AliasGraceFrames);
+
+            Assert.Equal(1, registry.Released);
+            Assert.Equal(2 * (long)TextureBytes, registry.KeptBytes);
+            Assert.Equal(2, registry.RetiredCount);
+            registry.Dispose();
+        }
+        finally
+        {
+            GpuTextureRegistry.KeptAliasBytes = cap;
+        }
     }
 
     [Fact]
@@ -234,8 +273,8 @@ public sealed unsafe class D3D12XGpuResourceTests
         nint device = test.Runtime.D3D12X.Objects.DesktopDevice;
         var heaps = new PlacedTextureHeaps { EmptyMilliseconds = 0 };
 
-        // Five 64 MB textures: four fill the first 256 MB heap, the fifth starts a second.
-        var description = new ResourceDescription { Dimension = Texture2D, Width = 4096, Height = 4096, DepthOrArraySize = 1, MipLevels = 1, Format = Rgba8Unorm, SampleCount = 1 };
+        // Five 16 MB textures: four fill the first 64 MB heap, the fifth starts a second.
+        var description = new ResourceDescription { Dimension = Texture2D, Width = 2048, Height = 2048, DepthOrArraySize = 1, MipLevels = 1, Format = Rgba8Unorm, SampleCount = 1 };
         var textures = new List<nint>();
 
         for (int i = 0; i < 5; i++)
@@ -244,9 +283,9 @@ public sealed unsafe class D3D12XGpuResourceTests
             textures.Add(texture);
         }
 
-        Assert.Contains("live in 2 heaps (0.5 GB, 0.3 GB used)", heaps.Summary, StringComparison.Ordinal);
+        Assert.Contains("live in 2 heaps (0.1 GB, 0.1 GB used)", heaps.Summary, StringComparison.Ordinal);
         textures.ForEach(texture => FiveStar.Loader.Native.ComObject.Release(texture));
-        Assert.Contains("0 live in 1 heaps (0.2 GB, 0.0 GB used), 1 empty heaps returned", heaps.Summary, StringComparison.Ordinal);
+        Assert.Contains("0 live in 1 heaps (0.1 GB, 0.0 GB used), 1 empty heaps returned", heaps.Summary, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -266,7 +305,7 @@ public sealed unsafe class D3D12XGpuResourceTests
         CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
 
         // The view queues the check of the texture's pages; the next submission has it done.
-        RunEmptyList(device);
+        RunEmptyList(test, device);
 
         for (uint mip = 0; mip < Mips; mip++)
         {
@@ -312,8 +351,11 @@ public sealed unsafe class D3D12XGpuResourceTests
         Tile(description, cpu, first);
         Tile(description, cpu + Second, second);
         textures.RefreshWatched(device12, 1);
+        textures.Writes.Flush(device12);
+
         long uploads = textures.Counters[GpuResourceEvent.Upload];
         textures.RefreshWatched(device12, 2);
+        textures.Writes.Flush(device12);
 
         using var firstProbe = new TextureProbe(device12);
         using var secondProbe = new TextureProbe(device12);
@@ -387,6 +429,7 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.Equal(0, ((delegate* unmanaged<nint, uint, void*, void**, int>)XboxDevice.Vtable(placed)[MapSlot])(placed, 0, null, &mapped));
         Tile(description, cpu, [Pattern(Size, 4), Pattern(Size / 2, 5)]);
         textures.RefreshWatched(device12, 1);
+        textures.Writes.Flush(device12);
 
         // A glyph-cache style update: list slot 85 copies new texels from an upload buffer into mip 0.
         byte[] copied = Pattern(Size, 6);
@@ -405,6 +448,7 @@ public sealed unsafe class D3D12XGpuResourceTests
         // The memory changes again (on the console it would now hold the copy): the frame check must not undo the copy.
         Tile(description, cpu, [Pattern(Size, 7), Pattern(Size / 2, 8)]);
         textures.RefreshWatched(device12, 2);
+        textures.Writes.Flush(device12);
 
         using var probe = new TextureProbe(device12);
         CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
@@ -439,7 +483,7 @@ public sealed unsafe class D3D12XGpuResourceTests
         Tile(description, cpu, linear);
         using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
         CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
-        RunEmptyList(device);
+        RunEmptyList(test, device);
 
         Assert.Equal(linear[0], probe.Read(Size, Size, 0, uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
         Assert.Equal(1, counters[GpuResourceEvent.Upload]);
@@ -506,10 +550,10 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.Equal(filled, textures.Counters[GpuResourceEvent.Upload]);
 
         // The next submission refreshes it (the pages it changed), once.
-        RunEmptyList(device);
+        RunEmptyList(test, device);
         Assert.Equal(linear[0], probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
         Assert.Equal(filled + 1, textures.Counters[GpuResourceEvent.Upload] + textures.Counters[GpuResourceEvent.UploadPartial]);
-        RunEmptyList(device);
+        RunEmptyList(test, device);
         Assert.Equal(filled + 1, textures.Counters[GpuResourceEvent.Upload] + textures.Counters[GpuResourceEvent.UploadPartial]);
         Assert.True(cpu != 0);
     }
@@ -543,7 +587,7 @@ public sealed unsafe class D3D12XGpuResourceTests
             Assert.Equal(cpu, map(cpu, (ulong)frames.Length, pages));
         }
 
-        RunEmptyList(device);
+        RunEmptyList(test, device);
         Assert.Equal(linear[0], probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
         Assert.True(textures.Counters[GpuResourceEvent.WrittenRefreshed] >= 1);
     }
@@ -605,8 +649,63 @@ public sealed unsafe class D3D12XGpuResourceTests
             Assert.Equal(cpu, map(cpu, (ulong)frames.Length, pages));
         }
 
-        RunEmptyList(device);
+        RunEmptyList(test, device);
         Assert.Equal(linear[0], probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
+    }
+
+    /// <summary>
+    /// Textures for views over reserved memory with no page mapped stay within their budget (w110 made 226,732 and
+    /// passed the working-set guard): past it such a view is a null descriptor; one over a mapped page is not counted.
+    /// </summary>
+    [Fact]
+    public void Views_over_unmapped_memory_make_textures_only_within_their_budget()
+    {
+        using var test = TestRuntime.Create();
+        var (_, gpu, _) = Reserved(test, mapped: false);
+        var (_, mappedGpu, _) = Reserved(test, mapped: true);
+
+        var device = new XboxDevice(test);
+        var description = Description();
+        var textures = test.Runtime.D3D12X.Textures;
+        long budget = GpuTextures.UnmappedViewBudget;
+
+        try
+        {
+            GpuTextures.UnmappedViewBudget = (long)RangeBytes / 2;
+            using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
+            nint handle = (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr;
+
+            // The first page's texture fits; the second page's does not; a view over mapped memory is not counted.
+            CreateView(device, gpu, description, handle);
+            CreateView(device, gpu + (nint)(RangeBytes / 2), description, handle);
+            CreateView(device, mappedGpu, description, handle);
+
+            Assert.Equal(1, textures.Counters[GpuResourceEvent.ViewCreatedUnmapped]);
+            Assert.Equal(1, textures.Counters[GpuResourceEvent.ViewUnmappedOverBudget]);
+            Assert.Equal(1, textures.Counters[GpuResourceEvent.ViewNull]);
+
+            Assert.NotNull(textures.Registry.Find((ulong)gpu));
+            Assert.NotNull(textures.Registry.Find((ulong)mappedGpu));
+            Assert.Contains("1 live over unmapped memory", textures.Registry.Summary, StringComparison.Ordinal);
+
+            // The game maps the first range's pages: its texture no longer counts, and the second page's view fits now.
+            var map = (delegate* unmanaged<nint, ulong, ulong*, nint>)test.Shim("xmem.dll", "XMemMapPhysicalPages");
+            var allocate = (delegate* unmanaged<ulong, ulong*, ulong*, int>)test.Shim("xmem.dll", "XMemAllocatePhysicalPages");
+            ulong page = 0;
+            ulong count = 1;
+
+            Assert.Equal(1, allocate(0, &count, &page));
+            nint cpu = test.Runtime.XMemPhysical.CpuAddress(gpu);
+            Assert.Equal(cpu, map(cpu, 1, &page));
+
+            Assert.Equal(0, textures.UnmappedViewBytes);
+            CreateView(device, gpu + (nint)(RangeBytes / 2), description, handle);
+            Assert.Equal(2, textures.Counters[GpuResourceEvent.ViewCreatedUnmapped]);
+        }
+        finally
+        {
+            GpuTextures.UnmappedViewBudget = budget;
+        }
     }
 
     [Fact]
@@ -695,11 +794,14 @@ public sealed unsafe class D3D12XGpuResourceTests
     }
 
     /// <summary>A submission of an empty direct list on the device's queue (ExecuteCommandLists refreshes textures first).</summary>
-    private static void RunEmptyList(XboxDevice device)
+    private static void RunEmptyList(TestRuntime test, XboxDevice device)
     {
         nint list = device.DirectList();
         Assert.Equal(0, ((delegate* unmanaged<nint, int>)XboxDevice.Vtable(list)[CloseSlot])(list));
         device.Run(list);
+
+        // The refresh worker takes what the submission queued; a test reads after it is done.
+        test.Runtime.D3D12X.Textures.Writes.Flush(test.Runtime.D3D12X.Objects.DesktopDevice);
     }
 
     /// <summary>A registry entry over 0x1000 bytes at <paramref name="address"/>, holding its own reference on a desktop buffer.</summary>

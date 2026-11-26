@@ -47,13 +47,20 @@ internal static unsafe class DepthTwins
     private static readonly ConcurrentDictionary<nint, (nint Depth, int Format)> DepthViews = new();
     private static readonly ConcurrentDictionary<uint, DepthTwin> Indices = new();
 
+    /// <summary>
+    /// Whether a twin was made, and a twin's view noted, since the last <see cref="Detach"/>: ConcurrentDictionary.IsEmpty takes
+    /// all the dictionary's locks, and draws (<see cref="Any"/>) and view writes (<see cref="Overwritten"/>) ask on every thread.
+    /// </summary>
+    private static volatile bool _anyTwin;
+    private static volatile bool _anyIndex;
+
     /// <summary>D3D12_UNORDERED_ACCESS_VIEW_DESC: Texture2D.PlaneSlice after Format, ViewDimension and MipSlice.</summary>
     public const int PlaneSliceOffset = 12;
 
     public static bool Enabled { get; set; }
 
     /// <summary>Whether twins are on and any depth texture has one (twins a test made with the option off do not count).</summary>
-    public static bool Any => Enabled && !Twins.IsEmpty;
+    public static bool Any => Enabled && _anyTwin;
 
     /// <summary>Whether a UAV of <paramref name="viewFormat"/> on a depth texture takes a twin.</summary>
     public static bool Twinned(int viewFormat)
@@ -122,6 +129,7 @@ internal static unsafe class DepthTwins
 
         twin = new DepthTwin(depth, resource, description.Format, (uint)desc.Width, desc.Height);
         var added = Twins.GetOrAdd(key, twin);
+        _anyTwin = true;
 
         if (added == twin)
         {
@@ -137,6 +145,8 @@ internal static unsafe class DepthTwins
         Twins.Clear();
         DepthViews.Clear();
         Indices.Clear();
+        _anyTwin = false;
+        _anyIndex = false;
     }
 
     /// <summary>
@@ -147,7 +157,7 @@ internal static unsafe class DepthTwins
     [HotPath]
     public static void Overwritten(uint first, uint count)
     {
-        if (Indices.IsEmpty)
+        if (!_anyIndex)
         {
             return;
         }
@@ -218,7 +228,9 @@ internal static unsafe class DepthTwins
         twin.ViewHandle = handle;
         twin.ViewHeap = heap;
         twin.ViewIndex = index;
+
         Indices[index] = twin;
+        _anyIndex = true;
         ShimContext.ActiveRuntime?.D3D12X.Bindings.Window.Records.Watch(index);
     }
 

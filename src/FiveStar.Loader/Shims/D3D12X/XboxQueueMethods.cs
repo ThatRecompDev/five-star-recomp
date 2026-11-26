@@ -178,7 +178,8 @@ internal static unsafe class XboxQueueMethods
 
     /// <summary>
     /// Runs the lists in order. A list with memory waits or segments (<see cref="MemoryWaits"/>, <see cref="ListSplits"/>)
-    /// goes alone after the lists before it: each of its segments runs after the waits that precede it.
+    /// or gathered indirect records (<see cref="IndirectGather"/>) goes alone after the lists before it: each of its
+    /// segments runs after the waits that precede it and the prelude that clamps its records.
     /// </summary>
     [HotPath]
     private static void Submit(XboxObject* self, nint* lists, nint* desktop, uint count, delegate* unmanaged<nint, uint, nint*, void> execute)
@@ -190,7 +191,7 @@ internal static unsafe class XboxQueueMethods
 
         for (uint i = 0; i <= count; i++)
         {
-            bool waits = i < count && desktop[i] != lists[i] && MemoryWaits.HasWaits(lists[i]);
+            bool waits = i < count && desktop[i] != lists[i] && (MemoryWaits.HasWaits(lists[i]) || IndirectGather.Has(lists[i]));
 
             if (i < count && !waits)
             {
@@ -223,6 +224,7 @@ internal static unsafe class XboxQueueMethods
         for (int s = 0; s <= segments->Count; s++)
         {
             MemoryWaits.Before(queue, list, s);
+            IndirectGather.Before(queue, list, s);
             nint segment = segments->Segment(s, last);
             execute(inner, 1, &segment);
         }
