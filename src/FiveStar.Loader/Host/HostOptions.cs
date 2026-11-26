@@ -101,6 +101,9 @@ internal sealed record HostOptions
     /// <summary>The program cache folder of programs made on demand (<c>--program-cache</c>); null means the work folder's.</summary>
     public string? ProgramCache { get; set; }
 
+    /// <summary>The folder of hand-written programs that replace translations (<c>--shader-overrides</c>); null for none.</summary>
+    public string? ShaderOverrides { get; set; }
+
     /// <summary><c>--no-on-demand</c>: only the ahead-of-time translation provides programs.</summary>
     public bool NoOnDemand { get; set; }
 

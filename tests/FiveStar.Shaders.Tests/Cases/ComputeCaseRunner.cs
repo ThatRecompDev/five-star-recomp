@@ -63,6 +63,12 @@ public sealed class ComputeCaseRunner
         return Run(testCase, program => defines + ShaderWorkbench.Translate(program));
     }
 
+    /// <summary>Runs a case with the source <paramref name="replace"/> makes of its translation, as a replacement (--shader-overrides) runs.</summary>
+    public IReadOnlyList<string> RunReplaced(ComputeCase testCase, Func<string, string> replace)
+    {
+        return Run(testCase, program => replace(ShaderWorkbench.Translate(program)));
+    }
+
     /// <summary>Runs a case translated with typed image views (TranslationOptions.TypedImageViews), by dxc or (<paramref name="direct"/>) the DXIL backend.</summary>
     public IReadOnlyList<string> RunTypedViews(ComputeCase testCase, bool direct)
     {

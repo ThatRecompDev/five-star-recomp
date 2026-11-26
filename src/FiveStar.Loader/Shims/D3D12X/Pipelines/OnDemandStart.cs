@@ -119,6 +119,12 @@ internal sealed class OnDemandStart
     /// </summary>
     public static TranslationOptions Translation { get; set; } = CorpusOptions.DefaultTranslation;
 
+    /// <summary>
+    /// The hand-written programs that replace translations (<c>--shader-overrides</c>); null for none. Not part of the
+    /// identity: a replaced program's files hold its replacement's hash (<see cref="ShaderOverrides.Stem"/>).
+    /// </summary>
+    public static ShaderOverrides? Overrides { get; set; }
+
     /// <summary>The program cache folder.</summary>
     public string Root { get; }
 
@@ -269,6 +275,7 @@ internal sealed class OnDemandStart
         var producer = new ProgramProducer(programs, folder, picker, compiler, slow)
         {
             Hosting = hosting,
+            Overrides = Overrides,
             ContentStore = new FiveStar.Shaders.Cache.ProgramContentStore(FiveStar.Shaders.Cache.ProgramContentStore.FolderBeside(folder), FiveStar.Shaders.Cache.ProgramContentStore.CompilerIdentity(compiler)),
         };
 
