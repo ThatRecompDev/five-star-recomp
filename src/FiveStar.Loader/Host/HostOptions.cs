@@ -281,6 +281,9 @@ internal sealed record HostOptions
     /// <summary>Indirect records clamped in one prelude per list segment where nothing earlier in it wrote them (<c>--indirect-gather</c>).</summary>
     public bool IndirectGather { get; set; }
 
+    /// <summary><c>--no-draws</c>: no pipeline is built and every draw and dispatch is skipped, to measure the game's own CPU frame (SkippedPipelines.All).</summary>
+    public bool NoDraws { get; set; }
+
     /// <summary>With <c>--indirect-gather-strict</c>, every memory write, dispatch and memory wait ends gathering as before the narrower rules.</summary>
     public bool IndirectGatherStrict { get; set; }
 
