@@ -123,8 +123,7 @@ internal sealed unsafe class GpuTextures : IDisposable
 
         bool gpuWritten = (description->Flags & GpuWrittenFlags) != 0;
         var texture = Register(address, description, desktop, desc.Format, state, gpuWritten);
-        Refresh(device, texture);
-        ZeroIfUnfilled(device, texture);
+        QueueFirstFill(texture);
 
         return hr;
     }
@@ -181,10 +180,35 @@ internal sealed unsafe class GpuTextures : IDisposable
             Counters.Add(GpuResourceEvent.ViewCreatedUnmapped);
         }
 
-        Refresh(device, texture);
-        ZeroIfUnfilled(device, texture);
+        QueueFirstFill(texture);
 
         return texture;
+    }
+
+    /// <summary>
+    /// A new texture filled from memory gets its first fill from the refresh worker, before the next submission reads it
+    /// (<see cref="TextureRefreshWorker.AddFirst"/>), not on the thread that made it: w125's view creation spent about a
+    /// third of the game thread's samples reading, hashing and uploading new textures, and a tenth more waiting for the
+    /// uploader's lock the worker's refreshes held.
+    /// </summary>
+    private void QueueFirstFill(GpuTexture texture)
+    {
+        if (texture.GpuWritten || texture.Layout.PlaneCount != 1)
+        {
+            return;
+        }
+
+        Writes.AddFirst(texture);
+    }
+
+    /// <summary>
+    /// The first fill of a texture just made (on the refresh worker): from memory, or zeros when its memory is not
+    /// readable yet (<see cref="ZeroIfUnfilled"/>).
+    /// </summary>
+    internal void FirstFill(nint device, GpuTexture texture)
+    {
+        Refresh(device, texture);
+        ZeroIfUnfilled(device, texture);
     }
 
     /// <summary>
@@ -196,7 +220,8 @@ internal sealed unsafe class GpuTextures : IDisposable
     /// </summary>
     public void RefreshForView(GpuTexture texture)
     {
-        if (texture.GpuWritten || texture.CopiedInto || texture.Watched || texture.Layout.PlaneCount != 1)
+        // A texture whose first fill is still queued reads its memory whole then anyway.
+        if (texture.GpuWritten || texture.CopiedInto || texture.Watched || texture.Layout.PlaneCount != 1 || Writes.FirstQueued(texture))
         {
             return;
         }

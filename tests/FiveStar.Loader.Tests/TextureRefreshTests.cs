@@ -264,6 +264,9 @@ public sealed unsafe class TextureRefreshTests
         nint resource = 0;
         var create = (delegate* unmanaged<nint, nint, ResourceDescription*, uint, void*, Guid*, nint*, int>)XboxDevice.Vtable(device.Device)[133];
         Assert.Equal(0, create(device.Device, address, &description, ShaderResourceLayout, null, &iid, &resource));
+
+        // Its first fill is the refresh worker's, before the next submission.
+        device.SettleNewTextures();
     }
 
     private static void CreateView(XboxDevice device, nint address, ResourceDescription description, nint handle)
@@ -274,6 +277,9 @@ public sealed unsafe class TextureRefreshTests
         words[TextureMipLevelsWord] = Mips;
         var create = (delegate* unmanaged<nint, ResourceDescription*, AddressViewDescription*, nint, void>)XboxDevice.Vtable(device.Device)[70];
         create(device.Device, &description, &view, handle);
+
+        // Its first fill is the refresh worker's, before the next submission.
+        device.SettleNewTextures();
     }
 
     private static void RunEmptyList(TestRuntime test, XboxDevice device)
