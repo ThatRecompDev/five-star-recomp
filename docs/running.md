@@ -107,6 +107,26 @@ memory limit keeps what it built and the boot does not start; the next `run --wa
 The estimate is about 1.3 journal pipelines a second per process; a journal that is mostly new to the cache takes
 longer. Without `--warm` the game builds them as before, at first use.
 
+### Warm-up in the background
+
+To play at once instead of waiting, run the warm-up beside the game, in a second terminal, with the boot's folders
+and mode options and a share of the machine left to the game:
+
+```
+start "warm-up" /belownormal fivestar-loader --warm-pipelines <shaders.rpf> --warm-used-only --shader-dir <fssm> --program-cache <dir> --pipeline-cache <dir> <the boot's mode options> --warm-processes 1 --warm-jobs 2 --min-free-memory 8 --log warm.log
+fivestar run
+```
+
+The warm-up takes the journal in the order earlier boots first asked for each pipeline, which is the order the game
+will ask for them again (start screen, menus, then the world), so it runs ahead of the player. Both processes write
+their own segments to the shared pipeline cache and every minute map the other's new ones, so a pipeline the warm-up
+built reaches the game within about two minutes, also when its build was already queued there, and the warm-up
+skips what the game built ([d3d12x-pipelines.md](d3d12x-pipelines.md#disk-cache)). They share the program cache as the
+warm-up's own processes do. Pipelines of 4 MiB of DXIL or more need 40 GB of free commit in the warm-up and are mostly
+left to the game. `--min-free-memory` ends the warm-up before the game runs short; Ctrl+C stops it, and the next
+warm-up resumes. One process and two threads keep its driver compiles from taking the cores the game's own first-use
+builds need.
+
 ## First run in the game
 
 With an empty save folder the game shows a black screen that waits for a press (with a warm pipeline cache 45 to
