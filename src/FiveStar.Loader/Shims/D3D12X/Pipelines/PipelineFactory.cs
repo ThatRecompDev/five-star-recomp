@@ -130,6 +130,11 @@ internal sealed unsafe class PipelineFactory
             return Remember(description, HResult.Ok, result, names);
         }
 
+        return MakeGraphics(description, iid, result);
+    }
+
+    private int MakeGraphics(GraphicsPipelineDescription description, Guid* iid, nint* result)
+    {
         var deferral = Deferral(Journal?.Contains(description) ?? false, () => Journal?.Record(description));
         var lacking = Lacking(description.Shaders);
 
