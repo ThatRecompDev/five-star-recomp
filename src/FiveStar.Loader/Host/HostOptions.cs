@@ -134,6 +134,9 @@ internal sealed record HostOptions
     /// <summary>GPU-written UNORM color textures made typeless, so views take the game's sRGB or integer member (<c>--typeless-targets</c>).</summary>
     public bool TypelessTargets { get; set; }
 
+    /// <summary>Submissions wait for the texture refresh (<c>--texture-refresh-wait</c>).</summary>
+    public bool TextureRefreshWait { get; set; }
+
     /// <summary>Threads that build the journal's uncached pipelines from device creation on (<c>--prebuild-jobs</c>; 0 for none).</summary>
     public int PrebuildJobs { get; set; } = Shims.D3D12X.Pipelines.JournalPrebuild.DefaultJobs;
 
