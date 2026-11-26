@@ -59,10 +59,28 @@ internal static unsafe class NanScan
     private static long _liveBytes;
     private static int _polling;
 
-    /// <summary>Text the scanned pipelines' names contain; null when off.</summary>
+    /// <summary>Textures of at most this many texels have their values shown with <see cref="ShowValues"/> (1x1, 5x1).</summary>
+    private const int SmallTexels = 8;
+
+    /// <summary>Channel values shown of one small texture.</summary>
+    private const int ShownChannels = SmallTexels * 4;
+
+    /// <summary>Texts (comma-separated) one of which the scanned pipelines' names contain; null when off.</summary>
     public static string? Filter { get; set; }
 
     public static bool Enabled => Filter is not null;
+
+    /// <summary>
+    /// <c>--trace-exposure</c> (<see cref="ExposureTrace"/>): small float textures show their values even when clean, and
+    /// records holding a null view or one of a released texture are named.
+    /// </summary>
+    public static bool ShowValues { get; set; }
+
+    /// <summary>Whether a pipeline name holds one of the texts of <see cref="Filter"/>.</summary>
+    public static bool Matches(string name, string filter)
+    {
+        return filter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Any(part => name.Contains(part, StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary><c>--d3d12-nan-scan-dwords &lt;offset&gt;:&lt;count&gt;</c>: the floats of every memory input shown from that byte offset; null for none.</summary>
     public static (int Offset, int Count)? Dwords { get; set; }
@@ -110,7 +128,7 @@ internal static unsafe class NanScan
     {
         nint pipeline = ListActivity.Of(list)->Pipeline;
 
-        if (pipeline == 0 || !Matching.GetOrAdd(pipeline, static key => QueueProgress.PipelineName(key).Contains(Filter!, StringComparison.OrdinalIgnoreCase)) || !Admit(pipeline))
+        if (pipeline == 0 || !Matching.GetOrAdd(pipeline, static key => Matches(QueueProgress.PipelineName(key), Filter!)) || !Admit(pipeline))
         {
             return;
         }
@@ -216,6 +234,23 @@ internal static unsafe class NanScan
             {
                 CopyTexture(list, scan, label, view.Value.View);
             }
+            else if (ShowValues && view is not null)
+            {
+                NoteView(scan, label, view.Value.View, view.Value.Live);
+            }
+        }
+    }
+
+    /// <summary>With <see cref="ShowValues"/>: a null view (the game's, or one a texture release nulled) or a view of a released texture.</summary>
+    private static void NoteView(Scan scan, string label, SlotView view, bool live)
+    {
+        if (view.Shape == ViewShape.Null)
+        {
+            scan.Notes.Add($"{label}: null view (reads 0)");
+        }
+        else if (!live)
+        {
+            scan.Notes.Add(string.Create(CultureInfo.InvariantCulture, $"{label}: {view.Shape} of released texture 0x{view.Resource:x}"));
         }
     }
 
@@ -365,21 +400,12 @@ internal static unsafe class NanScan
     private static void Report(Scan scan)
     {
         var log = ShimContext.Runtime.Log;
-        int clean = 0;
         var findings = new StringBuilder();
+        int clean = ReportTextures(scan, findings);
 
-        foreach (var copy in scan.Textures)
+        foreach (var note in scan.Notes)
         {
-            var result = Read(copy);
-
-            if (result is null || result.Value.Count == 0)
-            {
-                clean++;
-
-                continue;
-            }
-
-            findings.Append(CultureInfo.InvariantCulture, $"\n      {copy.Label}: texture 0x{copy.Resource:x} format {copy.Format} {copy.Width}x{copy.Rows}: {result.Value}");
+            findings.Append(CultureInfo.InvariantCulture, $"\n      {note}");
         }
 
         foreach (var input in scan.Memory)
@@ -409,6 +435,50 @@ internal static unsafe class NanScan
         }
 
         log.Info($"  [nan scan] {scan.Pipeline}: {clean} inputs scanned clean, {scan.Textures.Count + scan.Memory.Count} in all (block-compressed and non-float textures are not scanned){findings}");
+    }
+
+    /// <summary>The textures holding NaN or Inf (and small ones' values with <see cref="ShowValues"/>) appended; the count of clean ones.</summary>
+    private static int ReportTextures(Scan scan, StringBuilder findings)
+    {
+        int clean = 0;
+
+        foreach (var copy in scan.Textures)
+        {
+            var result = Read(copy);
+            string shape = string.Create(CultureInfo.InvariantCulture, $"{copy.Label}: texture 0x{copy.Resource:x} format {copy.Format} {copy.Width}x{copy.Rows}");
+
+            if (result is null || result.Value.Count == 0)
+            {
+                clean++;
+
+                if (ShowValues && copy.Width * copy.Rows <= SmallTexels)
+                {
+                    findings.Append(CultureInfo.InvariantCulture, $"\n      {shape}, clean: {string.Join(", ", Texels(copy).Select(value => value.ToString("G6", CultureInfo.InvariantCulture)))}");
+                }
+
+                continue;
+            }
+
+            findings.Append(CultureInfo.InvariantCulture, $"\n      {shape}: {result.Value}");
+        }
+
+        return clean;
+    }
+
+    /// <summary>The channel values of a small copied texture (the GPU finished the list).</summary>
+    private static List<float> Texels(TextureCopy copy)
+    {
+        void* data;
+        copy.Buffer.Map(0, null, &data).CheckError();
+
+        try
+        {
+            return FloatScan.Values(new ReadOnlySpan<byte>(data, checked((int)copy.Bytes)), copy.RowPitch, copy.Width, copy.Rows, copy.Format, ShownChannels);
+        }
+        finally
+        {
+            copy.Buffer.Unmap(0);
+        }
     }
 
     /// <summary>Game memory at a console address, as far as it reads (through the kernel: an unmapped range reads as nothing).</summary>
@@ -460,5 +530,8 @@ internal static unsafe class NanScan
         public List<TextureCopy> Textures { get; } = [];
 
         public List<MemoryInput> Memory { get; } = [];
+
+        /// <summary>Null and released views (<see cref="ShowValues"/>).</summary>
+        public List<string> Notes { get; } = [];
     }
 }
