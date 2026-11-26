@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using FiveStar.Shaders.Disassembly;
@@ -10,9 +10,10 @@ using FiveStar.Shaders.Translation;
 namespace FiveStar.Shaders.Compilation;
 
 /// <summary>
-/// Translations kept in a <see cref="CacheFolder"/>. The key of a program is the hash of the translator identity (this
-/// assembly, the LLVM tools when they disassemble, and the translation options) and the FSSM and container bytes. The entry holds the stage,
-/// status, reason and instruction count; its HLSL is stored once per distinct text.
+/// Translations kept in a <see cref="CacheFolder"/>. The key of a program is the hash of the translator identity (the
+/// translator's sources, <see cref="TranslatorSources"/>, the LLVM tools when they disassemble, and the translation
+/// options) and the FSSM and container bytes. The entry holds the stage, status, reason and instruction count; its HLSL
+/// is stored once per distinct text.
 /// </summary>
 public sealed class TranslationCache
 {
@@ -22,6 +23,7 @@ public sealed class TranslationCache
     private const string TextExtension = ".hlsl";
     private const string VariantProperty = "w32";
     private const string VariantReasonProperty = "w32Reason";
+    private const string SourcesKey = "TranslatorSources";
 
     private readonly CacheFolder _folder;
     /// <summary>The bytes a shared-exponent sampling translation adds to its key.</summary>
@@ -42,22 +44,29 @@ public sealed class TranslationCache
     public int Misses => Volatile.Read(ref _misses);
 
     /// <summary>
-    /// The identity of this translator build with its disassembler and options: the in-process
-    /// <see cref="RdnaDecoder"/> when <paramref name="llvm"/> is null (it is part of this assembly), else the LLVM tools.
+    /// The hash of every source translations depend on (set at build: this assembly's sources but the DXIL backend's
+    /// and the pipeline cache readers', the runtime headers, the defined constants and the SDK). Keyed by the assembly's
+    /// bytes instead, each change to the backend translated every program again (25,884 in the game).
     /// </summary>
-    [UnconditionalSuppressMessage("SingleFile", "IL3000", Justification = "Only the fivestar CLI translates; it runs from its assembly files and is not published single-file or NativeAOT.")]
+    public static string TranslatorSources { get; } =
+        typeof(TranslationCache).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(attribute => attribute.Key == SourcesKey)?.Value
+        ?? typeof(TranslationCache).Assembly.ManifestModule.ModuleVersionId.ToString();
+
+    /// <summary>
+    /// The identity of this translator build with its disassembler and options: the in-process
+    /// <see cref="RdnaDecoder"/> when <paramref name="llvm"/> is null (its sources are among the translator's), else the
+    /// LLVM tools.
+    /// </summary>
     public static string Identity(LlvmToolPaths? llvm, TranslationOptions options)
     {
-        var assembly = typeof(HlslTranslator).Assembly.Location;
-
         if (llvm is null)
         {
-            return ContentHash.OfText(ContentHash.OfFiles([assembly]), nameof(RdnaDecoder), options.ToString());
+            return ContentHash.OfText(TranslatorSources, nameof(RdnaDecoder), options.ToString());
         }
 
-        var files = ContentHash.OfFiles([assembly, llvm.Assembler, llvm.Objdump]);
+        var tools = ContentHash.OfFiles([llvm.Assembler, llvm.Objdump]);
 
-        return ContentHash.OfText(files, llvm.Cpu, options.ToString());
+        return ContentHash.OfText(TranslatorSources, tools, llvm.Cpu, options.ToString());
     }
 
     /// <summary>

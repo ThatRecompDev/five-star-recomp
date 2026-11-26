@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Collections.Concurrent;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X.Resources;
@@ -17,6 +18,19 @@ internal static unsafe class TypelessTargets
 {
     /// <summary>DXGI formats (dxgiformat.h): each UNORM member and its family's TYPELESS format.</summary>
     private static readonly (int Unorm, int Typeless)[] Families = [(28, 27), (87, 90), (88, 92), (61, 60)];
+
+    /// <summary>
+    /// The sRGB formats (R8G8B8A8, B8G8R8A8, B8G8R8X8) with their family's TYPELESS and UNORM members: the desktop takes
+    /// no sRGB UAV, so a texture the game makes in one with ALLOW_UNORDERED_ACCESS is made typeless (always, not only
+    /// with the option) and its UAVs are UNORM, which store the same bits as the console's (no conversion on a store).
+    /// </summary>
+    private static readonly (int Srgb, int Typeless, int Unorm)[] SrgbFamilies = [(29, 27, 28), (91, 90, 87), (93, 92, 88)];
+
+    /// <summary>D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS.</summary>
+    private const int AllowUnorderedAccess = 0x4;
+
+    /// <summary>Desktop resources made typeless from an sRGB format, with that format (views without a desc take it).</summary>
+    private static readonly ConcurrentDictionary<nint, int> SrgbMade = new();
 
     /// <summary>D3D12_RESOURCE_DIMENSION_TEXTURE1D, TEXTURE2D and TEXTURE3D (d3d12.h).</summary>
     private const int Texture1D = 2;
@@ -66,6 +80,58 @@ internal static unsafe class TypelessTargets
         return format;
     }
 
+    /// <summary>The format a texture the game makes in <paramref name="format"/> with <paramref name="flags"/> is made in: an sRGB one with UAVs typeless.</summary>
+    public static int SrgbResource(int format, int flags)
+    {
+        if ((flags & AllowUnorderedAccess) == 0)
+        {
+            return format;
+        }
+
+        foreach (var (srgb, typeless, _) in SrgbFamilies)
+        {
+            if (format == srgb)
+            {
+                return typeless;
+            }
+        }
+
+        return format;
+    }
+
+    /// <summary>Desktop resource <paramref name="desktop"/> was made in <paramref name="made"/> for the game's <paramref name="format"/>.</summary>
+    public static void NoteMade(nint desktop, int format, int made)
+    {
+        if (desktop == 0)
+        {
+            return;
+        }
+
+        // A resource made at an address a freed sRGB one had is not taken for it.
+        if (made == format || SrgbResource(format, AllowUnorderedAccess) != made)
+        {
+            SrgbMade.TryRemove(desktop, out _);
+
+            return;
+        }
+
+        SrgbMade[desktop] = format;
+    }
+
+    /// <summary>The UNORM member a UAV of an sRGB <paramref name="format"/> takes; the format itself otherwise.</summary>
+    public static int UnorderedFormat(int format)
+    {
+        foreach (var (srgb, _, unorm) in SrgbFamilies)
+        {
+            if (format == srgb)
+            {
+                return unorm;
+            }
+        }
+
+        return format;
+    }
+
     /// <summary>The UNORM member of a typeless family this class makes; 0 for any other format.</summary>
     public static int Member(int format)
     {
@@ -86,14 +152,14 @@ internal static unsafe class TypelessTargets
     /// </summary>
     public static void* WholeView(nint resource, byte* copy, int size, bool shaderView, bool unordered)
     {
-        if (!Enabled || resource == 0)
+        if (resource == 0 || (!Enabled && SrgbMade.IsEmpty))
         {
             return null;
         }
 
         ResourceDescription desc;
         _ = ((delegate* unmanaged<nint, ResourceDescription*, ResourceDescription*>)ComObject.Slot(resource, GetDescSlot))(resource, &desc);
-        int member = Member(desc.Format);
+        int member = WholeFormat(resource, desc.Format, unordered);
 
         if (member == ViewFormats.Unknown || (unordered && desc.SampleCount > 1))
         {
@@ -107,6 +173,30 @@ internal static unsafe class TypelessTargets
         Fill(dwords, dwords[1], desc.DepthOrArraySize, shaderView);
 
         return copy;
+    }
+
+    /// <summary>
+    /// The format of a view without a desc of <paramref name="resource"/>, made in <paramref name="format"/>: the sRGB format
+    /// the game made it in (its UNORM member for a UAV), the UNORM member of a family made typeless with the option, else 0.
+    /// </summary>
+    private static int WholeFormat(nint resource, int format, bool unordered)
+    {
+        if (SrgbMade.TryGetValue(resource, out int srgb))
+        {
+            if (unordered)
+            {
+                return UnorderedFormat(srgb);
+            }
+
+            return srgb;
+        }
+
+        if (!Enabled)
+        {
+            return ViewFormats.Unknown;
+        }
+
+        return Member(format);
     }
 
     /// <summary>The view dimension of a whole-resource view of <paramref name="desc"/>.</summary>

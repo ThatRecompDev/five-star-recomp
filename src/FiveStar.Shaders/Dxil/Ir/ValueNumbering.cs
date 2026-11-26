@@ -1,6 +1,10 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Parts follow VIctory (fork https://github.com/fxceless/victory-fork, crates/victory-shader/src/emit/bitcode/opt.rs,
+// commit 1684989; marked where they are): Copyright (c) the VIctory contributors, GPL-3.0-or-later. See
+// THIRD_PARTY_NOTICES.md.
+
 namespace FiveStar.Shaders.Dxil.Ir;
 
 /// <summary>
@@ -33,11 +37,39 @@ public static class ValueNumbering
                 return Kind.Pure;
             case Opcode.Call:
                 return CallKind(instruction.Callee!);
-            case Opcode.Load or Opcode.Alloca or Opcode.Phi:
+            case Opcode.Load:
+                return LoadKind(instruction);
+            case Opcode.Alloca or Opcode.Phi:
                 return Kind.Other;
             default:
                 return Kind.Effect;
         }
+    }
+
+    /// <summary>
+    /// A load from a constant table reads the same whatever is stored (pure); one from local or shared memory is a read
+    /// (matched later in its block until a write, as in VIctory's fork: another thread's unsynchronised store may fall
+    /// between any two reads or before both, which the title's code cannot tell apart).
+    /// </summary>
+    private static Kind LoadKind(Instruction load)
+    {
+        var pointer = load.Operands[0];
+
+        var address = pointer as Instruction;
+
+        if (address is not null && address.Opcode == Opcode.GetElementPtr)
+        {
+            pointer = address.Operands[0];
+        }
+
+        var global = pointer as GlobalVariable;
+
+        if (global is not null && global.Initializer is not null)
+        {
+            return Kind.Pure;
+        }
+
+        return Kind.Read;
     }
 
     private static Kind CallKind(IrFunction callee)
@@ -255,7 +287,9 @@ public static class ValueNumbering
         /// <summary>Pure, cannot trap (no division), and reads only constants and values the entry computes.</summary>
         private bool Hoistable(Instruction instruction)
         {
-            if (instruction.Opcode == Opcode.Binary && (BinaryOp)instruction.Code is BinaryOp.UDiv or BinaryOp.SDiv or BinaryOp.URem or BinaryOp.SRem)
+            // A load whose block may not run could read past its table; a division could divide by zero.
+            if (instruction.Opcode == Opcode.Load
+                || (instruction.Opcode == Opcode.Binary && (BinaryOp)instruction.Code is BinaryOp.UDiv or BinaryOp.SDiv or BinaryOp.URem or BinaryOp.SRem))
             {
                 return false;
             }
@@ -292,18 +326,42 @@ public static class ValueNumbering
     {
         private readonly Instruction _instruction;
         private readonly int _hash;
+        private const int BinaryOperands = 2;
+
+        private readonly bool _commutes;
 
         public Key(Instruction instruction)
         {
             _instruction = instruction;
             var hash = HashCode.Combine(instruction.Opcode, instruction.Code, instruction.Type, instruction.Callee, instruction.SourceType);
+            _commutes = Commutes(instruction);
 
-            foreach (var operand in instruction.Operands)
+            if (_commutes)
             {
-                hash = HashCode.Combine(hash, operand);
+                // Either order hashes alike: the operands' hashes are combined in sorted order.
+                var (first, second) = (instruction.Operands[0].GetHashCode(), instruction.Operands[1].GetHashCode());
+                hash = HashCode.Combine(hash, Math.Min(first, second), Math.Max(first, second));
+            }
+            else
+            {
+                foreach (var operand in instruction.Operands)
+                {
+                    hash = HashCode.Combine(hash, operand);
+                }
             }
 
             _hash = hash;
+        }
+
+        /// <summary>
+        /// Integer sums, products and bit operations match whichever way round their operands are (VIctory's fork,
+        /// opt.rs Module::key); float ones only as written (which NaN an operation of two NaNs gives is the hardware's
+        /// choice by operand).
+        /// </summary>
+        private static bool Commutes(Instruction instruction)
+        {
+            return instruction.Opcode == Opcode.Binary && instruction.Type.IsInteger && instruction.Operands.Count == BinaryOperands
+                && (BinaryOp)instruction.Code is BinaryOp.Add or BinaryOp.Mul or BinaryOp.And or BinaryOp.Or or BinaryOp.Xor;
         }
 
         public bool Equals(Key? other)
@@ -320,6 +378,11 @@ public static class ValueNumbering
                 || !ReferenceEquals(a.SourceType, b.SourceType) || a.Operands.Count != b.Operands.Count)
             {
                 return false;
+            }
+
+            if (_commutes && ReferenceEquals(a.Operands[0], b.Operands[1]) && ReferenceEquals(a.Operands[1], b.Operands[0]))
+            {
+                return true;
             }
 
             for (var index = 0; index < a.Operands.Count; index++)

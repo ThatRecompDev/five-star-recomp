@@ -24,6 +24,7 @@ public sealed class Recording : IDisposable
     private readonly List<(int HeapIndex, ID3D12Resource Buffer, ID3D12Resource Readback, int Words)> _writable = [];
     private readonly List<(int HeapIndex, ID3D12Resource Texture, ID3D12Resource Readback, TextureLayout Layout)> _writableTextures = [];
     private readonly List<(ID3D12Resource Target, ID3D12Resource Readback)> _targets = [];
+    private (ID3D12Resource Texture, ID3D12Resource Readback)? _depth;
     private Framebuffer? _framebuffer;
     private ID3D12QueryHeap? _queries;
     private ID3D12Resource? _statistics;
@@ -210,9 +211,49 @@ public sealed class Recording : IDisposable
 
         List.RSSetViewport(new Viewport(0, 0, framebuffer.ViewportWidth, framebuffer.ViewportHeight, 0, 1));
         List.RSSetScissorRect(new RectI(0, 0, framebuffer.Width, framebuffer.Height));
-        List.OMSetRenderTargets(handles, null);
+        List.OMSetRenderTargets(handles, CreateDepth(framebuffer));
 
         return [.. Enumerable.Repeat(format, framebuffer.Count)];
+    }
+
+    /// <summary>The cleared depth buffer's view, or null without one.</summary>
+    private CpuDescriptorHandle? CreateDepth(Framebuffer framebuffer)
+    {
+        if (!framebuffer.Depth)
+        {
+            return null;
+        }
+
+        var heap = Own(_device.CreateDescriptorHeap(new DescriptorHeapDescription(DescriptorHeapType.DepthStencilView, 1)));
+        var description = ResourceDescription.Texture2D(Format.D32_Float, (uint)framebuffer.Width, (uint)framebuffer.Height, 1, 1, 1, 0, ResourceFlags.AllowDepthStencil);
+        var texture = Own(_device.CreateCommittedResource(new HeapProperties(HeapType.Default), HeapFlags.None, description, ResourceStates.DepthWrite));
+        var handle = heap.GetCPUDescriptorHandleForHeapStart();
+
+        _device.CreateDepthStencilView(texture, null, handle);
+        List.ClearDepthStencilView(handle, ClearFlags.Depth, 1.0f, 0);
+        _depth = (texture, Buffer(DepthPitch(framebuffer) * framebuffer.Height, HeapType.Readback, ResourceStates.CopyDest));
+
+        return handle;
+    }
+
+    private static int DepthPitch(Framebuffer framebuffer)
+    {
+        return ((framebuffer.Width * 4) + 255) & ~255;
+    }
+
+    private uint[] DepthWords(ID3D12Resource readback)
+    {
+        var framebuffer = _framebuffer!;
+        var pitchWords = DepthPitch(framebuffer) / 4;
+        var all = Read(readback, pitchWords * framebuffer.Height);
+        var words = new uint[framebuffer.Width * framebuffer.Height];
+
+        for (var y = 0; y < framebuffer.Height; y++)
+        {
+            Array.Copy(all, y * pitchWords, words, y * framebuffer.Width, framebuffer.Width);
+        }
+
+        return words;
     }
 
     public void BeginStatistics()
@@ -245,6 +286,17 @@ public sealed class Recording : IDisposable
             List.CopyTextureRegion(new TextureCopyLocation(readback, footprint), 0, 0, 0, new TextureCopyLocation(target, 0), null);
         }
 
+        if (_depth.HasValue)
+        {
+            var depth = _depth.Value;
+            List.ResourceBarrier(ResourceBarrier.BarrierTransition(depth.Texture, ResourceStates.DepthWrite, ResourceStates.CopySource));
+            var footprint = new PlacedSubresourceFootPrint
+            {
+                Footprint = new SubresourceFootPrint(Format.D32_Float, (uint)_framebuffer!.Width, (uint)_framebuffer.Height, 1, (uint)DepthPitch(_framebuffer)),
+            };
+            List.CopyTextureRegion(new TextureCopyLocation(depth.Readback, footprint), 0, 0, 0, new TextureCopyLocation(depth.Texture, 0), null);
+        }
+
         foreach (var (_, buffer, readback, words) in _writable)
         {
             List.ResourceBarrier(ResourceBarrier.BarrierTransition(buffer, ResourceStates.UnorderedAccess, ResourceStates.CopySource));
@@ -272,7 +324,14 @@ public sealed class Recording : IDisposable
             arguments = Read(_arguments, 6);
         }
 
-        return new WarpResult(targets, _framebuffer?.Width ?? 0, buffers, Statistics(), arguments) { Textures = textures };
+        uint[]? depthWords = null;
+
+        if (_depth.HasValue)
+        {
+            depthWords = DepthWords(_depth.Value.Readback);
+        }
+
+        return new WarpResult(targets, _framebuffer?.Width ?? 0, buffers, Statistics(), arguments) { Textures = textures, Depth = depthWords };
     }
 
     public void Dispose()

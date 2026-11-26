@@ -81,8 +81,9 @@ internal static unsafe class TargetViewDescriptions
     [HotPath]
     private static void* Patched(nint resource, void* description, byte* copy, int size, bool shaderView, bool unordered)
     {
-        // A view without a desc of a texture made typeless (--typeless-targets) takes the format it was created in.
-        if (description == null && TypelessTargets.Enabled)
+        // A view without a desc of a texture made typeless (--typeless-targets, or an sRGB target with UAVs) takes the
+        // format it was created in (a UAV of an sRGB one its UNORM member).
+        if (description == null)
         {
             void* whole = TypelessTargets.WholeView(resource, copy, size, shaderView, unordered);
 
@@ -92,7 +93,21 @@ internal static unsafe class TargetViewDescriptions
             }
         }
 
-        if (description == null || resource == 0 || !TargetFormats.HasSubstitute(*(int*)description))
+        if (description == null)
+        {
+            return description;
+        }
+
+        // The desktop takes no sRGB UAV: it stores the same bits through the UNORM member.
+        if (unordered && TypelessTargets.UnorderedFormat(*(int*)description) != *(int*)description)
+        {
+            Buffer.MemoryCopy(description, copy, size, size);
+            *(int*)copy = TypelessTargets.UnorderedFormat(*(int*)description);
+
+            return copy;
+        }
+
+        if (resource == 0 || !TargetFormats.HasSubstitute(*(int*)description))
         {
             return description;
         }

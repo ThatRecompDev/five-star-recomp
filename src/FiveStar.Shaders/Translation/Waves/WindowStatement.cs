@@ -21,6 +21,22 @@ internal sealed partial class WindowStatement
         "uint2", "uint3", "uint4", "int2", "int3", "int4", "float2", "float3", "float4", "uint64_t", "int64_t",
     }.ToFrozenSet(StringComparer.Ordinal);
 
+    /// <summary>
+    /// How many texts each per-thread cache keeps before it starts over. The analyses of one program parse the same
+    /// lines and expressions many times (each WindowAnalysis builds its graph again, the transfers ask for names and
+    /// calls of every value), and a statement is a function of its text alone.
+    /// </summary>
+    private const int CachedTexts = 1 << 16;
+
+    [ThreadStatic]
+    private static Dictionary<string, WindowStatement>? _parsed;
+
+    [ThreadStatic]
+    private static Dictionary<string, IReadOnlyList<string>>? _names;
+
+    [ThreadStatic]
+    private static Dictionary<string, IReadOnlyList<string>>? _functions;
+
     private WindowStatement(StatementKind kind, string text)
     {
         Kind = kind;
@@ -65,6 +81,44 @@ internal sealed partial class WindowStatement
     public bool IsShared { get; private init; }
 
     public static WindowStatement Parse(string line)
+    {
+        return Cached(ref _parsed, line, ParseText);
+    }
+
+    /// <summary>The variables an expression reads: names that are not functions, members or keywords.</summary>
+    public static IReadOnlyList<string> Names(string expression)
+    {
+        return Cached(ref _names, expression, NamesOf);
+    }
+
+    /// <summary>The functions an expression calls.</summary>
+    public static IReadOnlyList<string> Functions(string expression)
+    {
+        return Cached(ref _functions, expression, FunctionsOf);
+    }
+
+    /// <summary>The value of a text from this thread's cache, made and kept when it has none.</summary>
+    private static T Cached<T>(ref Dictionary<string, T>? cache, string text, Func<string, T> make)
+    {
+        cache ??= new Dictionary<string, T>(StringComparer.Ordinal);
+
+        if (cache.TryGetValue(text, out var known))
+        {
+            return known;
+        }
+
+        if (cache.Count >= CachedTexts)
+        {
+            cache.Clear();
+        }
+
+        var value = make(text);
+        cache[text] = value;
+
+        return value;
+    }
+
+    private static WindowStatement ParseText(string line)
     {
         var text = Normalize(line);
 
@@ -122,14 +176,12 @@ internal sealed partial class WindowStatement
         };
     }
 
-    /// <summary>The variables an expression reads: names that are not functions, members or keywords.</summary>
-    public static IReadOnlyList<string> Names(string expression)
+    private static IReadOnlyList<string> NamesOf(string expression)
     {
         return [.. NamePattern().Matches(expression).Select(match => match.Groups[1].Value).Where(name => !Keywords.Contains(name)).Distinct()];
     }
 
-    /// <summary>The functions an expression calls.</summary>
-    public static IReadOnlyList<string> Functions(string expression)
+    private static IReadOnlyList<string> FunctionsOf(string expression)
     {
         return [.. CallPattern().Matches(expression).Select(match => match.Groups[1].Value).Distinct()];
     }
