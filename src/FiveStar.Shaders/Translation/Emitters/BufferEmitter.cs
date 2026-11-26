@@ -142,12 +142,30 @@ internal sealed partial class BufferEmitter
         }
 
         var target = BufferAddress.View(_operands, resource, true, address);
+        var stores = Enumerable.Range(0, count).Select(dword => DwordStore(a, range, address, target, dword)).ToList();
 
-        for (var dword = 0; dword < count; dword++)
+        if (count == 1 || _state.Stage != ShaderStage.Compute)
         {
-            var inRange = BufferAddress.InRange(range, dword * BytesPerDword);
-            _state.Emit($"  if (active && {inRange}) {{ vstore_span({_operands.Read(resource, 1)}); TRACE_VSTORE({_operands.Read(resource, 0)}, {_operands.Read(resource, 1)}, {address} + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); BufStore({target}.x, {target}.y + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); }}");
+            stores.ForEach(store => _state.Emit($"  if (active && {store.InRange}) {{ {store.Hooks} {store.Store} }}"));
+
+            return;
         }
+
+        // Every dword in range: the prelude's wide store (BufStoreN); else each dword as before.
+        var allInRange = string.Join(" && ", stores.Select(store => $"({store.InRange})"));
+        var data = string.Join(", ", Enumerable.Range(0, count).Select(dword => _operands.Read(a[Data], dword)).Concat(Enumerable.Repeat("0u", Vec4 - count)));
+        var each = string.Concat(stores.Select(store => $"if ({store.InRange}) {{ {store.Hooks} {store.Store} }} "));
+        _state.Emit($"  if (active && {allInRange}) {{ {string.Concat(stores.Select(store => store.Hooks))} BufStoreN({target}.x, {target}.y, uint4({data}), {count}u); }} else if (active) {{ {each}}}");
+    }
+
+    /// <summary>One dword of a buffer store: its range check, its trace hooks and its BufStore.</summary>
+    private (string InRange, string Hooks, string Store) DwordStore(IReadOnlyList<Operand> a, (string Offset, string Limit) range, string address, string target, int dword)
+    {
+        var resource = a[Resource];
+        var value = _operands.Read(a[Data], dword);
+        var hooks = $"vstore_span({_operands.Read(resource, 1)}); TRACE_VSTORE({_operands.Read(resource, 0)}, {_operands.Read(resource, 1)}, {address} + {dword * BytesPerDword}u, {value});";
+
+        return (BufferAddress.InRange(range, dword * BytesPerDword), hooks, $"BufStore({target}.x, {target}.y + {dword * BytesPerDword}u, {value});");
     }
 
     /// <summary>

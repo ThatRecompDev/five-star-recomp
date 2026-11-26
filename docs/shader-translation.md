@@ -296,6 +296,8 @@ The D3D12.X layer creates the views and samplers, so it decides what descriptor 
 | `s_getpc_b64` pointers | high dword `CODE_TAG`; loads read the program's own code, emitted as `g_code[]`; a per-lane (vector) load indexes only the code words from the earliest table the program's s_getpc pointers are moved to (each s_getpc followed by `s_add_u32`/`s_sub_u32` of its low half; `g_data[]`, `CodeData`): indexed per lane, the whole code array cost the AMD driver 26 s and 1.9 GB for one tiled-lighting pixel program, its 53 table words 14 s and 0.5 GB. Lanes read at or after the table they point to (an address before it reads its first word). When one s_getpc is used otherwise, or there is no table, the loads keep `CodeLoad` and the program is unchanged |
 | BVH T# | dword0 = BVH base address >> 8 in the memory window (see [ray-intersection.md](ray-intersection.md)) |
 
+**Wide stores.** A compute program's store of 2 to 4 dwords a lane (`buffer_store_dwordxN`, `global_store_dwordxN`) goes through `BufStoreN` / `PtrStoreN`: when the whole hardware wave stores into one view and each lane's record follows the one before, the wave writes the block a dword a lane (store k writes dword k * lanes + lane, read from the lane holding it), else each lane its own dwords. Game memory is system memory, where the GPU stores whole sectors fast only a dword a lane: on an RTX 4090, 4 MB of 16-byte lane records took 25-40 ms, 0.6 ms written this way, 0.16 ms a dword a lane. Off with the store and span traces.
+
 The **address map** (`ResourceDescriptorHeap[GPU_MAP_HEAP]`, slot 7; `AddressMap` writes it) holds a dword per 4 GiB
 span of the address space (the address's high dword) naming the span's page table, and per 64 KiB page the heap index
 of a raw SRV over the page (its UAV follows) and the page's byte offset in that view. Every access is looked up at its
@@ -504,7 +506,7 @@ AMD pixel wave of 64) holds at most four program waves: the lane at the ballot's
 WaveActiveMax of a uint4, one component per program wave, since the same read crashed the same compiler there (a tiled
 lighting pixel program, every boot after about 2 minutes); only the group forms still read it with `vw_read`. With
 `TranslationOptions.EmulateWaveSize` (the default; `--native-waves` turns it off) a pixel, vertex or mesh program
-starts with `#define VW_WAVE <32|64>` and `VW_EMULATE 1`, and each hardware wave of H lanes holds a window of the
+that can tell (see below) starts with `#define VW_WAVE <32|64>` and `VW_EMULATE 1`, and each hardware wave of H lanes holds a window of the
 program wave of W lanes:
 
 | Hardware wave | Mapping | Result |
@@ -523,6 +525,17 @@ Each emulated program's first line names its floor, the narrowest hardware wave 
 ```
 // program wave 64; console results on hardware waves >= 16 lanes
 ```
+
+**No emulation where nothing sees it** (`Translation/Waves/NativeWaveCheck`). The emulated operations differ from the
+native ones only in lane reads by number, ballots, counts and lane numbers, and on hardware waves wider than the
+program wave. A program whose wave operations are only quad operations, "any lane" as a branch (`if ([!]vw_any(m))`,
+`scc = vw_any(m)` with SCC only branched on or picking a mask) and lane bits of masks that only ever hold literals, in
+a 64-lane program (a 32-lane one meets AMD's 64-lane pixel waves, so only quad operations), and for mesh programs also
+the window analysis below, is written without `VW_EMULATE`; its header names floor 4 and says
+`// no wave emulation: ...`. Anything else (readlane, DPP rows, permlane, swizzle, bpermute, readfirstlane, ballots,
+mbcnt, a shape the check does not know) keeps the emulation. On every hardware wave of at most 64 lanes the native form
+computes what the emulated one does, with 22 % less DXIL on `ps_light_proxy_conservative` (401 branches). `fivestar
+shader translate` prints how many programs need none.
 
 The floor is the widest aligned lane group a cross-lane read reaches: quads 4, `row_half_mirror` and DPP8 8, DPP rows and
 `v_permlane16` 16, `v_permlanex16` and `BITMASK_PERM` 32, `SWAP`/`REVERSE`/`BROADCAST` their group, `v_readlane` of a
