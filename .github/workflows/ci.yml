@@ -68,7 +68,7 @@ jobs:
         run: dotnet test tests/FiveStar.Architecture.Tests --no-build
 
       - name: Test
-        run: dotnet test FiveStar.slnx --no-build --logger trx --results-directory TestResults
+        run: dotnet test FiveStar.slnx --no-build --logger trx --results-directory TestResults --blame-crash
 
       - name: Upload test results
         if: always()
