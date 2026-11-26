@@ -168,9 +168,13 @@ ran the earlier 2^16 blocks of `ss_steps` in 0.5 to 1.5 s per DispatchMesh in w4
 hang watchdog; 2 blocks per iteration (8,192) take about 0.1 to 0.2 s. TransformSkinTransmission
 (no loops) ran to its end on zeroed inputs on the 4090 with both compilers, so the superstep structure itself holds.
 
-A direct-export mesh program (two-phase or superstep) starts every primitive of its count culled right after
-SetMeshOutputCounts, and an export culls a primitive whose indices pass the vertex count and keeps them inside it:
-uninitialised or out-of-range primitives hung NVIDIA's mesh pipeline (VIctory #587).
+A direct-export mesh program (two-phase or superstep) starts every primitive of its count as the degenerate triangle
+(0, 0, 0) with its SV_CullPrimitive false right after SetMeshOutputCounts, and an export culls a primitive whose
+indices pass the vertex count and keeps them inside it: uninitialised or out-of-range primitives hung NVIDIA's mesh
+pipeline (VIctory #587). The cull starts false, not true, because AMD's driver (RX 7800 XT) keeps a primitive culled
+once its cull was written true: the export's later false was lost, and every mesh pass drew nothing there (the mesh
+cases of `MeshShaderTests` drew no pixel with `FIVESTAR_TEST_ADAPTER=hardware`); a later true, such as the cut
+epilogue's, is kept.
 
 The superstep form first drops the wave operations whose result nothing reads (`DeadWaveOperations`: a ballot into an
 SGPR half or an scc write that is dead after it, by liveness over the block graph), after reading a lane's own bit of a

@@ -170,9 +170,12 @@ internal sealed partial class MeshDeclarations
 
     /// <summary>True for a statement that writes a mesh output (dropped from the first phase).</summary>
     /// <summary>
-    /// After SetMeshOutputCounts in a direct-export form: every primitive of the group's count starts culled, so one the
-    /// program never exports (a lane whose export is off) is not drawn from undefined indices. Uninitialised primitives
-    /// hung NVIDIA's mesh pipeline (VIctory #587 initialises them all). Each thread its own, as every output write is.
+    /// After SetMeshOutputCounts in a direct-export form: every primitive of the group's count starts as the degenerate
+    /// triangle (0, 0, 0), which covers no pixel, so one the program never exports (a lane whose export is off) is not
+    /// drawn from undefined indices; uninitialised primitives hung NVIDIA's mesh pipeline (VIctory #587 initialises them
+    /// all). Its SV_CullPrimitive starts false, not true: AMD's driver (RX 7800 XT) keeps a primitive culled once its
+    /// cull was written true, so the export's later false was lost and every world mesh pass drew nothing, while a
+    /// later true is kept. Each thread its own, as every output write is.
     /// </summary>
     public List<string> InitialPrimitives()
     {
@@ -180,7 +183,7 @@ internal sealed partial class MeshDeclarations
         [
             $"  if (in_gi < min(g_ms_np, {MaxPrimitives}u)) {{",
             "    tris[in_gi] = uint3(0u, 0u, 0u);",
-            "    prims[in_gi].cull = true;",
+            "    prims[in_gi].cull = false;",
             "  }",
         ];
     }
