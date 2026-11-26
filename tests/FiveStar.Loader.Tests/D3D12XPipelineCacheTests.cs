@@ -125,6 +125,49 @@ public sealed unsafe class D3D12XPipelineCacheTests
         }
     }
 
+    [DxcFact]
+    public void A_pipeline_another_process_builds_after_this_one_opened_the_cache_is_loaded_after_a_refresh()
+    {
+        // A warm-up run beside the game: the game opened the folder first, the warm-up's segment comes later.
+        var folder = Directory.CreateTempSubdirectory("fivestar-psojoin-");
+
+        try
+        {
+            using var device = GpuDevice.CreateWarp(debugLayer: false);
+            var (device2, root) = DesktopObjects(device.Device.NativePointer);
+            var program = TranslatedProgram.Of("cs", HardwareStage.Compute, Compile(folder.FullName));
+            var description = new ComputePipelineDescription(0, new ShaderSource(ShaderSourceKind.CacheCode, new byte[24]));
+
+            var log = new LoaderLog(new StringWriter(), null, false);
+            var warnings = new OnceLog(log);
+            var builds = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
+            builds.Start();
+
+            var game = PipelineLibraryCache.Open(folder.FullName, device2, log)!;
+            Assert.True(game.WaitForSegments(TimeSpan.FromMinutes(1)));
+            var recipe = new PipelineFactory(device2, root, new FixedProgramLibrary(program), new ProgramSignatures(folder.FullName), warnings, null, new StandInPipelines(TimeSpan.Zero, builds, builds, warnings), game)
+                .PrepareCompute(description)!;
+            var key = recipe.Stream.Key;
+            recipe.Stream.Dispose();
+
+            var (built, summary) = CreateOnce(folder.FullName, device2, root, program, description, TimeSpan.FromMinutes(1));
+            bool before = game.Contains(key);
+            game.Refresh();
+            bool after = game.Contains(key);
+            game.Dispose();
+
+            Assert.True(built, summary);
+            Assert.False(before);
+            Assert.True(after);
+            DesktopDevice.Release(root);
+            DesktopDevice.Release(device2);
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void A_segment_of_another_build_is_deleted()
     {
