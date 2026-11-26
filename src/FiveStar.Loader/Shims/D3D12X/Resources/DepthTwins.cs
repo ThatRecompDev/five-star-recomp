@@ -219,6 +219,7 @@ internal static unsafe class DepthTwins
         twin.ViewHeap = heap;
         twin.ViewIndex = index;
         Indices[index] = twin;
+        ShimContext.ActiveRuntime?.D3D12X.Bindings.Window.Records.Watch(index);
     }
 
     /// <summary>The twin whose UAV the view heap holds at desktop index <paramref name="index"/>; null for none.</summary>
@@ -233,25 +234,28 @@ internal static unsafe class DepthTwins
     /// are noted as written by the list (<see cref="DepthTwinSides"/>).
     /// </summary>
     [HotPath]
-    public static void MarkWriters(XboxObject* self, uint* userData, byte* window, TableReachEntry[] tables)
+    public static void MarkWriters(XboxObject* self, uint* userData, WindowRecordIndices records, TableReachEntry[] tables)
     {
-        if (window == null)
+        if (!records.Any)
         {
             return;
         }
 
         foreach (var entry in tables)
         {
-            if (entry.Sgpr >= CommandListBindings.UserDataDwords)
+            if (entry.Sgpr >= CommandListBindings.UserDataDwords || userData[entry.Sgpr] % DescriptorWindow.ViewRecordBytes != 0)
             {
                 continue;
             }
 
-            uint table = userData[entry.Sgpr];
+            // Only the records naming a watched index: the window itself is write-combined, and reading every record
+            // a pipeline reaches took half of each recording thread (w110).
+            uint first = userData[entry.Sgpr] / DescriptorWindow.ViewRecordBytes;
+            uint end = WindowRecordIndices.End(first, entry.Records, uint.MaxValue);
 
-            for (uint i = 0; i < entry.Records && (ulong)table + ((i + 1UL) * DescriptorWindow.ViewRecordBytes) <= DescriptorWindow.RecordsEnd; i++)
+            for (uint slot = records.NextMarked(first, end); slot < end; slot = records.NextMarked(slot + 1, end))
             {
-                uint? index = DebugLayer.DepthUavs.HeapIndex((uint*)(window + table + (i * DescriptorWindow.ViewRecordBytes)));
+                uint? index = records.HeapIndex(slot);
 
                 if (index.HasValue && Indices.TryGetValue(index.Value, out var twin))
                 {

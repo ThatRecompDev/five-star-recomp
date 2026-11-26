@@ -275,7 +275,7 @@ internal sealed unsafe class ShaderVisibleHeap
     private void Write(uint index, uint* record, ref UInt128 seen, byte* window)
     {
         seen = *(UInt128*)record;
-        MirrorTo((uint*)(window + _layout.Base + ((ulong)index * _layout.RecordBytes)), record);
+        MirrorTo(window, index, record);
     }
 
     /// <summary>
@@ -284,16 +284,19 @@ internal sealed unsafe class ShaderVisibleHeap
     /// the desktop index after the V#.
     /// </summary>
     [HotPath]
-    private void MirrorTo(uint* mirror, uint* record)
+    private void MirrorTo(byte* window, uint index, uint* record)
     {
+        ulong offset = _layout.Base + ((ulong)index * _layout.RecordBytes);
+        uint* mirror = (uint*)(window + offset);
         uint desktop = Valid(Desktop(record));
-        mirror[0] = desktop;
+        uint first = desktop;
 
         if ((record[StrideDword] & HighMask) != 0)
         {
-            mirror[0] = record[0];
+            first = record[0];
         }
 
+        mirror[0] = first;
         mirror[StrideDword] = record[StrideDword];
         mirror[RecordsDword] = record[RecordsDword];
         mirror[FormatDword] = record[FormatDword];
@@ -301,6 +304,12 @@ internal sealed unsafe class ShaderVisibleHeap
         if (_layout.RecordBytes > DesktopDword * sizeof(uint))
         {
             mirror[DesktopDword] = desktop;
+        }
+
+        // The window is write-combined: what its view records name is kept in cached memory for the per-draw scans.
+        if (_layout.RecordBytes == DescriptorWindow.ViewRecordBytes)
+        {
+            _window.Records.Written((uint)(offset / DescriptorWindow.ViewRecordBytes), first, record[StrideDword], record[RecordsDword], record[FormatDword]);
         }
     }
 
@@ -331,7 +340,7 @@ internal sealed unsafe class ShaderVisibleHeap
         }
 
         _shadow[index] = value;
-        MirrorTo((uint*)(window + _layout.Base + ((ulong)index * _layout.RecordBytes)), record);
+        MirrorTo(window, index, record);
     }
 
     /// <summary>A record's desktop index, or the null descriptor for one that names none (a null or unwritten descriptor).</summary>
