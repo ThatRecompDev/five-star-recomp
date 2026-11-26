@@ -289,7 +289,7 @@ public static class TypedViewCases
         uint[] texels = [.. Enumerable.Range(0, (Texels + 3) / 4).Select(index =>
             (uint)(index * 4) | ((uint)(index * 4 + 1) << 8) | ((uint)(index * 4 + 2) << 16) | ((uint)(index * 4 + 3) << 24))];
 
-        return Load("cs_typed_r8_uint_load", Format.R8_UInt, Uint, texels);
+        return LoadPacked("cs_typed_r8_uint_load", Format.R8_UInt, texels, id => (uint)id);
     }
 
     private static ComputeCase R16UintLoad()
@@ -297,7 +297,7 @@ public static class TypedViewCases
         uint[] texels = [.. Enumerable.Range(0, (Texels + 1) / 2).Select(index =>
             (uint)(index * 2 + 100) | ((uint)(index * 2 + 101) << 16))];
 
-        return Load("cs_typed_r16_uint_load", Format.R16_UInt, Uint, texels);
+        return LoadPacked("cs_typed_r16_uint_load", Format.R16_UInt, texels, id => (uint)id + 100);
     }
 
     private static ComputeCase Load(string name, Format format, uint viewClass, uint[] texels)
@@ -310,6 +310,20 @@ public static class TypedViewCases
         return new ComputeCase(name, program, 1, thread => [Expected.Exact(texels[thread.Id & 7])])
         {
             User = [TextureHeap, 0, 0, viewClass],
+            Textures = [new TextureResource(TextureHeap, format, Width, Height, texels)],
+        };
+    }
+
+    private static ComputeCase LoadPacked(string name, Format format, uint[] texels, Func<int, uint> expected)
+    {
+        var program = Address + "\n" + """
+            image_load v20, v[1:2], s[8:15] dmask:0x1 dim:SQ_RSRC_IMG_2D unorm
+            s_waitcnt vmcnt(0)
+            """;
+
+        return new ComputeCase(name, program, 1, thread => [Expected.Exact(expected(thread.Id & 7))])
+        {
+            User = [TextureHeap, 0, 0, Uint],
             Textures = [new TextureResource(TextureHeap, format, Width, Height, texels)],
         };
     }
