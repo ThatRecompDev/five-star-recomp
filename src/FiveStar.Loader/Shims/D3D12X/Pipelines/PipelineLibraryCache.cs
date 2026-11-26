@@ -216,12 +216,19 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Whether the cache is only read: no segment is written or deleted. Set while a capture tool (PIX) sits between
+    /// us and the driver, whose libraries then carry another stamp: issue #65's PIX boot refused, and so deleted, all
+    /// 553 segments, and would have written segments the next boot without PIX refuses in turn.
+    /// </summary>
+    public static bool ReadOnly { get; set; }
+
     /// <summary>Adds a pipeline built for the stream named <paramref name="key"/> to the active library.</summary>
     public void Store(string key, nint pipeline)
     {
         lock (_active)
         {
-            if (_library == 0 || _activeSet.Contains(key) || HResult.Failed(DesktopPipelineLibrary.Store(_library, key, pipeline)))
+            if (ReadOnly || _library == 0 || _activeSet.Contains(key) || HResult.Failed(DesktopPipelineLibrary.Store(_library, key, pipeline)))
             {
                 return;
             }
@@ -453,7 +460,11 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
                 var reason = Refusal(hr);
                 discarded[reason] = discarded.GetValueOrDefault(reason) + 1;
                 Remove(segment);
-                TryDelete(segment.Path);
+
+                if (!ReadOnly)
+                {
+                    TryDelete(segment.Path);
+                }
             }
         }
 
