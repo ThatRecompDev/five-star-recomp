@@ -96,6 +96,7 @@ internal static unsafe class XboxQueueMethods
         FrameLog.AddRefresh(start);
 
         d3d12.Residency?.Poll(objects.DesktopDevice, d3d12.Bindings.Window.WindowFlags, d3d12.Presenter.Presents);
+        d3d12.PlacedResources.Addresses.Advance(d3d12.Presenter.Presents);
 
         nint inner = self->Inner;
         d3d12.Textures.Uploader.OrderBefore(inner);

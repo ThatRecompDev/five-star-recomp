@@ -75,7 +75,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         AddressBuffers = new AddressBufferViews(GameMemory);
         AddressViews = new AddressShaderViews(Textures, AddressBuffers, Warnings, log);
         MemoryViews = new GameMemoryViews(memory, SectionHeaps, Warnings, log);
-        PlacedResources.Addresses.Observe(MemoryViews.Add);
+        PlacedResources.Addresses.Observe(MemoryViews.Add, MemoryViews.Remove);
         memory.ObservePages(MemoryViews.PageChanged);
 
         var hooks = new TitleMemoryHooks(images);
