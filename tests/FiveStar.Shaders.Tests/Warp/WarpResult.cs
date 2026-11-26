@@ -19,6 +19,9 @@ public sealed record WarpResult(
     /// <summary>Every writable texture by heap slot, texels as in <see cref="TextureResource.Words"/>.</summary>
     public IReadOnlyDictionary<int, uint[]> Textures { get; init; } = new Dictionary<int, uint[]>();
 
+    /// <summary>The depth buffer's words (D32_FLOAT bits, row-major), when the framebuffer had one.</summary>
+    public uint[]? Depth { get; init; }
+
     /// <summary>The four words of one pixel of a render target.</summary>
     public uint[] Pixel(int target, int x, int y)
     {

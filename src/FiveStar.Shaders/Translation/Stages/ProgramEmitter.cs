@@ -285,7 +285,13 @@ internal sealed partial class ProgramEmitter
             parameters.Add("PSIn pin");
         }
 
-        if (used.Overlaps(["pos_x", "pos_y", "pos_z", "pos_w", "pos"]))
+        if (_state.Outputs.Contains("mrtz") && _outputs.ConservativeDepth)
+        {
+            // A conservative depth output needs the centroid position (dxc's validator); without MSAA, or on a pixel the
+            // primitive covers whole, it is the pixel center the console reads.
+            parameters.Add("noperspective centroid float4 in_pos : SV_Position");
+        }
+        else if (used.Overlaps(["pos_x", "pos_y", "pos_z", "pos_w", "pos"]))
         {
             parameters.Add("float4 in_pos : SV_Position");
         }
@@ -298,8 +304,33 @@ internal sealed partial class ProgramEmitter
             ("bary", "float3 in_bary : SV_Barycentrics"),
         ];
         parameters.AddRange(system.Where(entry => used.Contains(entry.Input)).Select(entry => entry.Parameter));
+        var signature = $"Out main({string.Join(", ", parameters)})";
 
-        return $"Out main({string.Join(", ", parameters)})";
+        if (DepthBeforeShader())
+        {
+            return "[earlydepthstencil]\n" + signature;
+        }
+
+        return signature;
+    }
+
+    /// <summary>
+    /// DB_SHADER_CONTROL's DEPTH_BEFORE_SHADER (bit 12) without a depth export: the console tests and writes depth before
+    /// the shader runs, whatever it kills or stores, as [earlydepthstencil] does. Without it a PC driver tests a shader
+    /// that kills or writes UAVs after it runs: it runs for hidden pixels, their UAV writes land and a killed pixel's
+    /// depth is not written (3,028 of the 15,354 pixel programs of the corpus set it, 2,422 of them with KILL_ENABLE).
+    /// </summary>
+    private bool DepthBeforeShader()
+    {
+        const int DepthBeforeShaderBit = 12;
+        var pixel = _state.Config.Pixel;
+
+        if (pixel is null || _state.Outputs.Contains("mrtz"))
+        {
+            return false;
+        }
+
+        return ((pixel.DbShaderControl >> DepthBeforeShaderBit) & 1) != 0;
     }
 
     private void InsertResources(List<string> lines)

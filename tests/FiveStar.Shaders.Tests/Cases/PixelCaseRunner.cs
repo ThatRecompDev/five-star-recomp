@@ -31,13 +31,30 @@ public sealed class PixelCaseRunner
 
     public IReadOnlyList<string> Run(PixelCase testCase, bool direct = false)
     {
+        return Compare(testCase, Draw(testCase, direct));
+    }
+
+    /// <summary>Draws the case and returns what the draw left (targets and, with a pixel block, depth).</summary>
+    public WarpResult Draw(PixelCase testCase, bool direct = false)
+    {
         var pixel = Build(testCase, direct);
         var helper = testCase.HalfCoverage ? "half_vs.hlsl" : "fullscreen_vs.hlsl";
-        var vertex = _fixture.Helper(helper, "vs");
-        var framebuffer = Framebuffer.Fullscreen(testCase.Targets, PixelCase.Size, PixelCase.Size, testCase.FloatTargets);
-        var result = _fixture.Runner.Graphics(new GraphicsJob(vertex, pixel, framebuffer, testCase.Bindings));
 
-        return Compare(testCase, result);
+        if (testCase.DbShaderControl is not null)
+        {
+            helper = "depth_vs.hlsl";
+        }
+
+        var vertex = _fixture.Helper(helper, "vs");
+        var framebuffer = Framebuffer.Fullscreen(testCase.Targets, PixelCase.Size, PixelCase.Size, testCase.FloatTargets) with { Depth = testCase.DbShaderControl is not null };
+
+        return _fixture.Runner.Graphics(new GraphicsJob(vertex, pixel, framebuffer, testCase.Bindings));
+    }
+
+    /// <summary>The translated HLSL of a case.</summary>
+    public string Translate(PixelCase testCase)
+    {
+        return ShaderWorkbench.Translate(Program(testCase));
     }
 
     /// <summary>The export lines: v20.. padded with off to whole mrts, done vm on the last.</summary>
@@ -58,7 +75,8 @@ public sealed class PixelCaseRunner
         }
     }
 
-    private byte[] Build(PixelCase testCase, bool direct)
+    /// <summary>The case assembled, patched and set up as a pixel program (uint4 targets unless FloatTargets).</summary>
+    private ShaderProgram Program(PixelCase testCase)
     {
         var exports = string.Join("\n", ExportLines(testCase.Outputs));
         var source = testCase.Raw ? testCase.Program.Replace("{EXPORT}", exports, StringComparison.Ordinal) : $"{testCase.Program}\n{exports}\ns_endpgm";
@@ -71,10 +89,38 @@ public sealed class PixelCaseRunner
             signatures = new ShaderSignatures([], [.. targets]);
         }
 
-        var config = new ShaderConfig { Stage = HardwareStage.Pixel, WaveSize = WaveSize };
+        var config = new ShaderConfig { Stage = HardwareStage.Pixel, WaveSize = WaveSize, Pixel = PixelBlockOf(testCase.DbShaderControl) };
         var (instructions, code) = Patched(testCase, assembled.Instructions, assembled.Code);
-        var program = new ShaderProgram(ShaderStage.Pixel, instructions, code, signatures, config, null);
 
+        return new ShaderProgram(ShaderStage.Pixel, instructions, code, signatures, config, null);
+    }
+
+    /// <summary>A pixel block with the default input layout (persp_center, pos_x..pos_w) and the given DB_SHADER_CONTROL.</summary>
+    private static PixelConfig? PixelBlockOf(uint? control)
+    {
+        const int InputEnableField = 0x248;
+        const int ControlField = 0x24C;
+        const int MaskField = 0x250;
+        const int BlockBytes = 0x300;
+        const uint DefaultInputs = 0xF02;
+        const int UnusedPrimMaskSgpr = 16;
+
+        if (control is null)
+        {
+            return null;
+        }
+
+        var block = new byte[BlockBytes];
+        BinaryPrimitives.WriteUInt32LittleEndian(block.AsSpan(InputEnableField), DefaultInputs);
+        BinaryPrimitives.WriteUInt32LittleEndian(block.AsSpan(ControlField), control.Value);
+        BinaryPrimitives.WriteUInt32LittleEndian(block.AsSpan(MaskField), 0xF);
+
+        return PixelBlock.Decode(block, UnusedPrimMaskSgpr);
+    }
+
+    private byte[] Build(PixelCase testCase, bool direct)
+    {
+        var program = Program(testCase);
         var hlsl = testCase.TypedViews ? ShaderWorkbench.TranslateTypedViews(program) : ShaderWorkbench.Translate(program);
 
         if (direct)
