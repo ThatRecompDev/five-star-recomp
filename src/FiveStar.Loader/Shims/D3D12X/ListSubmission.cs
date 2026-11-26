@@ -7,7 +7,8 @@ namespace FiveStar.Loader.Shims.D3D12X;
 
 /// <summary>
 /// Where a command list was last submitted, kept in its wrapper past the binding state: the queue's shim fence and
-/// the value that fence reaches once the submission has finished. Reset does not clear it.
+/// the value that fence reaches once the submission has finished. Reset does not clear it; a successful Reset sets
+/// <see cref="ResetSince"/>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct ListSubmission
@@ -17,6 +18,9 @@ internal unsafe struct ListSubmission
 
     public nint Fence;
     public ulong Value;
+
+    /// <summary>1 once the list was reset after this submission: its next submission runs a new recording.</summary>
+    public int ResetSince;
 
     public static ListSubmission* Of(nint list)
     {

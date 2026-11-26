@@ -832,19 +832,34 @@ internal static unsafe class CommandListBindingMethods
         // The allocator backs another recording list, which the console allows: record on a spare (SpareAllocators).
         if (hr == HResult.InvalidArgument && desktop != 0)
         {
-            var spares = ShimContext.Runtime.D3D12X.SpareAllocators;
-            hr = spares.Reset(inner, desktop, pipeline, reset);
+            hr = ResetOnSpare(self, desktop, pipeline, reset);
+        }
 
-            // Refused on a fresh allocator too: the list's last Close failed, and the desktop list is dead.
-            if (hr == HResult.InvalidArgument)
+        // A new recording: its submission need not wait on the CPU for the last run (ListSubmissions).
+        if (!HResult.Failed(hr))
+        {
+            ListSubmission.Of((nint)self)->ResetSince = 1;
+        }
+
+        return hr;
+    }
+
+    /// <summary>The list's Reset on a spare of its allocator, or on a new desktop list when the desktop list is dead.</summary>
+    private static int ResetOnSpare(XboxObject* self, nint desktop, nint pipeline, delegate* unmanaged<nint, nint, nint, int> reset)
+    {
+        nint inner = self->Inner;
+        var spares = ShimContext.Runtime.D3D12X.SpareAllocators;
+        int hr = spares.Reset(inner, desktop, pipeline, reset);
+
+        // Refused on a fresh allocator too: the list's last Close failed, and the desktop list is dead.
+        if (hr == HResult.InvalidArgument)
+        {
+            nint replacement = spares.Replace(inner, desktop, pipeline);
+
+            if (replacement != 0)
             {
-                nint replacement = spares.Replace(inner, desktop, pipeline);
-
-                if (replacement != 0)
-                {
-                    self->Inner = replacement;
-                    hr = HResult.Ok;
-                }
+                self->Inner = replacement;
+                hr = HResult.Ok;
             }
         }
 

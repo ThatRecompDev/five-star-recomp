@@ -7,8 +7,9 @@ namespace FiveStar.Loader.Shims.D3D12X;
 
 /// <summary>
 /// A command list's device-local buffer for clamped indirect arguments (<see cref="IndirectClamp"/>), kept in its
-/// wrapper: each ExecuteIndirect of a recording takes the next piece, and a Reset starts over (a list is not run again
-/// before its last run ends, <see cref="ListSubmissions"/>). A buffer the list outgrows is not released, as commands
+/// wrapper: each ExecuteIndirect of a recording takes the next piece, and a Reset starts over (a list's next run follows
+/// its last run in its queue's order, or waits for it on the GPU on another queue, <see cref="ListSubmissions"/>). A
+/// buffer the list outgrows is not released, as commands
 /// already recorded may use it; buffers only grow (doubling), so few are left behind.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
