@@ -20,6 +20,12 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// which heaps over the game's sections share, docs/d3d12x-shim.md) or whose slot does not come free fails without an
 /// exception: the uploader is called from the game's threads, and an exception there ended the process (0xE0434352).
 /// The failed slot is dropped, and the next fill on it makes a new one.
+/// <para>
+/// The lock covers taking a slot and submitting its copy; detiling into the slot's upload buffer and recording its list
+/// run outside it, on the caller's thread, so fills from several threads (the refresh worker's settle, the frame's check
+/// of CPU-mapped textures) detile at once and only the GPU copies queue in turn. A slot being filled is busy: a fill that
+/// comes round to it waits for it.
+/// </para>
 /// </summary>
 internal sealed unsafe class GpuTextureUploader : IDisposable
 {
@@ -39,10 +45,15 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
     private const int WaitMilliseconds = 100;
     private const int MaxWaits = 600;
 
+    /// <summary>This thread's footprints of the fill it is making (several threads fill at once).</summary>
+    [ThreadStatic]
+    private static Footprints? _layout;
+
+    /// <summary>Why this thread's last fill failed.</summary>
+    [ThreadStatic]
+    private static string? _failure;
+
     private readonly object _gate = new();
-    private readonly PlacedSubresourceFootPrint[] _footprints = new PlacedSubresourceFootPrint[MaxSubresources];
-    private readonly uint[] _rows = new uint[MaxSubresources];
-    private readonly ulong[] _rowSizes = new ulong[MaxSubresources];
     private readonly UploadSlot?[] _slots = new UploadSlot?[Slots];
     private readonly AutoResetEvent _completed = new(false);
     private ID3D12Device? _device;
@@ -55,32 +66,63 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
     /// <summary>Makes the upload buffer of a size; the desktop's committed upload buffer (tests make it fail).</summary>
     public Func<ID3D12Device, ulong, ID3D12Resource> CreateStaging { get; set; } = UploadBuffer;
 
-    /// <summary>Why the last fill failed, or null.</summary>
-    public string? Failure { get; private set; }
+    /// <summary>Why this thread's last fill failed, or null (a fill on this thread, so concurrent fills do not mix them up).</summary>
+#pragma warning disable CA1822 // An instance member: callers ask the uploader they filled through.
+    public string? Failure => _failure;
+#pragma warning restore CA1822
 
     /// <summary>Copies <paramref name="source"/> (the texture's console bytes) into <paramref name="texture"/>; false when it cannot.</summary>
     public bool Upload(nint device, GpuTexture texture, byte* source, bool[]? only = null)
     {
-        lock (_gate)
+        _failure = null;
+        var layout = _layout ??= new Footprints();
+        Fill? fill;
+
+        try
         {
-            Failure = null;
-
-            if (_disposed)
+            lock (_gate)
             {
-                return false;
-            }
+                if (_disposed)
+                {
+                    return false;
+                }
 
-            try
-            {
-                return Fill(device, texture, source, only);
-            }
-            catch (Exception exception) when (exception is SharpGen.Runtime.SharpGenException or InvalidOperationException or TimeoutException)
-            {
-                Failure = exception.Message;
-
-                return false;
+                fill = Prepare(device, texture, layout);
             }
         }
+        catch (Exception exception) when (Expected(exception))
+        {
+            _failure = exception.Message;
+
+            return false;
+        }
+
+        if (fill is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            Detile(texture, source, fill.Slot.Data, fill.Count, only, layout);
+            Record(fill.Slot, fill.Resource, texture.State, fill.Count, only, layout);
+            fill.Slot.List.Close();
+        }
+        catch (Exception exception) when (Expected(exception))
+        {
+            _failure = exception.Message;
+            Abandon(fill);
+
+            return false;
+        }
+
+        return Finish(fill);
+    }
+
+    /// <summary>The exceptions a fill reports as its failure instead of letting them reach the game's thread.</summary>
+    private static bool Expected(Exception exception)
+    {
+        return exception is SharpGen.Runtime.SharpGenException or InvalidOperationException or TimeoutException;
     }
 
     /// <summary>
@@ -90,7 +132,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
     [HotPath]
     public void OrderBefore(nint queue)
     {
-        // No lock: a fill holds it while it detiles or waits for a slot, and submissions must not queue behind that.
+        // No lock: a fill holds it while it waits for a slot, and submissions must not queue behind that.
         ulong submitted = Volatile.Read(ref _submitted);
         var fence = Volatile.Read(ref _fence);
 
@@ -113,6 +155,13 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
             }
 
             _disposed = true;
+
+            // A fill detiling outside the lock still holds its slot: it sees the uploader disposed and lets it go.
+            while (_slots.Any(slot => slot?.Busy == true))
+            {
+                Monitor.Wait(_gate);
+            }
+
             bool finished = TryWaitFor(Volatile.Read(ref _submitted));
 
             for (int i = 0; i < Slots; i++)
@@ -139,7 +188,11 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         }
     }
 
-    private bool Fill(nint device, GpuTexture texture, byte* source, bool[]? only)
+    /// <summary>
+    /// Under the lock: the texture's reference, its footprints in <paramref name="layout"/> and a busy slot with an upload
+    /// buffer of their size; null when the texture cannot be filled (nothing held then).
+    /// </summary>
+    private Fill? Prepare(nint device, GpuTexture texture, Footprints layout)
     {
         Open(device);
         Marshal.AddRef(texture.Desktop);
@@ -149,7 +202,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
 
         try
         {
-            count = Subresources(texture, resource, out total);
+            count = Subresources(texture, resource, layout, out total);
         }
         catch
         {
@@ -162,16 +215,104 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         {
             resource.Dispose();
 
-            return false;
+            return null;
         }
 
-        Submit(texture, source, resource, count, total, only);
+        int index = _next;
+        UploadSlot? slot = null;
 
-        return true;
+        try
+        {
+            slot = TakeSlot(index);
+            EnsureStaging(slot, total);
+        }
+        catch
+        {
+            // Nothing of this slot runs on the GPU (a failed wait in TakeSlot leaves the slot as it was): the texture is
+            // let go, and a slot that was handed out with its list open is dropped for a new one.
+            resource.Dispose();
+
+            if (slot is not null)
+            {
+                Drop(index, slot);
+            }
+
+            throw;
+        }
+
+        slot.Busy = true;
+
+        return new Fill(slot, index, resource, count);
+    }
+
+    /// <summary>
+    /// Under the lock: submits the filled slot's copy, unless the uploader was disposed meanwhile. The slot's fence value
+    /// is set before the Signal: if the Signal fails, the next upload signals the same value after this one on the same
+    /// queue, so the slot is never reused before its copy ran.
+    /// </summary>
+    private bool Finish(Fill fill)
+    {
+        lock (_gate)
+        {
+            var slot = fill.Slot;
+
+            try
+            {
+                if (_disposed)
+                {
+                    fill.Resource.Dispose();
+
+                    return false;
+                }
+
+                ulong value = _submitted + 1;
+                slot.Target = fill.Resource;
+                slot.Fence = value;
+                _queue!.ExecuteCommandList(slot.List);
+                _queue.Signal(_fence!, value).CheckError();
+                Volatile.Write(ref _submitted, value);
+
+                return true;
+            }
+            catch (Exception exception) when (Expected(exception))
+            {
+                _failure = exception.Message;
+
+                return false;
+            }
+            finally
+            {
+                slot.Busy = false;
+                Monitor.PulseAll(_gate);
+            }
+        }
+    }
+
+    /// <summary>After a failed detile or record: the texture is let go and the slot, whose list is open, dropped for a new one.</summary>
+    private void Abandon(Fill fill)
+    {
+        lock (_gate)
+        {
+            fill.Resource.Dispose();
+            fill.Slot.Busy = false;
+            Drop(fill.Index, fill.Slot);
+            Monitor.PulseAll(_gate);
+        }
+    }
+
+    /// <summary>Drops <paramref name="slot"/> (its list open, nothing of it on the GPU); the next fill at <paramref name="index"/> makes a new one.</summary>
+    private void Drop(int index, UploadSlot slot)
+    {
+        if (ReferenceEquals(_slots[index], slot))
+        {
+            _slots[index] = null;
+        }
+
+        slot.Dispose();
     }
 
     /// <summary>The subresources one fill copies, their footprints laid out; 0 when the texture cannot be filled.</summary>
-    private int Subresources(GpuTexture texture, ID3D12Resource resource, out ulong total)
+    private int Subresources(GpuTexture texture, ID3D12Resource resource, Footprints layout, out ulong total)
     {
         var description = resource.Description;
         int count = description.MipLevels;
@@ -187,60 +328,14 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
             return 0;
         }
 
-        _device!.GetCopyableFootprints(description, 0, (uint)count, 0, _footprints, _rows, _rowSizes, out total);
+        _device!.GetCopyableFootprints(description, 0, (uint)count, 0, layout.Placed, layout.Rows, layout.RowSizes, out total);
 
-        if (!Fits(texture, count))
+        if (!Fits(texture, count, layout))
         {
             return 0;
         }
 
         return count;
-    }
-
-    /// <summary>Records and submits the copy into <paramref name="resource"/> on the next slot, which takes the reference.</summary>
-    private void Submit(GpuTexture texture, byte* source, ID3D12Resource resource, int count, ulong total, bool[]? only)
-    {
-        int index = _next;
-        UploadSlot slot;
-
-        try
-        {
-            slot = TakeSlot(index);
-            EnsureStaging(slot, total);
-            Detile(texture, source, slot.Data, count, only);
-            Record(slot, resource, texture.State, count, only);
-            slot.List.Close();
-        }
-        catch
-        {
-            // Nothing of this slot runs on the GPU (its last upload finished in TakeSlot, which left the slot as it was
-            // when that wait failed): the texture is let go, and a slot that was opened is dropped for a new one.
-            resource.Dispose();
-            DropOpened(index);
-
-            throw;
-        }
-
-        // The slot's fence value is set before the Signal: if the Signal fails, the next upload signals the same value
-        // after this one on the same queue, so the slot is never reused before its copy ran.
-        ulong value = _submitted + 1;
-        slot.Target = resource;
-        slot.Fence = value;
-        _queue!.ExecuteCommandList(slot.List);
-        _queue.Signal(_fence!, value).CheckError();
-        Volatile.Write(ref _submitted, value);
-    }
-
-    /// <summary>After a failed fill: drops slot <paramref name="index"/> when TakeSlot handed it out (its list is open).</summary>
-    private void DropOpened(int index)
-    {
-        if (_next == index)
-        {
-            return;
-        }
-
-        _slots[index]?.Dispose();
-        _slots[index] = null;
     }
 
     private void Open(nint device)
@@ -258,6 +353,12 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
     /// <summary>Slot <paramref name="index"/>, its previous upload finished and its texture let go, its list open; the next fill takes the next slot.</summary>
     private UploadSlot TakeSlot(int index)
     {
+        // Another thread may still be filling this slot (detiling outside the lock): its copy is submitted first.
+        while (_slots[index]?.Busy == true)
+        {
+            Monitor.Wait(_gate);
+        }
+
         var slot = _slots[index];
 
         if (slot is null)
@@ -349,17 +450,17 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
     }
 
     /// <summary>Whether every XG mip's rows fit the desktop footprint (element size and block rows agree).</summary>
-    private bool Fits(GpuTexture texture, int count)
+    private static bool Fits(GpuTexture texture, int count, Footprints layout)
     {
-        var layout = texture.Layout;
-        ref readonly var plane = ref layout.Planes[0];
+        var tiling = texture.Layout;
+        ref readonly var plane = ref tiling.Planes[0];
 
         for (int subresource = 0; subresource < count; subresource++)
         {
             ref readonly var mip = ref plane.Mips[subresource % plane.MipCount];
             ulong rowBytes = (ulong)mip.WidthElements * (ulong)plane.BytesPerElement;
 
-            if (rowBytes > _rowSizes[subresource] || mip.HeightElements > _rows[subresource])
+            if (rowBytes > layout.RowSizes[subresource] || mip.HeightElements > layout.Rows[subresource])
             {
                 return false;
             }
@@ -368,9 +469,9 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         return true;
     }
 
-    private void Detile(GpuTexture texture, byte* source, byte* staging, int count, bool[]? only)
+    private static void Detile(GpuTexture texture, byte* source, byte* staging, int count, bool[]? only, Footprints layout)
     {
-        var layout = texture.Layout;
+        var tiling = texture.Layout;
 
         for (int subresource = 0; subresource < count; subresource++)
         {
@@ -379,10 +480,10 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
                 continue;
             }
 
-            ref readonly var footprint = ref _footprints[subresource];
+            ref readonly var footprint = ref layout.Placed[subresource];
             uint rowPitch = footprint.Footprint.RowPitch;
-            uint slicePitch = rowPitch * _rows[subresource];
-            XgCopier.From(layout, staging + footprint.Offset, 0, (uint)subresource, source, rowPitch, slicePitch);
+            uint slicePitch = rowPitch * layout.Rows[subresource];
+            XgCopier.From(tiling, staging + footprint.Offset, 0, (uint)subresource, source, rowPitch, slicePitch);
         }
     }
 
@@ -392,7 +493,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         return only is null || (subresource < only.Length && only[subresource]);
     }
 
-    private void Record(UploadSlot slot, ID3D12Resource resource, int state, int count, bool[]? only)
+    private static void Record(UploadSlot slot, ID3D12Resource resource, int state, int count, bool[]? only, Footprints layout)
     {
         var list = slot.List;
         var resting = (ResourceStates)state;
@@ -410,7 +511,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
                 continue;
             }
 
-            var source = new TextureCopyLocation(slot.Staging!, _footprints[subresource]);
+            var source = new TextureCopyLocation(slot.Staging!, layout.Placed[subresource]);
             list.CopyTextureRegion(new TextureCopyLocation(resource, (uint)subresource), 0, 0, 0, source, null);
         }
 
@@ -441,6 +542,9 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
 
         public ulong Fence { get; set; }
 
+        /// <summary>Whether a fill is detiling into the slot or recording it outside the lock; no other fill takes it then.</summary>
+        public bool Busy { get; set; }
+
         /// <summary>The texture the last upload wrote, referenced until its copy finished.</summary>
         public ID3D12Resource? Target { get; set; }
 
@@ -459,4 +563,17 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
             Staging?.Dispose();
         }
     }
+
+    /// <summary>One fill's copyable footprints, rows and row sizes per subresource (a thread's, reused).</summary>
+    private sealed class Footprints
+    {
+        public PlacedSubresourceFootPrint[] Placed { get; } = new PlacedSubresourceFootPrint[MaxSubresources];
+
+        public uint[] Rows { get; } = new uint[MaxSubresources];
+
+        public ulong[] RowSizes { get; } = new ulong[MaxSubresources];
+    }
+
+    /// <summary>A fill between its slot taken and its copy submitted: the slot and its index, the texture's reference, its subresources.</summary>
+    private sealed record Fill(UploadSlot Slot, int Index, ID3D12Resource Resource, int Count);
 }

@@ -91,7 +91,7 @@ flowchart LR
   texture's state. The CPU does not wait: an upload takes one of 16 slots (list, allocator, upload buffer, a reference
   to the texture) and waits only for that slot's previous upload, and every game ExecuteCommandLists first has its
   queue wait on the GPU for the uploads before it. A slot keeps its texture alive until its copy is done, so a texture
-  retired and released right after a fill is not freed under the copy. Waiting for each upload on the game's threads
+  retired and released right after a fill is not freed under the copy. Only taking a slot and submitting its copy hold the uploader's lock: the detile into the slot's upload buffer and the recording of its list run on the filling thread, so fills from several threads (the refresh worker's settle, the frame's check of CPU-mapped textures) detile at once, and a slot being filled is busy for the others. Waiting for each upload on the game's threads
   cost a fifth of a frame after the story load. The upload buffer is system memory, the GPU's non-local segment, whose
   budget is half the machine's physical memory (16.3 GB on a 32 GB machine), and the heaps over the game's XMem
   sections take from the same budget: the address map opens one over every mapped page's section
