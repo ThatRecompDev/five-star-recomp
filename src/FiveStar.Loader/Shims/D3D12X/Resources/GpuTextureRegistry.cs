@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Collections.Concurrent;
 using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X.Resources;
@@ -44,6 +45,8 @@ internal sealed class GpuTextureRegistry : IDisposable
     private readonly Queue<RetiredTexture> _retired = new();
     private readonly Queue<RetiredTexture> _agedAliases = new();
     private readonly HashSet<GpuTexture> _overUnmapped = [];
+    private readonly ConcurrentDictionary<nint, long> _lastUse = new();
+    private long _keptInUse;
     private readonly Func<ulong[]> _submitted;
     private readonly Func<ulong[]> _completed;
     private int _keptAliases = KeptAliases;
@@ -433,10 +436,64 @@ internal sealed class GpuTextureRegistry : IDisposable
                 return;
             }
 
-            due.Add(queue.Dequeue().Texture);
+            queue.Dequeue();
+
+            // Still drawn into or read (Used, FindReplaced): kept for another grace.
+            if (_lastUse.TryGetValue(head.Texture.Desktop, out long used) && used > lastFrame)
+            {
+                queue.Enqueue(new RetiredTexture(head.Texture, _frame, _submitted()));
+                _keptInUse++;
+
+                continue;
+            }
+
+            _lastUse.TryRemove(head.Texture.Desktop, out _);
+            due.Add(head.Texture);
             _released++;
         }
     }
+
+    /// <summary>
+    /// A GPU-written texture of <paramref name="description"/>'s extent at <paramref name="address"/> that a newer one
+    /// replaced (retired or kept over its range), the newest of them; null for none. On the console both share the
+    /// memory and the game keeps drawing into the old one through its depth or target views, so a view of the old
+    /// shape reads it. Marks it used, which keeps it from release (<see cref="Used"/>).
+    /// </summary>
+    public GpuTexture? FindReplaced(ulong address, in ResourceDescription description)
+    {
+        lock (_gate)
+        {
+            GpuTexture? found = null;
+
+            foreach (var texture in _agedAliases.Select(entry => entry.Texture).Concat(_aliases.Values.SelectMany(queue => queue)).Concat(_retired.Select(entry => entry.Texture)))
+            {
+                if (texture.GpuWritten && texture.SameExtent(address, description))
+                {
+                    found = texture;
+                }
+            }
+
+            if (found is not null)
+            {
+                _lastUse[found.Desktop] = _frame;
+            }
+
+            return found;
+        }
+    }
+
+    /// <summary>
+    /// A depth or target view of <paramref name="desktop"/> was bound: a retired texture used within
+    /// <see cref="GraceFrames"/> presents is not released (the game still draws into it).
+    /// </summary>
+    [HotPath]
+    public void Used(nint desktop)
+    {
+        _lastUse[desktop] = Volatile.Read(ref _frame);
+    }
+
+    /// <summary>Retired textures kept past their grace because the game still used them.</summary>
+    public long KeptInUse => Interlocked.Read(ref _keptInUse);
 
     /// <summary>The texture whose range holds <paramref name="address"/>, or null.</summary>
     [HotPath]

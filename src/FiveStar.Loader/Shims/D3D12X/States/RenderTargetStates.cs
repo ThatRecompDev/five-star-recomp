@@ -107,6 +107,8 @@ internal sealed unsafe class RenderTargetStates
             return;
         }
 
+        // A depth a newer texture replaced at its address stays alive while the game draws into it (FindReplaced).
+        ShimContext.Runtime.D3D12X.Textures.Registry.Used(view.Resource);
         var states = ShimContext.Runtime.D3D12X.ListStates.For(self);
 
         if ((states.LegalStates & ResourceStates.DepthRead) == 0)

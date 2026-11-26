@@ -112,6 +112,11 @@ internal sealed unsafe class AddressShaderViews
 
         if (texture is null || !(texture.Matches(view->Address, *resource) || (texture.GpuWritten && texture.SameExtent(view->Address, *resource))))
         {
+            texture = Replaced(texture, view->Address, resource);
+        }
+
+        if (texture is null)
+        {
             return ViewFormats.Unknown;
         }
 
@@ -195,6 +200,17 @@ internal sealed unsafe class AddressShaderViews
         return resource != null && (resource->Dimension == ResourceDescription.BufferDimension || resource->Format == ViewFormats.Unknown);
     }
 
+    /// <summary>A replaced GPU-written texture of the desc's extent at <paramref name="address"/>, when <paramref name="newest"/> is GPU-written and does not answer it.</summary>
+    private GpuTexture? Replaced(GpuTexture? newest, ulong address, ResourceDescription* resource)
+    {
+        if (newest is null || !newest.GpuWritten)
+        {
+            return null;
+        }
+
+        return _textures.Registry.FindReplaced(address, *resource);
+    }
+
     private GpuTexture? Resolve(nint device, ResourceDescription* resource, AddressViewDescription* view)
     {
         ulong address = view->Address;
@@ -217,6 +233,17 @@ internal sealed unsafe class AddressShaderViews
             _textures.RefreshForView(texture);
 
             return texture;
+        }
+
+        // A view of a GPU-written texture a newer one replaced at this address reads the old one: the game still draws
+        // into it through its depth or target views (w120c: format-53 shadow pages re-made at other sizes, 48 bound after).
+        var replaced = Replaced(texture, address, resource);
+
+        if (replaced is not null)
+        {
+            _textures.Counters.Add(GpuResourceEvent.ViewResolvedReplaced);
+
+            return replaced;
         }
 
         // A view inside a texture the GPU writes is not memory to read: making a texture there would retire it.
