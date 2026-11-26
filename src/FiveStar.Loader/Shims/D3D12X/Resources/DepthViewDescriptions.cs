@@ -74,14 +74,14 @@ internal static unsafe class DepthViewDescriptions
             return Patched(description, copy, DepthStencilViewSize, DepthFormats.Desktop(*(int*)description));
         }
 
-        if (!IsDepthFamily(resource, out var desc))
+        if (!IsDepthFamily(resource, out var desc, out int typed, out _))
         {
             return null;
         }
 
         new Span<byte>(copy, DepthStencilViewSize).Clear();
         int* dwords = (int*)copy;
-        dwords[0] = DepthFormats.D32S8;
+        dwords[0] = typed;
         dwords[ViewDimensionDword] = Dimension(desc);
 
         if (desc.DepthOrArraySize > 1)
@@ -101,14 +101,14 @@ internal static unsafe class DepthViewDescriptions
             return Planed(Patched(description, copy, ShaderResourceViewSize, DepthFormats.ShaderView(*(int*)description)), copy);
         }
 
-        if (!IsDepthFamily(resource, out var desc))
+        if (!IsDepthFamily(resource, out var desc, out _, out int shaderView))
         {
             return null;
         }
 
         new Span<byte>(copy, ShaderResourceViewSize).Clear();
         int* dwords = (int*)copy;
-        dwords[0] = DepthFormats.R32X8X24;
+        dwords[0] = shaderView;
         dwords[ViewDimensionDword] = Dimension(desc) + SrvDimensionOffsetFromDsv;
         dwords[SrvMappingDword] = DefaultComponentMapping;
         dwords[SrvMipLevelsDword] = AllMips;
@@ -191,11 +191,16 @@ internal static unsafe class DepthViewDescriptions
         return copy;
     }
 
-    /// <summary>Whether <paramref name="resource"/> is in the typeless family console depth formats become.</summary>
+    /// <summary>
+    /// Whether <paramref name="resource"/> is a single-sampled typeless depth texture: R32G8X24_TYPELESS (a console depth
+    /// format), or with <c>--typeless-depth</c> any typeless depth family (<see cref="DepthFormats.TypelessResource"/>);
+    /// with the typed depth format a whole view takes and the SRV format of its depth plane.
+    /// </summary>
     [HotPath]
-    private static bool IsDepthFamily(nint resource, out ResourceDescription desc)
+    private static bool IsDepthFamily(nint resource, out ResourceDescription desc, out int typed, out int shaderView)
     {
         desc = default;
+        (typed, shaderView) = (0, 0);
 
         if (resource == 0)
         {
@@ -206,7 +211,9 @@ internal static unsafe class DepthViewDescriptions
         _ = ((delegate* unmanaged<nint, ResourceDescription*, ResourceDescription*>)ComObject.Slot(resource, GetDescSlot))(resource, &read);
         desc = read;
 
-        return read.Format == DepthFormats.R32G8X24Typeless && read.SampleCount <= 1;
+        bool family = read.Format == DepthFormats.R32G8X24Typeless || DepthFormats.TypelessDepth;
+
+        return family && read.SampleCount <= 1 && DepthFormats.TryTypelessFamily(read.Format, out typed, out shaderView);
     }
 
     /// <summary>The DSV dimension of a whole 2D texture: an array when it has more than one slice.</summary>
