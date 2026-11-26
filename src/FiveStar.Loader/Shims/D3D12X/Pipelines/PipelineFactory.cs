@@ -29,6 +29,13 @@ internal sealed unsafe class PipelineFactory
     /// </summary>
     public const int SmallComputeShaderBytes = 16 << 10;
 
+    /// <summary>
+    /// A graphics pipeline whose programs are this small (full-screen clears and blits, the Scaleform UI shaders) gets
+    /// the same first-use build: a skipped VS_Clear + PS_Clear draw left the UI target uncleared, and its frames piled up
+    /// (two credit cards overlaid in boot w115, made while 2,620 builds were queued ahead of it).
+    /// </summary>
+    public const int SmallGraphicsShaderBytes = 32 << 10;
+
     private const int MegabyteShift = 20;
     private const int GigabyteShift = 30;
 
@@ -167,7 +174,8 @@ internal sealed unsafe class PipelineFactory
 
         InFlight.Describe(recipe.Names);
         Action<nint> built = pipeline => _rectangles?.Remember(pipeline, recipe.Desktop!, recipe.Programs);
-        var hr = Create(recipe.Stream, iid, result, recipe.Names, built, deferral);
+        var small = recipe.Stream.ShaderBytes <= SmallGraphicsShaderBytes;
+        var hr = Create(recipe.Stream, iid, result, recipe.Names, built, deferral, small);
 
         return Remember(description, hr, result, recipe.Names);
     }
