@@ -430,7 +430,7 @@ internal static unsafe class CommandListBindingMethods
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDispatch))(inner, x, y, z);
             trace?.AfterDispatch(self);
-            IndirectGather.Wrote(self, IndirectGatherMiss.AfterDispatch);
+            IndirectGather.Dispatched(self, RectangleListState.Of(self)->Pipeline);
 
             if (RtStandIns.Enabled)
             {
@@ -473,7 +473,7 @@ internal static unsafe class CommandListBindingMethods
             ListActivity.Of(self)->Indirect++;
             NoteIndirect(self, signature, maxCount, arguments, argumentOffset, stride, count != 0, dispatch);
 
-            var indirect = new IndirectCall(signature, kind, stride, maxCount);
+            var indirect = new IndirectCall(signature, kind, stride, maxCount, ArgumentAddress(arguments, argumentOffset));
             RunIndirect(self, indirect, BufferCopies.Desktop(arguments, ref argumentOffset), argumentOffset, BufferCopies.Desktop(count, ref countOffset), countOffset);
             ShimContext.Runtime.D3D12X.DrawTrace?.AfterIndirect(self);
             IndirectGather.AfterWork(self, dispatch, RectangleListState.Of(self)->Pipeline);

@@ -790,6 +790,12 @@ internal sealed class CommandLineParser
                 _options.IndirectGather = true;
 
                 return true;
+
+            case "--indirect-gather-strict":
+                _options.IndirectGather = true;
+                _options.IndirectGatherStrict = true;
+
+                return true;
             case "--typeless-depth":
                 _options.TypelessDepth = true;
 

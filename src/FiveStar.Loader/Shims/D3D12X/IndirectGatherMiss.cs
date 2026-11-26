@@ -48,6 +48,9 @@ internal enum IndirectGatherMiss
     /// <summary>The gather buffer could not grow.</summary>
     NoBuffer,
 
+    /// <summary>The arguments overlap a memory write of the segment (or their console address is not known while it has one).</summary>
+    OverlapsMemoryWrite,
+
     /// <summary>The segment never opened (one started without a split the gather saw).</summary>
     OtherSegment,
 }

@@ -19,12 +19,19 @@ internal static class PipelineStores
     private const string Separator = " + ";
     private const int Wave64 = 64;
 
-    /// <summary>Mnemonic prefixes of instructions that write memory other programs or the command processor can read.</summary>
+    /// <summary>Mnemonic prefixes of instructions that write memory a buffer (so an indirect argument) can read.</summary>
     private static readonly string[] StorePrefixes =
     [
         "buffer_store", "buffer_atomic", "tbuffer_store", "global_store", "global_atomic", "flat_store", "flat_atomic",
-        "image_store", "image_atomic", "s_store", "s_buffer_store", "s_atomic", "s_buffer_atomic",
+        "s_store", "s_buffer_store", "s_atomic", "s_buffer_atomic",
     ];
+
+    /// <summary>
+    /// Image stores: through a T# they write a desktop texture, committed or in a texture-only heap
+    /// (<see cref="Resources.PlacedTextureHeaps"/>), which shares no memory with a buffer; they count only with
+    /// <c>--indirect-gather-strict</c>.
+    /// </summary>
+    private static readonly string[] ImagePrefixes = ["image_store", "image_atomic"];
 
     private static readonly ConcurrentDictionary<string, bool> Programs = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<nint, bool> Pipelines = new();
@@ -70,19 +77,32 @@ internal static class PipelineStores
         return Pipelines.ContainsKey(pipeline);
     }
 
-    /// <summary>Whether a program's instructions write memory (the mnemonics of <see cref="StorePrefixes"/>).</summary>
-    public static bool Writes(IReadOnlyList<Instruction> instructions)
+    /// <summary>
+    /// Whether a program's instructions write memory a buffer can read (the mnemonics of <see cref="StorePrefixes"/>;
+    /// with <paramref name="images"/> image stores too).
+    /// </summary>
+    public static bool Writes(IReadOnlyList<Instruction> instructions, bool images)
     {
         foreach (var instruction in instructions)
         {
             string text = instruction.Text.TrimStart();
 
-            foreach (var prefix in StorePrefixes)
+            if (StartsWithAny(text, StorePrefixes) || (images && StartsWithAny(text, ImagePrefixes)))
             {
-                if (text.StartsWith(prefix, StringComparison.Ordinal))
-                {
-                    return true;
-                }
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool StartsWithAny(string text, string[] prefixes)
+    {
+        foreach (var prefix in prefixes)
+        {
+            if (text.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                return true;
             }
         }
 
@@ -106,7 +126,7 @@ internal static class PipelineStores
                 var bytes = File.ReadAllBytes(path);
                 var config = FssmHeader.Decode(bytes);
 
-                return Writes(new RdnaDecoder().Disassemble(FssmHeader.ProgramCode(bytes), config.WaveSize ?? Wave64));
+                return Writes(new RdnaDecoder().Disassemble(FssmHeader.ProgramCode(bytes), config.WaveSize ?? Wave64), IndirectGather.Strict);
             }
             catch (Exception exception) when (exception is InvalidDataException or ArgumentException or NotSupportedException)
             {
