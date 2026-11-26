@@ -159,6 +159,7 @@ internal static unsafe class GpuTimings
             PassMilliseconds.Clear();
             QueueBusy.Clear();
             Spans.Clear();
+
             WorkShapes.Detach();
         }
     }
