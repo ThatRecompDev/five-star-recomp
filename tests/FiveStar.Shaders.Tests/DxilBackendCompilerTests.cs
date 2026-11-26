@@ -51,6 +51,19 @@ public sealed class DxilBackendCompilerTests
         }
         """;
 
+    // Wide stores of 16-byte records through a pointer and a view (rdna_prelude PtrStoreN, BufStoreN).
+    private const string Wide = """
+        #define VW_WAVE 64
+        #define VW_EMULATE 1
+        #include "rdna_prelude.hlsli"
+        [numthreads(64, 1, 1)]
+        void main(uint3 id : SV_DispatchThreadID) {
+          uint4 v = uint4(id.x, 1u, 2u, 3u);
+          PtrStoreN(id.x * 16u, 0x100u, v, 4u);
+          BufStoreN(9u, id.x * 12u, v, 3u);
+        }
+        """;
+
     [WarpFact]
     public void A_program_the_backend_cannot_lower_goes_to_the_fallback_and_the_rest_is_validated()
     {
@@ -76,6 +89,10 @@ public sealed class DxilBackendCompilerTests
             var feedback = new CompileRequest(Path.Combine(work.FullName, "feedback.hlsl"), Feedback, "cs", DisableOptimizations: false);
             Assert.True(compiler.Compile(feedback, TimeSpan.Zero).Succeeded);
             Assert.Equal((2, 1, 0), compiler.Counts);
+
+            var wide = new CompileRequest(Path.Combine(work.FullName, "wide.hlsl"), Wide, "cs", DisableOptimizations: false);
+            Assert.True(compiler.Compile(wide, TimeSpan.Zero).Succeeded);
+            Assert.Equal((3, 1, 0), compiler.Counts);
         }
         finally
         {
