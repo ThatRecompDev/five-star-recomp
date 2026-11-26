@@ -49,10 +49,13 @@ internal static partial class WindowNames
         return LaneFunctions.Contains(function) || function.StartsWith("Quad", StringComparison.Ordinal);
     }
 
-    /// <summary>A per-lane input that differs between lanes.</summary>
+    /// <summary>
+    /// A per-lane input that differs between lanes: the mesh and compute thread ids, and the inputs of the other stages
+    /// (any name not listed reads as its declared value, equal on every lane).
+    /// </summary>
     public static bool IsLaneInput(string name)
     {
-        return name is "in_gi" or "g_vw_lane";
+        return name is "in_gi" or "g_vw_lane" or "in_gtid" or "in_vid" or "in_iid" or "in_prim" or "in_pos" or "in_bary" or "in_front" or "in_sample" or "in_coverage";
     }
 
     [GeneratedRegex(@"^(?:s\d+|s_\w+|g_ms_\w+)$")]

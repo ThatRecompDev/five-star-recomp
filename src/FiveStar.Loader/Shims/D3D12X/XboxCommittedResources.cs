@@ -72,6 +72,7 @@ internal sealed unsafe class XboxCommittedResources
             var wrapper = (XboxResourceObject*)*resource;
             wrapper->TitleMemory = _hooks.Allocate((nuint)TitleAllocationSize(device, description, &desktop), ResourceAttributes);
             ResourceStates.Record(wrapper, desktop.Dimension, state, desktop.Flags);
+            Resources.TypelessTargets.NoteMade(_objects.Unwrap(*resource), description->Format, desktop.Format);
         }
 
         return hr;

@@ -54,36 +54,42 @@ internal static partial class DeadWaveOperations
 
     private static int RemoveOnce(List<CodeBlock> blocks, IReadOnlySet<string> pinned)
     {
-        var names = Candidates(blocks);
+        var ballots = blocks.Select(block => Ballots(block.Lines)).ToList();
+        var names = Candidates(blocks, ballots);
 
         if (names.Count == 0)
         {
             return 0;
         }
 
-        var liveIn = LiveIn(blocks, names, pinned);
+        // The lines stay as they are until each block's sweep, after its walk: what the walks read of them is read once.
+        var facts = blocks.Select((block, index) => LineFacts.Of(block.Lines, ballots[index], names)).ToList();
+        var liveIn = LiveIn(blocks, facts, names, pinned);
         var graph = new FlowGraph(blocks);
         int removed = 0;
 
         for (int block = 0; block < blocks.Count; block++)
         {
             var live = LiveOut(graph, block, liveIn, names, pinned);
-            removed += Sweep(blocks[block].Lines, live, names);
+            removed += Sweep(blocks[block].Lines, facts[block], live);
         }
 
         return removed;
     }
 
     /// <summary>The registers a dead-candidate line writes: ballot targets and scc.</summary>
-    private static HashSet<string> Candidates(List<CodeBlock> blocks)
+    private static HashSet<string> Candidates(List<CodeBlock> blocks, List<string?[]> ballotsPerBlock)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var lines in blocks.Select(block => block.Lines))
+        for (int block = 0; block < blocks.Count; block++)
         {
+            var lines = blocks[block].Lines;
+            var ballots = ballotsPerBlock[block];
+
             for (int i = 0; i < lines.Count; i++)
             {
-                if (Ballot(lines, i) is string target)
+                if (ballots[i] is string target)
                 {
                     names.Add(target);
                 }
@@ -97,30 +103,62 @@ internal static partial class DeadWaveOperations
         return names;
     }
 
-    /// <summary>The register a ballot at line <paramref name="i"/> writes through the next line, or null.</summary>
-    private static string? Ballot(List<string> lines, int i)
+    /// <summary>
+    /// Per line, the register a ballot there writes through the next line, or null. The temporaries' mentions are counted
+    /// once per block (the lines naming each); a regex per temporary over every line made this quadratic, and the
+    /// liveness walks ask for every line of a block again on each pass.
+    /// </summary>
+    private static string?[] Ballots(List<string> lines)
     {
-        var ballot = BallotPattern().Match(lines[i]);
+        var ballots = new string?[lines.Count];
+        Dictionary<string, int>? mentions = null;
 
-        if (!ballot.Success || i + 1 >= lines.Count)
+        for (int i = 0; i + 1 < lines.Count; i++)
         {
-            return null;
+            var ballot = BallotPattern().Match(lines[i]);
+
+            if (!ballot.Success)
+            {
+                continue;
+            }
+
+            var copy = CopyPattern().Match(lines[i + 1]);
+            string temp = ballot.Groups["temp"].Value;
+            mentions ??= TempLines(lines);
+
+            // The temporary must have no reader but the copy.
+            if (copy.Success && copy.Groups["value"].Value == temp && mentions.GetValueOrDefault(temp) == TempMentions)
+            {
+                ballots[i] = copy.Groups["name"].Value;
+            }
         }
 
-        var copy = CopyPattern().Match(lines[i + 1]);
-
-        string temp = ballot.Groups["temp"].Value;
-
-        // The temporary must have no reader but the copy.
-        if (!copy.Success || copy.Groups["value"].Value != temp || lines.Count(line => Regex.IsMatch(line, $@"\b{temp}\b")) != TempMentions)
-        {
-            return null;
-        }
-
-        return copy.Groups["name"].Value;
+        return ballots;
     }
 
-    private static List<HashSet<string>> LiveIn(List<CodeBlock> blocks, HashSet<string> names, IReadOnlySet<string> pinned)
+    /// <summary>Per temporary (<c>_t</c> and digits, a whole word), how many lines name it.</summary>
+    private static Dictionary<string, int> TempLines(List<string> lines)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var line in lines)
+        {
+            seen.Clear();
+
+            foreach (Match temp in TempPattern().Matches(line))
+            {
+                if (seen.Add(temp.Value))
+                {
+                    counts[temp.Value] = counts.GetValueOrDefault(temp.Value) + 1;
+                }
+            }
+        }
+
+        return counts;
+    }
+
+    private static List<HashSet<string>> LiveIn(List<CodeBlock> blocks, List<LineFacts> facts, HashSet<string> names, IReadOnlySet<string> pinned)
     {
         var graph = new FlowGraph(blocks);
         var liveIn = blocks.Select(_ => new HashSet<string>(StringComparer.Ordinal)).ToList();
@@ -132,7 +170,7 @@ internal static partial class DeadWaveOperations
             for (int block = blocks.Count - 1; block >= 0; block--)
             {
                 var live = LiveOut(graph, block, liveIn, names, pinned);
-                Backward(blocks[block].Lines, live, names, lines: null);
+                Backward(facts[block], live, lines: null);
 
                 if (!live.SetEquals(liveIn[block]))
                 {
@@ -187,10 +225,10 @@ internal static partial class DeadWaveOperations
     }
 
     /// <summary>Drops the block's dead ballots and scc writes (walking backward from <paramref name="live"/>); how many.</summary>
-    private static int Sweep(List<string> lines, HashSet<string> live, HashSet<string> names)
+    private static int Sweep(List<string> lines, LineFacts facts, HashSet<string> live)
     {
         var dead = new List<int>();
-        Backward(lines, live, names, dead);
+        Backward(facts, live, dead);
 
         foreach (int index in dead.OrderDescending())
         {
@@ -204,13 +242,11 @@ internal static partial class DeadWaveOperations
     /// Walks the lines backward from <paramref name="live"/>, leaving the live-in set in it; with <paramref name="lines"/>
     /// collects the indices of dead candidate lines (a ballot's two lines, an scc write).
     /// </summary>
-    private static void Backward(List<string> block, HashSet<string> live, HashSet<string> names, List<int>? lines)
+    private static void Backward(LineFacts facts, HashSet<string> live, List<int>? lines)
     {
-        var depths = Depths(block);
-
-        for (int i = block.Count - 1; i >= 0; i--)
+        for (int i = facts.Depths.Length - 1; i >= 0; i--)
         {
-            if (i > 0 && depths[i - 1] == 0 && Ballot(block, i - 1) is string target && !live.Contains(target))
+            if (i > 0 && facts.Depths[i - 1] == 0 && facts.Ballots[i - 1] is string target && !live.Contains(target))
             {
                 lines?.AddRange([i - 1, i]);
                 i--;
@@ -218,34 +254,67 @@ internal static partial class DeadWaveOperations
                 continue;
             }
 
-            if (depths[i] == 0 && SccPattern().IsMatch(block[i]) && !live.Contains(Scc))
+            if (facts.Depths[i] == 0 && facts.Scc[i] && !live.Contains(Scc))
             {
                 lines?.Add(i);
 
                 continue;
             }
 
-            var write = depths[i] == 0 ? WritePattern().Match(block[i]) : Match.Empty;
-            string reads = block[i];
-
-            if (write.Success)
+            if (facts.Writes[i] is string write)
             {
-                live.Remove(write.Groups["name"].Value);
-                reads = write.Groups["value"].Value;
+                live.Remove(write);
             }
 
-            foreach (Match name in NamePattern().Matches(reads))
+            live.UnionWith(facts.Reads[i]);
+        }
+    }
+
+    /// <summary>
+    /// What the backward walks read of a block's lines: brace depths, ballots, scc writes, the top-level plain write of
+    /// each line and the candidate names it then reads (of the value when it writes, of the whole line otherwise).
+    /// </summary>
+    private sealed record LineFacts(int[] Depths, string?[] Ballots, bool[] Scc, string?[] Writes, string[][] Reads)
+    {
+        public static LineFacts Of(List<string> lines, string?[] ballots, HashSet<string> names)
+        {
+            var depths = DepthsOf(lines);
+            var scc = new bool[lines.Count];
+            var writes = new string?[lines.Count];
+            var reads = new string[lines.Count][];
+            var lookup = names.GetAlternateLookup<ReadOnlySpan<char>>();
+
+            for (int i = 0; i < lines.Count; i++)
             {
-                if (names.Contains(name.Value))
+                scc[i] = SccPattern().IsMatch(lines[i]);
+                var write = depths[i] == 0 ? WritePattern().Match(lines[i]) : Match.Empty;
+                string read = lines[i];
+
+                if (write.Success)
                 {
-                    live.Add(name.Value);
+                    writes[i] = write.Groups["name"].Value;
+                    read = write.Groups["value"].Value;
                 }
+
+                var found = new List<string>();
+
+                foreach (var name in NamePattern().EnumerateMatches(read))
+                {
+                    if (lookup.TryGetValue(read.AsSpan(name.Index, name.Length), out var known))
+                    {
+                        found.Add(known);
+                    }
+                }
+
+                reads[i] = [.. found];
             }
+
+            return new LineFacts(depths, ballots, scc, writes, reads);
         }
     }
 
     /// <summary>The brace depth before each line (0 at the block's top level).</summary>
-    private static int[] Depths(List<string> lines)
+    private static int[] DepthsOf(List<string> lines)
     {
         var depths = new int[lines.Count];
         int depth = 0;
@@ -273,4 +342,8 @@ internal static partial class DeadWaveOperations
 
     [GeneratedRegex(@"(?<![.\w])[A-Za-z_]\w*")]
     private static partial Regex NamePattern();
+
+    // \b on both sides, as the ballot's temporary was once searched for: no word character before or after.
+    [GeneratedRegex(@"(?<!\w)_t\d+(?!\w)")]
+    private static partial Regex TempPattern();
 }

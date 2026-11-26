@@ -48,6 +48,12 @@ and its rule that a texture the host GPU copied into keeps the host's contents w
 (docs/gpu-resources.md). Its report that dead-code removal and constant folding cut its host instruction count by
 about 43% led to the DXIL backend's folding and value numbering (docs/dxil-backend.md). The code is our own.
 
+Its fork https://github.com/fxceless/victory-fork (GPL-3.0-or-later), commit `16849898f3282c4a7189b1557289c194bc720052`:
+the clean-up passes of `crates/victory-shader/src/emit/bitcode/opt.rs` are ported in the DXIL backend: the branch
+facts (`src/FiveStar.Shaders/Dxil/Ir/BranchFacts.cs`), the folds of casts there and back, nested selects, a bit widened
+and tested again and float constant comparisons (`Simplifier`, `ConstantFolding`), joins of the same values, and
+commutative keys and repeated memory reads in `ValueNumbering`. Each ported part names the source.
+
 Its audio modules were leads for the loader's audio (docs/audio-runtime.md): the xapu.dll command and 0x50-byte result
 layout (identity echo, samples written, the first-frame and frame-count fields), the note that the game's mixer sleeps
 about 4 ms per 5.3 ms block and needs millisecond timers (and that Windows 11 drops them for a hidden window unless

@@ -35,7 +35,7 @@ program is disassembled from block + 0x18 with the trailing padding removed.
 | 0x238 | 4 | SPI_PS_IN_CONTROL.NUM_INTERP (at least the highest attrN + 1) |
 | 0x23C | 4 | SPI_SHADER_PGM_RSRC2_PS: bits 1..5 user SGPRs, bit 25 load collision wave id (POPS) |
 | 0x248 | 4 | SPI_PS_INPUT_ENA (equal to ADDR) |
-| 0x24C | 4 | DB_SHADER_CONTROL: bit 0 Z export, bits 4..5 Z order, bit 6 kill enable, bit 16 primitive-ordered shading (POPS) |
+| 0x24C | 4 | DB_SHADER_CONTROL: bit 0 Z export, bits 4..5 Z order, bit 6 kill enable, bit 12 depth before shader, bits 13..14 conservative Z export (1 less than Z, 2 greater), bit 16 primitive-ordered shading (POPS) |
 | 0x250 | 4 | CB_SHADER_MASK: 4 bits per render target |
 
 Input VGPRs are packed from v0 in SPI_PS_INPUT_ENA bit order, skipping disabled inputs:

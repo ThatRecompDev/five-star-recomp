@@ -175,7 +175,32 @@ public sealed class ComputeCaseRunner
         return Compare(testCase, written, wave);
     }
 
+    /// <summary>The superstep form of a case as <see cref="RunSupersteps"/> compiles it (without the carry).</summary>
+    public string TranslateSupersteps(ComputeCase testCase)
+    {
+        var options = new TranslationOptions(StructuredControlFlow: false, PinWaveSize: false, EmulateWaveSize: true);
+
+        return HlslTranslator.SuperstepVariant(Program(testCase with { Threads = (2 * testCase.Wave, 1, 1) }), options);
+    }
+
     private byte[] Build(ComputeCase testCase, Func<ShaderProgram, string>? variant, bool direct)
+    {
+        var program = Program(testCase);
+
+        if (variant is not null)
+        {
+            return _fixture.Workbench.Compile($"{testCase.Name}_w32_{testCase.ThreadsPerGroup}", variant(program), "cs");
+        }
+
+        if (direct)
+        {
+            return _fixture.Workbench.Compile(testCase.Name, ShaderWorkbench.Translate(program), "cs", direct: true);
+        }
+
+        return _fixture.Workbench.Compile(testCase.Name, ShaderWorkbench.Translate(program), "cs");
+    }
+
+    private ShaderProgram Program(ComputeCase testCase)
     {
         var assembled = _fixture.Workbench.Assemble(testCase.Name, Source(testCase), testCase.Wave);
         var groupIds = testCase.GroupAxes.Select((axis, index) => new GroupIdSgpr(axis, ComputeCase.UserSgprCount + index)).ToList();
@@ -198,19 +223,8 @@ public sealed class ComputeCaseRunner
             LdsBytes = testCase.LdsBytes,
             Compute = compute,
         };
-        var program = new ShaderProgram(ShaderStage.Compute, assembled.Instructions, assembled.Code, ShaderSignatures.None, config, null);
 
-        if (variant is not null)
-        {
-            return _fixture.Workbench.Compile($"{testCase.Name}_w32_{testCase.ThreadsPerGroup}", variant(program), "cs");
-        }
-
-        if (direct)
-        {
-            return _fixture.Workbench.Compile(testCase.Name, ShaderWorkbench.Translate(program), "cs", direct: true);
-        }
-
-        return _fixture.Workbench.Compile(testCase.Name, ShaderWorkbench.Translate(program), "cs");
+        return new ShaderProgram(ShaderStage.Compute, assembled.Instructions, assembled.Code, ShaderSignatures.None, config, null);
     }
 
     private static string Source(ComputeCase testCase)

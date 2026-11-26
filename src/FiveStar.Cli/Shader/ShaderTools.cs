@@ -57,6 +57,9 @@ internal static class ShaderTools
         return LlvmToolPaths.InFolder(folder);
     }
 
+    /// <summary>The flag that runs the LLVM post-pass over the backend's output.</summary>
+    public const string LlvmOptFlag = "dxil-llvm-opt";
+
     public static string Dxc(CommandArguments arguments)
     {
         var path = arguments.Option("dxc") ?? Environment.GetEnvironmentVariable(DxcVariable);
@@ -78,15 +81,28 @@ internal static class ShaderTools
     /// The compiler <c>--backend</c> names: dxc (hlsl, the default); dxil, the DXIL backend with dxc for what it cannot
     /// lower or dxil.dll rejects; dxil-only, no dxc at all.
     /// </summary>
+    /// <remarks>
+    /// <c>--dxil-llvm-opt</c> runs dxcompiler.dll's LLVM passes over the backend's containers (<see cref="LlvmPostPass"/>),
+    /// each checked by dxil.dll when it is there, even for dxil-only.
+    /// </remarks>
     public static IShaderCompiler Backend(CommandArguments arguments, bool retry)
     {
         var dxc = Compiler(arguments, retry);
+        var validator = DxilBackendCompiler.ValidatorBeside(dxc.Options.Path);
+        LlvmPostPass? postPass = null;
+        string? onlyValidator = null;
+
+        if (arguments.Flag(LlvmOptFlag))
+        {
+            postPass = new LlvmPostPass(dxc.Options.Path);
+            onlyValidator = validator;
+        }
 
         return arguments.Option("backend") switch
         {
             null or "hlsl" => dxc,
-            "dxil" => new DxilBackendCompiler(dxc.Options, dxc, new InProcessBackend(DxilBackendCompiler.ValidatorBeside(dxc.Options.Path))),
-            "dxil-only" => new DxilBackendCompiler(dxc.Options, null, new InProcessBackend(null)),
+            "dxil" => new DxilBackendCompiler(dxc.Options, dxc, new InProcessBackend(validator, postPass)),
+            "dxil-only" => new DxilBackendCompiler(dxc.Options, null, new InProcessBackend(onlyValidator, postPass)),
             var other => throw new ArgumentException($"--backend {other}: expected hlsl, dxil or dxil-only"),
         };
     }

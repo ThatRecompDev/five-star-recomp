@@ -40,6 +40,36 @@
     </ItemGroup>
   </Target>
 
+  <!--
+    The hash of what translations depend on, as assembly metadata "TranslatorSources": every source of this assembly but
+    the DXIL backend's (Dxil/) and the pipeline cache readers' (Cache/), which no translation reaches
+    (TranslatorSourcesTests checks that), with the runtime headers, the defined constants and the SDK that builds it.
+    The translation cache (Compilation/TranslationCache) is keyed by it instead of the assembly's bytes, so a change
+    to the backend or the cache readers no longer translates every program again.
+  -->
+  <Target Name="HashTranslatorSources" BeforeTargets="GetAssemblyAttributes">
+    <ItemGroup>
+      <_TranslatorSource Include="@(Compile);@(EmbeddedResource)" Exclude="Dxil\**;Cache\**" />
+    </ItemGroup>
+    <GetFileHash Files="@(_TranslatorSource)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_TranslatorSourceHash" />
+    </GetFileHash>
+    <ItemGroup>
+      <_TranslatorInput Include="@(_TranslatorSourceHash->'%(RecursiveDir)%(Filename)%(Extension)=%(FileHash)')" />
+      <_TranslatorInput Include="constants=$(DefineConstants.Replace(';', ','))" />
+      <_TranslatorInput Include="sdk=$(NETCoreSdkVersion)" />
+    </ItemGroup>
+    <Hash ItemsToHash="@(_TranslatorInput)">
+      <Output TaskParameter="HashResult" PropertyName="_TranslatorSources" />
+    </Hash>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>TranslatorSources</_Parameter1>
+        <_Parameter2>$(_TranslatorSources)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+
   <!-- HLSL runtime helpers included by every translated program; written next to the generated HLSL. -->
   <ItemGroup>
     <EmbeddedResource Include="Translation\Runtime\*.hlsli" LogicalName="%(Filename)%(Extension)" />

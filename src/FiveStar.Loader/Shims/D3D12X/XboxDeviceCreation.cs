@@ -163,7 +163,7 @@ internal static unsafe class XboxDeviceCreation
 
             LogCreation("Slot27 CreateCommittedResource", (int*)properties, description, hr);
 
-            return WrapResource(hr, resource, desktop, home);
+            return WrapResource(hr, resource, description, desktop, home);
         }
         catch (Exception exception)
         {
@@ -187,7 +187,7 @@ internal static unsafe class XboxDeviceCreation
 
             LogCreation("Slot29 CreatePlacedResource", null, description, hr);
 
-            return WrapResource(hr, resource, desktop, home);
+            return WrapResource(hr, resource, description, desktop, home);
         }
         catch (Exception exception)
         {
@@ -211,7 +211,7 @@ internal static unsafe class XboxDeviceCreation
 
             LogCreation("Slot30 CreateReservedResource", null, description, hr);
 
-            return WrapResource(hr, resource, desktop, home);
+            return WrapResource(hr, resource, description, desktop, home);
         }
         catch (Exception exception)
         {
@@ -432,13 +432,14 @@ internal static unsafe class XboxDeviceCreation
     }
 
     /// <summary>Wraps a created resource and records its dimension, home state and flags on the wrapper.</summary>
-    private static int WrapResource(int hr, nint* resource, in ResourceDescription desktop, int home)
+    private static int WrapResource(int hr, nint* resource, ResourceDescription* description, in ResourceDescription desktop, int home)
     {
         hr = Objects.WrapResult(hr, XboxInterfaceKind.Resource, resource);
 
         if (!HResult.Failed(hr) && resource != null)
         {
             ResourceStates.Record(Objects.AsResource(*resource), desktop.Dimension, home, desktop.Flags);
+            Resources.TypelessTargets.NoteMade(Objects.Unwrap(*resource), description->Format, desktop.Format);
         }
 
         return hr;

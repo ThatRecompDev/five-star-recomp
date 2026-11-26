@@ -76,6 +76,8 @@ internal sealed unsafe class GpuTextures : IDisposable
         byte* clearCopy = stackalloc byte[DepthViewDescriptions.ClearValueSize];
         bool readOnly = (description->Flags & GpuWrittenFlags) == 0;
         int hr = CreateTexture(device, &desc, state, DepthViewDescriptions.ClearValue(clear, clearCopy, desc.Format), readOnly, out desktop);
+        TypelessTargets.NoteMade(desktop, description->Format, desc.Format);
+
         Counters.Add(GpuResourceEvent.PlacedTexture);
 
         if (HResult.Failed(hr))

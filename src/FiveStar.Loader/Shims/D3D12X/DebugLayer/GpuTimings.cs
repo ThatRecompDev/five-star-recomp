@@ -20,7 +20,10 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// resolves the list's block of <see cref="QueriesPerBlock"/> queries into a readback buffer. Each submission queues
 /// the lists' passes with the queue fence value they end at, and a thread reads them once the fence passed (no wait
 /// on the GPU): durations are summed per queue and pass, and <see cref="Report"/> prints them per frame with the
-/// sample line, the 10 largest per queue and the queue's busy time. One query pair per pass, not per draw.
+/// sample line, the 10 largest per queue and the queue's busy time. One query pair per pass, not per draw. Each
+/// recording's span is also placed on the CPU clock (the queue's clock calibration), so the report adds how long any
+/// queue had work in the time all queues' work spanned, and how long none had: what the per-queue sums cannot tell
+/// when queues overlap or wait for each other (w95a: queue #1 busy 247-562 ms of 700-1600 ms frames).
 /// </summary>
 internal static unsafe class GpuTimings
 {
@@ -39,7 +42,11 @@ internal static unsafe class GpuTimings
     private const int EndQuerySlot = 53;
     private const int ResolveQueryDataSlot = 54;
     private const int TimestampFrequencySlot = 16;
+    private const int ClockCalibrationSlot = 17;
     private const int CompletedValueSlot = 8;
+
+    /// <summary>A queue's clock calibration is taken again after this long, so the GPU clock's drift stays small.</summary>
+    private const long CalibrationMilliseconds = 1000;
 
     /// <summary>D3D12_QUERY_TYPE_TIMESTAMP.</summary>
     private const int TimestampQuery = 2;
@@ -78,7 +85,8 @@ internal static unsafe class GpuTimings
 
     private static readonly ConcurrentDictionary<nint, ListTimes> Lists = new();
     private static readonly ConcurrentQueue<Submission> Submitted = new();
-    private static readonly ConcurrentDictionary<nint, ulong> Frequencies = new();
+    private static readonly ConcurrentDictionary<nint, QueueClock> Clocks = new();
+    private static readonly List<(long Start, long End)> Spans = [];
     private static readonly Dictionary<(int Queue, string Pass), double> PassMilliseconds = [];
     private static readonly Dictionary<int, double> QueueBusy = [];
     private static readonly object Gate = new();
@@ -123,6 +131,7 @@ internal static unsafe class GpuTimings
         _readback.Map(0, null, &data).CheckError();
 
         _values = (ulong*)data;
+        WorkShapes.Attach(desktop);
 
         if (Interlocked.Exchange(ref _collecting, 1) == 0)
         {
@@ -146,9 +155,12 @@ internal static unsafe class GpuTimings
 
             Lists.Clear();
             Submitted.Clear();
-            Frequencies.Clear();
+            Clocks.Clear();
             PassMilliseconds.Clear();
             QueueBusy.Clear();
+            Spans.Clear();
+
+            WorkShapes.Detach();
         }
     }
 
@@ -290,7 +302,7 @@ internal static unsafe class GpuTimings
             return;
         }
 
-        ulong frequency = Frequencies.GetOrAdd(desktopQueue, Frequency);
+        var clock = Clock(desktopQueue);
         long now = Environment.TickCount64;
 
         foreach (nint list in lists)
@@ -298,7 +310,7 @@ internal static unsafe class GpuTimings
             if (Lists.TryGetValue(list, out var times) && times.Closed is not null)
             {
                 Volatile.Write(ref LastUse[times.Closed.Block], now);
-                Submitted.Enqueue(new Submission(number, frequency, fence, value, times.Closed));
+                Submitted.Enqueue(new Submission(number, clock, fence, value, times.Closed));
             }
         }
     }
@@ -312,6 +324,7 @@ internal static unsafe class GpuTimings
         long frames = Math.Max(1, presents - Interlocked.Exchange(ref _reportedPresents, presents));
         var text = new StringBuilder();
         text.Append(CultureInfo.InvariantCulture, $"gpu over {frames} frames");
+        var shownPasses = new HashSet<string>(StringComparer.Ordinal);
 
         lock (Gate)
         {
@@ -319,16 +332,22 @@ internal static unsafe class GpuTimings
 
             foreach (var queue in QueueBusy.Keys.Order())
             {
-                var passes = PassMilliseconds.Where(entry => entry.Key.Queue == queue).OrderByDescending(entry => entry.Value).Take(PassesShown);
+                var passes = PassMilliseconds.Where(entry => entry.Key.Queue == queue).OrderByDescending(entry => entry.Value).Take(PassesShown).ToList();
+                shownPasses.UnionWith(passes.Select(entry => entry.Key.Pass));
                 string shown = string.Join(", ", passes.Select(entry => string.Create(CultureInfo.InvariantCulture, $"{entry.Key.Pass} {entry.Value / frames:F2} ms")));
                 text.Append(CultureInfo.InvariantCulture, $"{separator}queue #{queue} busy {QueueBusy[queue] / frames:F2} ms/frame ({shown})");
                 separator = "; ";
             }
 
+            var (busy, spanned) = Union(Spans);
+            text.Append(CultureInfo.InvariantCulture, $"; all queues: some queue busy {CpuMilliseconds(busy) / frames:F2} of the {CpuMilliseconds(spanned) / frames:F2} ms/frame their work spanned, none {CpuMilliseconds(spanned - busy) / frames:F2}");
+
             PassMilliseconds.Clear();
             QueueBusy.Clear();
+            Spans.Clear();
         }
 
+        text.Append(WorkShapes.Report(frames, shownPasses, Named));
         text.Append(CultureInfo.InvariantCulture, $"; {Interlocked.Exchange(ref _untimed, 0)} recordings without a free block, {Interlocked.Exchange(ref _stale, 0)} read after their block was reused, {Interlocked.Exchange(ref _overflowed, 0)} with more than {QueriesPerBlock - 1} passes (the last named \"{RestSuffix.Trim()}\" holds the rest)");
 
         return text.ToString();
@@ -397,7 +416,7 @@ internal static unsafe class GpuTimings
     {
         var recording = submission.Recording;
 
-        if (Volatile.Read(ref Generations[recording.Block]) != recording.Generation || submission.Frequency == 0)
+        if (Volatile.Read(ref Generations[recording.Block]) != recording.Generation || submission.Clock.Frequency == 0)
         {
             Interlocked.Increment(ref _stale);
 
@@ -437,10 +456,11 @@ internal static unsafe class GpuTimings
                 }
 
                 var key = (submission.Queue, pass);
-                PassMilliseconds[key] = PassMilliseconds.GetValueOrDefault(key) + Milliseconds(values[i + 1] - values[i], submission.Frequency);
+                PassMilliseconds[key] = PassMilliseconds.GetValueOrDefault(key) + Milliseconds(values[i + 1] - values[i], submission.Clock.Frequency);
             }
 
-            QueueBusy[submission.Queue] = QueueBusy.GetValueOrDefault(submission.Queue) + Milliseconds(values[passes] - values[0], submission.Frequency);
+            QueueBusy[submission.Queue] = QueueBusy.GetValueOrDefault(submission.Queue) + Milliseconds(values[passes] - values[0], submission.Clock.Frequency);
+            Spans.Add((submission.Clock.ToCpu(values[0]), submission.Clock.ToCpu(values[passes])));
         }
     }
 
@@ -496,13 +516,66 @@ internal static unsafe class GpuTimings
         ((delegate* unmanaged<nint, nint, int, uint, void>)ComObject.Slot(desktop, EndQuerySlot))(desktop, _heap!.NativePointer, TimestampQuery, (uint)index);
     }
 
-    /// <summary>The queue's timestamp ticks per second; 0 when it has none (a copy queue without timestamps).</summary>
-    private static ulong Frequency(nint queue)
+    /// <summary>
+    /// The queue's timestamp frequency and a clock calibration (a GPU timestamp and the CPU's QueryPerformanceCounter at
+    /// the same moment), taken again once older than <see cref="CalibrationMilliseconds"/>; frequency 0 when the queue
+    /// has no timestamps (a copy queue without them).
+    /// </summary>
+    private static QueueClock Clock(nint queue)
     {
-        ulong frequency = 0;
-        _ = ((delegate* unmanaged<nint, ulong*, int>)ComObject.Slot(queue, TimestampFrequencySlot))(queue, &frequency);
+        long now = Environment.TickCount64;
 
-        return frequency;
+        if (Clocks.TryGetValue(queue, out var clock) && now - clock.Taken < CalibrationMilliseconds)
+        {
+            return clock;
+        }
+
+        ulong frequency = 0;
+        ulong gpu = 0;
+        ulong cpu = 0;
+        _ = ((delegate* unmanaged<nint, ulong*, int>)ComObject.Slot(queue, TimestampFrequencySlot))(queue, &frequency);
+        _ = ((delegate* unmanaged<nint, ulong*, ulong*, int>)ComObject.Slot(queue, ClockCalibrationSlot))(queue, &gpu, &cpu);
+
+        clock = new QueueClock(frequency, gpu, (long)cpu, now);
+        Clocks[queue] = clock;
+
+        return clock;
+    }
+
+    /// <summary>The time some span covers, and the time from the first start to the last end, in CPU ticks.</summary>
+    internal static (long Busy, long Spanned) Union(List<(long Start, long End)> spans)
+    {
+        if (spans.Count == 0)
+        {
+            return (0, 0);
+        }
+
+        spans.Sort();
+        long busy = 0;
+        long first = spans[0].Start;
+        var (start, end) = spans[0];
+
+        foreach (var span in spans)
+        {
+            if (span.Start > end)
+            {
+                busy += end - start;
+                (start, end) = span;
+            }
+            else if (span.End > end)
+            {
+                end = span.End;
+            }
+        }
+
+        busy += end - start;
+
+        return (busy, end - first);
+    }
+
+    private static double CpuMilliseconds(long ticks)
+    {
+        return ticks * MillisecondsPerSecond / System.Diagnostics.Stopwatch.Frequency;
     }
 
     /// <summary>One list's timing state: its block, the passes it began, and what its last Close resolved.</summary>
@@ -532,5 +605,17 @@ internal static unsafe class GpuTimings
     /// <summary>A closed recording's block (and its generation then), the first pipeline of each pass, and whether its last pass holds the work past the block's passes.</summary>
     private sealed record ClosedRecording(int Block, int Generation, nint[] Pipelines, bool Overflow);
 
-    private readonly record struct Submission(int Queue, ulong Frequency, nint Fence, ulong Value, ClosedRecording Recording);
+    private readonly record struct Submission(int Queue, QueueClock Clock, nint Fence, ulong Value, ClosedRecording Recording);
+
+    /// <summary>A queue's timestamp frequency, a GPU timestamp and the CPU's QueryPerformanceCounter then, and when it was taken.</summary>
+    private readonly record struct QueueClock(ulong Frequency, ulong Gpu, long Cpu, long Taken)
+    {
+        /// <summary>A GPU timestamp of this queue on the CPU's clock.</summary>
+        public long ToCpu(ulong timestamp)
+        {
+            double seconds = ((long)timestamp - (long)Gpu) / (double)Frequency;
+
+            return Cpu + (long)(seconds * System.Diagnostics.Stopwatch.Frequency);
+        }
+    }
 }

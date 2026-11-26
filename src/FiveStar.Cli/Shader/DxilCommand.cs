@@ -29,19 +29,21 @@ internal static class DxilCommand
     private const string PhasesFlag = "phases";
     private const string CompareFlag = "compare";
     private const string NoOptimizeFlag = "no-optimize";
+    private const string NoIfConversionFlag = "no-if-conversion";
     private const string LogName = "dxil-backend.tsv";
 
     public static int Run(IReadOnlyList<string> args)
     {
-        var arguments = new CommandArguments(args, new HashSet<string> { ValidateFlag, PhasesFlag, CompareFlag, NoOptimizeFlag });
+        var arguments = new CommandArguments(args, new HashSet<string> { ValidateFlag, PhasesFlag, CompareFlag, NoOptimizeFlag, NoIfConversionFlag });
 
         if (arguments.Positional.Count != OnePath)
         {
-            throw new ArgumentException("dxil <hlsl file or folder> [--out <dir>] [--validate] [--compare] [--stages cs,ps,vs] [--limit N] [--step K] [--jobs N] [--repeat N] [--dxc <path>] [--no-optimize]");
+            throw new ArgumentException("dxil <hlsl file or folder> [--out <dir>] [--validate] [--compare] [--stages cs,ps,vs] [--limit N] [--step K] [--jobs N] [--repeat N] [--dxc <path>] [--no-optimize] [--no-if-conversion]");
         }
 
         DxilBackend.MemoryLocalsCases = arguments.IntegerOption("memory-locals") ?? 0;
         DxilBackend.Optimize = !arguments.Flag(NoOptimizeFlag);
+        DxilBackend.ConvertBranches = !arguments.Flag(NoIfConversionFlag);
 
         var files = Sources(arguments);
         var output = arguments.Option("out");

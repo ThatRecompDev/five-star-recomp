@@ -60,7 +60,7 @@ public sealed class DxilBackendCompilerTests
         {
             var dxc = ShaderToolchain.Find().Dxc;
             var fallback = new RecordingCompiler(DxcOptions.Defaults(dxc, retry: false));
-            var compiler = new DxilBackendCompiler(fallback.Options, fallback, new InProcessBackend(DxilBackendCompiler.ValidatorBeside(dxc)));
+            var compiler = new DxilBackendCompiler(fallback.Options, fallback, new InProcessBackend(DxilBackendCompiler.ValidatorBeside(dxc), null));
             var lowered = new CompileRequest(Path.Combine(work.FullName, "lowered.hlsl"), Lowered, "cs", DisableOptimizations: false);
             var notLowered = new CompileRequest(Path.Combine(work.FullName, "other.hlsl"), NotLowered, "cs", DisableOptimizations: false);
 

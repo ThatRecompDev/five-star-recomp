@@ -9,6 +9,7 @@ public enum ShaderFlagBits : ulong
 {
     None = 0,
     EnableDoublePrecision = 1UL << 2,
+    ForceEarlyDepthStencil = 1UL << 3,
     EnableRawAndStructuredBuffers = 1UL << 4,
     EnableDoubleExtensions = 1UL << 6,
     StencilExport = 1UL << 11,

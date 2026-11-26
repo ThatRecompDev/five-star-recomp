@@ -78,7 +78,10 @@ flowchart LR
   another family (an alias of its bytes) is counted (`ViewCastLost`, `ViewReinterpretLost`) and each pair of formats
   named once. `--typeless-targets` (off by default, `TypelessTargets`) makes GPU-written R8G8B8A8, B8G8R8A8,
   B8G8R8X8 and R8 UNORM textures in their TYPELESS format so such views keep the game's member; a view the game makes
-  without a desc on one gets the UNORM whole-resource desc.
+  without a desc on one gets the UNORM whole-resource desc. Always, whatever the option: an sRGB R8G8B8A8, B8G8R8A8 or B8G8R8X8
+  texture with ALLOW_UNORDERED_ACCESS (the G-buffer albedo, which CS_2GBufFixupAndClearTemp writes through a UAV) is made
+  typeless, as the desktop takes no sRGB UAV: its UAVs are UNORM (the same bits stored, as on the console), its RTVs
+  and SRVs sRGB, also those made without a desc.
 - **Upload** (`GpuTextureUploader`): every subresource detiled by `XgCopier.From` into an upload buffer at the
   desktop's copyable footprint, copied on a private direct queue between transitions out of and back into the
   texture's state. The CPU does not wait: an upload takes one of 16 slots (list, allocator, upload buffer, a reference

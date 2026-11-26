@@ -117,6 +117,7 @@ public sealed unsafe class DrawProbeReadbackTests
         Assert.True(shape.Value.Matches(2560, 1440, 10));
         Assert.False(shape.Value.Matches(2560, 1440, 28));
         Assert.Null(TargetShape.Parse("2560x1440"));
+        Assert.True(TargetShape.Parse("2560x1440:29,2560x1440:10")!.Value.Matches(2560, 1440, 29));
         Assert.Null(TargetShape.Parse("hdr"));
     }
 

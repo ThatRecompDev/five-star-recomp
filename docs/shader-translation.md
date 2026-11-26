@@ -205,6 +205,16 @@ whole console waves because `readfirstlane` takes a per-lane value: TransformD r
 (GS_ALLOC_REQ's m0, and every lane's export test) from the first lane's meshlet record, indexed per lane by instance,
 equal across the wave only by the data.
 
+The same rewrite runs on the superstep form of compute programs, where each such operation is a group round too, and,
+for the values only (no skips: a branch costs less there than running the path), on the native mesh form, where an
+emulated readfirstlane is a ballot and a lane read. Compute and the other stages read their per-lane inputs under other
+names (`in_gtid`, `in_vid`, `in_pos`, ...), which the analysis now treats as lane values; before, an unknown name read
+as its declared value, equal on every lane. `CS_ShadowRenderTiledCascadesCBPPPC`'s superstep form went from 831 stops
+to 216, 1.89 to 1.54 MB of DXIL (with if-conversion), and its RTX 4090 pipeline from 4.2 to 2.7 GB peak memory (81 s
+either way). In every 4th mesh program (2,192) the native forms' readfirstlanes fell from 32,014 to 14,834 and their
+`vw_any`s from 68,732 to 66,814; no floor changed (1,833 at 4 lanes, 359 superstep forms with 9,311 stops, which had
+the rewrite before).
+
 A two-phase mesh program the window analysis holds back that way now exchanges those values instead
 (`FirstLaneExchange`): a v_readfirstlane under a full EXEC before GS_ALLOC_REQ becomes a deposit by console lane 0
 into groupshared memory, a yield to the group's barrier step and a read of lane 0's value by every thread of the
@@ -378,7 +388,7 @@ world against the wrong depths in victory-gta6's meshlet culling. Other dimensio
 
 | Stage | Entry | Inputs | Outputs |
 |---|---|---|---|
-| PS | `Out main(PSIn pin, SV_Position, SV_IsFrontFace, SV_SampleIndex, SV_Coverage, SV_Barycentrics)` (only those used) | attrN = N-th non-system ISG1 register, original semantics and types; `v_interp_mov p0` → nointerpolation; p10/p20 → `GetAttributeAtVertex` | mrtN → SV_TargetN with the OSG1 type, mrtz → SV_Depth |
+| PS | `Out main(PSIn pin, SV_Position, SV_IsFrontFace, SV_SampleIndex, SV_Coverage, SV_Barycentrics)` (only those used) | attrN = N-th non-system ISG1 register, original semantics and types; `v_interp_mov p0` → nointerpolation; p10/p20 → `GetAttributeAtVertex` | mrtN → SV_TargetN with the OSG1 type, mrtz → SV_Depth (SV_DepthLessEqual / SV_DepthGreaterEqual, clamped to the rasterized depth, under CONSERVATIVE_Z_EXPORT); DEPTH_BEFORE_SHADER without a depth export → `[earlydepthstencil]` |
 | VS | `Out main(SV_VertexID, SV_InstanceID[, FetchIn fin])` | fetch-shader attributes → `FetchIn` members `ATTR<n>` | paramN → N-th non-system OSG1 register; pos0 → SV_Position; pos1.. → clip/cull distances |
 | CS | `[numthreads(x, y, z)] main(SV_GroupID, SV_GroupThreadID)` | group and thread ids | none; LDS → `groupshared uint g_lds[]` |
 | MS | `[numthreads(n,1,1)] [outputtopology("triangle")] main(..., out vertices Out verts[], out indices uint3 tris[], out primitives MSPrim prims[])` | group id, group index | as VS; prim export → `tris` + `SV_CullPrimitive` |
@@ -753,14 +763,15 @@ finished entry. Keys are SHA-256 hashes:
 
 | Kind | Key | Entry |
 |---|---|---|
-| `programs/*.json` | FiveStar.Shaders.dll (with `--llvm-disassembler` also the llvm-mc and llvm-objdump bytes), the translation options, the FSSM and container bytes | stage, status, reason, instruction count, HLSL key (programs that translated, were unsupported or crashed) |
+| `programs/*.json` | the translator's sources (`TranslatorSources`: FiveStar.Shaders but `Dxil/` and `Cache/`, set at build; with `--llvm-disassembler` also the llvm-mc and llvm-objdump bytes), the translation options, the FSSM and container bytes | stage, status, reason, instruction count, HLSL key (programs that translated, were unsupported or crashed) |
 | `hlsl/*.hlsl` | the HLSL text | the HLSL |
 | `dxil/*.dxil` | dxc.exe, dxcompiler.dll and dxil.dll bytes, the fixed dxc arguments, the runtime headers, profile, `-Od`, the HLSL text | the DXIL |
 | `dxil/*.error` | same | dxc's messages of a failed compile with a source diagnostic (`file:line[:column]: error:`) or `error: validation errors`; crashes and out-of-memory failures are not kept |
 | `dxil/*.timeout` | same | the time limit the compile ran into; reused for limits up to that one, so `--retry` (900 s) tries again |
 
-Programs with the same HLSL compile once, also within one run. Any new build of FiveStar.Shaders invalidates the
-translations (all programs are translated again) but only programs whose HLSL changed are compiled again. Each run lists the entries it used in
+Programs with the same HLSL compile once, also within one run. A change to a source of FiveStar.Shaders outside
+`Dxil/` (the DXIL backend) and `Cache/` (the pipeline cache readers), which no translation reaches, invalidates the
+translations (all programs are translated again, about 0.1 s of one job each) but only programs whose HLSL changed are compiled again. Each run lists the entries it used in
 `used/<identity>.txt`; `fivestar setup <dump> --clean-cache` removes the entries of older builds (see
 [setup.md](setup.md#shader-cache)). Deleting the folder resets it.
 
