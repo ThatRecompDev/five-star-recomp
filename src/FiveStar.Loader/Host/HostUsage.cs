@@ -146,6 +146,8 @@ internal static class HostUsage
           --d3d12-nan-scan <t>   read back the inputs of draws whose pipeline contains t and log those holding NaN or Inf
           --d3d12-nan-scan-dwords <offset>:<n>  also show n floats of every scanned buffer and CBV from that byte offset
           --retire-unmapped-textures  release textures over memory the game unmaps (default: only counted)
+          --keep-unmapped-textures  keep textures over memory the game unmapped that no view record names (default:
+                                 retired after 120 presents unmapped and 60 unnamed, their views nulled)
           --frame-rate <r>       30 (the console's, default), 60 or uncapped: the frame events' interval and vsync
           --watch-transient      check the game's transient-memory pool and log the first corrupted node
           --watch-pool-pages     check the game's small-block pool pages for headers its allocator did not write

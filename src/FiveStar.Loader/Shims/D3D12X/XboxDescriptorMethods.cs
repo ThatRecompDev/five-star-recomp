@@ -23,6 +23,9 @@ internal static unsafe class XboxDescriptorMethods
     /// <summary>D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV (d3d12.h).</summary>
     private const int ViewHeapType = 0;
 
+    /// <summary>D3D12_SRV_DIMENSION_TEXTURE2D: what a view without a desc is taken as (its null view, if it is retired).</summary>
+    private const int WholeTextureView = 4;
+
     public const int CreateConstantBufferViewSlot = 17;
     public const int CreateShaderResourceViewSlot = 18;
     public const int CreateUnorderedAccessViewSlot = 19;
@@ -681,6 +684,10 @@ internal static unsafe class XboxDescriptorMethods
         {
             D3D12X.DrawTrace?.UnorderedAccessView(desktop, destination);
         }
+        else
+        {
+            NoteTextureView(destination, resource, desktop, view);
+        }
 
         if (ViewLiveness.Noting)
         {
@@ -696,14 +703,49 @@ internal static unsafe class XboxDescriptorMethods
         }
     }
 
+    /// <summary>A shader-resource view of a registered texture, for the retirement of textures over unmapped memory (<see cref="TextureViewHandles"/>).</summary>
+    [HotPath]
+    private static void NoteTextureView(nint destination, nint resource, nint desktop, void* view)
+    {
+        var game = D3D12X.Objects.AsResource(resource);
+
+        if (game == null || desktop == 0)
+        {
+            return;
+        }
+
+        var texture = D3D12X.Textures.Registry.Find(game->GameAddress);
+
+        if (texture is null || texture.Desktop != desktop || texture.GpuWritten)
+        {
+            return;
+        }
+
+        int dimension = WholeTextureView;
+
+        if (view != null)
+        {
+            dimension = ((int*)view)[1];
+        }
+
+        D3D12X.Textures.Views.Written(destination, texture, dimension);
+    }
+
     /// <summary>With <c>--check-view-liveness</c>: view descriptors copied carry what was noted of them.</summary>
     [HotPath]
     private static void CopiedViews(nint destination, nint source, uint count, uint increment, int type)
     {
-        if (ViewLiveness.Noting && type == ViewHeapType)
+        if (type != ViewHeapType)
+        {
+            return;
+        }
+
+        if (ViewLiveness.Noting)
         {
             ViewLiveness.Copied(destination, source, count, increment);
         }
+
+        D3D12X.Textures.Views.Copied(destination, source, count, increment);
     }
 
     [HotPath]

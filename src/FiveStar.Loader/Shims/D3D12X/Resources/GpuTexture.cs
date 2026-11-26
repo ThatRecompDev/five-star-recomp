@@ -56,6 +56,9 @@ internal sealed class GpuTexture
     /// <summary>The present at which memory under the texture was unmapped (<see cref="GpuTextureRegistry.Unmapped"/>); <see cref="Mapped"/> while it is mapped.</summary>
     public long UnmappedSince { get; set; } = Mapped;
 
+    /// <summary>The present since which no view record names a view of the texture, while over unmapped memory; <see cref="Mapped"/> otherwise.</summary>
+    public long UnreferencedSince { get; set; } = Mapped;
+
     /// <summary>Whether memory under the texture is unmapped now.</summary>
     public bool OverUnmapped => UnmappedSince != Mapped;
 
