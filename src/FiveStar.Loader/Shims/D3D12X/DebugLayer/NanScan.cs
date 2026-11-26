@@ -59,7 +59,7 @@ internal static unsafe class NanScan
     private static long _liveBytes;
     private static int _polling;
 
-    /// <summary>Textures of at most this many texels have their values shown with <see cref="ShowValues"/> (1x1, 5x1).</summary>
+    /// <summary>Textures of at most this many texels have their values shown even when clean (1x1, 5x1).</summary>
     private const int SmallTexels = 8;
 
     /// <summary>Channel values shown of one small texture.</summary>
@@ -69,12 +69,6 @@ internal static unsafe class NanScan
     public static string? Filter { get; set; }
 
     public static bool Enabled => Filter is not null;
-
-    /// <summary>
-    /// <c>--trace-exposure</c> (<see cref="ExposureTrace"/>): small float textures show their values even when clean, and
-    /// records holding a null view or one of a released texture are named.
-    /// </summary>
-    public static bool ShowValues { get; set; }
 
     /// <summary>Whether a pipeline name holds one of the texts of <see cref="Filter"/>.</summary>
     public static bool Matches(string name, string filter)
@@ -234,14 +228,14 @@ internal static unsafe class NanScan
             {
                 CopyTexture(list, scan, label, view.Value.View);
             }
-            else if (ShowValues && view is not null)
+            else if (view is not null)
             {
                 NoteView(scan, label, view.Value.View, view.Value.Live);
             }
         }
     }
 
-    /// <summary>With <see cref="ShowValues"/>: a null view (the game's, or one a texture release nulled) or a view of a released texture.</summary>
+    /// <summary>A null view (the game's, or one a texture release nulled) or a view of a released texture.</summary>
     private static void NoteView(Scan scan, string label, SlotView view, bool live)
     {
         if (view.Shape == ViewShape.Null)
@@ -437,7 +431,7 @@ internal static unsafe class NanScan
         log.Info($"  [nan scan] {scan.Pipeline}: {clean} inputs scanned clean, {scan.Textures.Count + scan.Memory.Count} in all (block-compressed and non-float textures are not scanned){findings}");
     }
 
-    /// <summary>The textures holding NaN or Inf (and small ones' values with <see cref="ShowValues"/>) appended; the count of clean ones.</summary>
+    /// <summary>The textures holding NaN or Inf (and small ones' values) appended; the count of clean ones.</summary>
     private static int ReportTextures(Scan scan, StringBuilder findings)
     {
         int clean = 0;
@@ -451,7 +445,7 @@ internal static unsafe class NanScan
             {
                 clean++;
 
-                if (ShowValues && copy.Width * copy.Rows <= SmallTexels)
+                if (copy.Width * copy.Rows <= SmallTexels)
                 {
                     findings.Append(CultureInfo.InvariantCulture, $"\n      {shape}, clean: {string.Join(", ", Texels(copy).Select(value => value.ToString("G6", CultureInfo.InvariantCulture)))}");
                 }
@@ -531,7 +525,7 @@ internal static unsafe class NanScan
 
         public List<MemoryInput> Memory { get; } = [];
 
-        /// <summary>Null and released views (<see cref="ShowValues"/>).</summary>
+        /// <summary>Null and released views among the records.</summary>
         public List<string> Notes { get; } = [];
     }
 }
