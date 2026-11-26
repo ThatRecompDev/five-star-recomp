@@ -123,6 +123,11 @@ public sealed class StatementLowerer
             var type = _context.Types.Resolve(declarator.Type!, dimension => ArraySize(dimension, declarator));
             var initializer = declarator.Children.FirstOrDefault();
 
+            if (type.Shape == TypeShape.Resource && declaration.HasModifier("globallycoherent"))
+            {
+                type = HlslType.Coherent(type);
+            }
+
             if (type.Shape == TypeShape.Array && declaration.HasModifier("const") && initializer is not null)
             {
                 var table = Expressions.Lower(initializer);

@@ -29,6 +29,10 @@ uint uav_slot(uint i) { return i < VIEW_SLOTS ? i : GPU_MAP_HEAP + 2u; }
 // A texture's heap slot: a game view, or else (a zero or unwritten T#, a reserved buffer slot, past the heap) the null
 // texture of its dimension at null_slot (NullTextureSlots), never a buffer read as a texture. The loader defines
 // FIVESTAR_FIRST_GAME_VIEW (DescriptorWindow.ReservedViews, NullTextureSlots.End); without it every index below the heap's end is a view.
+// FIVESTAR_COHERENT: globallycoherent in compute programs that talk across groups (ProgramEmitter.Coherent), else empty.
+#ifndef FIVESTAR_COHERENT
+#define FIVESTAR_COHERENT
+#endif
 #ifndef FIVESTAR_FIRST_GAME_VIEW
 #define FIVESTAR_FIRST_GAME_VIEW 0u
 #endif
@@ -40,7 +44,7 @@ uint MemLoad(uint ptr_lo, uint off) {
     return m.Load((ptr_lo + off) & ~3u);
 }
 void MemStore(uint ptr_lo, uint off, uint v) {
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];   // writable view of the GPU-memory window
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];   // writable view of the GPU-memory window
     m.Store((ptr_lo + off) & ~3u, v);
 }
 
@@ -85,7 +89,7 @@ uint2 ptr_add(uint lo, uint hi, uint u, int s) {
 static const uint TRACE_BASE = 0x04018100u;
 static const uint TRACE_ENTRIES = 65536u;
 void trace_entry(uint lo, uint hi, uint v) {
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
     uint i;
     m.InterlockedAdd(TRACE_BASE, 1u, i);
     m.Store4(TRACE_BASE + 256u + (i % TRACE_ENTRIES) * 16u, uint4(FIVESTAR_STORE_TRACE, lo, hi, v));
@@ -133,7 +137,7 @@ void TRACE_VSTORE(uint d0, uint d1, uint off, uint v) {   // a buffer store thro
 #define FIVESTAR_PROGRAM_ID 0u
 #endif
 void window_guard_count() {
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
     uint slot = FIVESTAR_WINDOW_GUARD + (FIVESTAR_PROGRAM_ID & 1023u) * 8u;
     m.Store(slot, FIVESTAR_PROGRAM_ID);
     m.InterlockedAdd(slot + 4u, 1u);
@@ -146,7 +150,7 @@ void window_guard_count() {
 // device alive; the loader names every program that reaches one, so the input or translation behind it gets fixed.
 #ifdef FIVESTAR_CAP_TABLE
 void ss_cap_hit(uint kind) {
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
     uint slot = FIVESTAR_CAP_TABLE + (FIVESTAR_PROGRAM_ID & 1023u) * 16u;
     m.Store(slot, FIVESTAR_PROGRAM_ID);
     m.InterlockedAdd(slot + 4u + kind * 4u, 1u);
@@ -160,7 +164,7 @@ void ss_cap_hit(uint kind) {}
 void span_store(uint hi) {
 #ifdef FIVESTAR_SPAN_GUARD
     if (hi < GPU_MAP_SPANS) return;
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
     uint slot = FIVESTAR_SPAN_GUARD + (FIVESTAR_PROGRAM_ID & 1023u) * 8u;
     m.Store(slot, FIVESTAR_PROGRAM_ID);
     m.InterlockedAdd(slot + 4u, 1u);
@@ -224,7 +228,7 @@ void PtrStore(uint lo, uint hi, uint off, uint v) {
     span_store(a.y);
     TRACE_ADDR(a.x, a.y, v);
     uint2 p = gpu_page(a.x, a.y);
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(p.x + 1u)];
+    FIVESTAR_COHERENT RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(p.x + 1u)];
     b.Store(p.y & ~3u, v);
 }
 uint2 gpu_rw(uint lo, uint hi) {   // (RW heap index, byte address) of a pointer, for atomics
@@ -286,12 +290,12 @@ uint SBufLoad(uint heap_index, uint off) {   // an s_buffer_load: the V# is in S
     return b.Load(off & ~3u);
 }
 uint BufLoadRW(uint heap_index, uint off) {   // load through a UAV slot (buffer also written by this shader)
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
+    FIVESTAR_COHERENT RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
     return b.Load(off & ~3u);
 }
 void BufStore(uint heap_index, uint off, uint v) {
     TRACE_VIEW(heap_index, off, v);
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
+    FIVESTAR_COHERENT RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
     b.Store(off & ~3u, v);
 }
 
@@ -633,7 +637,7 @@ uint enc_num(float f, uint bits, uint num) {
     return 0;
 }
 void FmtStore(uint heap_index, uint addr, uint code, uint4 v, uint n) {
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
+    FIVESTAR_COHERENT RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
     uint layout = code >> 3, num = code & 7;
     bool ints = num == 4 || num == 5;
     uint4 c = v;
@@ -793,7 +797,7 @@ void probe_end_stage(uint3 at_id, float4 colour, bool coloured) {
     uint range = WaveActiveBitOr(g_probe_range), unmapped = WaveActiveBitOr(g_probe_unmapped);
     uint record = WaveActiveBitOr(g_probe_record), window = WaveActiveBitOr(g_probe_window);
     if (!WaveIsFirstLane()) return;
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
     uint i;
     m.InterlockedAdd(FIVESTAR_MESH_PROBE_BASE, 1u, i);
     uint at = FIVESTAR_MESH_PROBE_BASE + 16u + (i % PROBE_RECORDS) * PROBE_RECORD_BYTES;
@@ -834,7 +838,7 @@ void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the 
     InterlockedOr(g_probe_g[12], g_probe_window);
     GroupMemoryBarrierWithGroupSync();
     if (gi != 0u) return;
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
     uint i;
     m.InterlockedAdd(FIVESTAR_MESH_PROBE_BASE, 1u, i);
     uint at = FIVESTAR_MESH_PROBE_BASE + 16u + (i % PROBE_RECORDS) * PROBE_RECORD_BYTES;
