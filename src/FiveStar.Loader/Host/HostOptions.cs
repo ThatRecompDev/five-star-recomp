@@ -308,6 +308,9 @@ internal sealed record HostOptions
     /// <summary>Keep textures over unmapped memory no view record names (<c>--keep-unmapped-textures</c>); off: they are retired.</summary>
     public bool KeepUnmappedTextures { get; set; }
 
+    /// <summary>A new texture retires an older one only when it starts in that one's first 4 KiB (<c>--stale-in-first-page</c>); off: any overlap.</summary>
+    public bool StaleInFirstPage { get; set; }
+
     /// <summary>Check the game's transient-memory pool for corrupted nodes (<c>--watch-transient</c>).</summary>
     public bool WatchTransient { get; set; }
 

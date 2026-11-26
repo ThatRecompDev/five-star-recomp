@@ -23,8 +23,10 @@ internal static class HostComposition
         Shims.D3D12X.DebugLayer.ViewLiveness.Enabled = options.CheckViewLiveness;
         Shims.D3D12X.DebugLayer.NanScan.Filter = options.NanScan;
         Shims.D3D12X.DebugLayer.NanScan.Dwords = options.NanScanDwords;
+
         Shims.D3D12X.Resources.GpuTextureRegistry.RetireUnmapped = options.RetireUnmappedTextures;
         Shims.D3D12X.Resources.GpuTextureRegistry.RetireUnreferenced = !options.KeepUnmappedTextures;
+        Shims.D3D12X.Resources.GpuTextureRegistry.StaleInFirstPage = options.StaleInFirstPage;
     }
 
     private static readonly TimeSpan LoadWindowSpan = TimeSpan.FromSeconds(120);
