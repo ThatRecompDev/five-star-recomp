@@ -128,6 +128,32 @@ public sealed unsafe class D3D12XGpuResourceTests
         registry.Dispose();
     }
 
+    [Fact]
+    public void Textures_retired_together_are_released_together_behind_a_gpu_that_runs_late()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        long frame = 0;
+
+        // The queue submits one value a present and the GPU finishes it three presents later.
+        var registry = new GpuTextureRegistry(() => [(ulong)frame + 100], () => [(ulong)Math.Max(0, frame + 97)]);
+
+        for (int i = 0; i < 40; i++)
+        {
+            registry.Register(Texture(test, device, 0x100000 + ((ulong)i * 0x10000)));
+            registry.Register(Texture(test, device, 0x100800 + ((ulong)i * 0x10000)));
+        }
+
+        // w128 released one texture per GPU latency, the head taking the submitted values only at the front.
+        for (frame = 1; frame <= GpuTextureRegistry.GraceFrames + 4; frame++)
+        {
+            registry.Advance(frame);
+        }
+
+        Assert.Equal(40, registry.Released);
+        registry.Dispose();
+    }
+
     /// <summary>
     /// A texture over memory the game unmapped is counted, and with --retire-unmapped-textures retired once it stays unmapped
     /// for 600 presents (#13's long run grew its placed texture heaps to 10.5 GB); a texture elsewhere and a remapped one stay.

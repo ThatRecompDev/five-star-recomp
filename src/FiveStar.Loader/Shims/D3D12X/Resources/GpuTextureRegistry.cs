@@ -460,15 +460,11 @@ internal sealed class GpuTextureRegistry : IDisposable
     /// </summary>
     private void ReleaseDue(Queue<RetiredTexture> queue, long lastFrame, ulong[] completed, List<GpuTexture> due)
     {
+        Rearm(queue, lastFrame);
+
         while (queue.Count > 0 && queue.Peek().Frame <= lastFrame)
         {
             var head = queue.Peek();
-
-            if (!head.Rearmed)
-            {
-                head.Submitted = _submitted();
-                head.Rearmed = true;
-            }
 
             if (!Finished(head.Submitted, completed))
             {
@@ -489,6 +485,32 @@ internal sealed class GpuTextureRegistry : IDisposable
             _lastUse.TryRemove(head.Texture.Desktop, out _);
             due.Add(head.Texture);
             _released++;
+        }
+    }
+
+    /// <summary>
+    /// Every texture whose grace ended by <paramref name="lastFrame"/> and that has not yet taken the queues' submitted work
+    /// takes it now, all of them the same values. Only the head used to take it, when it came to the front, so behind a
+    /// GPU that ran L behind the submissions one texture was released per L: w128's releases stood still for 100 presents
+    /// at a time (35,000 retired textures, 31.9 GB of placed heaps) and came all at once when the GPU caught up.
+    /// </summary>
+    private void Rearm(Queue<RetiredTexture> queue, long lastFrame)
+    {
+        ulong[]? submitted = null;
+
+        foreach (var entry in queue)
+        {
+            if (entry.Frame > lastFrame)
+            {
+                break;
+            }
+
+            if (!entry.Rearmed)
+            {
+                submitted ??= _submitted();
+                entry.Submitted = submitted;
+                entry.Rearmed = true;
+            }
         }
     }
 
