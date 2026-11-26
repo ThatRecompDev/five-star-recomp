@@ -34,7 +34,7 @@ public static class TypedViewCases
 
     public static IEnumerable<ComputeCase> All()
     {
-        return [UintLoad(), SintLoad(), FloatLoad(), HalfLoad(), UintStore(), SharedExponentLoad(), SharedExponentBilinear(), SharedExponentPoint(), SharedExponentLevel(), SharedExponentVolume()];
+        return [UintLoad(), SintLoad(), FloatLoad(), HalfLoad(), UintStore(), SharedExponentLoad(), SharedExponentBilinear(), SharedExponentPoint(), SharedExponentLevel(), SharedExponentVolume(), UintGather(), SintGather(), R8UintLoad(), R16UintLoad()];
     }
 
     // sample_lz of a 4x2x2 volume midway between texels x and x + 1 (clamped at the edge) and between its two slices:
@@ -268,6 +268,38 @@ public static class TypedViewCases
         return [.. Enumerable.Range(0, 3).Select(channel => Expected.Exact(BitConverter.SingleToUInt32Bits(((bits >> (channel * MantissaBits)) & MantissaMask) * scale)))];
     }
 
+    // image_gather4 through an integer view: the 2x2 block as raw bits, not float-converted.
+    private static ComputeCase UintGather()
+    {
+        uint[] texels = [.. Enumerable.Range(0, Texels).Select(index => 0xA0000000u + (uint)index)];
+
+        return Gather("cs_typed_uint_gather", Format.R32_UInt, Uint, texels);
+    }
+
+    private static ComputeCase SintGather()
+    {
+        uint[] texels = [.. Enumerable.Range(0, Texels).Select(index => unchecked((uint)(-100 - index)))];
+
+        return Gather("cs_typed_sint_gather", Format.R32_SInt, Sint, texels);
+    }
+
+    // 8-bit and 16-bit formats packed into uint words: the load zero-extends each texel to 32 bits.
+    private static ComputeCase R8UintLoad()
+    {
+        uint[] texels = [.. Enumerable.Range(0, (Texels + 3) / 4).Select(index =>
+            (uint)(index * 4) | ((uint)(index * 4 + 1) << 8) | ((uint)(index * 4 + 2) << 16) | ((uint)(index * 4 + 3) << 24))];
+
+        return Load("cs_typed_r8_uint_load", Format.R8_UInt, Uint, texels);
+    }
+
+    private static ComputeCase R16UintLoad()
+    {
+        uint[] texels = [.. Enumerable.Range(0, (Texels + 1) / 2).Select(index =>
+            (uint)(index * 2 + 100) | ((uint)(index * 2 + 101) << 16))];
+
+        return Load("cs_typed_r16_uint_load", Format.R16_UInt, Uint, texels);
+    }
+
     private static ComputeCase Load(string name, Format format, uint viewClass, uint[] texels)
     {
         var program = Address + "\n" + """
@@ -276,6 +308,37 @@ public static class TypedViewCases
             """;
 
         return new ComputeCase(name, program, 1, thread => [Expected.Exact(texels[thread.Id & 7])])
+        {
+            User = [TextureHeap, 0, 0, viewClass],
+            Textures = [new TextureResource(TextureHeap, format, Width, Height, texels)],
+        };
+    }
+
+    private static ComputeCase Gather(string name, Format format, uint viewClass, uint[] texels)
+    {
+        var program = Address + "\n" + """
+            v_cvt_f32_u32_e32 v3, v1
+            v_add_f32_e32 v3, 0.5, v3
+            v_mul_f32_e32 v3, 0.25, v3
+            v_cvt_f32_u32_e32 v4, v2
+            v_add_f32_e32 v4, 0.5, v4
+            v_mul_f32_e32 v4, 0.5, v4
+            """ + "\n" + Sampler(PointWord) + "\n" + """
+            image_gather4 v[20:23], v[3:4], s[8:15], s[20:23] dmask:0x1 dim:SQ_RSRC_IMG_2D
+            s_waitcnt vmcnt(0)
+            """;
+
+        return new ComputeCase(name, program, 4, thread =>
+        {
+            int x = thread.Id & 3;
+            int y = (thread.Id >> 2) & 1;
+            int x0 = Math.Clamp(x, 0, Width - 1);
+            int x1 = Math.Clamp(x + 1, 0, Width - 1);
+            int y0 = Math.Clamp(y, 0, Height - 1);
+            int y1 = Math.Clamp(y + 1, 0, Height - 1);
+
+            return [Expected.Exact(texels[x0 + (y1 * Width)]), Expected.Exact(texels[x1 + (y1 * Width)]), Expected.Exact(texels[x1 + (y0 * Width)]), Expected.Exact(texels[x0 + (y0 * Width)])];
+        })
         {
             User = [TextureHeap, 0, 0, viewClass],
             Textures = [new TextureResource(TextureHeap, format, Width, Height, texels)],

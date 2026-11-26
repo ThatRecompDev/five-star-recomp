@@ -21,11 +21,21 @@ public sealed record TextureResource(int HeapIndex, Format Format, int Width, in
 
     public bool Writable { get; init; }
 
-    /// <summary>Bytes per texel: 4 for the one-channel 32-bit formats, 8 for the two-channel ones (64-bit atomics), else 16 (RGBA32).</summary>
+    /// <summary>Bytes per texel: 1 for R8, 2 for R16, 4 for R32, 8 for R32G32, else 16 (RGBA32).</summary>
     public int TexelBytes
     {
         get
         {
+            if (Format is Format.R8_UInt or Format.R8_SInt or Format.R8_UNorm or Format.R8_SNorm)
+            {
+                return 1;
+            }
+
+            if (Format is Format.R16_UInt or Format.R16_SInt or Format.R16_UNorm or Format.R16_SNorm or Format.R16_Float)
+            {
+                return 2;
+            }
+
             if (Format is Format.R32_UInt or Format.R32_SInt or Format.R32_Float)
             {
                 return 4;
