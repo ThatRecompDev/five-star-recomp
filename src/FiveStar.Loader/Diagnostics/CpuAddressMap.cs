@@ -78,9 +78,16 @@ internal sealed class CpuAddressMap
             site = stack[game];
         }
 
+        var (method, shim) = (0UL, 0UL);
+
+        if (ours)
+        {
+            (method, shim) = ManagedFunctions(stack, game);
+        }
+
         if (In(inner, _waits))
         {
-            return new CpuSample(CpuBucket.Blocked, inner, function, site, wait, ours);
+            return new CpuSample(CpuBucket.Blocked, inner, function, site, wait, ours, method, shim);
         }
 
         if (game == 0)
@@ -97,10 +104,50 @@ internal sealed class CpuAddressMap
                 native = inner;
             }
 
-            return new CpuSample(CpuBucket.Ours, native, 0, site, wait, true);
+            return new CpuSample(CpuBucket.Ours, native, 0, site, wait, true, method, shim);
         }
 
         return new CpuSample(CpuBucket.System, inner, function, 0, null);
+    }
+
+    /// <summary>
+    /// The starts of the innermost and the outermost managed function below the first game frame (the method running
+    /// and the shim the game called); 0 for none. A frame without unwind data (a generated bridge) is passed over.
+    /// </summary>
+    private (ulong Method, ulong Shim) ManagedFunctions(ReadOnlySpan<ulong> stack, int game)
+    {
+        int end = stack.Length;
+        ulong method = 0;
+        ulong shim = 0;
+
+        if (game >= 0)
+        {
+            end = game;
+        }
+
+        for (int i = 0; i < end; i++)
+        {
+            ulong start = 0;
+
+            if (IsManaged(stack[i]))
+            {
+                start = _functionStart(stack[i]);
+            }
+
+            if (start == 0 || start == stack[i])
+            {
+                continue;
+            }
+
+            if (method == 0)
+            {
+                method = start;
+            }
+
+            shim = start;
+        }
+
+        return (method, shim);
     }
 
     /// <summary>The index of the first mapped frame and of the first managed one, -1 for none.</summary>

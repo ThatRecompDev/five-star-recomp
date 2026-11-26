@@ -19,7 +19,8 @@ namespace FiveStar.Loader.Diagnostics;
 internal sealed unsafe class CpuSampler
 {
     private const int ThreadsPerTick = 8;
-    private const int MaxFrames = 32;
+    /// <summary>Frames walked: the walk goes through our managed frames to the game's caller, so room for a shim's depth.</summary>
+    private const int MaxFrames = 96;
     /// <summary>Stack bytes copied per snapshot: enough for the walk and the scan above our frames, not the whole stack.</summary>
     private const long CopyBytes = 64 * 1024;
     private const int TopAll = 12;
@@ -233,6 +234,7 @@ internal sealed unsafe class CpuSampler
             return;
         }
 
+        _names.Refresh();
         var named = ByLabel(all);
         _log.Info($"{Prefix}all game threads: {Totals(named, samples)}");
 
