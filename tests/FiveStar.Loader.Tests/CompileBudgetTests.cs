@@ -198,4 +198,16 @@ public sealed class CompileBudgetTests
         Assert.False(CompileBudget.ProgramRoom(3, 9 * Gigabyte, host));
         Assert.True(CompileBudget.ProgramRoom(0, 9 * Gigabyte, host));
     }
+
+    [Fact]
+    public void Compiles_of_1_MB_or_more_leave_one_slot_to_smaller_ones()
+    {
+        // Boot w115 with --max-driver-compiles 2: one mesh compile runs, a second waits, a 400 KB one takes the last slot.
+        Assert.False(CompileBudget.SlotFor(big: true, runningBig: 1, maxCompiles: 2));
+        Assert.True(CompileBudget.SlotFor(big: false, runningBig: 1, maxCompiles: 2));
+        Assert.True(CompileBudget.SlotFor(big: true, runningBig: 0, maxCompiles: 2));
+
+        // A single slot is never kept back.
+        Assert.True(CompileBudget.SlotFor(big: true, runningBig: 0, maxCompiles: 1));
+    }
 }
