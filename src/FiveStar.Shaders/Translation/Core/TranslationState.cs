@@ -132,6 +132,9 @@ internal sealed class TranslationState
 
     public bool HasControlFlow { get; set; }
 
+    /// <summary>Whether the program uses memory atomics, glc loads or cache invalidations (its views then globally coherent).</summary>
+    public bool CrossGroupMemory { get; set; }
+
     /// <summary>Whether f16 results round toward zero at the current point (<see cref="HalfRoundMode"/>).</summary>
     public bool HalfRoundToZero { get; set; }
 

@@ -60,7 +60,7 @@ public sealed class ResourceLowerer
 
         var index = value.Scalar;
         var sampler = value.Type.Name == SamplerHeap;
-        var key = (index, type.Name + type.Element);
+        var key = (index, type.Name + type.Element + type.GloballyCoherent);
 
         if (_handles.TryGetValue(key, out var cached) && Dominates(cached))
         {
