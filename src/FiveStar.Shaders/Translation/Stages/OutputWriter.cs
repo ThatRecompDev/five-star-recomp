@@ -10,7 +10,7 @@ namespace FiveStar.Shaders.Translation.Stages;
 /// <summary>
 /// Writes the internal export struct (Exp: one float4 per export target) and the entry point's Out struct, with the
 /// statements that copy exports to Out members: paramN to the N-th non-system output register, pos0 to SV_Position,
-/// pos1.. to clip/cull distances, mrtN to SV_TargetN with the signature's type, mrtz to SV_Depth.
+/// pos1.. to clip/cull distances, mrtN to SV_TargetN with the signature's type, mrtz to SV_Depth (or its conservative form).
 /// </summary>
 internal sealed class OutputWriter
 {
@@ -97,14 +97,50 @@ internal sealed class OutputWriter
         return Number(target, prefix);
     }
 
+    /// <summary>
+    /// The depth export's semantic: DB_SHADER_CONTROL's CONSERVATIVE_Z_EXPORT (bits 13-14: 1 the exported Z is at most the
+    /// rasterized one, 2 at least) gives SV_DepthLessEqual or SV_DepthGreaterEqual, so the PC's depth test can still reject
+    /// a pixel before the shader runs, as the console's does; both clamp an export past the promise to the rasterized
+    /// depth. OctaSLOD impostors (RE_Z, less-than-Z) were the heaviest pixel pass of the w94c boots.
+    /// </summary>
+    private string DepthSemantic()
+    {
+        const int ConservativeShift = 13;
+        const uint ConservativeMask = 3;
+        const uint LessThanZ = 1;
+        const uint GreaterThanZ = 2;
+        var control = _state.Config.Pixel?.DbShaderControl ?? 0;
+
+        return ((control >> ConservativeShift) & ConservativeMask) switch
+        {
+            LessThanZ => "SV_DepthLessEqual",
+            GreaterThanZ => "SV_DepthGreaterEqual",
+            _ => "SV_Depth",
+        };
+    }
+
+    /// <summary>The exported depth, clamped to the promise as the console's DB clamps it (and so defined on the PC).</summary>
+    private string DepthClamp()
+    {
+        return DepthSemantic() switch
+        {
+            "SV_DepthLessEqual" => "min(x.mrtz, in_pos.z)",
+            "SV_DepthGreaterEqual" => "max(x.mrtz, in_pos.z)",
+            _ => "x.mrtz",
+        };
+    }
+
+    /// <summary>Whether the depth export is conservative (its clamp reads the rasterized depth).</summary>
+    public bool ConservativeDepth => DepthSemantic() != "SV_Depth";
+
     private void WriteTarget(List<string> lines, OutputContext context, string target)
     {
         var map = _state.OutputMap;
 
         if (target == "mrtz")
         {
-            lines.Add("  float mrtz : SV_Depth;");
-            map.Add("  o.mrtz = x.mrtz;");
+            lines.Add($"  float mrtz : {DepthSemantic()};");
+            map.Add($"  o.mrtz = {DepthClamp()};");
         }
         else if (target.StartsWith(ParamPrefix, StringComparison.Ordinal))
         {
