@@ -215,6 +215,29 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
     }
 
     /// <summary>Refreshes <paramref name="texture"/> if it is still queued; it counts as in progress before it leaves the queue.</summary>
+    /// <summary>
+    /// Refreshes <paramref name="texture"/> (its pages marked) on this thread now, taking it off the queue if it was
+    /// there: for textures the CPU writes whole each frame (a video plane), which the worker could read half-written.
+    /// </summary>
+    public void RefreshNow(nint device, GpuTexture texture)
+    {
+        Begin();
+
+        try
+        {
+            if (_marked.TryRemove(texture, out _))
+            {
+                Interlocked.Decrement(ref _queued);
+            }
+
+            Refresh(device, texture);
+        }
+        finally
+        {
+            End();
+        }
+    }
+
     private void Take(nint device, GpuTexture texture)
     {
         Begin();
