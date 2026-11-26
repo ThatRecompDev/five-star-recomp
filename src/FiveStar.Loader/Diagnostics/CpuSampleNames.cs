@@ -27,6 +27,12 @@ internal sealed unsafe class CpuSampleNames
     private const byte Displacement8 = 0x50;
     private const byte Displacement32 = 0x90;
 
+    /// <summary>E8 rel32 (a direct call), and an import thunk's FF 25 disp32 (jmp [rip+d]), 6 bytes.</summary>
+    private const int DirectCall = 5;
+    private const byte CallRelative = 0xE8;
+    private const byte RipRelativeJump = 0x25;
+    private const int ThunkBytes = 6;
+
     private readonly ImageTable _images;
     private readonly CallTrace _trace;
     private readonly (CodeRange Range, string Name)[] _stubs;
@@ -139,7 +145,7 @@ internal sealed unsafe class CpuSampleNames
         byte* code = (byte*)site;
         var image = _images.FindByAddress((nint)site);
 
-        if (image is null || !ReturnAddresses.InCode(image, (nint)site) || !ReturnAddresses.CallBytesReadable((nint)site))
+        if (image is null || !ReturnAddresses.InCode(image, (nint)site) || !ReturnAddresses.CallBytesReadable(image, (nint)site))
         {
             return $"call from {Function(Caller(site))}";
         }
@@ -152,6 +158,13 @@ internal sealed unsafe class CpuSampleNames
             {
                 return Target(*(nint*)slot);
             }
+        }
+
+        string? thunk = ImportThunk(image, site);
+
+        if (thunk is not null)
+        {
+            return thunk;
         }
 
         string from = Function(Caller(site));
@@ -167,6 +180,44 @@ internal sealed unsafe class CpuSampleNames
         }
 
         return $"call from {from}";
+    }
+
+    /// <summary>
+    /// The import behind a direct call (E8 rel32) whose target is an import thunk, <c>jmp [rip+d]</c> (FF 25), in the
+    /// same image's readable code; null for any other call.
+    /// </summary>
+    private string? ImportThunk(LoadedImage image, ulong site)
+    {
+        byte* code = (byte*)site;
+
+        if (code[-DirectCall] != CallRelative)
+        {
+            return null;
+        }
+
+        nint target = (nint)site + *(int*)(code - Displacement);
+        nint end = target + ThunkBytes;
+
+        if (!ReturnAddresses.InCode(image, end) || !ReturnAddresses.CallBytesReadable(image, end))
+        {
+            return null;
+        }
+
+        byte* thunk = (byte*)target;
+
+        if (thunk[0] != Group5 || thunk[1] != RipRelativeJump)
+        {
+            return null;
+        }
+
+        nint slot = end + *(int*)(thunk + ThunkBytes - Displacement);
+
+        if (!image.Contains(slot) || !image.Contains(slot + sizeof(ulong) - 1))
+        {
+            return null;
+        }
+
+        return Target(*(nint*)slot);
     }
 
     /// <summary>An import's name from the address its IAT slot holds: a call-trace thunk, a bound shim or DLL export.</summary>
