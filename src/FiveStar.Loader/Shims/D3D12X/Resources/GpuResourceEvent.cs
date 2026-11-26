@@ -68,4 +68,10 @@ internal enum GpuResourceEvent
 
     /// <summary>A written texture uploaded only the subresources its changed pages lie in (<see cref="TextureRefreshWorker"/>).</summary>
     UploadPartial,
+
+    /// <summary>A slot-70 view queued its texture's page check on the refresh worker.</summary>
+    ViewCheckQueued,
+
+    /// <summary>A slot-70 view of a texture checked already this frame: nothing to do.</summary>
+    ViewCheckSkipped,
 }
