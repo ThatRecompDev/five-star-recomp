@@ -145,9 +145,9 @@ internal static class HostUsage
           --typeless-depth       depth textures in a typed depth format made typeless, so the game's shader views read them
           --indirect-gather      indirect records nothing earlier in their list segment can have written are clamped in
                                  one prelude before the segment instead of one pass per ExecuteIndirect
-          --indirect-gather-strict  as --indirect-gather, but every memory write, dispatch and memory wait ends gathering
+          --indirect-gather-strict  as --indirect-gather, but every memory write and dispatch ends gathering
                                  (default: a memory write only for arguments it overlaps, a dispatch only when it
-                                 stores to buffers, a memory wait only when the list could not keep it)
+                                 stores to buffers)
           --check-view-liveness  before each draw and dispatch, check the bound tables' views: released resources, wrong kinds
           --d3d12-nan-scan <t>   read back the inputs of draws whose pipeline contains t and log those holding NaN or Inf
           --d3d12-nan-scan-dwords <offset>:<n>  also show n floats of every scanned buffer and CBV from that byte offset
