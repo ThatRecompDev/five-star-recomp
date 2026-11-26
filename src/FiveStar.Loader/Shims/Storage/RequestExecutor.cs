@@ -163,6 +163,8 @@ internal sealed unsafe class RequestExecutor : IDisposable
             data.CopyTo(new Span<byte>(destination + done, (int)size));
         }
 
+        _sink.Wrote(request.Destination, request.SourceSize);
+
         return HResult.Ok;
     }
 
@@ -187,6 +189,7 @@ internal sealed unsafe class RequestExecutor : IDisposable
         }
 
         data.CopyTo(new Span<byte>((void*)request.Destination, (int)request.DestinationSize));
+        _sink.Wrote(request.Destination, request.DestinationSize);
 
         return HResult.Ok;
     }

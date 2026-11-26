@@ -96,8 +96,12 @@ flowchart LR
   fill the desktop refuses, or whose slot does not come free, now fails without an exception: the texture keeps what
   it held (zeros when new) until its next refresh point, the counters count `UploadFailed` and the first eight are
   logged with the reason. The failed slot is dropped and the next fill on it makes a new one.
-- **Refresh points**: creation, and every slot-70 view of the texture. The game creates a texture's view once its
-  data has arrived, so a view is where new bytes are taken. A 64-bit hash of the bytes skips unchanged memory.
+- **Refresh points**: creation, every slot-70 view of the texture, and the first ExecuteCommandLists after memory
+  under it changed behind the CPU (`GpuTextures.MarkWritten`, counted as `Written` and `WrittenRefreshed`): a
+  DirectStorage request writing its physical pages or its memory, or a page mapped under it. The game makes a
+  streamed texture and its views before the mips arrive, so the view's fill found the memory empty or unmapped
+  (`UploadUnreadable`) and the material textures stayed black (w105). A 64-bit hash of the bytes skips unchanged
+  memory. A fill whose console layout does not fit the desktop texture counts as `UploadRefused` (logged eight times).
 - **CPU-mapped textures** (`GpuTextures.Watch`): a slot-133 texture the game maps (resource Map returns its memory)
   is written by the CPU whenever it likes; Bink decodes every video frame into its Y, Cr and Cb planes (1920x1080
   and 3840x2160 R8, mapped once). Such textures are checked once a frame, at the first ExecuteCommandLists after a
@@ -225,4 +229,5 @@ formats; none was seen.
   whole texture).
 - Whether every GPU-only reservation aliases the CPU reservation before it; only the streaming pair is confirmed.
 - The slot-70 view desc's +0x3C (3 or -4 from a texture flag) and the sampler desc's +0x10 and +0x14.
-- Whether DirectStorage completion or the game's copy calls should refresh textures without a new view.
+- Whether the game's copy calls should refresh textures without a new view (DirectStorage writes do).
+- Slot-70 views made while their memory was unreadable stay null descriptors (`ViewNull`; w105's 4x4 placeholders).

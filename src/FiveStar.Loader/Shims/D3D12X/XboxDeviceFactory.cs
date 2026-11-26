@@ -69,6 +69,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         StalePages = new StaleGpuPages(PlacedResources.Addresses, memory, log);
         memory.ObservePages(StalePages.Changed);
         memory.ObservePages((address, _, frame) => UnmappedTextures(memory, address, frame));
+        memory.ObserveWrites((address, bytes) => WrittenTextures(memory, address, bytes));
 
         Uploads = new UploadArena(Objects, PlacedResources.Addresses, log);
         AddressBuffers = new AddressBufferViews(GameMemory);
@@ -247,6 +248,24 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         }
 
         Textures.Registry.Mapped(gpu, XMemPhysicalMemory.PageSize);
+
+        // A page mapped under a texture brings other bytes: a streamed mip the game read into the page before mapping it.
+        Textures.MarkWritten(gpu, XMemPhysicalMemory.PageSize);
+    }
+
+    /// <summary>
+    /// <see cref="XMemPhysicalMemory.ObserveWrites"/>: a DirectStorage request wrote game memory at a CPU address; the
+    /// textures there (registered at the address, or at its GPU-only alias) are stale.
+    /// </summary>
+    private void WrittenTextures(XMemPhysicalMemory memory, nint address, ulong bytes)
+    {
+        Textures.MarkWritten((ulong)address, bytes);
+        nint alias = memory.GpuAlias(address);
+
+        if (alias != 0)
+        {
+            Textures.MarkWritten((ulong)alias, bytes);
+        }
     }
 
     /// <summary>The GPU's memory groups and what of the game's memory the GPU reads in place, for the removal report.</summary>

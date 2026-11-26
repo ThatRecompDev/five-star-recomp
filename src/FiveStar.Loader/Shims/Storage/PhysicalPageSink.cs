@@ -41,4 +41,9 @@ internal sealed unsafe class PhysicalPageSink(XMemPhysicalMemory memory, IStorag
 
         return HResult.Ok;
     }
+
+    public void Wrote(nint address, ulong bytes)
+    {
+        memory.NoteWritten(address, bytes);
+    }
 }

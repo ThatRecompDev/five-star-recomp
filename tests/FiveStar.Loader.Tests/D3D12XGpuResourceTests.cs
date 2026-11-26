@@ -388,6 +388,73 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.Equal(references + UploadSlots, References(texture.Desktop));
     }
 
+    /// <summary>
+    /// The game's streaming: the texture and its view are made first, then DirectStorage writes the mips into the
+    /// texture's physical pages. w105's material textures stayed empty: nothing refreshed them after the view's fill.
+    /// </summary>
+    [Fact]
+    public void A_texture_directstorage_writes_after_its_view_is_refreshed_before_the_next_submission()
+    {
+        using var test = TestRuntime.Create();
+        var (cpu, gpu, frames) = Reserved(test, mapped: true);
+        var device = new XboxDevice(test);
+        var description = Description();
+        nint device12 = test.Runtime.D3D12X.Objects.DesktopDevice;
+        var textures = test.Runtime.D3D12X.Textures;
+
+        PlaceTexture(device, gpu, description);
+        using var probe = new TextureProbe(device12);
+        CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
+        long filled = textures.Counters[GpuResourceEvent.Upload];
+
+        // A page-list request (PhysicalPageSink) writes the tiled bytes into the frames; the CPU never touches them.
+        byte[][] linear = [Pattern(Size, 9), Pattern(Size / 2, 10)];
+        WriteFrames(test, description, frames, linear);
+        Assert.True(textures.Counters[GpuResourceEvent.Written] >= 1);
+        Assert.Equal(filled, textures.Counters[GpuResourceEvent.Upload]);
+
+        // The next submission refreshes it, once.
+        RunEmptyList(device);
+        Assert.Equal(linear[0], probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
+        Assert.Equal(filled + 1, textures.Counters[GpuResourceEvent.Upload]);
+        RunEmptyList(device);
+        Assert.Equal(filled + 1, textures.Counters[GpuResourceEvent.Upload]);
+        Assert.True(cpu != 0);
+    }
+
+    /// <summary>A texture made over pages not mapped yet is unreadable then, and filled once the game maps its pages.</summary>
+    [Fact]
+    public void A_texture_made_before_its_pages_are_mapped_is_filled_once_they_are()
+    {
+        using var test = TestRuntime.Create();
+        var (cpu, gpu, frames) = Reserved(test, mapped: false);
+        var device = new XboxDevice(test);
+        var description = Description();
+        var textures = test.Runtime.D3D12X.Textures;
+
+        // The mips are read into the pages before they are mapped anywhere: no texture can know of that write.
+        byte[][] linear = [Pattern(Size, 11), Pattern(Size / 2, 12)];
+        WriteFrames(test, description, frames, linear);
+        PlaceTexture(device, gpu, description);
+
+        using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
+        CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
+        Assert.True(textures.Counters[GpuResourceEvent.UploadUnreadable] >= 2);
+        Assert.Equal(0, textures.Counters[GpuResourceEvent.Upload]);
+
+        // The view stays the game's; mapping the pages and the next submission fill the texture behind it.
+        var map = (delegate* unmanaged<nint, ulong, ulong*, nint>)test.Shim("xmem.dll", "XMemMapPhysicalPages");
+
+        fixed (ulong* pages = frames)
+        {
+            Assert.Equal(cpu, map(cpu, (ulong)frames.Length, pages));
+        }
+
+        RunEmptyList(device);
+        Assert.Equal(linear[0], probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
+        Assert.True(textures.Counters[GpuResourceEvent.WrittenRefreshed] >= 1);
+    }
+
     [Fact]
     public void A_console_sampler_desc_becomes_the_desktop_sampler_it_describes()
     {
@@ -426,6 +493,59 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.Equal(cpu, map(cpu, 2, pages));
 
         return (cpu, gpu);
+    }
+
+    /// <summary>As <see cref="AliasedPages"/>, with the two physical pages' frames, mapped into the CPU range or not yet.</summary>
+    private static (nint Cpu, nint Gpu, ulong[] Frames) Reserved(TestRuntime test, bool mapped)
+    {
+        var virtualAlloc = (delegate* unmanaged<nint, nuint, uint, ulong, uint, nint>)test.Shim("xmem.dll", "XMemVirtualAlloc");
+        var allocate = (delegate* unmanaged<ulong, ulong*, ulong*, int>)test.Shim("xmem.dll", "XMemAllocatePhysicalPages");
+        var map = (delegate* unmanaged<nint, ulong, ulong*, nint>)test.Shim("xmem.dll", "XMemMapPhysicalPages");
+
+        nint cpu = virtualAlloc(0, (nuint)RangeBytes, Reserve64K, 0x21, CpuReadWrite);
+        nint gpu = virtualAlloc(0, (nuint)RangeBytes, Reserve64K, 0x3, GpuOnly);
+        var frames = new ulong[2];
+        ulong count = 2;
+
+        fixed (ulong* pages = frames)
+        {
+            Assert.Equal(1, allocate(0, &count, pages));
+
+            if (mapped)
+            {
+                Assert.Equal(cpu, map(cpu, 2, pages));
+            }
+        }
+
+        return (cpu, gpu, frames);
+    }
+
+    /// <summary>The mips tiled as the console lays them out, written into <paramref name="frames"/> as a page-list DirectStorage request does.</summary>
+    private static void WriteFrames(TestRuntime test, ResourceDescription description, ulong[] frames, byte[][] mips)
+    {
+        var tiled = (byte*)System.Runtime.InteropServices.NativeMemory.AllocZeroed((nuint)RangeBytes);
+
+        try
+        {
+            Tile(description, (nint)tiled, mips);
+
+            fixed (ulong* pages = frames)
+            {
+                Assert.True(test.Runtime.XMemPhysical.WriteFrames(pages, 0, new ReadOnlySpan<byte>(tiled, (int)RangeBytes)));
+            }
+        }
+        finally
+        {
+            System.Runtime.InteropServices.NativeMemory.Free(tiled);
+        }
+    }
+
+    /// <summary>A submission of an empty direct list on the device's queue (ExecuteCommandLists refreshes textures first).</summary>
+    private static void RunEmptyList(XboxDevice device)
+    {
+        nint list = device.DirectList();
+        Assert.Equal(0, ((delegate* unmanaged<nint, int>)XboxDevice.Vtable(list)[CloseSlot])(list));
+        device.Run(list);
     }
 
     /// <summary>A registry entry over 0x1000 bytes at <paramref name="address"/>, holding its own reference on a desktop buffer.</summary>

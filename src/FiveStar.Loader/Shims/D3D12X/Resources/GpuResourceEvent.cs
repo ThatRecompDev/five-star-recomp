@@ -47,4 +47,16 @@ internal enum GpuResourceEvent
 
     /// <summary>A texture could not be placed in a shared heap (<c>--placed-textures</c>) and was committed.</summary>
     PlacedFailed,
+
+    /// <summary>A fill was refused: the console layout does not fit the desktop texture's subresources (left unfilled).</summary>
+    UploadRefused,
+
+    /// <summary>A refresh found the texture's memory not readable (pages not mapped yet): left as it was.</summary>
+    UploadUnreadable,
+
+    /// <summary>A DirectStorage write or a new page mapping changed memory under a texture filled from memory.</summary>
+    Written,
+
+    /// <summary>A texture so changed was refreshed before the next submission.</summary>
+    WrittenRefreshed,
 }

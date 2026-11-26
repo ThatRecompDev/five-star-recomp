@@ -42,6 +42,7 @@ internal sealed unsafe class GpuTextures : IDisposable
     private static nuint _kernelCopyBytes;
 
     private readonly object _watchGate = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<GpuTexture, byte> _written = new();
     private readonly GameMemorySource _source;
     private readonly DesktopResourceDescriptions _descriptions;
     private readonly LoaderLog _log;
@@ -138,16 +139,27 @@ internal sealed unsafe class GpuTextures : IDisposable
             return;
         }
 
+        Refresh(device, texture, throughKernel: texture.Watched);
+    }
+
+    /// <summary>
+    /// As <see cref="Refresh(nint, GpuTexture)"/>, reading the bytes through the kernel when <paramref name="throughKernel"/>
+    /// (memory another thread may unmap meanwhile).
+    /// </summary>
+    private void Refresh(nint device, GpuTexture texture, bool throughKernel)
+    {
         byte* source = _source.Find(texture.Address, texture.Size);
 
         if (source == null)
         {
+            Counters.Add(GpuResourceEvent.UploadUnreadable);
+
             return;
         }
 
         // A watched texture's memory can be unmapped by another thread while it is read every frame: a plain read
         // faulted (an AccessViolation the guard cannot catch, boot v3), so its bytes are copied through the kernel first.
-        if (texture.Watched)
+        if (throughKernel)
         {
             source = ReadThroughKernel(source, texture.Size);
 
@@ -181,9 +193,63 @@ internal sealed unsafe class GpuTextures : IDisposable
 
         var failure = Uploader.Failure;
 
-        if (failure is not null && Counters.Add(GpuResourceEvent.UploadFailed) <= LoggedFailures)
+        // No failure named: the console layout does not fit the desktop texture (Uploader.Subresources), which once left
+        // textures unfilled without a word.
+        if (failure is null)
+        {
+            if (Counters.Add(GpuResourceEvent.UploadRefused) <= LoggedFailures)
+            {
+                var console = texture.Console;
+                _log.Warn($"[d3d12_xs] texture at 0x{texture.Address:x} ({console.Width}x{console.Height}x{console.DepthOrArraySize}, {console.MipLevels} mips, format {console.Format}, layout 0x{console.Layout:x}) not filled: its console layout does not fit the desktop texture");
+            }
+
+            return;
+        }
+
+        if (Counters.Add(GpuResourceEvent.UploadFailed) <= LoggedFailures)
         {
             _log.Warn($"[d3d12_xs] texture at 0x{texture.Address:x} ({texture.Size} bytes) not filled from memory: {failure}");
+        }
+    }
+
+    /// <summary>
+    /// Memory at console address <paramref name="address"/> changed behind the textures filled from it (a DirectStorage
+    /// request, a page mapped under them): each is refreshed before the next submission (<see cref="RefreshWritten"/>).
+    /// The game streams a texture's mips into memory after it made the texture and its views, so the fill those made
+    /// found the memory empty or unmapped, and nothing refreshed it again (w105: the material textures had no texels).
+    /// </summary>
+    public void MarkWritten(ulong address, ulong bytes)
+    {
+        foreach (var texture in Registry.Overlapping(address, bytes))
+        {
+            if (!texture.GpuWritten && !texture.CopiedInto && _written.TryAdd(texture, 0))
+            {
+                Counters.Add(GpuResourceEvent.Written);
+            }
+        }
+    }
+
+    /// <summary>Refreshes the textures <see cref="MarkWritten"/> named that are still registered, reading through the kernel.</summary>
+    public void RefreshWritten(nint device)
+    {
+        if (_written.IsEmpty)
+        {
+            return;
+        }
+
+        foreach (var texture in _written.Keys)
+        {
+            if (!_written.TryRemove(texture, out _) || Registry.Find(texture.Address) != texture || texture.GpuWritten || texture.CopiedInto)
+            {
+                continue;
+            }
+
+            Counters.Add(GpuResourceEvent.WrittenRefreshed);
+
+            if (texture.Layout.PlaneCount == 1)
+            {
+                Refresh(device, texture, throughKernel: true);
+            }
         }
     }
 
