@@ -20,6 +20,15 @@ internal unsafe struct CommandListBindings
     /// <summary>User data dwords of a translated program (<c>g_user4[32]</c> in rdna_prelude.hlsli).</summary>
     public const int UserDataDwords = 128;
 
+    /// <summary>
+    /// <see cref="GraphicsDesktopRoot"/> and <see cref="ComputeDesktopRoot"/>: none known (or another of ours), the
+    /// bindless root signature, the argument clamp's (<see cref="IndirectClamp"/>; the list's own goes back before its
+    /// next compute work, which a draw's ExecuteIndirect does not wait for).
+    /// </summary>
+    public const int NoRoot = 0;
+    public const int BindlessRoot = 1;
+    public const int ClampRoot = 2;
+
     public RootLayout* GraphicsLayout;
     public RootLayout* ComputeLayout;
     public int GraphicsRoot;
@@ -39,6 +48,14 @@ internal unsafe struct CommandListBindings
 
     /// <summary>1 when the recording holds a slot-74 memory wait (<see cref="RetireWaits"/>).</summary>
     public int RetireWrite;
+
+    /// <summary>
+    /// Which root signature the desktop list has at each bind point (<see cref="NoRoot"/>, <see cref="BindlessRoot"/>,
+    /// <see cref="ClampRoot"/>), so one already bound is not set again: the game sets its root signatures again between
+    /// draws, and each desktop set dirtied the user data, which every draw then uploaded and bound anew.
+    /// </summary>
+    public int GraphicsDesktopRoot;
+    public int ComputeDesktopRoot;
     public fixed uint Graphics[UserDataDwords];
     public fixed uint Compute[UserDataDwords];
 

@@ -174,6 +174,34 @@ public sealed unsafe class D3D12XBindingTests
         System.Runtime.InteropServices.NativeMemory.Free(bindings);
     }
 
+    /// <summary>A root argument set again to the value its SGPRs hold leaves the bind point clean: the next draw uploads nothing.</summary>
+    [Fact]
+    public void A_root_argument_set_again_unchanged_does_not_dirty_the_user_data()
+    {
+        var layout = default(RootLayout);
+        layout.Count = 1;
+        layout.Kinds[0] = (byte)RootParameterKind.Constants;
+        layout.Sizes[0] = 2;
+
+        var bindings = (CommandListBindings*)System.Runtime.InteropServices.NativeMemory.AllocZeroed((nuint)sizeof(CommandListBindings));
+        bindings->GraphicsLayout = &layout;
+        bindings->ComputeLayout = &layout;
+
+        UserData.Write(bindings, false, 0, 1, 7);
+        UserData.Write(bindings, true, 0, 1, 7);
+        Assert.Equal((1, 1), (bindings->GraphicsDirty, bindings->ComputeDirty));
+
+        (bindings->GraphicsDirty, bindings->ComputeDirty) = (0, 0);
+        UserData.Write(bindings, false, 0, 1, 7);
+        UserData.Write(bindings, true, 0, 1, 7);
+        Assert.Equal((0, 0), (bindings->GraphicsDirty, bindings->ComputeDirty));
+
+        UserData.WriteAddress(bindings, false, 0, 0x1_0000_0007);
+        Assert.Equal(1, bindings->GraphicsDirty);
+        Assert.Equal(1u, bindings->Graphics[UserData.GraphicsBase + 1]);
+        System.Runtime.InteropServices.NativeMemory.Free(bindings);
+    }
+
     [Fact]
     public void The_remap_gives_touched_pages_desktop_pages_in_order_and_keeps_each_contiguous()
     {

@@ -38,6 +38,7 @@ internal sealed unsafe class CpuSampleNames
     private readonly (CodeRange Range, string Name)[] _stubs;
     private readonly ExportNames _exports = new();
     private readonly Dictionary<CpuSample, string> _labels = [];
+    private readonly ManagedNames _managed = new(typeof(CpuSampleNames).Assembly);
     private Dictionary<nint, string>? _imports;
 
     public CpuSampleNames(ImageTable images, CallTrace trace, (CodeRange Range, string Name)[] stubs)
@@ -45,6 +46,13 @@ internal sealed unsafe class CpuSampleNames
         _images = images;
         _trace = trace;
         _stubs = stubs;
+    }
+
+    /// <summary>Before a report: the loader's methods by their code now (compiled or recompiled since), labels made again.</summary>
+    public void Refresh()
+    {
+        _managed.Refresh();
+        _labels.Clear();
     }
 
     public string Label(CpuSample sample)
@@ -104,9 +112,22 @@ internal sealed unsafe class CpuSampleNames
         return stub;
     }
 
+    /// <summary>"Shim in Method (the game's call)": the managed shim the game called, the method running inside it, the call.</summary>
     private string Ours(CpuSample sample)
     {
         string text = Site(sample.Site);
+        string? shim = _managed.Find(sample.Shim);
+        string? method = _managed.Find(sample.Method);
+
+        if (method is not null && method != shim)
+        {
+            text = $"in {method} ({text})";
+        }
+
+        if (shim is not null)
+        {
+            text = $"{shim} {text}";
+        }
 
         if (sample.Wait is not null)
         {

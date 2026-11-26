@@ -85,6 +85,91 @@ public sealed class CpuSamplerTests
         Assert.True(reused.Success && int.Parse(reused.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) > 0, log);
     }
 
+    /// <summary>The sampler's walk goes on through JIT frames: a managed thread's stack reaches its start in kernel32.</summary>
+    [Fact]
+    public void The_sampler_walk_goes_through_managed_frames_to_the_thread_start()
+    {
+        uint id = 0;
+        using var started = new ManualResetEventSlim();
+        var sleeper = new Thread(() =>
+        {
+            id = FiveStar.Loader.Native.Kernel32.GetCurrentThreadId();
+            started.Set();
+            Thread.Sleep(Timeout.Infinite);
+        }) { IsBackground = true };
+
+        sleeper.Start();
+        started.Wait();
+        Thread.Sleep(50);
+
+        var modules = new ThreadStacks(new ImageTable(), 1).Modules();
+        var pcs = new ulong[256];
+        int count = ThreadStackCapture.Capture(id, modules, pcs, 1 << 20, _ => false, _ => false, out _);
+        var names = pcs.Take(count).Select(pc => FiveStar.Loader.Native.SystemModules.Describe((nint)pc)).ToList();
+
+        Assert.Contains(names, name => name.StartsWith("KERNEL32.DLL", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>A managed method on another thread's stack is named from the table of the assembly's methods by their code.</summary>
+    [Fact]
+    public unsafe void A_running_managed_method_is_named_by_its_code()
+    {
+        uint id = 0;
+        _spinning = true;
+        using var started = new ManualResetEventSlim();
+        var spinner = new Thread(() =>
+        {
+            id = FiveStar.Loader.Native.Kernel32.GetCurrentThreadId();
+            started.Set();
+            Spin();
+        }) { IsBackground = true };
+
+        spinner.Start();
+        started.Wait();
+        Thread.Sleep(50);
+
+        try
+        {
+            var names = new ManagedNames(typeof(CpuSamplerTests).Assembly);
+            names.Refresh();
+            var modules = new ThreadStacks(new ImageTable(), 1).Modules();
+            var pcs = new ulong[256];
+            int count = ThreadStackCapture.Capture(id, modules, pcs, 1 << 20, _ => false, _ => false, out _);
+            var found = pcs.Take(count).Select(pc => names.Find(Start(pc))).Where(name => name is not null).ToList();
+
+            Assert.Contains("CpuSamplerTests.Spin", found);
+        }
+        finally
+        {
+            _spinning = false;
+            spinner.Join();
+        }
+    }
+
+    private static volatile bool _spinning;
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining | System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    private static void Spin()
+    {
+        while (_spinning)
+        {
+            Thread.SpinWait(1);
+        }
+    }
+
+    private static unsafe ulong Start(ulong pc)
+    {
+        ulong imageBase = 0;
+        nint function = FiveStar.Loader.Native.Ntdll.RtlLookupFunctionEntry(pc, &imageBase, 0);
+
+        if (function == 0)
+        {
+            return 0;
+        }
+
+        return imageBase + *(uint*)function;
+    }
+
     [Fact]
     public void System_code_is_named_by_the_export_its_function_starts_at()
     {
