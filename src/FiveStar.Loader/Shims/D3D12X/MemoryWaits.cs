@@ -100,6 +100,7 @@ internal static unsafe class MemoryWaits
     {
         try
         {
+            IndirectGather.Close(self);
             Record(self, address, DwordBytes, (int)comparison, value, mask);
 
             return HResult.Ok;
@@ -118,6 +119,7 @@ internal static unsafe class MemoryWaits
     {
         try
         {
+            IndirectGather.Close(self);
             RetireWaits.Recorded(self, address, value);
             Record(self, address, QwordBytes, (int)comparison, value, ulong.MaxValue);
 

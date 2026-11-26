@@ -138,6 +138,8 @@ internal static class HostUsage
                                  wrote it) instead of a clamp pass before each; mesh programs take a 4-byte payload
           --clamp-enhanced-barriers  enhanced barriers on the indirect-argument scratch (one per clamp) instead of
                                  three transitions per ExecuteIndirect, where the device has them; not with --mesh-launch
+          --indirect-gather      indirect records nothing earlier in their list segment can have written are clamped in
+                                 one prelude before the segment instead of one pass per ExecuteIndirect
           --check-view-liveness  before each draw and dispatch, check the bound tables' views: released resources, wrong kinds
           --d3d12-nan-scan <t>   read back the inputs of draws whose pipeline contains t and log those holding NaN or Inf
           --d3d12-nan-scan-dwords <offset>:<n>  also show n floats of every scanned buffer and CBV from that byte offset

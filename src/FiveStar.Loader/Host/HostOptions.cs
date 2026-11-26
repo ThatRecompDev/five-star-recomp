@@ -272,6 +272,9 @@ internal sealed record HostOptions
     /// <summary>Enhanced barriers on the indirect-argument scratch instead of three transitions per ExecuteIndirect (<c>--clamp-enhanced-barriers</c>).</summary>
     public bool ClampEnhancedBarriers { get; set; }
 
+    /// <summary>Indirect records clamped in one prelude per list segment where nothing earlier in it wrote them (<c>--indirect-gather</c>).</summary>
+    public bool IndirectGather { get; set; }
+
     /// <summary>The descriptor window, the address map and the user-data ring in GPU upload heaps where the device has them (<c>--gpu-upload-heaps</c>).</summary>
     public bool GpuUploadHeaps { get; set; }
 

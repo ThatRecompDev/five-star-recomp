@@ -360,6 +360,7 @@ internal static unsafe class CommandListBindingMethods
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, uint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDrawInstanced))(inner, vertices, instances, firstVertex, firstInstance);
             ShimContext.Runtime.D3D12X.DrawTrace?.AfterDraw(self);
+            IndirectGather.AfterWork(self, false, RectangleListState.Of(self)->Pipeline);
         }
         catch (Exception exception)
         {
@@ -399,6 +400,7 @@ internal static unsafe class CommandListBindingMethods
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, uint, uint, uint, int, uint, void>)ComObject.Slot(inner, DesktopDrawIndexedInstanced))(inner, indices, instances, firstIndex, baseVertex, firstInstance);
             ShimContext.Runtime.D3D12X.DrawTrace?.AfterDraw(self);
+            IndirectGather.AfterWork(self, false, RectangleListState.Of(self)->Pipeline);
         }
         catch (Exception exception)
         {
@@ -428,6 +430,7 @@ internal static unsafe class CommandListBindingMethods
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDispatch))(inner, x, y, z);
             trace?.AfterDispatch(self);
+            IndirectGather.Close(self);
 
             if (RtStandIns.Enabled)
             {
@@ -473,6 +476,7 @@ internal static unsafe class CommandListBindingMethods
             var indirect = new IndirectCall(signature, kind, stride, maxCount);
             RunIndirect(self, indirect, BufferCopies.Desktop(arguments, ref argumentOffset), argumentOffset, BufferCopies.Desktop(count, ref countOffset), countOffset);
             ShimContext.Runtime.D3D12X.DrawTrace?.AfterIndirect(self);
+            IndirectGather.AfterWork(self, dispatch, RectangleListState.Of(self)->Pipeline);
         }
         catch (Exception exception)
         {
@@ -518,6 +522,16 @@ internal static unsafe class CommandListBindingMethods
         }
 
         nint signature = ShimContext.Runtime.D3D12X.Objects.Unwrap(call.Signature);
+
+        // --indirect-gather: records nothing earlier in the segment can have written are clamped before it runs.
+        if (IndirectGather.Try(self, call, argumentBuffer, argumentOffset, countBuffer, out nint gathered, out ulong slot))
+        {
+            TimeIndirect(self, call.Kind);
+            Shapes(self, call, 0, 0);
+            Execute(self->Inner, signature, call.MaxCount, gathered, slot, 0, 0);
+
+            return;
+        }
 
         if (IndirectClamp.Record(self, call.Signature, call.MaxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
         {
@@ -863,6 +877,7 @@ internal static unsafe class CommandListBindingMethods
         ListIndirectScratch.Of(self)->Budget = 0;
         ListIndirectScratch.Of(self)->LaunchSegment = 0;
         ListActivity.Reset(self);
+        IndirectGather.Reset(self);
         ShimContext.Runtime.D3D12X.DrawTrace?.Reset(self);
 
         if (DepthTwinSides.Any)
