@@ -271,6 +271,11 @@ internal static unsafe class XboxDescriptorMethods
             CreateDesktopView(self, CreateDepthStencilViewSlot, desktop, view, Destination(handle));
             D3D12X.RenderTargets.NoteDepth(D3D12X.Objects, Destination(handle), resource, view);
 
+            if (DebugLayer.TargetClears.Census)
+            {
+                DebugLayer.ReplacedTargets.NoteDepthView(Destination(handle), desktop, TargetShape(desktop));
+            }
+
             if (DepthTwins.Enabled && view != null)
             {
                 DepthTwins.NoteDepthView(Destination(handle), desktop, *(int*)view);

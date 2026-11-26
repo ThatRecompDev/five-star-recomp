@@ -769,6 +769,10 @@ internal sealed class CommandLineParser
                 _options.MeshLaunch = true;
 
                 return true;
+            case "--no-lighting-waits":
+                _options.NoLightingWaits = true;
+
+                return true;
             case "--clamp-enhanced-barriers":
                 _options.ClampEnhancedBarriers = true;
 

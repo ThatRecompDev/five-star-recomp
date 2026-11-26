@@ -212,6 +212,8 @@ internal static class HostUsage
                                  stand-ins never built, no builder program runs (docs/bvh-builder.md)
           --no-rt-stand-ins      held ray-tracing passes leave their outputs as they are (default without --raytracing:
                                  shadow masks fully lit, reflections black, the screen-probe light a grey)
+          --no-lighting-waits    the lighting pipelines (cascade shadows, shadow masks, tiled lighting, TL_PS, exposure,
+                                 bloom, tone map) are skipped while stand-ins instead of waited for up to 60 s at first use
           --xdsp-convolution     run the XDsp convolution effects on the CPU (default: silence; response format inferred)
           --audio-capture <wav>  record what the game plays (process loopback, 48 kHz stereo) and print how much had sound
           --desktop-timers       keep 15.6 ms timer ticks (default with --run: 1 ms, which the game's audio mixer needs)

@@ -92,6 +92,7 @@ internal static unsafe class TargetClears
 
             BoundAt[view.Resource] = (frame, binds);
             resources.Add(view.Resource);
+            ReplacedTargets.Bound(view.Resource);
 
             if (ClearEachFrame && ClearedAt.GetValueOrDefault(view.Resource, -1) != frame)
             {
@@ -148,6 +149,8 @@ internal static unsafe class TargetClears
     /// </summary>
     public static void Replaced(Resources.GpuTexture old, Resources.GpuTexture replacement)
     {
+        ReplacedTargets.Note(old.Desktop, $"{old.Console.Width}x{old.Console.Height} format {old.Console.Format} at 0x{old.Address:x}, replaced by {replacement.Console.Width}x{replacement.Console.Height} format {replacement.Console.Format} at 0x{replacement.Address:x}");
+
         if (!Ranges.TryAdd((replacement.Address, old.Address), 0))
         {
             return;
@@ -186,6 +189,7 @@ internal static unsafe class TargetClears
             text.Append($"\n[clears]     never cleared: 0x{entry.Key:x} {shapes.GetValueOrDefault(entry.Key, "?")}, bound {entry.Value.Binds} times, first drawn by {Writers.GetValueOrDefault(entry.Key, "no draw seen")}");
         }
 
+        ReplacedTargets.Append(text);
         ShimContext.Log?.Info(text.ToString());
     }
 
