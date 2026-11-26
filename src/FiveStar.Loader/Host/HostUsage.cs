@@ -136,6 +136,8 @@ internal static class HostUsage
                                  BAR) where the device has them, not write-combined system memory
           --mesh-launch          mesh draws launched by an amplification stage of ours (one record read where the game
                                  wrote it) instead of a clamp pass before each; mesh programs take a 4-byte payload
+          --clamp-enhanced-barriers  enhanced barriers on the indirect-argument scratch (one per clamp) instead of
+                                 three transitions per ExecuteIndirect, where the device has them; not with --mesh-launch
           --check-view-liveness  before each draw and dispatch, check the bound tables' views: released resources, wrong kinds
           --d3d12-nan-scan <t>   read back the inputs of draws whose pipeline contains t and log those holding NaN or Inf
           --d3d12-nan-scan-dwords <offset>:<n>  also show n floats of every scanned buffer and CBV from that byte offset

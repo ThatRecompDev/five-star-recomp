@@ -179,7 +179,7 @@ internal static unsafe class IndirectClamp
             return !NullAddressCheck.Drop(NullAddressKind.RootDescriptor, self, $"argument clamp views: clamped 0x{destination:x}, budget 0x{budget:x}, count 0x{countAddress:x}");
         }
 
-        Begin(self, list, scratch);
+        Begin(self, list, scratch, zero);
 
         ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetShaderResourceSlot))(list, ArgumentsParameter, DesktopCalls.GpuAddress(arguments) + argumentOffset);
         ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetShaderResourceSlot))(list, CountParameter, countAddress);
@@ -188,13 +188,14 @@ internal static unsafe class IndirectClamp
 
         if (zero)
         {
-            ZeroBudget(list, scratch);
+            DispatchZero(list);
+            ClampBarriers.AfterZero(list, scratch);
         }
 
         uint* constants = stackalloc uint[] { (uint)kind, stride, maxCount, counted };
         ((delegate* unmanaged<nint, uint, uint, uint*, uint, void>)ComObject.Slot(list, SetConstantsSlot))(list, ConstantsParameter, Constants, constants, 0);
         ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(list, DispatchSlot))(list, (maxCount + GroupThreads - 1) / GroupThreads, 1, 1);
-        BarrierWriter.Transition(list, scratch, ResourceStates.UnorderedAccess, IndirectArgumentState);
+        ClampBarriers.AfterClamp(list, scratch);
         Interlocked.Increment(ref _clamped);
         GpuTimings.Work((nint)self, list, kind == DispatchKind, ListActivity.Of(self)->Pipeline);
 
@@ -203,13 +204,14 @@ internal static unsafe class IndirectClamp
 
     /// <summary>
     /// The clamp's start: a pass of its own in <c>--gpu-timings</c> (the execution's pass starts after the clamp, at the
-    /// end of <see cref="Record"/>), the scratch made writable and our program bound.
+    /// end of <see cref="Record"/>), the scratch made writable (<paramref name="first"/>: the recording's first clamp in
+    /// it, <see cref="ClampBarriers"/>) and our program bound.
     /// </summary>
     [HotPath]
-    private static void Begin(XboxObject* self, nint list, nint scratch)
+    private static void Begin(XboxObject* self, nint list, nint scratch, bool first)
     {
         GpuTimings.Work((nint)self, list, compute: true, GpuTimings.IndirectClampPipeline);
-        BarrierWriter.Transition(list, scratch, ResourceStates.Common, ResourceStates.UnorderedAccess);
+        ClampBarriers.BeforeClamp(list, scratch, first);
         ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetRootSignatureSlot))(list, _root);
         ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetPipelineSlot))(list, _pipeline);
     }
@@ -231,21 +233,27 @@ internal static unsafe class IndirectClamp
         return DesktopCalls.GpuAddress(scratch) + state->Budget - 1;
     }
 
-    /// <summary>The list's first clamp in this buffer zeroes the budget counter, then waits for the store (UAV barrier).</summary>
-    private static void ZeroBudget(nint list, nint scratch)
+    /// <summary>The zero pass of a budget counter (the list's first clamp in a buffer, or its first mesh launch).</summary>
+    private static void DispatchZero(nint list)
     {
         uint* zero = stackalloc uint[] { ZeroKind, 0, 0, 0 };
         ((delegate* unmanaged<nint, uint, uint, uint*, uint, void>)ComObject.Slot(list, SetConstantsSlot))(list, ConstantsParameter, Constants, zero, 0);
         ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(list, DispatchSlot))(list, 1, 1, 1);
+    }
 
-        var barrier = new TransitionBarrier { Type = TransitionBarrier.UavType, Resource = scratch };
+    /// <summary>The mesh launch budget's zero pass, then a wait for the store (UAV barrier).</summary>
+    private static void ZeroBudget(nint list, nint buffer)
+    {
+        DispatchZero(list);
+
+        var barrier = new TransitionBarrier { Type = TransitionBarrier.UavType, Resource = buffer };
         BarrierWriter.Write(list, &barrier);
     }
 
-    /// <summary>After the ExecuteIndirect that read the scratch: back to COMMON, where the next clamp expects it.</summary>
+    /// <summary>After the ExecuteIndirect that read the scratch: what the next clamp expects (<see cref="ClampBarriers"/>).</summary>
     public static void Done(XboxObject* self, nint scratch)
     {
-        BarrierWriter.Transition(self->Inner, scratch, IndirectArgumentState, ResourceStates.Common);
+        ClampBarriers.AfterExecute(self->Inner, scratch);
     }
 
     /// <summary>D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT.</summary>
@@ -430,6 +438,8 @@ internal static unsafe class IndirectClamp
 
         _device = device;
         _root = root;
+        ClampBarriers.Attach(device);
+        ShimContext.Runtime.Log.Info($"  [d3d12_xs] indirect-argument clamp: {ClampBarriers.Form} on the scratch");
 
         return true;
     }

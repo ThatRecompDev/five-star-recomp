@@ -5,7 +5,6 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using FiveStar.Loader.Native;
-using FiveStar.Loader.Shims.D3D12X.States;
 using Vortice.Direct3D12;
 
 namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
@@ -33,10 +32,8 @@ internal static unsafe class WorkShapes
     /// <summary>A copy recorded this recently may not have run yet: the report leaves it out (tests: 0).</summary>
     public static long SettleMilliseconds { get; set; } = DefaultSettleMilliseconds;
 
-    /// <summary>ID3D12GraphicsCommandList::CopyBufferRegion; D3D12_RESOURCE_STATE_COMMON and _COPY_SOURCE (d3d12.h).</summary>
+    /// <summary>ID3D12GraphicsCommandList::CopyBufferRegion (d3d12.h).</summary>
     private const int CopyBufferRegionSlot = 15;
-    private const int CommonState = 0;
-    private const int CopySourceState = 0x800;
 
     private static readonly ConcurrentDictionary<nint, Tally> Tallies = new();
     private static readonly Sample[] Samples = new Sample[Slots];
@@ -130,9 +127,9 @@ internal static unsafe class WorkShapes
 
         int slot = (Volatile.Read(ref _half) * HalfSlots) + taken;
         Samples[slot] = new Sample(pipeline, kind, Environment.TickCount64);
-        BarrierWriter.Transition(list, scratch, CommonState, CopySourceState);
+        ClampBarriers.BeforeCopy(list, scratch);
         ((delegate* unmanaged<nint, nint, ulong, nint, ulong, ulong, void>)ComObject.Slot(list, CopyBufferRegionSlot))(list, _readback!.NativePointer, (ulong)slot * SlotBytes, scratch, offset, RecordBytes);
-        BarrierWriter.Transition(list, scratch, CopySourceState, CommonState);
+        ClampBarriers.AfterCopy(list, scratch);
     }
 
     /// <summary>The pipeline's tally, made at its first work.</summary>

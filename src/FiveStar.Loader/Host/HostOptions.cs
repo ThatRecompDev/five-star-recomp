@@ -269,6 +269,9 @@ internal sealed record HostOptions
     /// <summary>Mesh draws launched by an amplification stage of ours instead of clamped by a compute pass (<c>--mesh-launch</c>).</summary>
     public bool MeshLaunch { get; set; }
 
+    /// <summary>Enhanced barriers on the indirect-argument scratch instead of three transitions per ExecuteIndirect (<c>--clamp-enhanced-barriers</c>).</summary>
+    public bool ClampEnhancedBarriers { get; set; }
+
     /// <summary>The descriptor window, the address map and the user-data ring in GPU upload heaps where the device has them (<c>--gpu-upload-heaps</c>).</summary>
     public bool GpuUploadHeaps { get; set; }
 
