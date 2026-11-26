@@ -38,7 +38,7 @@ internal static unsafe class CacheFlushSlots
         try
         {
             ListSegments.Of(self)->Commands++;
-            IndirectGather.Close(self);
+            IndirectGather.Synced(self);
             Barrier(self->Inner);
 
             return HResult.Ok;

@@ -54,7 +54,7 @@ internal static unsafe class BottomOfPipeWrites
     {
         try
         {
-            IndirectGather.Close(self);
+            IndirectGather.Wrote(self);
             MemoryWaitWriters.Wrote(self, address, value);
             Write(self, address, &value, 1);
 
@@ -79,7 +79,7 @@ internal static unsafe class BottomOfPipeWrites
                 value = (ulong)(Stopwatch.GetTimestamp() * (ConsoleTicksPerSecond / (double)Stopwatch.Frequency));
             }
 
-            IndirectGather.Close(self);
+            IndirectGather.Wrote(self);
             MemoryWaitWriters.Wrote(self, address, value);
             Write64(self, address, value);
 

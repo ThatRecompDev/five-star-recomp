@@ -41,6 +41,9 @@ internal struct ListIndirectScratch
     public int GatherOpen;
     public int GatherSegment;
 
+    /// <summary>1 once work of the segment may have written memory: its next barrier ends gathering.</summary>
+    public int GatherWritten;
+
     public static unsafe ListIndirectScratch* Of(XboxObject* list)
     {
         return (ListIndirectScratch*)((byte*)list + Offset);

@@ -11,17 +11,22 @@ using Vortice.Direct3D12;
 namespace FiveStar.Loader.Shims.D3D12X;
 
 /// <summary>
-/// The passes that clamp a segment's gathered indirect records (<see cref="IndirectGather"/>), run on a direct queue of
-/// the loader's own before the segment, as <see cref="Resources.DepthTwinPrelude"/> runs its copies: the game's queue
-/// signals where its earlier work ends, ours waits for that, runs the passes and signals, and the game's queue waits for
-/// that before the segment. Per gather buffer one pass zeroes its budget counter; then one pass per
-/// <see cref="IndirectGatherProgram.RecordsPerPass"/> records of a source buffer, kind and stride. A prelude list is
-/// reused once the GPU is past it.
+/// The passes that clamp a segment's gathered indirect records (<see cref="IndirectGather"/>), a list of their own run
+/// on the game's queue itself right before the segment. Per gather buffer one pass zeroes its budget counter; then one
+/// pass per <see cref="IndirectGatherProgram.RecordsPerPass"/> records of a source buffer, kind and stride. Each game
+/// queue has its own prelude lists (of its type) and a fence it signals after each, by which a list is reused once the
+/// GPU is past it. The first form ran the preludes on one direct queue of the loader's own between a signal and a wait
+/// of the game's queue: every game queue's preludes then queued behind each other there, so a queue waiting for another
+/// game queue's work could hold that queue's prelude, and the other queue its own (w117 lost the device).
 /// </summary>
 internal static unsafe class IndirectGatherPrelude
 {
+    /// <summary>ID3D12CommandQueue: ExecuteCommandLists and Signal (d3d12.h).</summary>
+    private const int QueueExecuteSlot = 10;
     private const int QueueSignalSlot = 14;
-    private const int QueueWaitSlot = 15;
+
+    /// <summary>ID3D12CommandQueue::GetDesc, a struct returned through a pointer (as <see cref="DebugLayer.QueueTrace"/> reads it).</summary>
+    private const int QueueGetDescSlot = 18;
 
     /// <summary>ID3D12GraphicsCommandList: Dispatch, SetPipelineState, SetComputeRootSignature, SetComputeRoot32BitConstants, SetComputeRootShaderResourceView, SetComputeRootUnorderedAccessView.</summary>
     private const int DispatchSlot = 14;
@@ -38,15 +43,9 @@ internal static unsafe class IndirectGatherPrelude
     private const uint ConstantsPerRecord = 2;
 
     private static readonly object Gate = new();
-    private static readonly List<PreludeList> Free = [];
-    private static readonly List<PreludeList> Running = [];
+    private static readonly Dictionary<nint, QueuePreludes?> Queues = [];
     private static readonly List<GatherRecord> Segment = [];
     private static ID3D12Device? _device;
-    private static ID3D12CommandQueue? _queue;
-    private static ID3D12Fence? _order;
-    private static ID3D12Fence? _done;
-    private static ulong _orderValue;
-    private static ulong _doneValue;
 
     /// <summary>Preludes run and passes recorded so far.</summary>
     public static long Count { get; private set; }
@@ -66,9 +65,16 @@ internal static unsafe class IndirectGatherPrelude
                 return;
             }
 
-            Ready(device);
+            var queue = For(device, gameQueue);
+
+            // A copy queue runs no dispatch; it runs no ExecuteIndirect either, so nothing is gathered for it.
+            if (queue is null)
+            {
+                return;
+            }
+
             Segment.Sort(static (a, b) => Key(a).CompareTo(Key(b)));
-            var prelude = Take();
+            var prelude = queue.Take(_device!);
             prelude.Allocator.Reset();
             prelude.List.Reset(prelude.Allocator, null);
 
@@ -79,7 +85,7 @@ internal static unsafe class IndirectGatherPrelude
             ZeroBudgets(list);
             RecordPasses(list);
             prelude.List.Close();
-            Submit(gameQueue, prelude);
+            queue.Submit(gameQueue, prelude);
             Count++;
         }
     }
@@ -89,20 +95,14 @@ internal static unsafe class IndirectGatherPrelude
     {
         lock (Gate)
         {
-            foreach (var prelude in Free.Concat(Running))
+            foreach (var queue in Queues.Values)
             {
-                prelude.Dispose();
+                queue?.Dispose();
             }
 
-            Free.Clear();
-            Running.Clear();
-            _queue?.Dispose();
-            _order?.Dispose();
-            _done?.Dispose();
+            Queues.Clear();
             _device?.Dispose();
-
-            (_queue, _order, _done, _device) = (null, null, null, null);
-            (_orderValue, _doneValue) = (0, 0);
+            _device = null;
             (Count, Passes) = (0, 0);
         }
     }
@@ -192,63 +192,91 @@ internal static unsafe class IndirectGatherPrelude
         ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetUnorderedAccessSlot))(list, IndirectGatherProgram.BudgetParameter, target);
     }
 
-    private static void Ready(nint device)
+    /// <summary>The preludes of the game's desktop queue <paramref name="gameQueue"/>, made at its first; null for a copy queue.</summary>
+    private static QueuePreludes? For(nint device, nint gameQueue)
     {
-        if (_queue is not null)
+        if (_device is null)
         {
-            return;
+            Marshal.AddRef(device);
+            _device = new ID3D12Device(device);
         }
 
-        Marshal.AddRef(device);
-        _device = new ID3D12Device(device);
-        _queue = _device.CreateCommandQueue(new Vortice.Direct3D12.CommandQueueDescription(CommandListType.Direct));
-        _order = _device.CreateFence(0);
-        _done = _device.CreateFence(0);
-        _queue.Name = "loader:indirect-gather";
-    }
-
-    /// <summary>A list the GPU is past, or a new one.</summary>
-    private static PreludeList Take()
-    {
-        ulong completed = _done!.CompletedValue;
-
-        for (int i = Running.Count - 1; i >= 0; i--)
+        if (!Queues.TryGetValue(gameQueue, out var queue))
         {
-            if (Running[i].Value <= completed)
+            D3D12X.CommandQueueDescription description;
+            _ = ((delegate* unmanaged<nint, D3D12X.CommandQueueDescription*, D3D12X.CommandQueueDescription*>)ComObject.Slot(gameQueue, QueueGetDescSlot))(gameQueue, &description);
+            var type = (CommandListType)description.Type;
+
+            queue = null;
+
+            if (type != CommandListType.Copy)
             {
-                Free.Add(Running[i]);
-                Running.RemoveAt(i);
+                queue = new QueuePreludes(type, _device.CreateFence(0));
             }
+
+            Queues[gameQueue] = queue;
         }
 
-        if (Free.Count > 0)
-        {
-            var reused = Free[^1];
-            Free.RemoveAt(Free.Count - 1);
-
-            return reused;
-        }
-
-        var allocator = _device!.CreateCommandAllocator(CommandListType.Direct);
-        var list = _device.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Direct, allocator, null);
-        list.Close();
-
-        return new PreludeList(allocator, list);
+        return queue;
     }
 
-    /// <summary>The game's queue signals where its work ends; ours waits, runs the prelude and signals; the game's waits.</summary>
-    private static void Submit(nint gameQueue, PreludeList prelude)
+    /// <summary>One game queue's prelude lists, of its type, and the fence it signals after each.</summary>
+    private sealed class QueuePreludes(CommandListType type, ID3D12Fence fence) : IDisposable
     {
-        _orderValue++;
-        _ = ((delegate* unmanaged<nint, nint, ulong, int>)ComObject.Slot(gameQueue, QueueSignalSlot))(gameQueue, _order!.NativePointer, _orderValue);
-        _queue!.Wait(_order, _orderValue);
-        _queue.ExecuteCommandList(prelude.List);
+        private readonly List<PreludeList> _free = [];
+        private readonly List<PreludeList> _running = [];
+        private ulong _value;
 
-        _doneValue++;
-        _queue.Signal(_done!, _doneValue);
-        prelude.Value = _doneValue;
-        Running.Add(prelude);
-        _ = ((delegate* unmanaged<nint, nint, ulong, int>)ComObject.Slot(gameQueue, QueueWaitSlot))(gameQueue, _done!.NativePointer, _doneValue);
+        /// <summary>A list the GPU is past, or a new one.</summary>
+        public PreludeList Take(ID3D12Device device)
+        {
+            ulong completed = fence.CompletedValue;
+
+            for (int i = _running.Count - 1; i >= 0; i--)
+            {
+                if (_running[i].Value <= completed)
+                {
+                    _free.Add(_running[i]);
+                    _running.RemoveAt(i);
+                }
+            }
+
+            if (_free.Count > 0)
+            {
+                var reused = _free[^1];
+                _free.RemoveAt(_free.Count - 1);
+
+                return reused;
+            }
+
+            var allocator = device.CreateCommandAllocator(type);
+            var list = device.CreateCommandList<ID3D12GraphicsCommandList>(0, type, allocator, null);
+            list.Close();
+
+            return new PreludeList(allocator, list);
+        }
+
+        /// <summary>The prelude on the game's queue, before what it runs next; then the fence that frees the list.</summary>
+        public void Submit(nint gameQueue, PreludeList prelude)
+        {
+            nint list = prelude.List.NativePointer;
+            ((delegate* unmanaged<nint, uint, nint*, void>)ComObject.Slot(gameQueue, QueueExecuteSlot))(gameQueue, 1, &list);
+
+            _value++;
+            _ = ((delegate* unmanaged<nint, nint, ulong, int>)ComObject.Slot(gameQueue, QueueSignalSlot))(gameQueue, fence.NativePointer, _value);
+            prelude.Value = _value;
+            _running.Add(prelude);
+        }
+
+        public void Dispose()
+        {
+            foreach (var prelude in _free.Concat(_running))
+            {
+                prelude.Dispose();
+            }
+
+            fence.Dispose();
+        }
     }
 
     /// <summary>A prelude list and its allocator, and the done value after which the GPU is past it.</summary>
