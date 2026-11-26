@@ -375,6 +375,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
 
         Prefetch(onDemand);
         JournalPrebuild.Start(factory, cache, _pipelineFolders.Cache, _log);
+        JournalCoverage.Start(factory, cache, _pipelineFolders.Cache, _log);
     }
 
     /// <summary>Queues the programs of the journal's pipelines, in first-use order, on a worker thread.</summary>
