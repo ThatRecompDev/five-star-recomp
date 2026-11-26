@@ -109,7 +109,9 @@ flowchart LR
 - **Written textures refresh incrementally** (`TextureRefreshWorker`): a write marks the 64 KiB pages it touched; a
   background thread reads those pages, compares each with its hash from the last upload, and uploads only the
   subresources (mips, slices) a changed page lies in (`XgSubresourceSpans`, counted as `UploadPartial`). A
-  submission takes what is left and waits for refreshes in progress, so a texture written before it is current. A
+  submission takes what is left on half the logical processors (`SettleThreads`; one thread took up to 16.8 s a frame
+  through a loading screen, past the game's hang watchdog) and waits for refreshes in progress, so a texture written
+  before it is current. A
   texture never filled is still filled whole. w109's whole-texture refresh on the submitting thread cost 19 ms a frame.
 - **A slot-70 view of a registered texture** (`GpuTextures.RefreshForView`) marks all its pages for that worker instead
   of reading and hashing the texture on the game's thread: the CPU may have written its memory, which nothing
