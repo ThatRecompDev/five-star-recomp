@@ -529,9 +529,22 @@ uint fmt_selected(uint4 w, uint4 fields, uint num, uint one, uint s, uint k) {
     uint field = select(c == 0u, fields.x, select(c == 1u, fields.y, select(c == 2u, fields.z, fields.w)));
     return select(sel >= 4u, fmt_component(w, field, num, select(c == 3u, one, 0u)), select(sel == 1u, one, 0u));
 }
+// A dword-aligned element of 32-bit components (32 .. 32_32_32_32 as UINT, SINT or FLOAT) read in memory order
+// (DST_SEL unset or x y z w) is its own dwords: no decode, and a one-component element reads one dword, not five.
+// The format and the selectors come from the V# (SGPRs), so the branch is the same across the wave.
+bool fmt_raw(uint sh, uint layout, uint num, uint s) {
+    return sh == 0u && (s == 0u || s == 0xfacu) && (num == 4u || num == 5u || num == 7u)
+        && (layout == 4u || layout == 11u || layout == 13u || layout == 14u);
+}
 uint4 FmtLoad(uint heap_index, uint addr, uint code, uint d3) {
     ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(view_slot(heap_index))];
     uint base = addr & ~3u, sh = (addr & 3u) * 8u;
+    [branch] if (fmt_raw(sh, code >> 3, code & 7u, d3 & 0xfffu)) {
+        uint raw_one = select((code & 7u) == 7u, asuint(1.0), 1u);
+        [branch] if ((code >> 3) == 4u) return uint4(b.Load(base), 0u, 0u, raw_one);
+        uint4 r = b.Load4(base);
+        return uint4(r.x, select((code >> 3) >= 11u, r.y, 0u), select((code >> 3) >= 13u, r.z, 0u), select((code >> 3) == 14u, r.w, raw_one));
+    }
     uint4 w = b.Load4(base); uint w4 = b.Load(base + 16);
     uint4 shifted = (w >> sh) | (uint4(w.yzw, w4) << ((32u - sh) & 31u));
     w = select(sh != 0u, shifted, w);

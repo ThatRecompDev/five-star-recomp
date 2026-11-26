@@ -397,7 +397,7 @@ world against the wrong depths in victory-gta6's meshlet culling. Other dimensio
 | GS | `[maxvertexcount(n)] main(<prim> GSIn gin[], SV_PrimitiveID, inout <Stream><Out>)` | ISG1 registers | via the copy shader |
 
 **Pixel shaders.** `active` starts as `!IsHelperLane()` and the entry has `[WaveOpsIncludeHelperLanes]`, so wave and
-quad operations see helper lanes. The final export (`done vm`) discards lanes with EXEC clear. With primitive-ordered
+quad operations see helper lanes. An `s_wqm` of the initial EXEC straight from the entry (no branch, discard or other EXEC write before it; the body's `do { } while (false)` runs once) is `active = true` (`ProgramEmitter.WholeQuadEntry`): a quad runs only with a covered pixel, so every lane the GPU runs is in it, and the compiler folds the select of each vector write under it (the deferred G-buffer programs' DXIL shrank 6-12%). The final export (`done vm`) discards lanes with EXEC clear. With primitive-ordered
 shading (POPS) every writable view becomes `RasterizerOrdered*`, the exiting-wave-id wait passes at once and
 `MSG_ORDERED_PS_DONE` does nothing.
 
@@ -689,7 +689,7 @@ cross-lane helpers, cube math, exact conversions) and `rdna_bvh.hlsli` are embed
 to the generated HLSL.
 
 dxc inlines every helper at every call, so a helper that one instruction calls has no loops and few branches: `FmtLoad`
-picks its fields from a table with `select`, and the BVH box node handles its four children one call each. dxc unrolls
+picks its fields from a table with `select` (after one branch, uniform as the V# is: an element of 32-bit UINT, SINT or FLOAT components in memory order, dword-aligned, is its own dwords, one dword for a one-component format instead of five), and the BVH box node handles its four children one call each. dxc unrolls
 an `[unroll]` loop by rebuilding analyses of the whole function, so a few thousand inlined loops in a large program
 cost tens of minutes.
 
