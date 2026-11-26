@@ -103,6 +103,7 @@ public sealed unsafe class D3D12XPipelineCacheTests
             var factory = new PipelineFactory(device2, root, new FixedProgramLibrary(program), new ProgramSignatures(folder.FullName), new OnceLog(log), null, standIns, null);
             var iid = DesktopDevice.PipelineStateIid;
             nint pipeline;
+
             SkippedPipelines.All = true;
 
             try
