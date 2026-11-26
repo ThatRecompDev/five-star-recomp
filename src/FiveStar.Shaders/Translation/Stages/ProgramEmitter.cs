@@ -430,6 +430,8 @@ internal sealed partial class ProgramEmitter
     {
         // AMD rounds f32 to f16 to nearest even; HLSL f32tof16 rounding is implementation-defined.
         text = F32ToF16Pattern().Replace(text, "f32tof16_rne(");
+        text = FormatLoadForm(text);
+        text = ScalarLoadForm(text);
 
         if (_state.Stage != ShaderStage.Pixel)
         {
@@ -439,6 +441,7 @@ internal sealed partial class ProgramEmitter
         // EXEC starts with live pixels only; wave operations must still see helper lanes (needs ps_6_7).
         text = text.Replace("bool active = true", "bool active = !IsHelperLane()", StringComparison.Ordinal);
         text = WholeQuadEntry(text);
+        text = ActiveRuns.Branch(text);
 
         if (_state.Pops || (_state.Config.Pixel?.Pops ?? false))
         {
@@ -448,6 +451,61 @@ internal sealed partial class ProgramEmitter
 
         return text.Replace("\nOut main(", "\n[WaveOpsIncludeHelperLanes]\nOut main(", StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// The most formatted loads a program may hold and keep FmtLoad's fast path for 32-bit components (a branch, so a
+    /// few blocks at every inlined call). indirect_diffuse_lighting~CS_ScreenProbes_ActivateProbes 9083c094 holds 3,281:
+    /// the fast path took its DXIL from 33,535 blocks and 561,823 instructions to 49,940 and 807,237, and the driver's
+    /// compile of it took 11.5-12.8 GB (a warm-up stopped at the memory guard). The light proxy holds 113.
+    /// </summary>
+    public const int FormatLoadLimit = 512;
+
+    /// <summary>The program text, with the prelude's formatted loads decode-only past <see cref="FormatLoadLimit"/>.</summary>
+    internal static string FormatLoadForm(string text)
+    {
+        const string Include = "#include \"rdna_prelude.hlsli\"";
+        int loads = FormatLoadPattern().Count(text);
+        int at = text.IndexOf(Include, StringComparison.Ordinal);
+
+        if (loads <= FormatLoadLimit || at < 0)
+        {
+            return text;
+        }
+
+        return text.Insert(at, "#define FIVESTAR_FMT_DECODE_ONLY 1\n");
+    }
+
+    [GeneratedRegex(@"\bFmtLoad\(")]
+    private static partial Regex FormatLoadPattern();
+
+    /// <summary>
+    /// The most dwords a program may read through shared s_load views (prelude sptr_views, SPtrLoadAt) and keep them.
+    /// A view walks two pages per load and picks each dword's page with selects: in programs with thousands of s_load
+    /// dwords that is more code than a walk per dword (the RaytracingResolve programs, 3,300 dwords each, grew 10% over
+    /// batch 1, indirect_diffuse_lighting~CS_ScreenProbes_ActivateRays 16%), and the driver's compile memory follows the
+    /// code. The deferred G-buffer pixel programs read 600 or fewer and keep the shared walk.
+    /// </summary>
+    public const int SharedScalarLoadLimit = 1024;
+
+    /// <summary>The program text, each s_load dword read through the map on its own past <see cref="SharedScalarLoadLimit"/>.</summary>
+    internal static string ScalarLoadForm(string text)
+    {
+        if (SharedLoadPattern().Count(text) <= SharedScalarLoadLimit)
+        {
+            return text;
+        }
+
+        // SPtrLoadAt(views, delta, lo, hi, off) reads the dword SPtrLoad(lo, hi, off) reads.
+        text = SharedLoadPattern().Replace(text, "SPtrLoad(");
+
+        return SharedViewPattern().Replace(text, string.Empty);
+    }
+
+    [GeneratedRegex(@"\bSPtrLoadAt\(_t\d+, \d+u, ")]
+    private static partial Regex SharedLoadPattern();
+
+    [GeneratedRegex(@"^[ ]*(?:uint4 )?_t\d+ = sptr_views\([^;\n]*\);\n", RegexOptions.Multiline)]
+    private static partial Regex SharedViewPattern();
 
     /// <summary>
     /// A pixel program's s_wqm of its initial EXEC (the live pixels), straight from the entry with no branch, discard or
