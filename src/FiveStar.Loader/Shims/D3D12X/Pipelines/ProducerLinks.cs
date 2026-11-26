@@ -26,12 +26,14 @@ internal sealed class ProducerLinks
     private const string TrimSuffix = ".trim2";
     private const string DxilExtension = ".dxil";
     private const int KeyDigits = 12;
+    private const string FailExtension = ".fail";
 
     private readonly ProgramProducer _producer;
     private readonly ProgramWorkers _workers;
     private readonly ConcurrentDictionary<(string Producer, string Pixel), Plan> _plans = new();
     private readonly ConcurrentDictionary<string, ProgramJob> _jobs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, object> _trims = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<(string Producer, string Pixel), byte> _lost = new();
     private int _made;
     private int _failed;
 
@@ -42,14 +44,15 @@ internal sealed class ProducerLinks
     }
 
     /// <summary>Pairs that needed a link, links made and links that failed.</summary>
-    public string Summary => $"{_plans.Values.Count(plan => plan.Producer is not null)} pairs needed a linked producer, {Volatile.Read(ref _made)} linked, {Volatile.Read(ref _failed)} failed";
+    public string Summary => $"{_plans.Values.Count(plan => plan.Producer is not null)} pairs needed a linked producer, {Volatile.Read(ref _made)} linked, {Volatile.Read(ref _failed)} failed, {_lost.Count} pairs kept as stand-ins after a failed link";
 
     /// <summary>
     /// <paramref name="programs"/> with the producer (and for a mesh producer the pixel shader) replaced by the linked
     /// forms when the pair needs them and they are made (made here first when <paramref name="inline"/>); unchanged
-    /// otherwise.
+    /// while they are not made yet. Null when the link failed: the unlinked pair does not link either (the runtime
+    /// refuses it, error #666), so the pipeline stays a stand-in, logged once per pair.
     /// </summary>
-    public List<TranslatedProgram> Apply(List<TranslatedProgram> programs, bool inline)
+    public List<TranslatedProgram>? Apply(List<TranslatedProgram> programs, bool inline)
     {
         var (producer, pixel, plan) = Find(programs);
 
@@ -58,9 +61,11 @@ internal sealed class ProducerLinks
             return programs;
         }
 
-        if (!Made(plan) && !(inline && Make(programs[producer].Name, programs[pixel].Name, plan)))
+        var (producerName, pixelName) = (programs[producer].Name, programs[pixel].Name);
+
+        if (!Made(plan) && !(inline && Make(producerName, pixelName, plan)))
         {
-            return programs;
+            return Unlinked(programs, producerName, pixelName, plan);
         }
 
         List<TranslatedProgram> result = [.. programs];
@@ -95,6 +100,38 @@ internal sealed class ProducerLinks
     private static TranslatedProgram Read(TranslatedProgram program, string path)
     {
         return program with { Name = Path.GetFileNameWithoutExtension(path), Code = ProgramCode.Read(path) };
+    }
+
+    /// <summary>
+    /// The pair before its link is made: as it is while the link is pending, null once the link failed (its kept
+    /// <c>.fail</c> file, the producer's or the trimmed pixel shader's), logged once per pair.
+    /// </summary>
+    private List<TranslatedProgram>? Unlinked(List<TranslatedProgram> programs, string producer, string pixel, Plan plan)
+    {
+        string? failure = null;
+
+        foreach (var path in (string?[])[plan.Producer, plan.Pixel])
+        {
+            if (path is not null && File.Exists(Path.ChangeExtension(path, FailExtension)))
+            {
+                failure = File.ReadAllText(Path.ChangeExtension(path, FailExtension));
+
+                break;
+            }
+        }
+
+        if (failure is null)
+        {
+            return programs;
+        }
+
+        if (_lost.TryAdd((producer, pixel), 0))
+        {
+            var first = failure.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? failure;
+            ShimContext.Log?.Warn($"[d3d12_xs] pipeline {pixel} + {producer}: link failed: {first}; it stays a stand-in and its draws are skipped");
+        }
+
+        return null;
     }
 
     private static bool Made(Plan plan)
