@@ -137,6 +137,7 @@ public static class PixelMemoryCases
         uint[] halves = [FloatBits.Pack(h(1.5), h(-2.0)), FloatBits.Pack(h(65504.0), 0x0001), FloatBits.Pack(0x7C00, h(0.1)), FloatBits.Pack(h(-0.0), h(3.0))];
         uint[] smallFloats = [0x801C03C0, 0xF7C00FC0, 0x12345678, 0];
         uint[] bytes = [0xFF804000, 0x01020304, 0x7F7F7F7F, 0x00FFFF00];
+        uint[] wide = [0x3F800000, 0xBF000000, 0x12345678, 0x80000001];
 
         return
         [
@@ -150,6 +151,12 @@ public static class PixelMemoryCases
             FormatCase("10_11_11_float", 36, 6, BufferFormats.FloatingPoint, 4, smallFloats, 0),
             FormatCase("11_11_10_float", 43, 7, BufferFormats.FloatingPoint, 4, smallFloats, 0),
             FormatCase("8_8_8_8_unorm_bgra", 56, 10, BufferFormats.Unorm, 4, bytes, 1, BufferFormats.Bgra),
+
+            // 32-bit components in memory order read their own dwords (prelude fmt_raw); a swizzled one decodes.
+            FormatCase("32_float", 22, 4, BufferFormats.FloatingPoint, 4, [0x3FC00000, 0x80000000, 0x7F800000, 0xC1200000], 0),
+            FormatCase("32_32_32_float", 74, 13, BufferFormats.FloatingPoint, 12, [.. wide, .. wide, .. wide], 0),
+            FormatCase("32_32_32_32_sint", 76, 14, BufferFormats.SignedInt, 16, [.. wide, .. wide, .. wide, .. wide], 0),
+            FormatCase("32_32_32_32_float_bgra", 77, 14, BufferFormats.FloatingPoint, 16, [.. wide, .. wide, .. wide, .. wide], 0, BufferFormats.Bgra),
         ];
     }
 
