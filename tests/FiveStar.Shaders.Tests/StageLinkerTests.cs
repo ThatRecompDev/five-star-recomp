@@ -66,6 +66,84 @@ public sealed class StageLinkerTests
         Assert.Equal(Expected, result.Pixel(0, Size / 2, Size / 2).Select(BitConverter.UInt32BitsToSingle));
     }
 
+    // Two parameters of which the pixel shader reads .xy only: narrowed, they share one register on both sides.
+    private const string WideProducer = """
+        struct Out {
+          float4 p0_xyzw : TEXCOORD0;
+          float4 p1_xyzw : TEXCOORD1;
+          float4 pos0 : SV_Position;
+        };
+        Out main(uint vid : SV_VertexID) {
+          Out o;
+          float2 uv = float2((vid << 1) & 2, vid & 2);
+          o.p0_xyzw = float4(1.5, 2.5, 7, 8);
+          o.p1_xyzw = float4(3.5, 4.5, 9, 10);
+          o.pos0 = float4(uv * float2(1, -1) + float2(-1, 1), 0, 1);
+          return o;
+        }
+        """;
+
+    private const string NarrowConsumer = """
+        struct PSIn {
+          float4 a0_xyzw : TEXCOORD0;
+          float4 a1_xyzw : TEXCOORD1;
+        };
+        uint4 main(PSIn pin) : SV_Target0 {
+          float4 attr0 = 0;
+          attr0.xyzw = pin.a0_xyzw;
+          float4 attr1 = pin.a1_xyzw;
+          return uint4(asuint(attr0.x), asuint(attr0.y), asuint(attr1.x), asuint(attr1.y));
+        }
+        """;
+
+    [WarpFact]
+    public void Inputs_read_in_part_are_narrowed_packed_and_linked_exactly()
+    {
+        var folder = Directory.CreateTempSubdirectory("fivestar-narrow").FullName;
+        var workbench = new ShaderWorkbench(ShaderToolchain.Find(), folder);
+        var trimmed = StageLinker.TrimInputs(NarrowConsumer);
+
+        Assert.Contains("float2 a0_xyzw : TEXCOORD0;", trimmed, StringComparison.Ordinal);
+        Assert.Contains("attr0.xy = pin.a0_xyzw;", trimmed, StringComparison.Ordinal);
+        Assert.Contains("attr1.xy = pin.a1_xyzw;", trimmed, StringComparison.Ordinal);
+
+        var pixel = workbench.Compile("ps_narrow", trimmed, "ps");
+        var inputs = PsvSignatureParser.Parse(DxbcContainer.Parse(pixel).Find(PsvSignatureParser.ChunkCode)!.Data.Span).Inputs;
+        Assert.Equal(1, inputs.Where(input => input.SemanticKind == PsvSemanticKind.Arbitrary).Max(input => input.StartRow + input.Rows));
+
+        var linkedSource = StageLinker.Link(WideProducer, inputs);
+        Assert.Contains("float2 p0_xyzw : TEXCOORD0;", linkedSource, StringComparison.Ordinal);
+
+        using var device = new WarpDevice();
+        var runner = new WarpRunner(device, UserDataBinding.RootConstants);
+        var linked = workbench.Compile("vs_narrow", linkedSource, "vs");
+        var result = runner.Graphics(Job(linked, pixel));
+
+        Assert.Equal([1.5f, 2.5f, 3.5f, 4.5f], result.Pixel(0, Size / 2, Size / 2).Select(BitConverter.UInt32BitsToSingle));
+    }
+
+    [Fact]
+    public void A_mesh_program_writing_at_export_hands_over_the_narrowed_output_after_each_write()
+    {
+        const string producer = """
+            struct Out {
+              float4 p0_xyzw : TEXCOORD0;
+              float4 pos0 : SV_Position;
+            };
+            void main(uint in_gi : SV_GroupIndex, out vertices Out verts[128], out indices uint3 tris[128]) {
+              verts[in_gi].p0_xyzw = float4(1, 2, 3, 4);
+              verts[in_gi].pos0 = 0;
+            }
+            """;
+        var input = new PsvElement("TEXCOORD", 0, 1, 0, 2, 0, true, PsvSemanticKind.Arbitrary, 3, 2);
+
+        var linked = StageLinker.Link(producer, [input]);
+
+        Assert.Contains("float2 p0_xyzw : TEXCOORD0;", linked, StringComparison.Ordinal);
+        Assert.Contains("static float4 nar_p0_xyzw;", linked, StringComparison.Ordinal);
+        Assert.Contains("nar_p0_xyzw = float4(1, 2, 3, 4); verts[in_gi].p0_xyzw = nar_p0_xyzw.xy;", linked, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_pixel_input_the_producer_lacks_or_moves_needs_a_link()
     {
