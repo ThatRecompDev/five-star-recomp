@@ -40,10 +40,18 @@ flowchart LR
 
 - **Registry** (`GpuTextureRegistry`): textures sorted by console address over the span of their XG layout; lookups
   take no lock. A texture registered over an overlapping range retires the old one; the overlapped textures are one run
-  of the sorted array (registered ranges never overlap), found by binary search, so a registration copies the array
-  around the run instead of sorting it (sorting 15,000 textures per registration kept a loading screen busy for seconds
-  a frame, and the game's hang watchdog ended the boot). A page the game maps or unmaps marks only the textures of
-  its run too, instead of scanning them all. Of those over the same range (other
+  by address, found by binary search, instead of a sort (sorting 15,000 textures per registration kept a loading screen
+  busy for seconds a frame, and the game's hang watchdog ended the boot). The textures are two runs sorted by start
+  (TextureRanges): a large one rebuilt every 256 registrations and a small one of the textures registered since, the
+  only one a registration copies; a retired texture of the large one is flagged until the rebuild. Copying the whole
+  array around the run per registration allocated 1.4 GB in w126's 20 s window (81% of the managed allocations): the
+  game makes about 250,000 textures over streaming memory it reuses. A page the game maps or unmaps marks only the
+  textures over it too, instead of scanning them all.
+  --stale-in-first-page (off by default) retires an older read-only texture only when the new one starts in its first
+  4 KiB: the game keeps a streamed texture's small levels, which come first, and places the next texture over the large
+  ones. Replaying w126's registrations it cuts them from 264,000 to 133,000 (the same desc made again at the same address
+  from 132,000 to 8,000) but keeps 61,000 textures alive instead of 21,600 (18.8 GB of console bytes instead of 9.8),
+  each with all its levels. Ranges may then overlap; a lookup takes the texture that starts last. Of those over the same range (other
   views of the same memory, or a streaming slot reused) the newest keeps its reference until shutdown, since
   descriptors written earlier may still name it (`--kept-aliases <n>`, default 1; it was 2, a second texture of video
   memory per reused slot charged to commit, while a placed texture's heap range stays mapped after release anyway), and older ones are released 30 presents later; any other is
@@ -102,7 +110,7 @@ flowchart LR
   texture's state. The CPU does not wait: an upload takes one of 16 slots (list, allocator, upload buffer, a reference
   to the texture) and waits only for that slot's previous upload, and every game ExecuteCommandLists first has its
   queue wait on the GPU for the uploads before it. A slot keeps its texture alive until its copy is done, so a texture
-  retired and released right after a fill is not freed under the copy. Only taking a slot and submitting its copy hold the uploader's lock: the detile into the slot's upload buffer and the recording of its list run on the filling thread, so fills from several threads (the refresh worker's settle, the frame's check of CPU-mapped textures) detile at once, and a slot being filled is busy for the others. Waiting for each upload on the game's threads
+  retired and released right after a fill is not freed under the copy. Only taking a slot and submitting its copy hold the uploader's lock: the wait for the slot's previous copy, the detile into its upload buffer and the recording of its list run on the filling thread (w125's game thread spent a tenth of its samples waiting for the lock while another fill waited for a GPU copy under it), so fills from several threads (the refresh worker's settle, the frame's check of CPU-mapped textures) detile at once, and a slot being filled is busy for the others. Waiting for each upload on the game's threads
   cost a fifth of a frame after the story load. The upload buffer is system memory, the GPU's non-local segment, whose
   budget is half the machine's physical memory (16.3 GB on a 32 GB machine), and the heaps over the game's XMem
   sections take from the same budget: the address map opens one over every mapped page's section
