@@ -171,6 +171,39 @@ internal static unsafe class DepthTwins
         }
     }
 
+    /// <summary>
+    /// The desktop depth texture <paramref name="depth"/> is about to be released: its twins and depth views are forgotten
+    /// (a copy between twin and plane would name the released texture, and a new one may take its pointer). The twins stay,
+    /// as their UAVs may still be held. Whether it had any.
+    /// </summary>
+    public static bool Released(nint depth)
+    {
+        if (!_anyTwin)
+        {
+            return false;
+        }
+
+        bool had = Twins.TryRemove((depth, false), out _) | Twins.TryRemove((depth, true), out _);
+
+        foreach (var (index, twin) in Indices)
+        {
+            if (twin.Depth == depth)
+            {
+                Indices.TryRemove(index, out _);
+            }
+        }
+
+        foreach (var (handle, view) in DepthViews)
+        {
+            if (view.Depth == depth)
+            {
+                DepthViews.TryRemove(handle, out _);
+            }
+        }
+
+        return had;
+    }
+
     /// <summary>The depth plane's twin of a desktop depth texture; null without one.</summary>
     public static DepthTwin? Of(nint depth)
     {
