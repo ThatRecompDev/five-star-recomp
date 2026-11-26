@@ -29,6 +29,12 @@ internal static unsafe class ViewTrace
 
     private const int RecordsDword = 2;
     private const int StrideDword = 1;
+    private const int StrideShift = 16;
+    private const uint StrideMask = 0x3FFF;
+
+    /// <summary>Buffers up to this size show their floats: 15 records of 16 bytes (the histogram's constants) fit.</summary>
+    private const ulong SmallBufferBytes = 256;
+
     private const uint HighMask = 0xFFFF;
     private const int HighShift = 32;
 
@@ -124,7 +130,7 @@ internal static unsafe class ViewTrace
         {
             ulong address = views.RecordDword(index, 0) | ((ulong)high << HighShift);
 
-            return string.Create(CultureInfo.InvariantCulture, $"buffer at 0x{address:x}, {views.RecordDword(index, RecordsDword)} records");
+            return string.Create(CultureInfo.InvariantCulture, $"buffer at 0x{address:x}, {views.RecordDword(index, RecordsDword)} records{Floats(views, index, address)}");
         }
 
         var noted = ViewLiveness.Peek(views.Source(index));
@@ -147,6 +153,32 @@ internal static unsafe class ViewTrace
         }
 
         return string.Create(CultureInfo.InvariantCulture, $"{view.Shape} of 0x{view.Resource:x} {Describe(view.Resource)}");
+    }
+
+    /// <summary>
+    /// ", floats a, b, ..." of a small buffer (at most <see cref="SmallBufferBytes"/>: constants such as the histogram's
+    /// exposure scale and EV range) as game memory holds it now, read through the kernel; empty for a larger one.
+    /// </summary>
+    private static string Floats(ShaderVisibleHeap views, uint index, ulong address)
+    {
+        ulong records = views.RecordDword(index, RecordsDword);
+        ulong stride = (views.RecordDword(index, StrideDword) >> StrideShift) & StrideMask;
+        ulong bytes = records * Math.Max(stride, 1);
+
+        if (bytes > SmallBufferBytes)
+        {
+            return string.Empty;
+        }
+
+        var data = new byte[(int)bytes];
+        nuint done = 0;
+
+        fixed (byte* to = data)
+        {
+            _ = Native.Kernel32.ReadProcessMemory(Native.Kernel32.GetCurrentProcess(), (nint)address, to, (nuint)data.Length, &done);
+        }
+
+        return $", floats {ExposureTrace.Floats(data.AsSpan(0, (int)done))}";
     }
 
     /// <summary>A live desktop resource's size, mips and format (GetDesc only).</summary>
