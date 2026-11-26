@@ -11,7 +11,7 @@ namespace FiveStar.Loader.Diagnostics;
 /// <summary>
 /// <c>--profile-managed &lt;start&gt;[:&lt;seconds&gt;]</c>: from <c>start</c> seconds into the run, the runtime's CPU
 /// sampler records every managed thread's stack once a millisecond for <c>seconds</c> (an EventPipe session of the
-/// process itself, <see cref="EventPipeSession"/>), with the rundown that names the methods. Beside the .nettrace a
+/// process itself, <see cref="EventPipeSession"/>), with the rundown that names the methods and the runtime's allocation ticks (an event with its stack about every 100 KB a thread allocates). Beside the .nettrace a
 /// .threads.tsv gives each thread seen in the window its class (game, build, queue, loader, runtime, other) and name;
 /// <c>fivestar profile summary</c> reads both. Sampling suspends the managed threads briefly each millisecond, so the
 /// window is kept short and the default is off.
@@ -129,7 +129,7 @@ internal sealed unsafe class ManagedProfile
 
         try
         {
-            session = EventPipeSession.Start(_path, [(EventPipeSession.SampleProfiler, 0, EventPipeSession.Verbose), (EventPipeSession.Runtime, EventPipeSession.MethodKeywords, EventPipeSession.Verbose)]);
+            session = EventPipeSession.Start(_path, [(EventPipeSession.SampleProfiler, 0, EventPipeSession.Verbose), (EventPipeSession.Runtime, EventPipeSession.MethodKeywords | EventPipeSession.GcKeyword, EventPipeSession.Verbose)]);
         }
         catch (Exception exception) when (exception is IOException or TimeoutException or UnauthorizedAccessException)
         {
