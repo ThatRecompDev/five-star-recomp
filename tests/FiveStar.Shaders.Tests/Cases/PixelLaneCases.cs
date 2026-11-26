@@ -28,6 +28,7 @@ public static class PixelLaneCases
             CarryDppSdwa(),
             LaneCount(),
             ExecFromScalar(),
+            ExecRunOfWrites(),
             WholeQuadMode(),
             ReadFirstLane(),
             MaskAsInteger(),
@@ -158,6 +159,39 @@ public static class PixelLaneCases
             return [pixel.Lane, pixel.Lane, below, pixel.Lane];
         })
         { Bindings = new Bindings { UserSgprs = [0x5] } };
+    }
+
+    // A run of writes under a narrowed EXEC (one branch over the lanes, Stages.ActiveRuns): the even-x lanes compute, each
+    // write reading the one before it; the odd-x lanes keep every register.
+    private static PixelCase ExecRunOfWrites()
+    {
+        const string Program = """
+            v_cvt_u32_f32_e32 v10, v2
+            v_mov_b32 v20, 3
+            v_mov_b32 v21, 3
+            v_mov_b32 v22, 3
+            v_mov_b32 v23, 3
+            v_and_b32_e32 v11, 1, v10
+            v_cmpx_eq_u32_e32 0, v11
+            v_mov_b32 v20, 1
+            v_add_nc_u32_e32 v21, 1, v20
+            v_mul_lo_u32 v22, v21, 3
+            v_add_nc_u32_e32 v23, v22, v20
+            v_add_nc_u32_e32 v20, v20, v23
+            s_mov_b32 exec_lo, -1
+            """;
+
+        return new PixelCase("exec_run_of_writes", Program, 4, Expect);
+
+        static Expected[] Expect(PixelContext pixel)
+        {
+            if ((pixel.X & 1) == 0)
+            {
+                return [8, 2, 6, 7];
+            }
+
+            return [3, 3, 3, 3];
+        }
     }
 
     // EXEC written from an integer SGPR: only lanes whose bit is set execute.
