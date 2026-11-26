@@ -112,6 +112,35 @@ public sealed class GpuTextureRegistryRunTests
     }
 
     [Fact]
+    public void Only_a_texture_starting_in_an_older_ones_first_page_retires_it_and_lookups_take_the_latest_start()
+    {
+        var random = new Random(19);
+        var registry = new GpuTextureRegistry(() => [], () => []) { OnlyFirstPageStales = true };
+        var live = new List<GpuTexture>();
+
+        // Textures of 4 to 64 pages at page starts: most overlaps start past the older one's first page and keep it.
+        for (int i = 0; i < TextureRanges.RecentLimit * 4; i++)
+        {
+            ulong address = (ulong)random.Next(0, Textures * 8) * Page;
+            ulong size = (ulong)random.Next(4, 65) * Page;
+            var texture = new GpuTexture(address, default(ResourceDescription), 0, 0, 0, false, new XgSurface { Size = size });
+            live.RemoveAll(entry => entry.Address <= address && address - entry.Address < GpuTextureRegistry.StalePageBytes);
+            live.Add(texture);
+            registry.Register(texture);
+
+            Assert.Equal(live.Count, registry.Count);
+            ulong probe = (ulong)random.Next(0, Textures * 16) * Page / 2;
+            var holding = live.Where(entry => entry.Contains(probe)).OrderBy(entry => entry.Address).LastOrDefault();
+            Assert.Same(holding, registry.Find(probe));
+
+            var expected = live.Where(entry => entry.Address < probe + (2 * Page) && probe < entry.Address + entry.Size).OrderBy(entry => entry.Address);
+            Assert.Equal(expected, registry.Overlapping(probe, 2 * Page));
+        }
+
+        Assert.True(live.Count > Textures, "overlapping textures were kept");
+    }
+
+    [Fact]
     public void Removed_textures_are_not_found_before_or_after_a_rebuild()
     {
         var ranges = new TextureRanges();

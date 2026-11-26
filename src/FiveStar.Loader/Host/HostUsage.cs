@@ -154,6 +154,8 @@ internal static class HostUsage
           --retire-unmapped-textures  release textures over memory the game unmaps (default: only counted)
           --keep-unmapped-textures  keep textures over memory the game unmapped that no view record names (default:
                                  retired after 120 presents unmapped and 60 unnamed, their views nulled)
+          --stale-in-first-page  a new texture retires an older one it overlaps only when it starts in that one's first
+                                 4 KiB (streamed textures keep only their small levels; default: any overlap retires)
           --frame-rate <r>       30 (the console's, default), 60 or uncapped: the frame events' interval and vsync
           --watch-transient      check the game's transient-memory pool and log the first corrupted node
           --watch-pool-pages     check the game's small-block pool pages for headers its allocator did not write
