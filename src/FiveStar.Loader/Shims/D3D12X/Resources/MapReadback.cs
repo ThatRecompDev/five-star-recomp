@@ -88,6 +88,7 @@ internal static unsafe class MapReadback
         if (Wait)
         {
             WaitAndFill(device, texture, throttle, game);
+            Trace(texture, game, "read after a wait");
 
             return;
         }
@@ -97,13 +98,24 @@ internal static unsafe class MapReadback
         if (Async.TryServe(texture.Desktop, game))
         {
             Interlocked.Increment(ref _served);
+            Trace(texture, game, "an earlier map's copy");
         }
         else
         {
             WaitAndFill(device, texture, throttle, game);
+            Trace(texture, game, "read after a wait");
         }
 
         Async.Start(device, texture.Desktop, texture.State, throttle.Submitted());
+    }
+
+    /// <summary><c>--trace-exposure</c>: what the game reads from the target (<see cref="DebugLayer.ExposureTrace"/>).</summary>
+    private static void Trace(GpuTexture texture, byte* game, string source)
+    {
+        if (DebugLayer.ExposureTrace.Enabled)
+        {
+            DebugLayer.ExposureTrace.Mapped(texture, game, source);
+        }
     }
 
     /// <summary>The GPU finishes all submitted work (the game's thread waits), then the row is read back into <paramref name="game"/>.</summary>

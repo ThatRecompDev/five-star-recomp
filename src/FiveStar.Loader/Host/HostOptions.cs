@@ -317,6 +317,9 @@ internal sealed record HostOptions
     /// <summary>The floats shown of every NaN-scanned memory input (<c>--d3d12-nan-scan-dwords</c>); null for none.</summary>
     public (int Offset, int Count)? NanScanDwords { get; set; }
 
+    /// <summary>Presents between two exposure lines of one mapped target (<c>--trace-exposure</c>); 0 when off.</summary>
+    public int TraceExposure { get; set; }
+
     /// <summary>Retire textures over memory the game unmaps (<c>--retire-unmapped-textures</c>); off: they are only counted.</summary>
     public bool RetireUnmappedTextures { get; set; }
 
