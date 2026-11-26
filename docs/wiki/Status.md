@@ -55,7 +55,11 @@ page by page as their memory changes, on a worker thread. On AMD cards the world
 translated mesh program wrote each primitive culled before its real value, and AMD's driver keeps the first cull
 (fixed by a contributor, #55; an RX 7800 XT now draws the depth, vehicles and the night city). Two loading-screen
 stalls that reached the game's own 30-second hang watchdog are gone (a texture registry that re-sorted all its
-textures for each new one, and the refresh of queued textures on one thread, #56 and #57). On 25 November the device removals that ended
+textures for each new one, and the refresh of queued textures on one thread, #56 and #57). On 26 November the
+material textures fill (every texture the G-buffer samples has data) and the opening flyover shows the city at night
+on screen, still blurred, banded and too bright, then white (a feedback pass being traced). The world frame is down to
+559 ms (w112): the per-draw scans of the write-combined descriptor window that held the game's render threads are
+gone, and the GPU's main queue is now the limit. On 25 November the device removals that ended
 every boot ~25–35 s after the world started loading were traced to the game's ray-tracing compute passes walking
 acceleration structures we never build; those pipelines now stay stand-ins unless `--raytracing` is given, and a boot
 ran 18 minutes in the world with no removal. Literal samplers (shadow comparison, clamp) now get their own samplers. The overwrite of the game's
