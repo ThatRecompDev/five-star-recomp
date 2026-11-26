@@ -705,6 +705,10 @@ internal sealed class CommandLineParser
                 _options.TypelessTargets = true;
 
                 return true;
+            case "--texture-refresh-wait":
+                _options.TextureRefreshWait = true;
+
+                return true;
             case "--committed-textures":
                 _options.PlacedTextures = false;
 

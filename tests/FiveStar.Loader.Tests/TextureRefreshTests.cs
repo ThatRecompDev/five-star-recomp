@@ -101,7 +101,7 @@ public sealed unsafe class TextureRefreshTests
         var (start, end) = XgSubresourceSpans.Of(surface, 1);
         byte[][] second = [first[0], Pattern(Size / 2, 4)];
         Write(test, surface, frames, second, start / PageSize * PageSize, end);
-        RunEmptyList(device);
+        RunEmptyList(test, device);
 
         Assert.Equal(1, textures.Counters[GpuResourceEvent.UploadPartial]);
         Assert.Equal(uploads, textures.Counters[GpuResourceEvent.Upload]);
@@ -110,7 +110,7 @@ public sealed unsafe class TextureRefreshTests
 
         long skipped = textures.Counters[GpuResourceEvent.UploadSkipped];
         Write(test, surface, frames, second, start / PageSize * PageSize, end);
-        RunEmptyList(device);
+        RunEmptyList(test, device);
         Assert.Equal(1, textures.Counters[GpuResourceEvent.UploadPartial]);
         Assert.True(textures.Counters[GpuResourceEvent.UploadSkipped] > skipped);
     }
@@ -138,6 +138,7 @@ public sealed unsafe class TextureRefreshTests
         using var probe = new TextureProbe(device12);
         nint handle = (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr;
         textures.RefreshWatched(device12, 1);
+        textures.Writes.Flush(device12);
 
         for (int view = 0; view < 3; view++)
         {
@@ -146,14 +147,15 @@ public sealed unsafe class TextureRefreshTests
 
         Assert.Equal(1, textures.Counters[GpuResourceEvent.ViewCheckQueued]);
         Assert.Equal(2, textures.Counters[GpuResourceEvent.ViewCheckSkipped]);
-        RunEmptyList(device);
+        RunEmptyList(test, device);
 
         // The CPU writes new mips into the mapped range (no DirectStorage, no mapping): the next frame's view finds them.
         byte[][] second = [Pattern(Size, 7), Pattern(Size / 2, 8)];
         WriteCpu(test, surface, gpu, second);
         textures.RefreshWatched(device12, 2);
+        textures.Writes.Flush(device12);
         CreateView(device, gpu, description, handle);
-        RunEmptyList(device);
+        RunEmptyList(test, device);
 
         Assert.Equal(second[0], Bytes(probe.Read(Size, Size, 0, textures.Uploader.OrderBefore)));
         Assert.Equal(second[1], Bytes(probe.Read(Size / 2, Size / 2, 1, textures.Uploader.OrderBefore)));
@@ -274,11 +276,14 @@ public sealed unsafe class TextureRefreshTests
         create(device.Device, &description, &view, handle);
     }
 
-    private static void RunEmptyList(XboxDevice device)
+    private static void RunEmptyList(TestRuntime test, XboxDevice device)
     {
         nint list = device.DirectList();
         Assert.Equal(0, ((delegate* unmanaged<nint, int>)XboxDevice.Vtable(list)[CloseSlot])(list));
         device.Run(list);
+
+        // The refresh worker takes what the submission queued; a test reads after it is done.
+        test.Runtime.D3D12X.Textures.Writes.Flush(test.Runtime.D3D12X.Objects.DesktopDevice);
     }
 
     private static byte[] Pattern(int extent, int seed)

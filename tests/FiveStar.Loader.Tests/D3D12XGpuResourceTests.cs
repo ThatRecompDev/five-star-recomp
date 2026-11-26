@@ -270,7 +270,7 @@ public sealed unsafe class D3D12XGpuResourceTests
         CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
 
         // The view queues the check of the texture's pages; the next submission has it done.
-        RunEmptyList(device);
+        RunEmptyList(test, device);
 
         for (uint mip = 0; mip < Mips; mip++)
         {
@@ -316,8 +316,11 @@ public sealed unsafe class D3D12XGpuResourceTests
         Tile(description, cpu, first);
         Tile(description, cpu + Second, second);
         textures.RefreshWatched(device12, 1);
+        textures.Writes.Flush(device12);
+
         long uploads = textures.Counters[GpuResourceEvent.Upload];
         textures.RefreshWatched(device12, 2);
+        textures.Writes.Flush(device12);
 
         using var firstProbe = new TextureProbe(device12);
         using var secondProbe = new TextureProbe(device12);
@@ -391,6 +394,7 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.Equal(0, ((delegate* unmanaged<nint, uint, void*, void**, int>)XboxDevice.Vtable(placed)[MapSlot])(placed, 0, null, &mapped));
         Tile(description, cpu, [Pattern(Size, 4), Pattern(Size / 2, 5)]);
         textures.RefreshWatched(device12, 1);
+        textures.Writes.Flush(device12);
 
         // A glyph-cache style update: list slot 85 copies new texels from an upload buffer into mip 0.
         byte[] copied = Pattern(Size, 6);
@@ -409,6 +413,7 @@ public sealed unsafe class D3D12XGpuResourceTests
         // The memory changes again (on the console it would now hold the copy): the frame check must not undo the copy.
         Tile(description, cpu, [Pattern(Size, 7), Pattern(Size / 2, 8)]);
         textures.RefreshWatched(device12, 2);
+        textures.Writes.Flush(device12);
 
         using var probe = new TextureProbe(device12);
         CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
@@ -443,7 +448,7 @@ public sealed unsafe class D3D12XGpuResourceTests
         Tile(description, cpu, linear);
         using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
         CreateView(device, gpu, description, (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
-        RunEmptyList(device);
+        RunEmptyList(test, device);
 
         Assert.Equal(linear[0], probe.Read(Size, Size, 0, uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
         Assert.Equal(1, counters[GpuResourceEvent.Upload]);
@@ -510,10 +515,10 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.Equal(filled, textures.Counters[GpuResourceEvent.Upload]);
 
         // The next submission refreshes it (the pages it changed), once.
-        RunEmptyList(device);
+        RunEmptyList(test, device);
         Assert.Equal(linear[0], probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
         Assert.Equal(filled + 1, textures.Counters[GpuResourceEvent.Upload] + textures.Counters[GpuResourceEvent.UploadPartial]);
-        RunEmptyList(device);
+        RunEmptyList(test, device);
         Assert.Equal(filled + 1, textures.Counters[GpuResourceEvent.Upload] + textures.Counters[GpuResourceEvent.UploadPartial]);
         Assert.True(cpu != 0);
     }
@@ -547,7 +552,7 @@ public sealed unsafe class D3D12XGpuResourceTests
             Assert.Equal(cpu, map(cpu, (ulong)frames.Length, pages));
         }
 
-        RunEmptyList(device);
+        RunEmptyList(test, device);
         Assert.Equal(linear[0], probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
         Assert.True(textures.Counters[GpuResourceEvent.WrittenRefreshed] >= 1);
     }
@@ -609,7 +614,7 @@ public sealed unsafe class D3D12XGpuResourceTests
             Assert.Equal(cpu, map(cpu, (ulong)frames.Length, pages));
         }
 
-        RunEmptyList(device);
+        RunEmptyList(test, device);
         Assert.Equal(linear[0], probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
     }
 
@@ -754,11 +759,14 @@ public sealed unsafe class D3D12XGpuResourceTests
     }
 
     /// <summary>A submission of an empty direct list on the device's queue (ExecuteCommandLists refreshes textures first).</summary>
-    private static void RunEmptyList(XboxDevice device)
+    private static void RunEmptyList(TestRuntime test, XboxDevice device)
     {
         nint list = device.DirectList();
         Assert.Equal(0, ((delegate* unmanaged<nint, int>)XboxDevice.Vtable(list)[CloseSlot])(list));
         device.Run(list);
+
+        // The refresh worker takes what the submission queued; a test reads after it is done.
+        test.Runtime.D3D12X.Textures.Writes.Flush(test.Runtime.D3D12X.Objects.DesktopDevice);
     }
 
     /// <summary>A registry entry over 0x1000 bytes at <paramref name="address"/>, holding its own reference on a desktop buffer.</summary>

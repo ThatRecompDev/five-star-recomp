@@ -43,6 +43,10 @@ internal sealed unsafe class GpuTextures : IDisposable
     [ThreadStatic]
     private static nuint _kernelCopyBytes;
 
+    /// <summary>When this thread's refresh began reading memory (<see cref="TextureRefreshStats"/>).</summary>
+    [ThreadStatic]
+    private static long _readStart;
+
     private readonly object _watchGate = new();
     private readonly GameMemorySource _source;
     private readonly DesktopResourceDescriptions _descriptions;
@@ -272,6 +276,7 @@ internal sealed unsafe class GpuTextures : IDisposable
 
     private void RefreshLocked(nint device, GpuTexture texture, bool throughKernel)
     {
+        _readStart = System.Diagnostics.Stopwatch.GetTimestamp();
         byte* source = _source.Find(texture.Address, texture.Size);
 
         if (source == null)
@@ -343,6 +348,7 @@ internal sealed unsafe class GpuTextures : IDisposable
     {
         var pages = TextureRefreshWorker.HashPages(texture, source);
         ulong hash = TextureRefreshWorker.Combined(pages);
+        TextureRefreshStats.AddRead(_readStart, texture.Size);
 
         if (hash == texture.UploadedHash)
         {
@@ -351,7 +357,11 @@ internal sealed unsafe class GpuTextures : IDisposable
             return;
         }
 
-        if (Uploader.Upload(device, texture, source))
+        long upload = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool uploaded = Uploader.Upload(device, texture, source);
+        TextureRefreshStats.AddUpload(upload, texture.Size);
+
+        if (uploaded)
         {
             texture.PageHashes = pages;
             texture.UploadedHash = hash;
@@ -517,11 +527,16 @@ internal sealed unsafe class GpuTextures : IDisposable
             Forget();
         }
 
-        // On the refresh worker's thread budget (TextureRefreshWorker.SettleThreads): each texture is read through the
-        // kernel and hashed on its own thread, in that thread's copy buffer, and the uploads take the uploader's lock in
-        // turn. One after another on the submitting thread (about a dozen Bink planes and the glyph cache) the check took
-        // up to tens of ms of every w109 world frame before its first submission reached the GPU.
-        Parallel.ForEach(textures, new ParallelOptions { MaxDegreeOfParallelism = TextureRefreshWorker.SettleThreads }, texture => Refresh(device, texture, throughKernel: true));
+        // The refresh worker checks them page by page against their page hashes and uploads only the subresources that
+        // changed (TextureRefreshWorker), off the submitting thread. One after another on the submitting thread (about
+        // a dozen Bink planes and the glyph cache) the whole-texture check took up to tens of ms of every w109 world
+        // frame; on the submitting threads in parallel it was part of w113's 59-124 ms of refresh a frame.
+        foreach (var texture in textures)
+        {
+            TextureRefreshStats.AddWatched();
+            texture.MarkPages(0, texture.Size);
+            Writes.Add(texture);
+        }
     }
 
     /// <summary>Drops the watched textures no longer registered (retired): they were walked every frame for good.</summary>

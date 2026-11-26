@@ -131,6 +131,7 @@ internal sealed class PresentTimeline
         var times = new FrameTimes(frame, Milliseconds(_entered - _previousExit), Milliseconds(submit.Submit), Milliseconds(submit.Refresh), Milliseconds(mirrored),
             (pause - _previousPause).TotalMilliseconds, present, Milliseconds(_marks[LatencyWait]), Milliseconds(_marks[RetireWait]), Milliseconds(_marks[Submit]), Milliseconds(_marks[Present]), allocatedFrame / BytesPerMegabyte, gen0, gen1, gen2, Milliseconds(submit.ListWaits), Milliseconds(submit.Preludes));
         _log.Info(FrameLog.Line(presents, times));
+        _log.Info(Resources.TextureRefreshStats.Line());
     }
 
     /// <summary>Collections of <paramref name="generation"/> since the last call (a gen 2 one counts in 0 and 1 too).</summary>
