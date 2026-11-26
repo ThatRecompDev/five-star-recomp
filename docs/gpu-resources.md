@@ -76,6 +76,7 @@ flowchart LR
   Its texels reach the game's memory only at a Map of a one-row target (`MapReadback`, off with `--no-map-readback`):
   the game reads its exposure statistics from a 1x1 and a 5x1 RGBA32F target that way; the GPU first finishes all
   submitted work, then the row is read back and written at offset 0 (facts after Leonida).
+- **Slot 70, replaced textures**: a view of a GPU-written texture's extent whose address a newer GPU-written texture of another shape took reads the replaced one (retired or kept, counted as ViewResolvedReplaced), not a null view: the game keeps drawing into it through its old depth views (w120c: format-53 shadow pages re-made at other sizes). A retired texture whose depth view was bound, or which a view found, within its grace is kept another grace.
 - **Slot 70** (`AddressShaderViews`): the registered texture at the view's address with the same extent and format
   (a GPU-written one with the same extent, whatever its format); else, when every byte of the desc's XG layout is
   readable, a new texture without RT/DS/UAV flags in PIXEL | NON_PIXEL_SHADER_RESOURCE, in the view's format when its
