@@ -81,6 +81,12 @@ internal sealed partial class ProgramEmitter
             // One entry, so line positions after the include stay as they are.
             lines[0] = string.Join("\n", WaveDefines()) + "\n" + Include;
         }
+        else if (_state.NativeWaves)
+        {
+            // VW_WAVE stays: lane arithmetic such as a mesh wave's first thread reads it.
+            var header = new[] { WaveOps.FloorLine(_state.WaveSize, WaveOps.NarrowestHardwareWave), WaveOps.NativeLine, $"#define VW_WAVE {_state.WaveSize}", Include };
+            lines[0] = string.Join("\n", header);
+        }
 
         if (_state.Supersteps)
         {

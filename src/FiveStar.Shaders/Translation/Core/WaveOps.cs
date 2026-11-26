@@ -51,6 +51,9 @@ internal static class WaveOps
         return $"{TranslationOptions.FastWavesComment}approximate on narrower hardware waves: {reason}";
     }
 
+    /// <summary>The second header line of a program that needs no wave emulation (Waves.NativeWaveCheck).</summary>
+    public const string NativeLine = "// no wave emulation: no lane read by number, ballot, count or lane number";
+
     /// <summary>D3D12's narrowest wave.</summary>
     public const int NarrowestHardwareWave = 4;
 }
