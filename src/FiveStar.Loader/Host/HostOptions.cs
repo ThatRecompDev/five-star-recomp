@@ -143,6 +143,9 @@ internal sealed record HostOptions
     /// <summary>Retired textures over exactly one range kept until disposal (<c>--kept-aliases</c>).</summary>
     public int KeptAliases { get; set; } = Shims.D3D12X.Resources.GpuTextureRegistry.DefaultKeptAliases;
 
+    /// <summary>Bytes of textures made for views over reserved memory with no page mapped (<c>--unmapped-view-budget</c>).</summary>
+    public long UnmappedViewBudgetBytes { get; set; } = Shims.D3D12X.Resources.GpuTextures.DefaultUnmappedViewBudget;
+
     /// <summary>The most driver compiles of 256 KB of DXIL or more at once (<c>--max-driver-compiles</c>); 0 for the machine's default.</summary>
     public int MaxDriverCompiles { get; set; }
 
