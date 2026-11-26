@@ -142,6 +142,7 @@ internal static class HostUsage
                                  wrote it) instead of a clamp pass before each; mesh programs take a 4-byte payload
           --clamp-enhanced-barriers  enhanced barriers on the indirect-argument scratch (one per clamp) instead of
                                  three transitions per ExecuteIndirect, where the device has them; not with --mesh-launch
+          --typeless-depth       depth textures in a typed depth format made typeless, so the game's shader views read them
           --indirect-gather      indirect records nothing earlier in their list segment can have written are clamped in
                                  one prelude before the segment instead of one pass per ExecuteIndirect
           --check-view-liveness  before each draw and dispatch, check the bound tables' views: released resources, wrong kinds

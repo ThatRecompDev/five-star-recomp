@@ -47,16 +47,11 @@ internal sealed unsafe class AddressShaderViews
             _log.Detail($"  [d3d12_xs] console-address textures: {counters}; {_textures.Registry.Summary}; {_textures.Placed.Summary}; {_textures.MemorySummary}");
         }
 
-        if (IsBuffer(resource) && view->Address != 0)
+        var reason = GpuResourceEvent.ViewNullNoTexture;
+
+        if (IsBuffer(resource) && view->Address != 0 && BufferView(device, view, handle, record, ref reason))
         {
-            counters.Add(GpuResourceEvent.ViewBuffer);
-
-            if (_buffers.Create(device, view, handle, record))
-            {
-                return null;
-            }
-
-            _warnings.Warn("slot70-buffer", $"[d3d12_xs] ID3D12Device.X::Slot70: a buffer view at 0x{view->Address:x} outside known game memory or its buffer: null descriptor");
+            return null;
         }
 
         var texture = Resolve(device, resource, view);
@@ -67,6 +62,7 @@ internal sealed unsafe class AddressShaderViews
         if (texture is not null)
         {
             desktop.Format = ViewFormats.ForView(texture.DesktopFormat, viewFormat);
+            NoteDepth(texture);
             desktop.ComponentMapping = TargetFormats.ComponentMapping(viewFormat, desktop.ComponentMapping);
             target = texture.Desktop;
 
@@ -82,7 +78,7 @@ internal sealed unsafe class AddressShaderViews
         if (target == 0 || desktop.Format == ViewFormats.Unknown)
         {
             counters.Add(GpuResourceEvent.ViewNull);
-            _warnings.Warn("slot70-null", $"[d3d12_xs] ID3D12Device.X::Slot70: no readable texture at 0x{view->Address:x} (format {view->Format}): null descriptor");
+            NoteNull(resource, view, texture, reason);
             desktop.Format = viewFormat;
             target = 0;
             texture = null;
@@ -161,6 +157,77 @@ internal sealed unsafe class AddressShaderViews
         {
             DebugLayer.ViewLiveness.Written(handle, target, DebugLayer.ViewLiveness.Shape(target, view, unordered: false));
         }
+    }
+
+    /// <summary>A buffer view at an address; false (with why in <paramref name="reason"/>) when it gets no desktop buffer.</summary>
+    private bool BufferView(nint device, AddressViewDescription* view, nint handle, Binding.BufferRecord record, ref GpuResourceEvent reason)
+    {
+        _textures.Counters.Add(GpuResourceEvent.ViewBuffer);
+
+        if (_buffers.Create(device, view, handle, record, out bool covered))
+        {
+            return true;
+        }
+
+        reason = covered ? GpuResourceEvent.ViewNullBufferRange : GpuResourceEvent.ViewNullBufferUncovered;
+        _warnings.Warn($"slot70-buffer-{reason}", $"[d3d12_xs] ID3D12Device.X::Slot70: a buffer view at 0x{view->Address:x} (format {view->Format}) {Explain(reason)}: null descriptor");
+
+        return false;
+    }
+
+    /// <summary>--typeless-depth: a depth texture in its typeless family reads its depth plane where the typed one read nothing.</summary>
+    private void NoteDepth(GpuTexture texture)
+    {
+        if (DepthFormats.TypelessDepth && texture.Console.Format != texture.DesktopFormat && DepthFormats.TypelessResource(texture.Console.Format) == texture.DesktopFormat)
+        {
+            _textures.Counters.Add(GpuResourceEvent.ViewDepthResolved);
+        }
+    }
+
+    /// <summary>
+    /// Counts a null view by why it is null, and names each kind once per pair of formats with the shapes involved: a
+    /// texture view inside a GPU-written texture it does not match, one of a typed depth texture, or one with no texture.
+    /// </summary>
+    private void NoteNull(ResourceDescription* resource, AddressViewDescription* view, GpuTexture? texture, GpuResourceEvent reason)
+    {
+        var inside = _textures.Registry.Find(view->Address);
+        string shape = "without a desc";
+
+        if (resource != null)
+        {
+            shape = $"{resource->Width}x{resource->Height}x{resource->DepthOrArraySize}, {resource->MipLevels} mips, format {resource->Format}";
+        }
+
+        if (reason == GpuResourceEvent.ViewNullNoTexture && texture is not null)
+        {
+            reason = GpuResourceEvent.ViewNullDepth;
+        }
+        else if (reason == GpuResourceEvent.ViewNullNoTexture && inside is not null && inside.GpuWritten)
+        {
+            reason = GpuResourceEvent.ViewNullInsideWritten;
+        }
+
+        _textures.Counters.Add(reason);
+
+        if (reason is GpuResourceEvent.ViewNullBufferUncovered or GpuResourceEvent.ViewNullBufferRange)
+        {
+            return;
+        }
+
+        string where = inside is null ? "no texture" : $"in a {Written(inside)} texture at 0x{inside.Address:x} of format {inside.DesktopFormat}, {inside.Console.Width}x{inside.Console.Height}x{inside.Console.DepthOrArraySize}, {inside.Console.MipLevels} mips";
+        _warnings.Warn($"slot70-null-{reason}-{inside?.DesktopFormat}-{view->Format}", $"[d3d12_xs] ID3D12Device.X::Slot70: a view at 0x{view->Address:x} in format {view->Format} of a texture {shape}, {where}: null descriptor ({Explain(reason)}, counted as {reason})");
+    }
+
+    private static string Explain(GpuResourceEvent reason)
+    {
+        return reason switch
+        {
+            GpuResourceEvent.ViewNullBufferUncovered => "at an address no desktop buffer covers",
+            GpuResourceEvent.ViewNullBufferRange => "off its buffer's element size, past its end or a raw view off 16 bytes",
+            GpuResourceEvent.ViewNullInsideWritten => "inside a GPU-written texture whose extent it does not match",
+            GpuResourceEvent.ViewNullDepth => "a typed depth texture takes no SRV",
+            _ => "no texture there, and none could be made from its memory",
+        };
     }
 
     /// <summary>Counts a view that reads in another format than the game asked for, and names each pair of formats once.</summary>

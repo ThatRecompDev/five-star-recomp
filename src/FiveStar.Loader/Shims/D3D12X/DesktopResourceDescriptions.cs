@@ -100,6 +100,7 @@ internal sealed class DesktopResourceDescriptions
         if ((desktop.Flags & AllowDepthStencil) != 0)
         {
             desktop.Flags &= ~NotWithDepthStencil;
+            desktop.Format = DepthFormats.TypelessResource(desktop.Format);
         }
 
         return desktop;

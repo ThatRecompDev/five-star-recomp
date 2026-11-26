@@ -785,6 +785,10 @@ internal sealed class CommandLineParser
                 _options.IndirectGather = true;
 
                 return true;
+            case "--typeless-depth":
+                _options.TypelessDepth = true;
+
+                return true;
             case "--gc-sustained":
                 _options.SustainedGc = true;
 
