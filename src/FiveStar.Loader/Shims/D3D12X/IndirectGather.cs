@@ -49,14 +49,13 @@ internal static unsafe class IndirectGather
     private static long _clamped;
     private static long _writesKept;
     private static long _quietWork;
-    private static long _waitsKept;
 
     /// <summary>Whether <c>--indirect-gather</c> is on.</summary>
     public static bool Enabled { get; set; }
 
     /// <summary>
-    /// <c>--indirect-gather-strict</c>: every memory write and dispatch, and every memory wait, ends gathering as before
-    /// the narrower rules (<see cref="WroteMemory"/>, <see cref="Dispatched"/>, <see cref="WaitRecorded"/>).
+    /// <c>--indirect-gather-strict</c>: every memory write and dispatch ends gathering as before the narrower rules
+    /// (<see cref="WroteMemory"/>, <see cref="Dispatched"/>); every memory wait ends it either way (<see cref="WaitRecorded"/>).
     /// </summary>
     public static bool Strict { get; set; }
 
@@ -75,7 +74,7 @@ internal static unsafe class IndirectGather
 
             var (gathered, alone) = Counts;
 
-            return $"; [indirect gather] {gathered} ExecuteIndirects gathered, {alone} clamped alone ({MissSummary()}), {IndirectGatherPrelude.Count} preludes of {IndirectGatherPrelude.Passes} passes; kept gathering past {Interlocked.Read(ref _writesKept)} memory writes of known ranges, {Interlocked.Read(ref _quietWork)} dispatches that write no buffer and {Interlocked.Read(ref _waitsKept)} memory waits (only one not kept ends it); segments whose gathering a barrier ended: {ClosedBySummary()}; ended most by the work of {CloserSummary()}";
+            return $"; [indirect gather] {gathered} ExecuteIndirects gathered, {alone} clamped alone ({MissSummary()}), {IndirectGatherPrelude.Count} preludes of {IndirectGatherPrelude.Passes} passes; kept gathering past {Interlocked.Read(ref _writesKept)} memory writes of known ranges and {Interlocked.Read(ref _quietWork)} dispatches that write no buffer; segments whose gathering a barrier ended: {ClosedBySummary()}; ended most by the work of {CloserSummary()}";
         }
     }
 
@@ -115,27 +114,16 @@ internal static unsafe class IndirectGather
     }
 
     /// <summary>
-    /// A memory wait recorded (<see cref="Close"/> follows when it could not be kept). One the list's order meets, or one
-    /// that joins the waits before the current segment (nothing recorded in it yet), keeps gathering: the segment's
-    /// prelude is submitted after those waits' queue Wait (<see cref="XboxQueueMethods"/>), as the segment is; one that
-    /// splits the list opens a new segment (<see cref="SegmentStarted"/>). Strict: every wait ends gathering.
+    /// A memory wait recorded: gathering ends (one that splits the list opens a new segment, <see cref="SegmentStarted"/>).
+    /// A wait that joined the waits before the current segment kept gathering for a while (107cc76), its prelude after
+    /// their queue Wait: but that Wait is released at every present and after its timeout (<see cref="MemoryWaits"/>),
+    /// so the prelude read arguments the waited-for work had not written yet, while a clamp at the ExecuteIndirect reads
+    /// them later. w128 drew every lit building, window and road light as a mosaic of small triangles.
     /// </summary>
     [HotPath]
     public static void WaitRecorded(XboxObject* self)
     {
-        if (!Enabled)
-        {
-            return;
-        }
-
-        if (Strict)
-        {
-            Close(self);
-
-            return;
-        }
-
-        Interlocked.Increment(ref _waitsKept);
+        Close(self);
     }
 
     /// <summary>A memory wait the list could not keep (no split or no room): later arguments may come from the work it waits for, so gathering ends.</summary>
