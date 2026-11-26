@@ -128,6 +128,32 @@ public sealed unsafe class D3D12XGpuResourceTests
         registry.Dispose();
     }
 
+    [Fact]
+    public void Textures_retired_together_are_released_together_behind_a_gpu_that_runs_late()
+    {
+        using var test = TestRuntime.Create();
+        var device = new XboxDevice(test);
+        long frame = 0;
+
+        // The queue submits one value a present and the GPU finishes it three presents later.
+        var registry = new GpuTextureRegistry(() => [(ulong)frame + 100], () => [(ulong)Math.Max(0, frame + 97)]);
+
+        for (int i = 0; i < 40; i++)
+        {
+            registry.Register(Texture(test, device, 0x100000 + ((ulong)i * 0x10000)));
+            registry.Register(Texture(test, device, 0x100800 + ((ulong)i * 0x10000)));
+        }
+
+        // w128 released one texture per GPU latency, the head taking the submitted values only at the front.
+        for (frame = 1; frame <= GpuTextureRegistry.GraceFrames + 4; frame++)
+        {
+            registry.Advance(frame);
+        }
+
+        Assert.Equal(40, registry.Released);
+        registry.Dispose();
+    }
+
     /// <summary>
     /// A texture over memory the game unmapped is counted, and with --retire-unmapped-textures retired once it stays unmapped
     /// for 600 presents (#13's long run grew its placed texture heaps to 10.5 GB); a texture elsewhere and a remapped one stay.
@@ -269,6 +295,50 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.Equal(0, heaps.Create(device, &description, ShaderResourceState, null, out nint second));
         Assert.StartsWith("placed textures: 1 live in 1 heaps", heaps.Summary, StringComparison.Ordinal);
         FiveStar.Loader.Native.ComObject.Release(second);
+    }
+
+    [Fact]
+    public void Placing_and_releasing_textures_round_after_round_reuses_the_heaps()
+    {
+        using var test = TestRuntime.Create();
+        _ = new XboxDevice(test);
+        nint device = test.Runtime.D3D12X.Objects.DesktopDevice;
+        var heaps = new PlacedTextureHeaps();
+
+        var random = new Random(5);
+        var live = new List<nint>();
+        long firstBytes = 0;
+
+        // 4 MB textures, 40 live at most: 160 MB, three 64 MB heaps. Half go and come back each round.
+        var description = new ResourceDescription { Dimension = Texture2D, Width = 1024, Height = 1024, DepthOrArraySize = 1, MipLevels = 1, Format = Rgba8Unorm, SampleCount = 1 };
+
+        for (int round = 0; round < 20; round++)
+        {
+            while (live.Count < 40)
+            {
+                Assert.Equal(0, heaps.Create(device, &description, ShaderResourceState, null, out nint texture));
+                live.Add(texture);
+            }
+
+            if (round == 0)
+            {
+                firstBytes = heaps.Bytes;
+            }
+
+            Assert.Equal(firstBytes, heaps.Bytes);
+            Assert.Equal(40L << 22, heaps.UsedBytes);
+
+            foreach (var texture in live.OrderBy(_ => random.Next()).Take(20).ToList())
+            {
+                FiveStar.Loader.Native.ComObject.Release(texture);
+                live.Remove(texture);
+            }
+
+            Assert.Equal(20L << 22, heaps.UsedBytes);
+        }
+
+        live.ForEach(texture => FiveStar.Loader.Native.ComObject.Release(texture));
+        Assert.Equal(0, heaps.UsedBytes);
     }
 
     [Fact]

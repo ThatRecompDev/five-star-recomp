@@ -145,6 +145,11 @@ internal sealed class GpuTextureRegistry : IDisposable
         {
             var replaced = _ranges.Overlapping(texture.Address, texture.Size);
 
+            if (OnlyFirstPageStales && replaced.Count > 0)
+            {
+                replaced = [.. replaced.Where(entry => Stales(texture, entry))];
+            }
+
             foreach (var entry in replaced)
             {
                 Retire(entry, texture);
@@ -152,6 +157,34 @@ internal sealed class GpuTextureRegistry : IDisposable
 
             _ranges.Add(texture, replaced);
         }
+    }
+
+    /// <summary>
+    /// <c>--stale-in-first-page</c>: a new texture retires an older one it overlaps only when it starts in that one's first
+    /// <see cref="StalePageBytes"/> bytes (the older one's small levels). The game keeps only a streamed texture's small
+    /// levels, which come first, and places the next texture where the large ones would be (facts from the VIctory fork):
+    /// retiring on any overlap made w126 re-create 132,000 textures with the same desc at the same address, each after a
+    /// neighbour over its large levels had retired it. Off by default: replaying w126's registrations, it keeps 61,000
+    /// textures alive instead of 21,600 (18.8 GB of console bytes instead of 9.8), every one with all its levels.
+    /// </summary>
+    public static bool StaleInFirstPage { get; set; }
+
+    /// <summary>This registry's <see cref="StaleInFirstPage"/>, as it was when the registry was made.</summary>
+    internal bool OnlyFirstPageStales { get; init; } = StaleInFirstPage;
+
+    /// <summary>The bytes at a texture's start a newer texture must start in to retire it under <see cref="StaleInFirstPage"/>.</summary>
+    public const ulong StalePageBytes = 4096;
+
+    /// <summary>Whether <paramref name="texture"/> retires <paramref name="older"/>, a registered texture it overlaps (<see cref="StaleInFirstPage"/>).</summary>
+    internal static bool Stales(GpuTexture texture, GpuTexture older)
+    {
+        // Render targets and the like alias their memory as before: any overlap retires.
+        if (texture.GpuWritten || older.GpuWritten)
+        {
+            return true;
+        }
+
+        return texture.Address >= older.Address && texture.Address - older.Address < StalePageBytes;
     }
 
     /// <summary>
@@ -460,15 +493,11 @@ internal sealed class GpuTextureRegistry : IDisposable
     /// </summary>
     private void ReleaseDue(Queue<RetiredTexture> queue, long lastFrame, ulong[] completed, List<GpuTexture> due)
     {
+        Rearm(queue, lastFrame);
+
         while (queue.Count > 0 && queue.Peek().Frame <= lastFrame)
         {
             var head = queue.Peek();
-
-            if (!head.Rearmed)
-            {
-                head.Submitted = _submitted();
-                head.Rearmed = true;
-            }
 
             if (!Finished(head.Submitted, completed))
             {
@@ -489,6 +518,32 @@ internal sealed class GpuTextureRegistry : IDisposable
             _lastUse.TryRemove(head.Texture.Desktop, out _);
             due.Add(head.Texture);
             _released++;
+        }
+    }
+
+    /// <summary>
+    /// Every texture whose grace ended by <paramref name="lastFrame"/> and that has not yet taken the queues' submitted work
+    /// takes it now, all of them the same values. Only the head used to take it, when it came to the front, so behind a
+    /// GPU that ran L behind the submissions one texture was released per L: w128's releases stood still for 100 presents
+    /// at a time (35,000 retired textures, 31.9 GB of placed heaps) and came all at once when the GPU caught up.
+    /// </summary>
+    private void Rearm(Queue<RetiredTexture> queue, long lastFrame)
+    {
+        ulong[]? submitted = null;
+
+        foreach (var entry in queue)
+        {
+            if (entry.Frame > lastFrame)
+            {
+                break;
+            }
+
+            if (!entry.Rearmed)
+            {
+                submitted ??= _submitted();
+                entry.Submitted = submitted;
+                entry.Rearmed = true;
+            }
         }
     }
 
