@@ -16,6 +16,7 @@ public static class ShaderLowering
 {
     private const string EntryName = "main";
     private const string HelperLanesAttribute = "WaveOpsIncludeHelperLanes";
+    private const string EarlyDepthAttribute = "earlydepthstencil";
 
     public static (DxilModule Module, IrFunction Main, ShaderDescription Description) Compute(IReadOnlyList<SyntaxNode> declarations)
     {
@@ -70,7 +71,7 @@ public static class ShaderLowering
         context.Graphics?.RecordUsage(main);
         context.Mesh?.RecordUsage(main);
         context.Geometry?.RecordUsage(main);
-        var flags = context.Flags | FeatureScan.Flags(main) | SignatureFlags(context.Graphics);
+        var flags = description.Flags | context.Flags | FeatureScan.Flags(main) | SignatureFlags(context.Graphics);
 
         if (description.IncludeHelperLanes)
         {
@@ -137,7 +138,14 @@ public static class ShaderLowering
         graphics.BindParameters(source);
         Body(context, source);
 
-        return new ShaderDescription((0, 0, 0), null, ShaderFlagBits.None, context.UserDataBytes)
+        var flags = ShaderFlagBits.None;
+
+        if (source.Attributes.Any(attribute => attribute.Text == EarlyDepthAttribute))
+        {
+            flags = ShaderFlagBits.ForceEarlyDepthStencil;
+        }
+
+        return new ShaderDescription((0, 0, 0), null, flags, context.UserDataBytes)
         {
             Kind = kind,
             Inputs = graphics.Inputs,
