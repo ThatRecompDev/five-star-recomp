@@ -205,7 +205,7 @@ space rather than keep the fragmented commit.
 2. Copy `lib\x64\GFSDK_Aftermath_Lib.x64.dll` next to `fivestar-loader.exe`, pass `--aftermath-dll <path>`, or set
    `NSIGHT_AFTERMATH_SDK` to the SDK folder. Without it the loader logs one line and runs on.
 3. Run with `--aftermath` (folder `aftermath`) or `--aftermath <dir>`; add `--aftermath-markers` for an event marker per
-   draw, dispatch, ExecuteIndirect, copy and barrier (`Draw 0x<pipeline> <programs>`) and call stacks. Markers cost CPU
+   draw, dispatch, ExecuteIndirect, copy and barrier (`Draw 0x<pipeline> <programs>`), with a context handle per desktop list (a split list gets its own), and call stacks (only while the Nsight Aftermath GPU Crash Dump Monitor runs). Markers cost CPU
    per operation; leave them off for timing-sensitive boots.
 
 | Step | What happens |

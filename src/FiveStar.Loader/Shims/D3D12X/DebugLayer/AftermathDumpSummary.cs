@@ -17,15 +17,15 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// </summary>
 internal static unsafe class AftermathDumpSummary
 {
-    /// <summary>GFSDK_Aftermath_GpuCrashDump_ShaderInfo {u64 shaderHash; u64 shaderInstance; u32 isInternal; u32 shaderType}.</summary>
+    /// <summary>GFSDK_Aftermath_GpuCrashDump_ShaderInfo {u64 shaderHash; u64 shaderDebugInfoUid; u32 isInternal; u32 shaderType}.</summary>
     private const int ShaderInfoSize = 24;
     private const int ShaderTypeOffset = 20;
 
-    /// <summary>GFSDK_Aftermath_GpuCrashDump_EventMarkerInfo {u64 contextId; u32 status, type, ownership; void* markerData; u32 markerDataSize}.</summary>
-    private const int MarkerInfoSize = 40;
+    /// <summary>GFSDK_Aftermath_GpuCrashDump_EventMarkerInfo {u64 contextId; u32 contextStatus, contextType; u64 markerData; u32 markerDataOwnership, markerDataSize}.</summary>
+    private const int MarkerInfoSize = 32;
     private const int MarkerStatusOffset = 8;
-    private const int MarkerDataOffset = 24;
-    private const int MarkerSizeOffset = 32;
+    private const int MarkerDataOffset = 16;
+    private const int MarkerSizeOffset = 28;
 
     /// <summary>Bytes reserved per struct, past any of the SDK's sizes so far.</summary>
     private const int StructRoom = 1024;
@@ -35,7 +35,7 @@ internal static unsafe class AftermathDumpSummary
     private const int MaxListed = 32;
 
     /// <summary>GFSDK_Aftermath_Device_Status and GFSDK_Aftermath_Context_Status (GFSDK_Aftermath_Defines.h).</summary>
-    private static readonly string[] DeviceStatuses = ["Active", "Timeout", "OutOfMemory", "PageFault", "Stopped", "Reset", "Unknown", "DmaFault"];
+    private static readonly string[] DeviceStatuses = ["Active", "Timeout", "OutOfMemory", "PageFault", "Stopped", "Reset", "Unknown", "DmaFault", "DeviceRemovedNoGpuFault"];
     private static readonly string[] ContextStatuses = ["NotStarted", "Executing", "Finished", "Invalid"];
 
     /// <summary>Logs what the decoder reads from <paramref name="dump"/>; logs why when it cannot.</summary>
