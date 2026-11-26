@@ -148,13 +148,10 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
             return hr;
         }
 
-        lock (_active)
+        if (TryLoadActive(stream, iid, result, out int activeHr))
         {
-            if (_activeSet.Contains(key))
-            {
-                known = true;
-                hr = DesktopPipelineLibrary.Load(_library, key, stream.Describe(), iid, result);
-            }
+            known = true;
+            hr = activeHr;
         }
 
         if (!known && _index.TryGetValue(key, out var segment))
@@ -181,6 +178,42 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
         }
 
         return hr;
+    }
+
+    /// <summary>
+    /// Loads <paramref name="stream"/> from the active library when it holds it. The library is free-threaded: the load
+    /// runs outside the gate, holding a reference, so one the driver recompiles does not hold up the game's other
+    /// creations or the stores (as <see cref="PipelineLibrarySegment.Load"/>).
+    /// </summary>
+    private bool TryLoadActive(DesktopStream stream, Guid* iid, nint* result, out int hr)
+    {
+        nint active = 0;
+        hr = HResult.NotFound;
+
+        lock (_active)
+        {
+            if (_activeSet.Contains(stream.Key) && _library != 0)
+            {
+                active = _library;
+                DesktopDevice.AddRef(active);
+            }
+        }
+
+        if (active == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            hr = DesktopPipelineLibrary.Load(active, stream.Key, stream.Describe(), iid, result);
+        }
+        finally
+        {
+            DesktopDevice.Release(active);
+        }
+
+        return true;
     }
 
     /// <summary>Adds a pipeline built for the stream named <paramref name="key"/> to the active library.</summary>
