@@ -345,7 +345,7 @@ public static class PixelMemoryCases
     }
 
     /// <summary>The desktop sampler a literal S# gets, at its slot (StaticSampler, DesktopSampler).</summary>
-    private static SamplerResource LiteralSampler(uint[] words, bool comparison)
+    internal static SamplerResource LiteralSampler(uint[] words, bool comparison)
     {
         var description = System.Runtime.InteropServices.MemoryMarshal.Cast<uint, Vortice.Direct3D12.SamplerDescription>(Translation.DesktopSampler.Describe(words, comparison))[0];
 
