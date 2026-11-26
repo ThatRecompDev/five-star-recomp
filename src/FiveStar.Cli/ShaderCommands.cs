@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Five Star Recomp contributors.
+﻿// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Globalization;
@@ -44,6 +44,8 @@ internal static class ShaderCommands
         "  link <out> <shaders.rpf | blob>        link the console's VS+PS and MS+PS pairs (interpolation modes) and create each pipeline",
         "        [--programs <fssm folder>] [--adapter ...] [--limit N] [--step K] [--jobs N] [--debug-layer] [--unlinked] [--recheck]",
         "  rect-gs <out> [--jobs N]              compile the rectangle-list geometry shader of every vertex program into <out>/rect-gs",
+        "  replay <capture> [--adapter hardware|warp|N]  run a dispatch the loader captured (--capture-dispatch), compare its writes, time it",
+        "        [--hlsl <file> | --translator current] [--runs N] [--tolerance F] [--shown N] [--backend ...] [--debug-layer]",
         "  unwrap <in.dxbc> <out.dxbc>            rewrite a container whose XDAT holds bitcode as standard DXBC",
         "  psocache <shaders.rpf | blob>          summarise the driver pipeline cache and match its shaders to programs",
         "        [--programs <fssm folder>] [--out <dir>]   (programs default to FIVESTAR_SHADER_DIR; --out writes code/ and pipelines.json)",
@@ -87,6 +89,8 @@ internal static class ShaderCommands
                     return LinkCommand.Run(rest);
                 case "rect-gs":
                     return RectangleShaderCommand.Run(rest);
+                case "replay":
+                    return ReplayCommand.Run(rest);
                 case "unwrap":
                     return Unwrap(rest);
                 case "psocache":

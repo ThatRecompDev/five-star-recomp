@@ -432,9 +432,21 @@ internal static unsafe class CommandListBindingMethods
 
             var trace = ShimContext.Runtime.D3D12X.DrawTrace;
             trace?.Dispatch(self, x, y, z);
+
+            if (DispatchCaptures.Enabled)
+            {
+                DispatchCaptures.Before(self, x, y, z);
+            }
+
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDispatch))(inner, x, y, z);
             trace?.AfterDispatch(self);
+
+            if (DispatchCaptures.Enabled)
+            {
+                DispatchCaptures.After(self);
+            }
+
             IndirectGather.Dispatched(self, RectangleListState.Of(self)->Pipeline);
 
             if (RtStandIns.Enabled)
@@ -479,8 +491,20 @@ internal static unsafe class CommandListBindingMethods
             NoteIndirect(self, signature, maxCount, arguments, argumentOffset, stride, count != 0, dispatch);
 
             var indirect = new IndirectCall(signature, kind, stride, maxCount, ArgumentAddress(arguments, argumentOffset));
+
+            if (dispatch && DispatchCaptures.Enabled)
+            {
+                DispatchCaptures.BeforeIndirect(self, arguments, argumentOffset, stride, maxCount, count, countOffset);
+            }
+
             RunIndirect(self, indirect, BufferCopies.Desktop(arguments, ref argumentOffset), argumentOffset, BufferCopies.Desktop(count, ref countOffset), countOffset);
             ShimContext.Runtime.D3D12X.DrawTrace?.AfterIndirect(self);
+
+            if (dispatch && DispatchCaptures.Enabled)
+            {
+                DispatchCaptures.After(self);
+            }
+
             IndirectGather.AfterWork(self, dispatch, RectangleListState.Of(self)->Pipeline);
         }
         catch (Exception exception)

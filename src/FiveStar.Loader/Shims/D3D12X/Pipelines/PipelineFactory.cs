@@ -348,6 +348,11 @@ internal sealed unsafe class PipelineFactory
             return null;
         }
 
+        if (DebugLayer.DispatchCaptures.Enabled)
+        {
+            DebugLayer.DispatchCaptures.NoteProgram(program.Name, program.Dxil);
+        }
+
         return new PipelineRecipe(DesktopPipelineBuilder.ComputeStream(_rootSignature, program), null, [program], program.Name);
     }
 

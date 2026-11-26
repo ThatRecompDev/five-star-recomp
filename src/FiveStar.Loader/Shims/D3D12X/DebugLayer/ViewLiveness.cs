@@ -40,8 +40,22 @@ internal static unsafe class ViewLiveness
     /// <summary>Whether tables are checked (views are noted then too).</summary>
     public static bool Enabled { get; set; }
 
-    /// <summary>Whether views are noted: for the checks, for <see cref="NanScan"/> or for <see cref="ViewTrace"/>.</summary>
-    public static bool Noting => Enabled || NanScan.Enabled || ViewTrace.Enabled;
+    /// <summary>Whether views are noted: for the checks, <see cref="NanScan"/>, <see cref="ViewTrace"/> or <see cref="DispatchCaptures"/>.</summary>
+    public static bool Noting => Enabled || NanScan.Enabled || ViewTrace.Enabled || DispatchCaptures.Enabled;
+
+    /// <summary>The descs views were written with, by desktop CPU handle: kept only for <see cref="DispatchCaptures"/>.</summary>
+    private static readonly ConcurrentDictionary<nint, ViewDescriptionBytes> Descriptions = new();
+
+    /// <summary>The desc the view at <paramref name="handle"/> was written with; null when not kept, empty for none.</summary>
+    public static byte[]? Description(nint handle)
+    {
+        if (!Descriptions.TryGetValue(handle, out var description))
+        {
+            return null;
+        }
+
+        return description.ToArray();
+    }
 
     /// <summary>"view liveness: N records checked, findings by reason (distinct)" for the sample line.</summary>
     public static string Summary
@@ -103,9 +117,14 @@ internal static unsafe class ViewLiveness
 
     /// <summary>A view of <paramref name="resource"/> was written at desktop CPU handle <paramref name="handle"/>.</summary>
     [HotPath]
-    public static void Written(nint handle, nint resource, ViewShape shape, int home = 0)
+    public static void Written(nint handle, nint resource, ViewShape shape, int home = 0, void* description = null)
     {
         Slots[handle] = new SlotView(resource, shape, home);
+
+        if (DispatchCaptures.Enabled)
+        {
+            Descriptions[handle] = ViewDescriptionBytes.Of(description);
+        }
 
         if (resource != 0)
         {
@@ -135,6 +154,11 @@ internal static unsafe class ViewLiveness
             else
             {
                 Slots.TryRemove(to, out _);
+            }
+
+            if (DispatchCaptures.Enabled && Descriptions.TryGetValue(source + (nint)((ulong)i * increment), out var description))
+            {
+                Descriptions[to] = description;
             }
         }
     }
