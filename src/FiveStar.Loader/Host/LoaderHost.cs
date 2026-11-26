@@ -238,7 +238,8 @@ internal sealed class LoaderHost
             _log.Warn("[aftermath] the D3D12 debug layer (--d3d12-debug) keeps Aftermath from initializing the device: no markers or shader debug info");
         }
 
-        var dumps = AftermathCrashDumps.Start(_options.AftermathDirectory, _options.AftermathLibrary, _options.AftermathMarkers, AppContext.BaseDirectory, Environment.GetEnvironmentVariable(AftermathLibrary.SdkVariable), _log);
+        var features = new AftermathFeatures(_options.AftermathMarkers, _options.AftermathResources, _options.AftermathShaderInfo);
+        var dumps = AftermathCrashDumps.Start(_options.AftermathDirectory, _options.AftermathLibrary, features, AppContext.BaseDirectory, Environment.GetEnvironmentVariable(AftermathLibrary.SdkVariable), _log);
 
         if (dumps is not null)
         {

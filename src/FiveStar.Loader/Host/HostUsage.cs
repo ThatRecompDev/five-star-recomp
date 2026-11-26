@@ -232,6 +232,8 @@ internal static class HostUsage
                                  needs GFSDK_Aftermath_Lib.x64.dll of the Aftermath SDK (developer.nvidia.com/nsight-aftermath)
           --aftermath-dll <path> that DLL (else next to the loader, else %NSIGHT_AFTERMATH_SDK%\lib\x64)
           --aftermath-markers    an Aftermath event marker per draw, dispatch and copy naming its pipeline, and call stacks
+          --aftermath-resources  Aftermath resource tracking: names the resource at a page fault (driver memory per resource)
+          --aftermath-shader-info  Aftermath shader debug info (.nvdbg) for every pipeline: many GB with ~84,000 pipelines
           --present-test         present moving color bars instead of the game's frame (checks the swap chain)
           --raytracing          XboxBvhBuilder.dll's CPU paths: console acceleration-structure sizes and BLAS
                                  rehydration into game memory (off: desktop sizes, nothing written)
