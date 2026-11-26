@@ -40,12 +40,9 @@ flowchart LR
 
 - **Registry** (`GpuTextureRegistry`): textures sorted by console address over the span of their XG layout; lookups
   take no lock. A texture registered over an overlapping range retires the old one; the overlapped textures are one run
-  by address (registered ranges never overlap), found by binary search, instead of a sort (sorting 15,000 textures per
-  registration kept a loading screen busy for seconds a frame, and the game's hang watchdog ended the boot). The textures
-  are two sorted arrays (TextureRanges): a large one rebuilt every 256 registrations and a small one of the textures
-  registered since, the only one a registration copies; a retired texture of the large one is flagged until the rebuild.
-  Copying the whole array around the run per registration allocated 1.4 GB in w126's 20 s window (81% of the managed
-  allocations): the game makes about 250,000 textures over streaming memory it reuses, each retiring the one before. A page the game maps or unmaps marks only the textures of
+  of the sorted array (registered ranges never overlap), found by binary search, so a registration copies the array
+  around the run instead of sorting it (sorting 15,000 textures per registration kept a loading screen busy for seconds
+  a frame, and the game's hang watchdog ended the boot). A page the game maps or unmaps marks only the textures of
   its run too, instead of scanning them all. Of those over the same range (other
   views of the same memory, or a streaming slot reused) the newest keeps its reference until shutdown, since
   descriptors written earlier may still name it (`--kept-aliases <n>`, default 1; it was 2, a second texture of video
@@ -75,7 +72,7 @@ flowchart LR
   gives the heaps' size, the bytes in use and the heaps returned.
 - **Slot 133** (`GpuTextures.CreatePlaced`): a committed desktop texture in its home state ([Barriers](#barriers)).
   With ALLOW_RENDER_TARGET, ALLOW_DEPTH_STENCIL or ALLOW_UNORDERED_ACCESS it is GPU-written and never filled from
-  memory; otherwise its first fill is queued at creation (see First fills).
+  memory; otherwise it is filled at creation.
   Its texels reach the game's memory only at a Map of a one-row target (`MapReadback`, off with `--no-map-readback`):
   the game reads its exposure statistics from a 1x1 and a 5x1 RGBA32F target that way, once a frame; the row is written
   at offset 0 (facts after Leonida). A target's first Map waits for the GPU to finish all submitted work and reads the
@@ -103,7 +100,7 @@ flowchart LR
   texture's state. The CPU does not wait: an upload takes one of 16 slots (list, allocator, upload buffer, a reference
   to the texture) and waits only for that slot's previous upload, and every game ExecuteCommandLists first has its
   queue wait on the GPU for the uploads before it. A slot keeps its texture alive until its copy is done, so a texture
-  retired and released right after a fill is not freed under the copy. Only taking a slot and submitting its copy hold the uploader's lock: the wait for the slot's previous copy, the detile into its upload buffer and the recording of its list run on the filling thread (w125's game thread spent a tenth of its samples waiting for the lock while another fill waited for a GPU copy under it), so fills from several threads (the refresh worker's settle, the frame's check of CPU-mapped textures) detile at once, and a slot being filled is busy for the others. Waiting for each upload on the game's threads
+  retired and released right after a fill is not freed under the copy. Only taking a slot and submitting its copy hold the uploader's lock: the detile into the slot's upload buffer and the recording of its list run on the filling thread, so fills from several threads (the refresh worker's settle, the frame's check of CPU-mapped textures) detile at once, and a slot being filled is busy for the others. Waiting for each upload on the game's threads
   cost a fifth of a frame after the story load. The upload buffer is system memory, the GPU's non-local segment, whose
   budget is half the machine's physical memory (16.3 GB on a 32 GB machine), and the heaps over the game's XMem
   sections take from the same budget: the address map opens one over every mapped page's section
@@ -112,7 +109,6 @@ flowchart LR
   fill the desktop refuses, or whose slot does not come free, now fails without an exception: the texture keeps what
   it held (zeros when new) until its next refresh point, the counters count `UploadFailed` and the first eight are
   logged with the reason. The failed slot is dropped and the next fill on it makes a new one.
-- **First fills** (TextureRefreshWorker.AddFirst): a texture made for a slot-70 view or at slot 133 is registered and its first fill (from memory, or zeros when nothing of it is readable) queued for the refresh worker, which takes those before written textures; every submission makes the ones still queued along with the worker and waits for those in progress, so a texture is filled before the first submission that can read it. The queue holds the texture's reference until its fill. Made on the thread that creates the view, the fills took about a third of w125's game-thread samples. --frame-log counts them and the submissions' wait for them.
 - **Refresh points**: creation, every slot-70 view of the texture, and the first ExecuteCommandLists after memory
   under it changed behind the CPU (`GpuTextures.MarkWritten`, counted as `Written` and `WrittenRefreshed`): a
   DirectStorage request writing its physical pages or its memory, or a page mapped under it. The game makes a

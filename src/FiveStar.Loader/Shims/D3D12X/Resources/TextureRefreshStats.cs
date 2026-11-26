@@ -20,8 +20,6 @@ internal static class TextureRefreshStats
     private static long _readTicks;
     private static long _uploadTicks;
     private static long _waitTicks;
-    private static long _firstWaitTicks;
-    private static long _firsts;
     private static long _written;
     private static long _watched;
     private static long _bytesRead;
@@ -47,18 +45,6 @@ internal static class TextureRefreshStats
         Interlocked.Add(ref _waitTicks, Stopwatch.GetTimestamp() - start);
     }
 
-    /// <summary>A submission waited from <paramref name="start"/> for the first fills of textures made before it.</summary>
-    public static void AddFirstWait(long start)
-    {
-        Interlocked.Add(ref _firstWaitTicks, Stopwatch.GetTimestamp() - start);
-    }
-
-    /// <summary>A new texture's first fill ran (off the thread that made it).</summary>
-    public static void AddFirst()
-    {
-        Interlocked.Increment(ref _firsts);
-    }
-
     /// <summary>A written texture (a DirectStorage write, a page mapped, a view's check) was refreshed.</summary>
     public static void AddWritten()
     {
@@ -71,24 +57,19 @@ internal static class TextureRefreshStats
         Interlocked.Increment(ref _watched);
     }
 
-    /// <summary>
-    /// "[frame] texture refresh: read+hash R ms, upload U ms, submissions waited W ms (first fills F ms); N first fills,
-    /// T written, C watched; X MB read, Y MB uploaded"; the sums start over.
-    /// </summary>
+    /// <summary>"[frame] texture refresh: read+hash R ms, upload U ms, waited W ms; T written, C watched; X MB read, Y MB uploaded"; the sums start over.</summary>
     public static string Line()
     {
         double read = Milliseconds(Interlocked.Exchange(ref _readTicks, 0));
         double upload = Milliseconds(Interlocked.Exchange(ref _uploadTicks, 0));
         double wait = Milliseconds(Interlocked.Exchange(ref _waitTicks, 0));
-        double firstWait = Milliseconds(Interlocked.Exchange(ref _firstWaitTicks, 0));
-
-        long firsts = Interlocked.Exchange(ref _firsts, 0);
         long written = Interlocked.Exchange(ref _written, 0);
         long watched = Interlocked.Exchange(ref _watched, 0);
+
         double megabytesRead = Interlocked.Exchange(ref _bytesRead, 0) / BytesPerMegabyte;
         double megabytesUploaded = Interlocked.Exchange(ref _bytesUploaded, 0) / BytesPerMegabyte;
 
-        return string.Create(CultureInfo.InvariantCulture, $"  [frame] texture refresh: read+hash {read:F1} ms, upload {upload:F1} ms, submissions waited {wait:F1} ms (first fills {firstWait:F1} ms); {firsts} first fills, {written} written, {watched} watched; {megabytesRead:F1} MB read, {megabytesUploaded:F1} MB uploaded");
+        return string.Create(CultureInfo.InvariantCulture, $"  [frame] texture refresh: read+hash {read:F1} ms, upload {upload:F1} ms, submissions waited {wait:F1} ms; {written} written, {watched} watched; {megabytesRead:F1} MB read, {megabytesUploaded:F1} MB uploaded");
     }
 
     private static double Milliseconds(long ticks)
