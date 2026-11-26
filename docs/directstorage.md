@@ -116,8 +116,12 @@ exactly, approximately, as placeholders and failed.
 - The worker runs entries in order. A file read covers the requested range widened to 4 KiB sectors in one of two
   reusable staging buffers, so the next request's read is in flight while the current one inflates. A request larger
   than the staging size is read in pieces when uncompressed, and fails otherwise.
-- zlib chunks inflate with `FiveStar.Formats`' `ZlibInflater` (reused, Adler-32 checked); the output must equal
-  DestinationSize.
+- zlib chunks inflate with the runtime's native zlib (zlib-ng in System.IO.Compression.Native, `NativeZlibInflater`:
+  one inflate state per queue, reset per request, no allocation), Adler-32 checked; the output must equal
+  DestinationSize. It runs at about 850 MB/s where `FiveStar.Formats`' managed `ZlibInflater` ran at 266 MB/s in a
+  Release build and 61 MB/s in Debug, and the queues spent 320 s inflating a boot's first 10.4 GB. The exports are
+  the runtime's internal ones (what `ZLibStream` calls): when they are missing or fail a known stream at queue
+  creation, the queue inflates with `ZlibInflater`.
 - A status entry completes with the first failure since the previous status entry, or S_OK. Close and the last
   Release stop the worker after the current request; entries not run complete their status with E_ABORT.
 - A fence entry calls `ID3D12Fence::Signal` (slot 10) on the worker.
