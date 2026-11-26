@@ -109,7 +109,7 @@ internal sealed unsafe class XboxDescriptorHeaps
         return desktop;
     }
 
-    /// <summary>With <c>--check-view-liveness</c>: the slot is written anew; the writer says what, if it knows.</summary>
+    /// <summary>The slot is written anew: what it viewed is forgotten (<c>--check-view-liveness</c>; the texture views, <see cref="Resources.TextureViewHandles"/>).</summary>
     [HotPath]
     private static void Forget(nint handle)
     {
@@ -117,6 +117,8 @@ internal sealed unsafe class XboxDescriptorHeaps
         {
             DebugLayer.ViewLiveness.Forget(handle);
         }
+
+        ShimContext.ActiveRuntime?.D3D12X.Textures.Views.Forget(handle);
     }
 
     /// <summary>The desktop CPU handle of the descriptor a game handle names; other handles pass through.</summary>

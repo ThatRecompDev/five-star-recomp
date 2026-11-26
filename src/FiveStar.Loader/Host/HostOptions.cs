@@ -296,6 +296,9 @@ internal sealed record HostOptions
     /// <summary>Retire textures over memory the game unmaps (<c>--retire-unmapped-textures</c>); off: they are only counted.</summary>
     public bool RetireUnmappedTextures { get; set; }
 
+    /// <summary>Keep textures over unmapped memory no view record names (<c>--keep-unmapped-textures</c>); off: they are retired.</summary>
+    public bool KeepUnmappedTextures { get; set; }
+
     /// <summary>Check the game's transient-memory pool for corrupted nodes (<c>--watch-transient</c>).</summary>
     public bool WatchTransient { get; set; }
 

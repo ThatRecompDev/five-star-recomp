@@ -24,6 +24,7 @@ internal static class HostComposition
         Shims.D3D12X.DebugLayer.NanScan.Filter = options.NanScan;
         Shims.D3D12X.DebugLayer.NanScan.Dwords = options.NanScanDwords;
         Shims.D3D12X.Resources.GpuTextureRegistry.RetireUnmapped = options.RetireUnmappedTextures;
+        Shims.D3D12X.Resources.GpuTextureRegistry.RetireUnreferenced = !options.KeepUnmappedTextures;
     }
 
     private static readonly TimeSpan LoadWindowSpan = TimeSpan.FromSeconds(120);

@@ -27,6 +27,7 @@ internal sealed unsafe class WindowRecordIndices : IDisposable
     private readonly object _gate = new();
     private readonly uint[] _marks = new uint[(Slots + BitsPerWord - 1) / BitsPerWord];
     private uint* _indices;
+    private int* _counts;
     private uint[] _watched = [];
     private volatile bool _any;
 
@@ -53,7 +54,13 @@ internal sealed unsafe class WindowRecordIndices : IDisposable
             index = word0;
         }
 
-        Indices()[slot] = index;
+        uint previous = Interlocked.Exchange(ref Indices()[slot], index);
+
+        if (previous != index)
+        {
+            Count(previous, -1);
+            Count(index, 1);
+        }
 
         // Ordered before the read of the watched set: a Watch meanwhile either sees this index in its scan or is seen here.
         Interlocked.MemoryBarrier();
@@ -61,6 +68,50 @@ internal sealed unsafe class WindowRecordIndices : IDisposable
         if (_any)
         {
             Mark(slot, Watched(index));
+        }
+    }
+
+    /// <summary>
+    /// Whether any view record names desktop heap index <paramref name="index"/> now: a program can read the view there
+    /// (<see cref="Resources.GpuTextures"/> retires a texture over unmapped memory only while none does).
+    /// </summary>
+    [HotPath]
+    public bool Referenced(uint index)
+    {
+        var counts = _counts;
+
+        return index != None && index < DescriptorWindow.MaxViews && counts != null && Volatile.Read(ref counts[index]) > 0;
+    }
+
+    /// <summary>Records naming each desktop heap index, made at first use.</summary>
+    [HotPath]
+    private void Count(uint index, int delta)
+    {
+        if (index == None || index >= DescriptorWindow.MaxViews)
+        {
+            return;
+        }
+
+        var counts = _counts;
+
+        if (counts == null)
+        {
+            counts = AllocateCounts();
+        }
+
+        Interlocked.Add(ref counts[index], delta);
+    }
+
+    private int* AllocateCounts()
+    {
+        lock (_gate)
+        {
+            if (_counts == null)
+            {
+                _counts = (int*)NativeMemory.AllocZeroed(DescriptorWindow.MaxViews, sizeof(int));
+            }
+
+            return _counts;
         }
     }
 
@@ -172,6 +223,12 @@ internal sealed unsafe class WindowRecordIndices : IDisposable
         {
             NativeMemory.Free(_indices);
             _indices = null;
+        }
+
+        if (_counts != null)
+        {
+            NativeMemory.Free(_counts);
+            _counts = null;
         }
     }
 

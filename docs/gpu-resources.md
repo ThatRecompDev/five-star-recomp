@@ -124,6 +124,13 @@ flowchart LR
   a texture in a frame queues the check (`ViewCheckQueued`); later ones that frame cost nothing (`ViewCheckSkipped`),
   so bytes the CPU writes between two views of one frame are taken at the next frame's view. CPU-mapped textures are
   left to the frame check.
+- **Textures over unmapped memory** are retired once no view record names one of their views (default; `--keep-unmapped-textures`
+  keeps them): unmapped for 120 presents and unnamed for 60. Each texture's view handles are noted where views are
+  written (slot 70, CreateShaderResourceView) and copied, and forgotten when a handle is written anew
+  (`TextureViewHandles`); `WindowRecordIndices` counts the records naming each heap index. A retired texture's views
+  still at their handles become null views of the same dimension first (`ViewNulled`), so a record naming one later
+  reads zeros, as the console reads unmapped memory. Without a mirrored window (a descriptor ring) none is retired.
+  `--retire-unmapped-textures` still retires any texture unmapped for 600 presents, named or not.
 - **Heap slack and kept aliases**: shared texture heaps are 64 MiB (256 before) and a texture goes into the fullest
   heap with room, so the emptier ones drain and go back (checked once a frame); w111b kept 2 to 3 GB of its 12 GB of
   heaps unused and returned none. Retired textures kept over their range for older descriptors stay within 512 MiB

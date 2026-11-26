@@ -33,6 +33,25 @@ internal sealed unsafe class GpuTextures : IDisposable
     /// <summary>Failed fills logged one by one; the counters count them all.</summary>
     private const long LoggedFailures = 8;
 
+    /// <summary>ID3D12Device::CreateShaderResourceView, and the null views of retired textures (<see cref="NullViews"/>).</summary>
+    private const int DesktopCreateShaderResourceViewSlot = 18;
+    private const int NullViewDwords = 10;
+    private const int NullViewFormat = 28;
+    private const int DefaultComponentMapping = 0x1688;
+    private const int FormatDword = 0;
+    private const int DimensionDword = 1;
+    private const int MappingDword = 2;
+    private const int UnionDword = 4;
+    private const int ArraySizeDword = 3;
+
+    /// <summary>D3D12_SRV_DIMENSION values (d3d12.h).</summary>
+    private const int SrvTexture1D = 2;
+    private const int SrvTexture1DArray = 3;
+    private const int SrvTexture2D = 4;
+    private const int SrvTexture2DArray = 5;
+    private const int SrvTexture2DMs = 6;
+    private const int SrvTextureCubeArray = 10;
+
     private const double BytesPerGigabyte = 1UL << 30;
 
     private static readonly Guid ResourceIid = new("696442be-a72e-4059-bc79-5b5c98040fad");
@@ -54,6 +73,7 @@ internal sealed unsafe class GpuTextures : IDisposable
     private GpuTexture[] _watched = [];
     private long _unreadableLogged;
     private long _unmappedViewBytes;
+    private nint _device;
     private long _checkedFrame = -1;
 
     public GpuTextures(GameMemorySource source, DesktopResourceDescriptions descriptions, LoaderLog log)
@@ -62,7 +82,10 @@ internal sealed unsafe class GpuTextures : IDisposable
         _descriptions = descriptions;
         _log = log;
         Writes = new TextureRefreshWorker(this, source);
-        Registry.Releasing = Refund;
+
+        Registry.Releasing = Released;
+        Registry.Referenced = Referenced;
+        Registry.Retiring = NullViews;
     }
 
     public GpuTextureRegistry Registry { get; } = GpuTextureRegistry.OfQueues();
@@ -70,6 +93,9 @@ internal sealed unsafe class GpuTextures : IDisposable
     public GpuResourceCounters Counters { get; } = new();
 
     public GpuTextureUploader Uploader { get; } = new();
+
+    /// <summary>The descriptor handles holding a view of each registered texture (<see cref="TextureViewHandles"/>).</summary>
+    public TextureViewHandles Views { get; } = new();
 
     /// <summary>The shared heaps of placed read-only textures (<c>--placed-textures</c>).</summary>
     public PlacedTextureHeaps Placed { get; } = new();
@@ -227,6 +253,13 @@ internal sealed unsafe class GpuTextures : IDisposable
     /// <paramref name="texture"/> no longer counts against <see cref="UnmappedViewBudget"/>: a page under it was mapped,
     /// or it is released. The budget used to count every texture so made for good (w111b made 134k and released 139k).
     /// </summary>
+    /// <summary>A texture is released: it no longer counts against the budget, and its views are forgotten.</summary>
+    private void Released(GpuTexture texture)
+    {
+        Refund(texture);
+        Views.Drop(texture);
+    }
+
     private void Refund(GpuTexture texture)
     {
         long charge = Interlocked.Exchange(ref texture.UnmappedCharge, 0);
@@ -234,6 +267,91 @@ internal sealed unsafe class GpuTextures : IDisposable
         if (charge > 0)
         {
             Interlocked.Add(ref _unmappedViewBytes, -charge);
+        }
+    }
+
+    /// <summary>
+    /// Whether a program can read <paramref name="texture"/>: a view record of the window names the heap index of one of
+    /// its views in the shader-visible heap (<see cref="Binding.WindowRecordIndices.Referenced"/>). Before the window
+    /// exists, or while the heap is not mirrored into it (a descriptor ring), every texture counts as read.
+    /// </summary>
+    private bool Referenced(GpuTexture texture)
+    {
+        var d3d12 = ShimContext.ActiveRuntime?.D3D12X;
+        var heap = d3d12?.DescriptorHeaps.Views;
+
+        if (d3d12 is null || heap is null || !heap.Mirrored || d3d12.Bindings.Window.ViewHeap == 0)
+        {
+            return true;
+        }
+
+        nint start = Binding.DesktopCalls.HeapCpuStart(d3d12.Bindings.Window.ViewHeap);
+        var records = d3d12.Bindings.Window.Records;
+
+        foreach (var (handle, _) in Views.Of(texture))
+        {
+            ulong offset = (ulong)(handle - start);
+
+            if (handle >= start && records.Referenced((uint)(offset / heap.Increment)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The views still held of textures retired over unmapped memory become null views of the same dimension, so a
+    /// record that names one later reads zeros (as the console reads unmapped memory), never a released texture.
+    /// </summary>
+    private void NullViews(IReadOnlyList<GpuTexture> textures)
+    {
+        nint device = Volatile.Read(ref _device);
+
+        if (device == 0)
+        {
+            return;
+        }
+
+        var create = (delegate* unmanaged<nint, nint, int*, nint, void>)ComObject.Slot(device, DesktopCreateShaderResourceViewSlot);
+        int* desc = stackalloc int[NullViewDwords];
+
+        foreach (var texture in textures)
+        {
+            foreach (var (handle, dimension) in Views.Of(texture))
+            {
+                NullViewDescription(desc, dimension);
+                create(device, 0, desc, handle);
+                Views.Forget(handle);
+                Counters.Add(GpuResourceEvent.ViewNulled);
+            }
+        }
+    }
+
+    /// <summary>A D3D12_SHADER_RESOURCE_VIEW_DESC of a null view in R8G8B8A8_UNORM of SRV <paramref name="dimension"/>: one mip, one slice or cube.</summary>
+    internal static void NullViewDescription(int* desc, int dimension)
+    {
+        new Span<int>(desc, NullViewDwords).Clear();
+        desc[FormatDword] = NullViewFormat;
+        desc[DimensionDword] = SrvTexture2D;
+        desc[MappingDword] = DefaultComponentMapping;
+
+        if (dimension is >= SrvTexture1D and <= SrvTextureCubeArray)
+        {
+            desc[DimensionDword] = dimension;
+        }
+
+        // The union from dword 4: MostDetailedMip then MipLevels (a multisampled array's FirstArraySlice then ArraySize; a
+        // multisampled 2D view has no fields), then FirstArraySlice and ArraySize of 1D/2D arrays, a cube array's NumCubes.
+        if (desc[DimensionDword] != SrvTexture2DMs)
+        {
+            desc[UnionDword + 1] = 1;
+        }
+
+        if (desc[DimensionDword] is SrvTexture1DArray or SrvTexture2DArray or SrvTextureCubeArray)
+        {
+            desc[UnionDword + ArraySizeDword] = 1;
         }
     }
 
@@ -502,6 +620,7 @@ internal sealed unsafe class GpuTextures : IDisposable
             return;
         }
 
+        Volatile.Write(ref _device, device);
         Registry.Advance(frame);
         Placed.Trim();
         var textures = new List<GpuTexture>();

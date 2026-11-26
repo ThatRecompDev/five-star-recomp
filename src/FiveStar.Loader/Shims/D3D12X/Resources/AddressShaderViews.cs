@@ -92,7 +92,7 @@ internal sealed unsafe class AddressShaderViews
         DepthViewDescriptions.SetPlane((int*)&desktop);
         var create = (delegate* unmanaged<nint, nint, AddressViewDescription*, nint, void>)ComObject.Slot(device, DesktopShaderResourceViewSlot);
         create(device, target, &desktop, handle);
-        Noted(handle, target, &desktop);
+        Noted(handle, texture, target, &desktop);
 
         return texture;
     }
@@ -141,9 +141,17 @@ internal sealed unsafe class AddressShaderViews
         return texture.Desktop;
     }
 
-    /// <summary>With <c>--check-view-liveness</c>: the view written at <paramref name="handle"/>.</summary>
-    private static void Noted(nint handle, nint target, AddressViewDescription* view)
+    /// <summary>
+    /// The view written at <paramref name="handle"/>: its texture's handles (<see cref="TextureViewHandles"/>, for the
+    /// retirement of textures over unmapped memory), and with <c>--check-view-liveness</c> its shape.
+    /// </summary>
+    private void Noted(nint handle, GpuTexture? texture, nint target, AddressViewDescription* view)
     {
+        if (texture is not null)
+        {
+            _textures.Views.Written(handle, texture, view->ViewDimension);
+        }
+
         if (DebugLayer.ViewLiveness.Noting)
         {
             DebugLayer.ViewLiveness.Written(handle, target, DebugLayer.ViewLiveness.Shape(target, view, unordered: false));

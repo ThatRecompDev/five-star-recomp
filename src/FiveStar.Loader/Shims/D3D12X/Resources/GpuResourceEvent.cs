@@ -63,6 +63,9 @@ internal enum GpuResourceEvent
     /// <summary>A slot-70 view over reserved memory with no page mapped got a null descriptor: such textures reached <see cref="GpuTextures.UnmappedViewBudget"/>.</summary>
     ViewUnmappedOverBudget,
 
+    /// <summary>A view of a texture retired over unmapped memory, no record naming it, became a null view.</summary>
+    ViewNulled,
+
     /// <summary>A DirectStorage write or a new page mapping changed memory under a texture filled from memory.</summary>
     Written,
 
