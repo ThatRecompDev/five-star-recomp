@@ -75,6 +75,7 @@ public static class ComputeMemoryCases
             GlobalAtomic(),
             RootDescriptors(),
             TableBufferBase(),
+            ScalarLoadsAcrossPages(),
         ];
     }
 
@@ -117,6 +118,43 @@ public static class ComputeMemoryCases
                 new BufferResource(0, window, Writable: false),
                 new BufferResource((int)AddressMap.HeapSlot, MemoryMarshal.Cast<byte, uint>(bytes).ToArray(), Writable: false),
                 new BufferResource(RootReadHeap, Input, Writable: false),
+            ],
+        };
+    }
+
+    // s_loads of several dwords through a console GPU address (prelude sptr_view, SPtrLoadAt): an s_load_dwordx8 16 bytes
+    // before the end of a page reads its last four dwords from the next page, which maps to another buffer; an
+    // s_load_dwordx4 inside the page reads its four from one view.
+    private static ComputeCase ScalarLoadsAcrossPages()
+    {
+        const string Program = """
+            s_load_dwordx8 s[12:19], s[8:9], 0x30
+            s_load_dwordx4 s[20:23], s[8:9], 0x0
+            s_waitcnt lgkmcnt(0)
+            v_mov_b32_e32 v20, s12
+            v_mov_b32_e32 v21, s13
+            v_mov_b32_e32 v22, s14
+            v_mov_b32_e32 v23, s15
+            v_mov_b32_e32 v24, s16
+            v_mov_b32_e32 v25, s17
+            v_mov_b32_e32 v26, s18
+            v_mov_b32_e32 v27, s19
+            v_mov_b32_e32 v28, s20
+            v_mov_b32_e32 v29, s21
+            v_mov_b32_e32 v30, s22
+            v_mov_b32_e32 v31, s23
+            """;
+        uint[] moved = [.. Input.Select(value => ~value)];
+        uint[] expected = [Input[28], Input[29], Input[30], Input[31], moved[32], moved[33], moved[34], moved[35], Input[16], Input[17], Input[18], Input[19]];
+
+        return new ComputeCase("cs_scalar_loads_across_pages", Program, expected.Length, _ => [.. expected.Select(Expected.Exact)])
+        {
+            User = [unchecked((uint)RootRead), (uint)(RootRead >> 32), 0, 0],
+            Buffers =
+            [
+                new BufferResource((int)AddressMap.HeapSlot, RootDescriptorMap(), Writable: false),
+                new BufferResource(RootReadHeap, Input, Writable: false),
+                new BufferResource(RootNextReadHeap, moved, Writable: false),
             ],
         };
     }

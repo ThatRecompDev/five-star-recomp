@@ -182,9 +182,32 @@ uint PtrLoad(uint lo, uint hi, uint off) {   // off is signed (a dword offset or
 // the window (DescriptorWindow.SamplerBase); a view's 32-bit pointer is relative to the view heap, whose records start
 // at 0. Scaleform's FTexTG programs read their S# at a root constant + index * 16 (SamplerLoads).
 static const uint SAMPLER_WINDOW_BASE = 0x04008000u;
+// Scalar loads (s_load, s_buffer_load): their address is in SGPRs, the same on every lane of a console wave as a T#
+// is, so the view they read is too: no NonUniformResourceIndex (a vector load's lanes may be in different pages). An
+// s_load of several dwords walks the address map once (sptr_view: the first dword's view and offset, and whether the
+// load stays in that 64 KiB page) and reads each dword at its distance from the first (SPtrLoadAt); one that crosses
+// a page reads each dword through the map.
+uint SPtrLoad(uint lo, uint hi, uint off) {
+    uint2 a = ptr_add(lo, hi, 0u, asint(off));
+    if (hi == 0u) return MemLoad(a.x, 0u);
+    uint2 p = gpu_page(a.x, a.y);
+    ByteAddressBuffer b = ResourceDescriptorHeap[p.x];
+    return b.Load(p.y & ~3u);
+}
+uint3 sptr_view(uint lo, uint hi, uint off, uint bytes) {
+    uint2 a = ptr_add(lo, hi, 0u, asint(off));
+    if (hi == 0u) return uint3(GPU_MEM_HEAP, a.x, 1u);
+    uint2 p = gpu_page(a.x, a.y);
+    return uint3(p.x, p.y, (a.x & 0xffffu) + bytes <= 0x10000u ? 1u : 0u);
+}
+uint SPtrLoadAt(uint3 view, uint delta, uint lo, uint hi, uint off) {
+    if (view.z == 0u) return SPtrLoad(lo, hi, off);
+    ByteAddressBuffer b = ResourceDescriptorHeap[view.x];
+    return b.Load((view.y + delta) & ~3u);
+}
 uint SamplerPtrLoad(uint lo, uint hi, uint off) {
     if (hi == 0u) return MemLoad(SAMPLER_WINDOW_BASE + lo, off);
-    return PtrLoad(lo, hi, off);
+    return SPtrLoad(lo, hi, off);
 }
 void PtrStore(uint lo, uint hi, uint off, uint v) {
     uint2 a = ptr_add(lo, hi, 0u, asint(off));
@@ -251,6 +274,10 @@ uint sbuf_limit(uint d1, uint d2) {
 
 uint BufLoad(uint heap_index, uint off) {
     ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(view_slot(heap_index))];
+    return b.Load(off & ~3u);
+}
+uint SBufLoad(uint heap_index, uint off) {   // an s_buffer_load: the V# is in SGPRs (SPtrLoad)
+    ByteAddressBuffer b = ResourceDescriptorHeap[view_slot(heap_index)];
     return b.Load(off & ~3u);
 }
 uint BufLoadRW(uint heap_index, uint off) {   // load through a UAV slot (buffer also written by this shader)
@@ -709,15 +736,18 @@ void probe_view(uint site, uint heap_index) {
 uint probe_BufLoad(uint site, uint heap_index, uint off) { probe_view(site, heap_index); return BufLoad(heap_index, off); }
 uint probe_BufLoadRW(uint site, uint heap_index, uint off) { probe_view(site, heap_index); return BufLoadRW(heap_index, off); }
 uint4 probe_FmtLoad(uint site, uint heap_index, uint addr, uint code, uint d3) { probe_view(site, heap_index); return FmtLoad(heap_index, addr, code, d3); }
-uint probe_PtrLoad(uint site, uint lo, uint hi, uint off) {
+void probe_pointer(uint site, uint lo, uint hi, uint off) {
     if (hi != 0u) { uint2 a = ptr_add(lo, hi, 0u, asint(off)); probe_view(site, gpu_page(a.x, a.y).x); }
     else {   // a 32-bit pointer: the window (descriptor records); the first such address thread 0 reads is kept
         g_probe_window |= probe_bit(site);
         if (g_probe_gi == 0u && (g_probe_g[5] & 4u) == 0u) { g_probe_g[13] = lo + off; g_probe_g[5] |= 4u; }
         if (g_probe_gi == 0u && site < 32u && (g_probe_g[14] & (1u << site)) == 0u) { g_probe_w[site] = lo + off; g_probe_g[14] |= 1u << site; }
     }
-    return PtrLoad(lo, hi, off);
 }
+uint probe_PtrLoad(uint site, uint lo, uint hi, uint off) { probe_pointer(site, lo, hi, off); return PtrLoad(lo, hi, off); }
+uint probe_SPtrLoad(uint site, uint lo, uint hi, uint off) { probe_pointer(site, lo, hi, off); return SPtrLoad(lo, hi, off); }
+uint probe_SPtrLoadAt(uint site, uint3 view, uint delta, uint lo, uint hi, uint off) { probe_pointer(site, lo, hi, off); return SPtrLoadAt(view, delta, lo, hi, off); }
+uint probe_SBufLoad(uint site, uint heap_index, uint off) { probe_view(site, heap_index); return SBufLoad(heap_index, off); }
 void probe_value(uint site, uint v) {   // the register a site's line loaded, the first time on thread 0
     if (g_probe_gi != 0u || site >= 32u || (g_probe_g[10] & (1u << site)) != 0u) return;
     g_probe_v[site] = v;

@@ -298,11 +298,11 @@ public static partial class MeshProbe
         return text.ToString();
     }
 
-    [GeneratedRegex(@"\b(?<name>sbuf_fits|buf_fits|BufLoadRW|BufLoad|FmtLoad|PtrLoad)\(")]
+    [GeneratedRegex(@"\b(?<name>sbuf_fits|buf_fits|BufLoadRW|BufLoad|SBufLoad|FmtLoad|PtrLoad|SPtrLoadAt|SPtrLoad)\(")]
     private static partial Regex LoadPattern();
 
-    /// <summary>An s_buffer_load dword: <c>select(offset + k &lt; limit, BufLoad(...), 0u)</c>.</summary>
-    [GeneratedRegex(@"select\((?<cond>[^,()]+ < [^,()]+), (?<load>BufLoadRW|BufLoad)\(")]
+    /// <summary>An s_buffer_load dword: <c>select(offset + k &lt; limit, SBufLoad(...), 0u)</c>.</summary>
+    [GeneratedRegex(@"select\((?<cond>[^,()]+ < [^,()]+), (?<load>BufLoadRW|BufLoad|SBufLoad)\(")]
     private static partial Regex ScalarCheckPattern();
 
     /// <summary>A line that sets a register: <c>s4 = ...;</c> or <c>if (active) v2 = ...;</c>.</summary>
