@@ -677,16 +677,17 @@ internal sealed unsafe class GpuTextures : IDisposable
             Forget();
         }
 
-        // The refresh worker checks them page by page against their page hashes and uploads only the subresources that
-        // changed (TextureRefreshWorker), off the submitting thread. One after another on the submitting thread (about
-        // a dozen Bink planes and the glyph cache) the whole-texture check took up to tens of ms of every w109 world
-        // frame; on the submitting threads in parallel it was part of w113's 59-124 ms of refresh a frame.
+        // Checked page by page against their page hashes, only the changed subresources uploaded, here on the submitting
+        // thread in parallel: the game has finished writing this frame's bytes (a video plane, the glyph cache) by its
+        // submission. On the refresh worker they were read while the decoder wrote the next frame, and a Bink video
+        // showed a band of another frame across it.
         foreach (var texture in textures)
         {
             TextureRefreshStats.AddWatched();
             texture.MarkPages(0, texture.Size);
-            Writes.Add(texture);
         }
+
+        Parallel.ForEach(textures, new ParallelOptions { MaxDegreeOfParallelism = TextureRefreshWorker.SettleThreads }, texture => Writes.RefreshNow(device, texture));
     }
 
     /// <summary>Drops the watched textures no longer registered (retired): they were walked every frame for good.</summary>
