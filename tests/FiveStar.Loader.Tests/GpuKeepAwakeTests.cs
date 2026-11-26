@@ -52,7 +52,8 @@ public sealed class GpuKeepAwakeTests
         }
         finally
         {
-            GpuKeepAwake.Mode = GpuKeepAwakeMode.Off;
+            // The thread ends and releases its queue and its reference on the WARP device before the next test.
+            GpuKeepAwake.Stop();
         }
     }
 

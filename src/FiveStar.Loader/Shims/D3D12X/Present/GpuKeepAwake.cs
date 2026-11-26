@@ -49,10 +49,13 @@ internal static unsafe class GpuKeepAwake
         }
         """;
 
+    private const int StopMilliseconds = 10_000;
+
     private static readonly Stopwatch Clock = Stopwatch.StartNew();
     private static long _last;
     private static long _sent;
     private static int _started;
+    private static Thread? _thread;
 
     /// <summary>Off, on, or on and off by turns.</summary>
     public static GpuKeepAwakeMode Mode { get; set; }
@@ -117,11 +120,25 @@ internal static unsafe class GpuKeepAwake
         return now / TurnMilliseconds % TurnKinds == 1;
     }
 
+    /// <summary>
+    /// Turns it off and waits for the thread to end, its queue and the device reference released (tests, shutdown), so a
+    /// later <see cref="Sent"/> starts afresh.
+    /// </summary>
+    public static void Stop()
+    {
+        Mode = GpuKeepAwakeMode.Off;
+        _thread?.Join(StopMilliseconds);
+        _thread = null;
+        Interlocked.Exchange(ref _last, 0);
+        Interlocked.Exchange(ref _sent, 0);
+    }
+
     private static void Start(nint device)
     {
         Marshal.AddRef(device);
         var desktop = new ID3D12Device(device);
-        new Thread(() => Run(desktop)) { IsBackground = true, Name = "fivestar gpu keep-awake" }.Start();
+        _thread = new Thread(() => Run(desktop)) { IsBackground = true, Name = "fivestar gpu keep-awake" };
+        _thread.Start();
     }
 
     private static void Run(ID3D12Device device)
@@ -133,6 +150,11 @@ internal static unsafe class GpuKeepAwake
         catch (Exception exception) when (exception is SharpGen.Runtime.SharpGenException or InvalidOperationException)
         {
             ShimContext.Runtime.Log.Warn($"[gpu awake] the GPU is not kept awake: {exception.Message}");
+        }
+        finally
+        {
+            device.Dispose();
+            Interlocked.Exchange(ref _started, 0);
         }
     }
 
@@ -157,7 +179,8 @@ internal static unsafe class GpuKeepAwake
         ShimContext.Runtime.Log.Info($"  [gpu awake] a compute queue keeps the GPU busy while the game submits ({Mode})");
         ulong value = 0;
 
-        while (true)
+        // Turned off: the thread ends and everything it made is released once its last dispatches finish.
+        while (Mode != GpuKeepAwakeMode.Off)
         {
             if (!Wanted(Clock.ElapsedMilliseconds, Interlocked.Read(ref _last), Mode))
             {
@@ -180,6 +203,13 @@ internal static unsafe class GpuKeepAwake
             value++;
             queue.Signal(fence, value).CheckError();
             Interlocked.Increment(ref _sent);
+        }
+
+        // The queue and the list are released when this returns: the dispatches still running finish first.
+        if (value > 0 && fence.CompletedValue < value)
+        {
+            fence.SetEventOnCompletion(value, completed.SafeWaitHandle.DangerousGetHandle()).CheckError();
+            completed.WaitOne(StopMilliseconds);
         }
     }
 
