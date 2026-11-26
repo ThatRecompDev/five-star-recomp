@@ -7,8 +7,8 @@ using FiveStar.Loader.Native;
 namespace FiveStar.Loader.Shims.D3D12X.Resources;
 
 /// <summary>
-/// The desktop textures standing for console GPU address ranges, sorted by address. Lookups read the current array
-/// without a lock; registering replaces it. A new texture retires every texture whose range it overlaps (the memory
+/// The desktop textures standing for console GPU address ranges, by address (<see cref="TextureRanges"/>). Lookups
+/// read without a lock; registering and retiring change the ranges under it. A new texture retires every texture whose range it overlaps (the memory
 /// was given to something else). The newest <see cref="KeptAliases"/> retired textures over exactly one range (other
 /// views of the same memory) keep their reference until disposal, as descriptors the game wrote earlier may still name
 /// them; older ones are released <see cref="AliasGraceFrames"/> presents later. Any other retired texture is
@@ -58,7 +58,7 @@ internal sealed class GpuTextureRegistry : IDisposable
     private const int OrderSlackBase = 64;
 
     private readonly Queue<GpuTexture> _aliasOrder = new();
-    private GpuTexture[] _sorted = [];
+    private readonly TextureRanges _ranges = new();
     private long _frame;
     private long _released;
     private long _unmapped;
@@ -98,7 +98,7 @@ internal sealed class GpuTextureRegistry : IDisposable
         return true;
     }
 
-    public int Count => Volatile.Read(ref _sorted).Length;
+    public int Count => _ranges.Count;
 
     /// <summary>Retired textures over one range this registry keeps until disposal.</summary>
     public int Kept => _keptAliases;
@@ -127,35 +127,30 @@ internal sealed class GpuTextureRegistry : IDisposable
             {
                 int retired = _aliasCount + _retired.Count + _agedAliases.Count;
 
-                return $"{_sorted.Length} textures, retired {retired} (aliased {_aliasCount + _agedAliases.Count}, {AliasBytes() / BytesPerGigabyte:F2} GB), released {_released}, {_unmapped} retired as their memory was unmapped, {_overUnmapped.Count} live over unmapped memory ({_unmappedBytes / BytesPerGigabyte:F2} GB)";
+                return $"{_ranges.Count} textures, retired {retired} (aliased {_aliasCount + _agedAliases.Count}, {AliasBytes() / BytesPerGigabyte:F2} GB), released {_released}, {_unmapped} retired as their memory was unmapped, {_overUnmapped.Count} live over unmapped memory ({_unmappedBytes / BytesPerGigabyte:F2} GB)";
             }
         }
     }
 
     /// <summary>
     /// Adds <paramref name="texture"/> and retires the textures its range overlaps. Registered ranges never overlap, so
-    /// those form one run of the sorted array, found by binary search, and the new array is the run's prefix, the
-    /// texture and its suffix. It used to copy and sort the whole array on every registration: with 15,000 textures a
-    /// loading screen's registrations kept the thread that creates the views busy for seconds a frame, and the game's
-    /// 30 s hang watchdog ended the boot.
+    /// those form one run by address, found by binary search (<see cref="TextureRanges"/>, which copies no more than its
+    /// recent registrations per call). It used to copy and sort the whole array on every registration: with 15,000
+    /// textures a loading screen's registrations kept the thread that creates the views busy for seconds a frame, and
+    /// the game's 30 s hang watchdog ended the boot.
     /// </summary>
     public void Register(GpuTexture texture)
     {
         lock (_gate)
         {
-            var sorted = _sorted;
-            var (first, count) = OverlapRun(sorted, texture.Address, texture.Size);
+            var replaced = _ranges.Overlapping(texture.Address, texture.Size);
 
-            for (int index = first; index < first + count; index++)
+            foreach (var entry in replaced)
             {
-                Retire(sorted[index], texture);
+                Retire(entry, texture);
             }
 
-            var next = new GpuTexture[sorted.Length - count + 1];
-            Array.Copy(sorted, 0, next, 0, first);
-            next[first] = texture;
-            Array.Copy(sorted, first + count, next, first + 1, sorted.Length - first - count);
-            Volatile.Write(ref _sorted, next);
+            _ranges.Add(texture, replaced);
         }
     }
 
@@ -195,7 +190,7 @@ internal sealed class GpuTextureRegistry : IDisposable
     /// </summary>
     public int Unmapped(ulong address, ulong bytes)
     {
-        if (!Overlaps(Volatile.Read(ref _sorted), address, bytes))
+        if (!_ranges.Overlaps(address, bytes))
         {
             return 0;
         }
@@ -209,7 +204,7 @@ internal sealed class GpuTextureRegistry : IDisposable
     /// <summary>The game mapped memory at the range again: textures over it are no longer over unmapped memory.</summary>
     public void Mapped(ulong address, ulong bytes)
     {
-        if (!Overlaps(Volatile.Read(ref _sorted), address, bytes))
+        if (!_ranges.Overlaps(address, bytes))
         {
             return;
         }
@@ -228,13 +223,9 @@ internal sealed class GpuTextureRegistry : IDisposable
     private int Mark(ulong address, ulong bytes, bool unmapped)
     {
         int changed = 0;
-        var sorted = _sorted;
-        var (first, count) = OverlapRun(sorted, address, bytes);
 
-        for (int index = first; index < first + count; index++)
+        foreach (var entry in _ranges.Overlapping(address, bytes))
         {
-            var entry = sorted[index];
-
             if (entry.OverUnmapped != unmapped)
             {
                 Unmark(entry);
@@ -318,7 +309,7 @@ internal sealed class GpuTextureRegistry : IDisposable
             retiring.Add(entry);
         }
 
-        Volatile.Write(ref _sorted, _sorted.Where(entry => !due.Contains(entry)).ToArray());
+        _ranges.Remove(due);
         _unmapped += due.Count;
     }
 
@@ -339,17 +330,6 @@ internal sealed class GpuTextureRegistry : IDisposable
 
     /// <summary>Called, outside the lock, with the textures retired over unmapped memory this present: their views go null.</summary>
     public Action<IReadOnlyList<GpuTexture>>? Retiring { get; set; }
-
-    /// <summary>
-    /// Whether a texture of the sorted array overlaps the range (lock-free, before the rebuild): registered ranges never
-    /// overlap, so only the last texture starting before the range's end can reach into it.
-    /// </summary>
-    private static bool Overlaps(GpuTexture[] sorted, ulong address, ulong bytes)
-    {
-        int last = LastStartingBefore(sorted, address + bytes);
-
-        return last >= 0 && address < sorted[last].Address + sorted[last].Size;
-    }
 
     /// <summary>The index of the last texture of <paramref name="sorted"/> that starts before <paramref name="end"/>; -1 for none.</summary>
     private static int LastStartingBefore(GpuTexture[] sorted, ulong end)
@@ -379,22 +359,7 @@ internal sealed class GpuTextureRegistry : IDisposable
     /// <summary>The registered textures over any byte of the range (lock-free: registered ranges never overlap).</summary>
     public IReadOnlyList<GpuTexture> Overlapping(ulong address, ulong bytes)
     {
-        var sorted = Volatile.Read(ref _sorted);
-        int index = LastStartingBefore(sorted, address + bytes);
-
-        if (index < 0 || address >= sorted[index].Address + sorted[index].Size)
-        {
-            return [];
-        }
-
-        var found = new List<GpuTexture>();
-
-        for (; index >= 0 && address < sorted[index].Address + sorted[index].Size; index--)
-        {
-            found.Add(sorted[index]);
-        }
-
-        return found;
+        return _ranges.Overlapping(address, bytes);
     }
 
     /// <summary>Once per present: releases the retired textures whose grace period ended.</summary>
@@ -573,31 +538,7 @@ internal sealed class GpuTextureRegistry : IDisposable
     [HotPath]
     public GpuTexture? Find(ulong address)
     {
-        var sorted = Volatile.Read(ref _sorted);
-        int low = 0;
-        int high = sorted.Length - 1;
-
-        while (low <= high)
-        {
-            int middle = low + ((high - low) >> 1);
-            var entry = sorted[middle];
-
-            if (entry.Contains(address))
-            {
-                return entry;
-            }
-
-            if (address < entry.Address)
-            {
-                high = middle - 1;
-            }
-            else
-            {
-                low = middle + 1;
-            }
-        }
-
-        return null;
+        return _ranges.Find(address);
     }
 
     public void Dispose()
@@ -607,7 +548,7 @@ internal sealed class GpuTextureRegistry : IDisposable
             var aliases = _aliases.Values.SelectMany(queue => queue);
             var retired = _retired.Concat(_agedAliases).Select(entry => entry.Texture);
 
-            foreach (var entry in _sorted.Concat(aliases).Concat(retired))
+            foreach (var entry in _ranges.All.Concat(aliases).Concat(retired))
             {
                 ComObject.Release(entry.Desktop);
             }
@@ -619,7 +560,7 @@ internal sealed class GpuTextureRegistry : IDisposable
 
             _retired.Clear();
             _agedAliases.Clear();
-            _sorted = [];
+            _ranges.Clear();
         }
     }
 

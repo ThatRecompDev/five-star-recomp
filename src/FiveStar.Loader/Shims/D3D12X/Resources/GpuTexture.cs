@@ -59,6 +59,9 @@ internal sealed class GpuTexture
     /// <summary>The present since which no view record names a view of the texture, while over unmapped memory; <see cref="Mapped"/> otherwise.</summary>
     public long UnreferencedSince { get; set; } = Mapped;
 
+    /// <summary>Whether the registry no longer has the texture (retired) though its lookup array may still hold it (<see cref="TextureRanges"/>).</summary>
+    public volatile bool Unregistered;
+
     /// <summary>Whether memory under the texture is unmapped now.</summary>
     public bool OverUnmapped => UnmappedSince != Mapped;
 

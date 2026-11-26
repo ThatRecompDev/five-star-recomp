@@ -86,6 +86,63 @@ public sealed class GpuTextureRegistryRunTests
     }
 
     [Fact]
+    public void Registrations_past_many_rebuilds_find_what_a_scan_of_the_live_textures_finds()
+    {
+        var random = new Random(13);
+        var registry = new GpuTextureRegistry(() => [], () => []);
+        var live = new List<GpuTexture>();
+
+        // Overlapping registrations retire what they cover, past several rebuilds of the large array.
+        for (int i = 0; i < TextureRanges.RecentLimit * 6; i++)
+        {
+            ulong address = (ulong)random.Next(0, Textures * 4) * Page;
+            ulong size = (ulong)random.Next(1, 5) * Page;
+            var texture = new GpuTexture(address, default(ResourceDescription), 0, 0, 0, false, new XgSurface { Size = size });
+            live.RemoveAll(entry => entry.Address < address + size && address < entry.Address + entry.Size);
+            live.Add(texture);
+            registry.Register(texture);
+
+            Assert.Equal(live.Count, registry.Count);
+            ulong probe = (ulong)random.Next(0, Textures * 8) * Page / 2;
+            Assert.Same(live.SingleOrDefault(entry => entry.Contains(probe)), registry.Find(probe));
+
+            var expected = live.Where(entry => entry.Address < probe + (2 * Page) && probe < entry.Address + entry.Size).OrderBy(entry => entry.Address);
+            Assert.Equal(expected, registry.Overlapping(probe, 2 * Page));
+        }
+    }
+
+    [Fact]
+    public void Removed_textures_are_not_found_before_or_after_a_rebuild()
+    {
+        var ranges = new TextureRanges();
+        var textures = Layout(new Random(17));
+
+        foreach (var texture in textures)
+        {
+            ranges.Add(texture, []);
+        }
+
+        var removed = textures.Where((_, index) => index % 3 == 0).ToHashSet();
+        ranges.Remove(removed);
+
+        foreach (var texture in textures)
+        {
+            if (removed.Contains(texture))
+            {
+                Assert.Null(ranges.Find(texture.Address));
+            }
+            else
+            {
+                Assert.Same(texture, ranges.Find(texture.Address));
+            }
+        }
+
+        ranges.Rebuild();
+        Assert.Equal(textures.Length - removed.Count, ranges.Count);
+        Assert.Equal(textures.Where(texture => !removed.Contains(texture)), ranges.All);
+    }
+
+    [Fact]
     public void An_empty_registry_places_a_texture_first()
     {
         Assert.Equal((0, 0), GpuTextureRegistry.OverlapRun([], 0x10000, Page));
