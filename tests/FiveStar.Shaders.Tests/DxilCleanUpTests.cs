@@ -156,6 +156,53 @@ public sealed class DxilCleanUpTests : IClassFixture<WarpFixture>
         Assert.NotNull(merged);
     }
 
+    /// <summary>
+    /// A memory read is reused in a block its block dominates while nothing with an effect came between, but not past a
+    /// write or into a join (a block more than one block branches to, which a path with a write may reach).
+    /// </summary>
+    [Fact]
+    public void A_read_is_reused_below_until_a_write_or_a_join()
+    {
+        var module = new DxilModule();
+        var types = module.Types;
+        var main = module.Function("main", types.Function(types.Void, []), AttributeSet.None, hasBody: true);
+
+        var entry = module.NewBlock();
+        var taken = module.NewBlock();
+        var other = module.NewBlock();
+        var join = module.NewBlock();
+        main.Blocks.AddRange([entry, taken, other, join]);
+
+        var builder = new IrBuilder(module, entry);
+        var ops = new DxOps(builder);
+        var thread = ops.ThreadIdComponent(DxOpCode.ThreadId, "threadId", 0);
+        var first = Read(ops, module);
+        builder.ConditionalBranch(builder.Compare(Predicate.Equal, first, module.Int32(0)), taken, other);
+
+        // Below the entry and before any write: the entry's read stands for this one.
+        builder.Block = taken;
+        Store(builder, ops, module, thread, Read(ops, module));
+
+        // After the write: read again.
+        Store(builder, ops, module, thread, builder.Binary(BinaryOp.Add, Read(ops, module), thread));
+        builder.Branch(join);
+
+        builder.Block = other;
+        builder.Branch(join);
+
+        // The join may be reached from the write: read again.
+        builder.Block = join;
+        Store(builder, ops, module, thread, builder.Binary(BinaryOp.Xor, Read(ops, module), thread));
+        builder.Return();
+
+        ValueNumbering.Run(main);
+        DeadCode.Remove(main);
+
+        Assert.Equal(1, Reads(entry));
+        Assert.Equal(1, Reads(taken));
+        Assert.Equal(1, Reads(join));
+    }
+
     [Fact]
     public void Casts_there_and_back_and_float_constants_fold()
     {
@@ -172,6 +219,19 @@ public sealed class DxilCleanUpTests : IClassFixture<WarpFixture>
     {
         var handle = ops.HeapHandle(module.Int32(OutputSlot), sampler: false, DxOps.RawBufferKind | DxOps.UavBit, 0);
         ops.RawStore(handle, index, [value]);
+    }
+
+    /// <summary>The input buffer's first word.</summary>
+    private static Value Read(DxOps ops, DxilModule module)
+    {
+        var handle = ops.HeapHandle(module.Int32(InputSlot), sampler: false, DxOps.RawBufferKind, 0);
+
+        return ops.RawLoad(handle, module.Int32(0), 1)[0];
+    }
+
+    private static int Reads(BasicBlock block)
+    {
+        return block.Body.Count(instruction => instruction.Opcode == Opcode.Call && instruction.Callee!.Name.Contains("rawBufferLoad", StringComparison.Ordinal));
     }
 
     private uint[] Run(bool optimize)
