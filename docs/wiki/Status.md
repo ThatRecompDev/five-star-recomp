@@ -51,7 +51,11 @@ threads spend most of their time in our command-list shims, and `--watch-hang`, 
 added a stack scan to each of the game's ~3,300 waits a second (now cheap, and left off in timing boots). The black
 albedo comes from empty material textures: the game streams their mips into memory after creating them, sometimes
 mapped only at the GPU address or a page at a time, and nothing filled them again; streamed textures are now re-read
-page by page as their memory changes, on a worker thread. On 25 November the device removals that ended
+page by page as their memory changes, on a worker thread. On AMD cards the world's mesh passes drew nothing: every
+translated mesh program wrote each primitive culled before its real value, and AMD's driver keeps the first cull
+(fixed by a contributor, #55; an RX 7800 XT now draws the depth, vehicles and the night city). Two loading-screen
+stalls that reached the game's own 30-second hang watchdog are gone (a texture registry that re-sorted all its
+textures for each new one, and the refresh of queued textures on one thread, #56 and #57). On 25 November the device removals that ended
 every boot ~25–35 s after the world started loading were traced to the game's ray-tracing compute passes walking
 acceleration structures we never build; those pipelines now stay stand-ins unless `--raytracing` is given, and a boot
 ran 18 minutes in the world with no removal. Literal samplers (shadow comparison, clamp) now get their own samplers. The overwrite of the game's
