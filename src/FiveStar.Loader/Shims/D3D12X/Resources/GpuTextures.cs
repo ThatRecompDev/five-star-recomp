@@ -412,13 +412,43 @@ internal sealed unsafe class GpuTextures : IDisposable
         }
 
         Registry.Advance(frame);
+        var textures = new List<GpuTexture>();
+        int retired = 0;
 
         foreach (var texture in Volatile.Read(ref _watched))
         {
-            if (Registry.Find(texture.Address) == texture)
+            if (Registry.Find(texture.Address) != texture)
             {
-                Refresh(device, texture);
+                retired++;
             }
+            else if (texture.CopiedInto)
+            {
+                Counters.Add(GpuResourceEvent.UploadKeptCopy);
+            }
+            else if (!texture.GpuWritten && texture.Layout.PlaneCount == 1)
+            {
+                textures.Add(texture);
+            }
+        }
+
+        if (retired != 0)
+        {
+            Forget();
+        }
+
+        // On the refresh worker's thread budget (TextureRefreshWorker.SettleThreads): each texture is read through the
+        // kernel and hashed on its own thread, in that thread's copy buffer, and the uploads take the uploader's lock in
+        // turn. One after another on the submitting thread (about a dozen Bink planes and the glyph cache) the check took
+        // up to tens of ms of every w109 world frame before its first submission reached the GPU.
+        Parallel.ForEach(textures, new ParallelOptions { MaxDegreeOfParallelism = TextureRefreshWorker.SettleThreads }, texture => Refresh(device, texture, throughKernel: true));
+    }
+
+    /// <summary>Drops the watched textures no longer registered (retired): they were walked every frame for good.</summary>
+    private void Forget()
+    {
+        lock (_watchGate)
+        {
+            Volatile.Write(ref _watched, [.. _watched.Where(texture => Registry.Find(texture.Address) == texture)]);
         }
     }
 
