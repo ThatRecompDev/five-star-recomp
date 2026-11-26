@@ -350,8 +350,13 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         Binding.TableReaches.ProgramFolder = programs;
         Pipelines = new PipelineSlots(factory, warnings);
         PipelineSlotHandlers.Register(Objects);
-        Prefetch(onDemand);
-        JournalPrebuild.Start(factory, cache, _pipelineFolders.Cache, _log);
+        // --no-draws: no pipeline is ever built, so nothing is made ahead for one.
+        if (!SkippedPipelines.All)
+        {
+            Prefetch(onDemand);
+            JournalPrebuild.Start(factory, cache, _pipelineFolders.Cache, _log);
+        }
+
         _log.Detail($"  [d3d12_xs] pipeline slots on: programs {programs}, translated {translated ?? "none"}");
     }
 
