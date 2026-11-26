@@ -514,12 +514,19 @@ uint readfirstlane(uint x, bool active) {   // first lane with EXEC set (not jus
 #endif
     uint l = m.x != 0 ? firstbitlow(m.x) : m.y != 0 ? 32 + firstbitlow(m.y) : 0u;
 #if VW_EMULATE && !VW_GROUP_WAVE && !VW_GROUP_LANES
-    // A wider hardware wave holds at most 4 program waves (128 lanes, or WARP's 4 for test waves): a max per program
-    // wave, one component each.
+    // A wider hardware wave holds WaveGetLaneCount() / VW_WAVE program waves: a max per program wave, one component
+    // each, four program waves per max. Console waves need one (at most 4 in 128 lanes); test-sized waves on a real
+    // GPU need more (16 two-lane waves in a 32-lane wave), where a single max gave every wave past the fourth the same.
     if ((m.x | m.y) == 0u) return vw_read(x, 0u);
-    uint s = vw_origin() / VW_WAVE, v = vw_lane() == l ? x : 0u;
-    uint4 r = WaveActiveMax(uint4(s == 0u ? v : 0u, s == 1u ? v : 0u, s == 2u ? v : 0u, s == 3u ? v : 0u));
-    return s == 0u ? r.x : s == 1u ? r.y : s == 2u ? r.z : r.w;
+    uint s = vw_origin() / VW_WAVE, v = vw_lane() == l ? x : 0u, first = 0u;
+    [unroll] for (uint base = 0u; base < 128u / VW_WAVE; base += 4u) {
+        if (base < WaveGetLaneCount() / VW_WAVE) {
+            uint k = s - base;   // above 3 (wrapped) for the program waves outside these four
+            uint4 r = WaveActiveMax(uint4(k == 0u ? v : 0u, k == 1u ? v : 0u, k == 2u ? v : 0u, k == 3u ? v : 0u));
+            if (k < 4u) first = k == 0u ? r.x : k == 1u ? r.y : k == 2u ? r.z : r.w;
+        }
+    }
+    return first;
 #else
     return vw_read(x, l);
 #endif
