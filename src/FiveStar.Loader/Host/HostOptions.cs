@@ -332,6 +332,12 @@ internal sealed record HostOptions
     /// <summary>UAVs of depth textures go to colour twins written back into the depth before draws (<c>--depth-twins</c>).</summary>
     public bool DepthTwins { get; set; }
 
+    /// <summary>Census lines of the render targets bound, cleared by the game and never cleared, and of GPU-written textures made over one another (<c>--target-clear-census</c>).</summary>
+    public bool TargetClearCensus { get; set; }
+
+    /// <summary>Diagnostic: each render target cleared to 0 at its first bind in a frame (<c>--clear-targets-each-frame</c>).</summary>
+    public bool ClearTargetsEachFrame { get; set; }
+
     /// <summary>Draws the pipeline trace logs also read back their first render target (<c>--d3d12-probe-traced</c>).</summary>
     public bool D3D12ProbeTraced { get; set; }
 
