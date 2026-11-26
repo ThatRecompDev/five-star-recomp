@@ -428,6 +428,12 @@ internal sealed record HostOptions
     /// <summary>The present numbers whose plane is read back (<c>--capture-presents 60,600</c>).</summary>
     public List<long> CapturePresents { get; } = [.. DefaultCapturePresents];
 
+    /// <summary>Presents taken as PIX GPU captures (<c>--pix-capture 600</c>); empty takes none.</summary>
+    public List<long> PixCapturePresents { get; } = [];
+
+    /// <summary>Where PIX captures go (<c>--pix-capture-dir</c>); null is <c>pix-captures</c> in the working directory.</summary>
+    public string? PixCaptureDirectory { get; set; }
+
     /// <summary>Present a test pattern instead of the game's frame (<c>--present-test</c>).</summary>
     public bool PresentTest { get; set; }
 
