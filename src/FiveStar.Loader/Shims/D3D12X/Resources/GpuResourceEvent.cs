@@ -65,4 +65,7 @@ internal enum GpuResourceEvent
 
     /// <summary>A texture so changed was refreshed before the next submission.</summary>
     WrittenRefreshed,
+
+    /// <summary>A written texture uploaded only the subresources its changed pages lie in (<see cref="TextureRefreshWorker"/>).</summary>
+    UploadPartial,
 }

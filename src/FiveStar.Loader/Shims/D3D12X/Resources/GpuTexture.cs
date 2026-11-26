@@ -68,6 +68,60 @@ internal sealed class GpuTexture
     /// <summary>The content hash of the bytes last uploaded; 0 before the first upload.</summary>
     public ulong UploadedHash { get; set; }
 
+    /// <summary>Pages per word of the written-pages bitmap.</summary>
+    private const int DirtyWordBits = 64;
+
+    /// <summary>Held while the texture is refreshed from memory (one refresh at a time).</summary>
+    public object RefreshGate { get; } = new();
+
+    /// <summary>The bytes a page of <see cref="PageHashes"/> and <see cref="MarkPages"/> covers (an XMem page).</summary>
+    public const ulong PageBytes = 0x10000;
+
+    /// <summary>The content hash of each <see cref="PageBytes"/> page last uploaded; null until a fill recorded them.</summary>
+    public ulong[]? PageHashes { get; set; }
+
+    /// <summary>The pages written since the last refresh took them, one bit each; null for none.</summary>
+    private ulong[]? _dirty;
+
+    private readonly object _dirtyGate = new();
+
+    /// <summary>The number of <see cref="PageBytes"/> pages the texture spans.</summary>
+    public int Pages => (int)((Size + PageBytes - 1) / PageBytes);
+
+    /// <summary>Marks the pages under bytes [<paramref name="start"/>, <paramref name="end"/>) of the texture as written.</summary>
+    public void MarkPages(ulong start, ulong end)
+    {
+        if (end <= start || start >= Size)
+        {
+            return;
+        }
+
+        int first = (int)(start / PageBytes);
+        int last = (int)((Math.Min(end, Size) - 1) / PageBytes);
+
+        lock (_dirtyGate)
+        {
+            _dirty ??= new ulong[(Pages + DirtyWordBits - 1) / DirtyWordBits];
+
+            for (int page = first; page <= last; page++)
+            {
+                _dirty[page / DirtyWordBits] |= 1UL << (page % DirtyWordBits);
+            }
+        }
+    }
+
+    /// <summary>The written pages' bits, cleared; null when none was written.</summary>
+    public ulong[]? TakeDirty()
+    {
+        lock (_dirtyGate)
+        {
+            var dirty = _dirty;
+            _dirty = null;
+
+            return dirty;
+        }
+    }
+
     public bool Contains(ulong address)
     {
         return address - Address < Size;

@@ -59,7 +59,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
     public string? Failure { get; private set; }
 
     /// <summary>Copies <paramref name="source"/> (the texture's console bytes) into <paramref name="texture"/>; false when it cannot.</summary>
-    public bool Upload(nint device, GpuTexture texture, byte* source)
+    public bool Upload(nint device, GpuTexture texture, byte* source, bool[]? only = null)
     {
         lock (_gate)
         {
@@ -72,7 +72,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
 
             try
             {
-                return Fill(device, texture, source);
+                return Fill(device, texture, source, only);
             }
             catch (Exception exception) when (exception is SharpGen.Runtime.SharpGenException or InvalidOperationException or TimeoutException)
             {
@@ -139,7 +139,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         }
     }
 
-    private bool Fill(nint device, GpuTexture texture, byte* source)
+    private bool Fill(nint device, GpuTexture texture, byte* source, bool[]? only)
     {
         Open(device);
         Marshal.AddRef(texture.Desktop);
@@ -165,7 +165,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
             return false;
         }
 
-        Submit(texture, source, resource, count, total);
+        Submit(texture, source, resource, count, total, only);
 
         return true;
     }
@@ -198,7 +198,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
     }
 
     /// <summary>Records and submits the copy into <paramref name="resource"/> on the next slot, which takes the reference.</summary>
-    private void Submit(GpuTexture texture, byte* source, ID3D12Resource resource, int count, ulong total)
+    private void Submit(GpuTexture texture, byte* source, ID3D12Resource resource, int count, ulong total, bool[]? only)
     {
         int index = _next;
         UploadSlot slot;
@@ -207,8 +207,8 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         {
             slot = TakeSlot(index);
             EnsureStaging(slot, total);
-            Detile(texture, source, slot.Data, count);
-            Record(slot, resource, texture.State, count);
+            Detile(texture, source, slot.Data, count, only);
+            Record(slot, resource, texture.State, count, only);
             slot.List.Close();
         }
         catch
@@ -368,12 +368,17 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         return true;
     }
 
-    private void Detile(GpuTexture texture, byte* source, byte* staging, int count)
+    private void Detile(GpuTexture texture, byte* source, byte* staging, int count, bool[]? only)
     {
         var layout = texture.Layout;
 
         for (int subresource = 0; subresource < count; subresource++)
         {
+            if (!Takes(only, subresource))
+            {
+                continue;
+            }
+
             ref readonly var footprint = ref _footprints[subresource];
             uint rowPitch = footprint.Footprint.RowPitch;
             uint slicePitch = rowPitch * _rows[subresource];
@@ -381,7 +386,13 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         }
     }
 
-    private void Record(UploadSlot slot, ID3D12Resource resource, int state, int count)
+    /// <summary>Whether a fill limited to <paramref name="only"/> (every subresource when null) copies <paramref name="subresource"/>.</summary>
+    private static bool Takes(bool[]? only, int subresource)
+    {
+        return only is null || (subresource < only.Length && only[subresource]);
+    }
+
+    private void Record(UploadSlot slot, ID3D12Resource resource, int state, int count, bool[]? only)
     {
         var list = slot.List;
         var resting = (ResourceStates)state;
@@ -394,6 +405,11 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
 
         for (int subresource = 0; subresource < count; subresource++)
         {
+            if (!Takes(only, subresource))
+            {
+                continue;
+            }
+
             var source = new TextureCopyLocation(slot.Staging!, _footprints[subresource]);
             list.CopyTextureRegion(new TextureCopyLocation(resource, (uint)subresource), 0, 0, 0, source, null);
         }
