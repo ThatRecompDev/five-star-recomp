@@ -37,6 +37,10 @@ internal struct ListIndirectScratch
     /// </summary>
     public int LaunchSegment;
 
+    /// <summary>1 while the segment <see cref="GatherSegment"/> may still gather records (<see cref="IndirectGather"/>).</summary>
+    public int GatherOpen;
+    public int GatherSegment;
+
     public static unsafe ListIndirectScratch* Of(XboxObject* list)
     {
         return (ListIndirectScratch*)((byte*)list + Offset);
