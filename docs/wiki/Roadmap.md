@@ -1,4 +1,4 @@
-# Roadmap
+﻿# Roadmap
 
 Goal: the 3D world on screen and looking right, then 30 fps, then 60. Current results: [Status](Status.md).
 
@@ -7,7 +7,7 @@ Goal: the 3D world on screen and looking right, then 30 fps, then 60. Current re
 | Step | State | Next |
 |---|---|---|
 | Boot to the world | done; startup freeze fixed | longer boots past the prologue card |
-| Device loss | likely fixed (stale texture views) | confirm in long boots |
+| Device loss | two causes fixed; still lost ~10 min in, in hair simulation | boot with hair sim skipped, then fix it |
 | Lighting | world mostly dark; light sources show | PIX capture of the lighting pass |
 | Picture goes white after the intro | exposure suspected | exposure trace in a long boot |
 | Green credits cards | traced to the texture-release fix | fix in testing |
