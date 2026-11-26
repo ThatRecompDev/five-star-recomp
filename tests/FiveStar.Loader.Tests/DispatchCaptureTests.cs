@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using FiveStar.Graphics;
 using FiveStar.Graphics.Replay;
+using FiveStar.Loader.Shims.D3D12X;
 using FiveStar.Loader.Shims.D3D12X.Binding;
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
 using FiveStar.Loader.Tests.Support;
@@ -70,6 +72,34 @@ public sealed class DispatchCaptureTests : IDisposable
         }
 
         Assert.Equal(2, capture.Resources.Count(resource => resource.Output is not null));
+    }
+
+    /// <summary>w161: a capture that threw inside the game's Dispatch made the guard drop every later dispatch.</summary>
+    [Fact]
+    public unsafe void A_capture_that_throws_turns_capture_off_and_never_reaches_the_dispatch()
+    {
+        const nint Pipeline = 0x7f00_1230;
+        var list = (XboxObject*)NativeMemory.AllocZeroed(XboxInterfaces.CommandListObjectSize);
+
+        try
+        {
+            QueueProgress.Name(Pipeline, "CS_CaptureThrows_Wrapped");
+            ListActivity.Of(list)->Pipeline = Pipeline;
+            DispatchCaptures.Specs = DispatchCaptures.Parse("CS_CaptureThrows");
+            Assert.True(DispatchCaptures.Enabled);
+
+            // No loader runtime here: planning the capture throws, inside the capture path.
+            DispatchCaptures.Before(list, 1, 1, 1);
+            DispatchCaptures.BeforeIndirect(list, 0, 0, 12, 1, 0, 0);
+            DispatchCaptures.After(list);
+
+            Assert.False(DispatchCaptures.Enabled);
+        }
+        finally
+        {
+            DispatchCaptures.Specs = [];
+            NativeMemory.Free(list);
+        }
     }
 
     public void Dispose()

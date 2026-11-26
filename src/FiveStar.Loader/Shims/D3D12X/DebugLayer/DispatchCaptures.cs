@@ -41,9 +41,19 @@ internal static unsafe class DispatchCaptures
     private static readonly object Gate = new();
     private static int _polling;
     private static int _captures;
+    private static int _failed;
+    private static IReadOnlyList<CaptureSpec> _specs = [];
 
     /// <summary>The entries; empty when off.</summary>
-    public static IReadOnlyList<CaptureSpec> Specs { get; set; } = [];
+    public static IReadOnlyList<CaptureSpec> Specs
+    {
+        get => _specs;
+        set
+        {
+            _specs = value;
+            Volatile.Write(ref _failed, 0);
+        }
+    }
 
     /// <summary>Where the captures go, one folder each.</summary>
     public static string Folder { get; set; } = "captures";
@@ -51,7 +61,8 @@ internal static unsafe class DispatchCaptures
     /// <summary>The ahead-of-time translation (--translated-dir), whose HLSL a capture keeps when it has the program's.</summary>
     public static string? TranslatedFolder { get; set; }
 
-    public static bool Enabled => Specs.Count > 0;
+    /// <summary>Whether captures are on: entries given and none failed (<see cref="Fail"/>).</summary>
+    public static bool Enabled => Specs.Count > 0 && Volatile.Read(ref _failed) == 0;
 
     /// <summary>Entries of a comma-separated list: <c>text</c> or <c>text@n</c>.</summary>
     public static IReadOnlyList<CaptureSpec> Parse(string list)
@@ -102,33 +113,73 @@ internal static unsafe class DispatchCaptures
     /// <summary>Before a Dispatch of <paramref name="list"/>: captured when it is an entry's occurrence.</summary>
     public static void Before(XboxObject* list, uint x, uint y, uint z)
     {
-        var plan = Match(list);
-
-        if (plan is not null)
+        try
         {
-            plan.Direct = new FiveStar.Graphics.Replay.CapturedDispatch(x, y, z);
-            Start(list, plan);
+            var plan = Match(list);
+
+            if (plan is not null)
+            {
+                plan.Direct = new FiveStar.Graphics.Replay.CapturedDispatch(x, y, z);
+                Start(list, plan);
+            }
+        }
+        catch (Exception exception)
+        {
+            Fail(list, exception);
         }
     }
 
     /// <summary>Before a compute ExecuteIndirect (wrapped argument and count buffers): captured with its records.</summary>
     public static void BeforeIndirect(XboxObject* list, nint arguments, ulong argumentOffset, uint stride, uint maxCount, nint count, ulong countOffset)
     {
-        var plan = Match(list);
-
-        if (plan is null)
+        try
         {
-            return;
-        }
+            var plan = Match(list);
 
-        nint records = BufferCopies.Desktop(arguments, ref argumentOffset);
-        nint counted = count == 0 ? 0 : BufferCopies.Desktop(count, ref countOffset);
-        plan.Indirect = new IndirectArguments(records, argumentOffset, stride, Math.Min(maxCount, MaxIndirectRecords), counted, countOffset);
-        Start(list, plan);
+            if (plan is null)
+            {
+                return;
+            }
+
+            nint records = BufferCopies.Desktop(arguments, ref argumentOffset);
+            nint counted = count == 0 ? 0 : BufferCopies.Desktop(count, ref countOffset);
+            plan.Indirect = new IndirectArguments(records, argumentOffset, stride, Math.Min(maxCount, MaxIndirectRecords), counted, countOffset);
+            Start(list, plan);
+        }
+        catch (Exception exception)
+        {
+            Fail(list, exception);
+        }
     }
 
     /// <summary>After the work: a capture opened before it copies its outputs.</summary>
     public static void After(XboxObject* list)
+    {
+        try
+        {
+            Finish(list);
+        }
+        catch (Exception exception)
+        {
+            Fail(list, exception);
+        }
+    }
+
+    /// <summary>
+    /// A capture threw: logged once and every capture is turned off, so the game's Dispatch and ExecuteIndirect go on
+    /// as without <c>--capture-dispatch</c> (an exception there made the guard drop every later dispatch, w161).
+    /// </summary>
+    private static void Fail(XboxObject* list, Exception exception)
+    {
+        Open.TryRemove((nint)list, out _);
+
+        if (Interlocked.Exchange(ref _failed, 1) == 0)
+        {
+            ShimContext.Log?.Warn($"[capture] capture failed, --capture-dispatch is off from now on: {exception.GetType().Name}: {exception.Message}\n{exception.StackTrace}");
+        }
+    }
+
+    private static void Finish(XboxObject* list)
     {
         if (!Open.TryRemove((nint)list, out var job))
         {
