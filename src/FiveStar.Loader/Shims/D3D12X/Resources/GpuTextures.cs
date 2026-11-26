@@ -797,7 +797,7 @@ internal sealed unsafe class GpuTextures : IDisposable
     }
 
     /// <summary>The XG desc of a console resource desc: the same D3D12_RESOURCE_DESC fields.</summary>
-    private static XgResourceDesc ToXg(ResourceDescription* description)
+    internal static XgResourceDesc ToXg(ResourceDescription* description)
     {
         return new XgResourceDesc
         {
