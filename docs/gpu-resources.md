@@ -127,7 +127,7 @@ flowchart LR
 - **CPU-mapped textures** (`GpuTextures.Watch`): a slot-133 texture the game maps (resource Map returns its memory)
   is written by the CPU whenever it likes; Bink decodes every video frame into its Y, Cr and Cb planes (1920x1080
   and 3840x2160 R8, mapped once). Such textures are checked once a frame, at the first ExecuteCommandLists after a
-  present, and uploaded when the hash changed. Before this the planes kept the zeros of their creation.
+  present, and uploaded when the hash changed. Before this the planes kept the zeros of their creation. A check refreshes them on the refresh worker's thread budget (half the logical processors), each read and hashed on its own thread and the uploads in turn: one after another on the submitting thread they took up to tens of ms of every w109 world frame before its first submission. Watched textures the registry retired are no longer walked.
 - **GPU copies into a texture** (list slots 85, 86, `TextureCopies`) write only the desktop texture; on the console
   they write its memory. Such a texture is no longer refreshed from memory (`GpuTexture.CopiedInto`, counted as
   `UploadKeptCopy`), as victory-gta6 does. The 2048x2048 A8 glyph cache the controls hint samples (`FText`) is mapped,

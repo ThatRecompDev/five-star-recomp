@@ -283,6 +283,48 @@ public sealed unsafe class D3D12XGpuResourceTests
         Assert.Equal(2, counters[GpuResourceEvent.Upload] + counters[GpuResourceEvent.UploadPartial]);
     }
 
+    /// <summary>
+    /// Mapped textures checked at a frame are read and hashed on several threads (GpuTextures.RefreshWatched) and uploaded in turn: each
+    /// gets its own new bytes, and one whose bytes did not change is skipped.
+    /// </summary>
+    [Fact]
+    public void Mapped_textures_refreshed_together_each_get_their_own_bytes()
+    {
+        const int Second = 0x8000;
+        using var test = TestRuntime.Create();
+        var (cpu, gpu) = AliasedPages(test);
+        var device = new XboxDevice(test);
+        var description = Description();
+
+        nint device12 = test.Runtime.D3D12X.Objects.DesktopDevice;
+        var textures = test.Runtime.D3D12X.Textures;
+        nint[] placed = [PlaceTexture(device, gpu, description), PlaceTexture(device, gpu + Second, description)];
+
+        foreach (nint texture in placed)
+        {
+            void* mapped = null;
+            Assert.Equal(0, ((delegate* unmanaged<nint, uint, void*, void**, int>)XboxDevice.Vtable(texture)[MapSlot])(texture, 0, null, &mapped));
+        }
+
+        byte[][] first = [Pattern(Size, 9), Pattern(Size / 2, 10)];
+        byte[][] second = [Pattern(Size, 11), Pattern(Size / 2, 12)];
+
+        Tile(description, cpu, first);
+        Tile(description, cpu + Second, second);
+        textures.RefreshWatched(device12, 1);
+        long uploads = textures.Counters[GpuResourceEvent.Upload];
+        textures.RefreshWatched(device12, 2);
+
+        using var firstProbe = new TextureProbe(device12);
+        using var secondProbe = new TextureProbe(device12);
+
+        CreateView(device, gpu, description, (nint)firstProbe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
+        CreateView(device, gpu + Second, description, (nint)secondProbe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr);
+        Assert.Equal(first[0], firstProbe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
+        Assert.Equal(second[0], secondProbe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
+        Assert.Equal(uploads, textures.Counters[GpuResourceEvent.Upload]);
+    }
+
     [Fact]
     public void A_mapped_texture_a_gpu_copy_wrote_keeps_the_copy_when_its_memory_changes()
     {
