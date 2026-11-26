@@ -23,6 +23,9 @@ internal sealed class EventPipeSession : IDisposable
     /// <summary>Loader, JIT and NGen (ReadyToRun) keywords: what names a code address.</summary>
     public const ulong MethodKeywords = 0x38;
 
+    /// <summary>The GC keyword: at the verbose level an AllocationTick event, with its stack, about every 100 KB a thread allocates.</summary>
+    public const ulong GcKeyword = 0x1;
+
     public const uint Verbose = 5;
 
     private const string PipePrefix = "dotnet-diagnostic-";

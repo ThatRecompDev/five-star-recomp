@@ -59,6 +59,7 @@ internal static class ProfileCommands
         output.WriteLine("fivestar profile <command>");
         output.WriteLine("  summary <trace.nettrace> [--top <n>]  a loader managed profile (--profile-managed) by thread class (game,");
         output.WriteLine("                                        build, queue, loader, runtime, other): samples in and outside managed");
-        output.WriteLine("                                        code, the top methods by exclusive and inclusive samples (30)");
+        output.WriteLine("                                        code, the top methods by exclusive and inclusive samples (30), and");
+        output.WriteLine("                                        the allocated bytes by type, allocating method and method on the stack");
     }
 }

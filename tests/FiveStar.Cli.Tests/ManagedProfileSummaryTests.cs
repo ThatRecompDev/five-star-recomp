@@ -22,6 +22,9 @@ public sealed partial class ManagedProfileSummaryTests
     private const int BurnMilliseconds = 1500;
     private const int TopExclusive = 3;
     private const int Top = 5;
+    private const long MethodAndGcKeywords = 0x39;
+    private const int AllocationBytes = 64 << 20;
+    private const int ChunkBytes = 64 << 10;
 
     [Fact]
     public void A_profile_names_the_method_a_thread_class_spends_its_samples_in()
@@ -51,6 +54,11 @@ public sealed partial class ManagedProfileSummaryTests
             Assert.Contains("== build: ", output.ToString(), StringComparison.Ordinal);
             Assert.Contains(nameof(BurnCpu), output.ToString(), StringComparison.Ordinal);
             Assert.Equal(ManagedProfileSummary.All, summary.Classes[^1].Name);
+
+            // The allocation ticks name the method that allocated and the type.
+            Assert.True(build.AllocatedBytes > 0);
+            Assert.Contains(build.AllocatingSites.Keys, method => method.EndsWith("." + nameof(AllocateMuch), StringComparison.Ordinal));
+            Assert.Contains("System.Byte[]", build.AllocatedTypes.Keys);
         }
         finally
         {
@@ -64,7 +72,7 @@ public sealed partial class ManagedProfileSummaryTests
         var providers = new[]
         {
             new EventPipeProvider("Microsoft-DotNETCore-SampleProfiler", EventLevel.Verbose),
-            new EventPipeProvider("Microsoft-Windows-DotNETRuntime", EventLevel.Verbose, 0x38),
+            new EventPipeProvider("Microsoft-Windows-DotNETRuntime", EventLevel.Verbose, MethodAndGcKeywords),
         };
         uint burner = 0;
 
@@ -78,6 +86,7 @@ public sealed partial class ManagedProfileSummaryTests
         {
             burner = GetCurrentThreadId();
             BurnCpu();
+            AllocateMuch();
         });
 
         thread.Start();
@@ -106,6 +115,20 @@ public sealed partial class ManagedProfileSummaryTests
         }
 
         GC.KeepAlive(value);
+    }
+
+    /// <summary>Allocates <see cref="AllocationBytes"/> in small arrays, as a per-frame allocator does.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AllocateMuch()
+    {
+        byte[] last = [];
+
+        for (int allocated = 0; allocated < AllocationBytes; allocated += ChunkBytes)
+        {
+            last = new byte[ChunkBytes];
+        }
+
+        GC.KeepAlive(last);
     }
 
     [LibraryImport("kernel32.dll")]
