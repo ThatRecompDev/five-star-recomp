@@ -71,6 +71,9 @@ internal static class HostComposition
         Shims.D3D12X.DebugLayer.NullAddressCheck.Enabled = options.CheckNullAddresses;
         Shims.D3D12X.Resources.DepthTwins.Enabled = options.DepthTwins;
 
+        Shims.D3D12X.DebugLayer.TargetClears.Census = options.TargetClearCensus;
+        Shims.D3D12X.DebugLayer.TargetClears.ClearEachFrame = options.ClearTargetsEachFrame;
+
         // No acceleration structure is built without --raytracing: programs made on demand miss every BVH node.
         Shims.D3D12X.Binding.BvhMiss.Enabled = !options.RayTracing;
         Shims.D3D12X.Pipelines.RayTracingPrograms.StandIns = !options.RayTracing;
