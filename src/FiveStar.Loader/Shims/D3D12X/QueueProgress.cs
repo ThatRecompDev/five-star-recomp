@@ -366,22 +366,37 @@ internal static unsafe class QueueProgress
             return;
         }
 
-        if (completed != queue.Seen || queue.SeenAt == 0)
+        if (Observe(queue, completed, Volatile.Read(ref wrapper->Signaled), now))
+        {
+            _log?.Warn($"[gpu] {Describe(queue, now)}\n      {MemorySnapshot.Summary()}");
+        }
+    }
+
+    /// <summary>
+    /// One poll of a queue: true once per stall, when it has had work pending and finished none of it for
+    /// <see cref="StallSeconds"/>. The clock restarts at every finished execution and while nothing is pending: w150's
+    /// async compute queues sat idle for 70 s while the game waited for a pipeline, and the clock running through that
+    /// reported them stalled 0.07 s after their next submissions, in a BatchCull dispatch that had only just started.
+    /// </summary>
+    internal static bool Observe(Queue queue, ulong completed, ulong signaled, long now)
+    {
+        if (completed != queue.Seen || queue.SeenAt == 0 || signaled <= completed)
         {
             queue.Seen = completed;
             queue.SeenAt = now;
             queue.Stalled = false;
 
-            return;
+            return false;
         }
 
-        bool behind = Volatile.Read(ref wrapper->Signaled) > completed;
-
-        if (behind && !queue.Stalled && Stopwatch.GetElapsedTime(queue.SeenAt, now).TotalSeconds > StallSeconds)
+        if (queue.Stalled || Stopwatch.GetElapsedTime(queue.SeenAt, now).TotalSeconds <= StallSeconds)
         {
-            queue.Stalled = true;
-            _log?.Warn($"[gpu] {Describe(queue, now)}\n      {MemorySnapshot.Summary()}");
+            return false;
         }
+
+        queue.Stalled = true;
+
+        return true;
     }
 
     private static ulong Completed(nint fence)
@@ -580,7 +595,7 @@ internal static unsafe class QueueProgress
         return Completed(inner).ToString(CultureInfo.InvariantCulture);
     }
 
-    private sealed class Queue(nint wrapper, int number)
+    internal sealed class Queue(nint wrapper, int number)
     {
         public long Next;
         public ulong Seen;
