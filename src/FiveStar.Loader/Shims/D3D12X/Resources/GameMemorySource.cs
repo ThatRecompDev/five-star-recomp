@@ -83,6 +83,22 @@ internal sealed unsafe class GameMemorySource
         return copied;
     }
 
+    /// <summary>Whether any 64 KiB page of the range at console GPU address <paramref name="address"/> is mapped, at its CPU range or the address.</summary>
+    public bool AnyMapped(ulong address, ulong size)
+    {
+        ulong pageSize = XMemPhysicalMemory.PageSize;
+
+        for (ulong page = address / pageSize * pageSize; page < address + size; page += pageSize)
+        {
+            if (MappedAt((nint)page) != 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>"CPU range 0x…: m of n pages mapped there, k at the address": where a texture's pages are mapped, for a log line.</summary>
     public string Describe(ulong address)
     {

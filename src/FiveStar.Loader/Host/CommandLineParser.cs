@@ -11,6 +11,7 @@ namespace FiveStar.Loader.Host;
 internal sealed class CommandLineParser
 {
     private const double BytesPerGigabyte = 1L << 30;
+    private const long BytesPerMebibyte = 1L << 20;
 
     private readonly string[] _args;
     private readonly HostOptions _options = new();
@@ -718,6 +719,10 @@ internal sealed class CommandLineParser
                 return true;
             case "--kept-aliases":
                 _options.KeptAliases = Math.Max(0, int.Parse(Next(), CultureInfo.InvariantCulture));
+
+                return true;
+            case "--unmapped-view-budget":
+                _options.UnmappedViewBudgetBytes = Math.Max(0, long.Parse(Next(), CultureInfo.InvariantCulture)) * BytesPerMebibyte;
 
                 return true;
             default:
