@@ -323,9 +323,9 @@ internal static unsafe class CommandListBindingMethods
 
     /// <summary>An unclamped ExecuteIndirect's pass timestamp, right before it runs (a clamped one's: <see cref="IndirectClamp.Record"/>).</summary>
     [HotPath]
-    private static void TimeIndirect(XboxObject* self, nint signature)
+    private static void TimeIndirect(XboxObject* self, int kind)
     {
-        GpuTimings.Work((nint)self, self->Inner, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind, ListActivity.Of(self)->Pipeline);
+        GpuTimings.Work((nint)self, self->Inner, kind == IndirectClamp.DispatchKind, ListActivity.Of(self)->Pipeline);
     }
 
     [HotPath]
@@ -449,7 +449,11 @@ internal static unsafe class CommandListBindingMethods
         {
             bool consumer = EmptyIndirectAfterSkip && CommandListBindings.Of(self)->ProducerSkipped != 0;
 
-            if (ComputeChainBroken(self, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind))
+            // The signature's kind and stride, looked up once (a dictionary read each time it was asked, six a call).
+            var (kind, stride) = CommandSignatures.Clampable(signature);
+            bool dispatch = kind == IndirectClamp.DispatchKind;
+
+            if (ComputeChainBroken(self, dispatch))
             {
                 return;
             }
@@ -462,20 +466,35 @@ internal static unsafe class CommandListBindingMethods
                 return;
             }
 
-            FlushForIndirect(self, signature);
+            FlushForIndirect(self, dispatch);
             ListActivity.Of(self)->Indirect++;
-            GpuBreadcrumbs.BeforeIndirect(self, signature, maxCount, ArgumentAddress(arguments, argumentOffset), (uint)argumentOffset);
-            BeforeWork(self, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind, timed: false);
-            var trace = ShimContext.Runtime.D3D12X.DrawTrace;
-            trace?.Indirect(self, maxCount, ArgumentAddress(arguments, argumentOffset), CommandSignatures.Clampable(signature).Stride, count != 0, CommandSignatures.Clampable(signature).Kind == IndirectClamp.DispatchKind);
+            NoteIndirect(self, signature, maxCount, arguments, argumentOffset, stride, count != 0, dispatch);
 
-            RunIndirect(self, signature, maxCount, BufferCopies.Desktop(arguments, ref argumentOffset), argumentOffset, BufferCopies.Desktop(count, ref countOffset), countOffset);
-            trace?.AfterIndirect(self);
+            var indirect = new IndirectCall(signature, kind, stride, maxCount);
+            RunIndirect(self, indirect, BufferCopies.Desktop(arguments, ref argumentOffset), argumentOffset, BufferCopies.Desktop(count, ref countOffset), countOffset);
+            ShimContext.Runtime.D3D12X.DrawTrace?.AfterIndirect(self);
         }
         catch (Exception exception)
         {
             UnmanagedGuard.Caught(exception, "CommandListBindingMethods.ExecuteIndirect");
         }
+    }
+
+    /// <summary>Before an ExecuteIndirect: its breadcrumb, the checks before work and the draw trace, each only when on.</summary>
+    [HotPath]
+    private static void NoteIndirect(XboxObject* self, nint signature, uint maxCount, nint arguments, ulong argumentOffset, uint stride, bool counted, bool dispatch)
+    {
+        var trace = ShimContext.Runtime.D3D12X.DrawTrace;
+        ulong address = 0;
+
+        if (GpuBreadcrumbs.Active || trace is not null)
+        {
+            address = ArgumentAddress(arguments, argumentOffset);
+        }
+
+        GpuBreadcrumbs.BeforeIndirect(self, signature, maxCount, address, (uint)argumentOffset);
+        BeforeWork(self, dispatch, timed: false);
+        trace?.Indirect(self, maxCount, address, stride, counted, dispatch);
     }
 
     /// <summary>
@@ -484,48 +503,70 @@ internal static unsafe class CommandListBindingMethods
     /// records (<see cref="IndirectClamp"/>), or as it is when the clamp cannot run.
     /// </summary>
     [HotPath]
-    private static void RunIndirect(XboxObject* self, nint signature, uint maxCount, nint argumentBuffer, ulong argumentOffset, nint countBuffer, ulong countOffset)
+    private static void RunIndirect(XboxObject* self, IndirectCall call, nint argumentBuffer, ulong argumentOffset, nint countBuffer, ulong countOffset)
     {
-        if (NullAddressCheck.Enabled && IndirectUnsafe(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset))
+        if (NullAddressCheck.Enabled && IndirectUnsafe(self, call.Signature, call.MaxCount, argumentBuffer, argumentOffset, countBuffer, countOffset))
         {
             return;
         }
 
-        if (ListActivity.Of(self)->Launches != 0 && CommandSignatures.Clampable(signature).Kind == IndirectClamp.MeshKind)
+        if (ListActivity.Of(self)->Launches != 0 && call.Kind == IndirectClamp.MeshKind)
         {
-            Launch(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+            Launch(self, call, argumentBuffer, argumentOffset, countBuffer, countOffset);
 
             return;
         }
 
-        nint inner = self->Inner;
+        nint signature = ShimContext.Runtime.D3D12X.Objects.Unwrap(call.Signature);
+
+        if (IndirectClamp.Record(self, call.Signature, call.MaxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
+        {
+            AfterClamp(self, call.Kind == IndirectClamp.DispatchKind);
+            Execute(self->Inner, signature, call.MaxCount, scratch, scratchOffset, countBuffer, countOffset);
+            IndirectClamp.Done(self, scratch);
+            Shapes(self, call, scratch, scratchOffset);
+
+            return;
+        }
+
+        TimeIndirect(self, call.Kind);
+        Shapes(self, call, 0, 0);
+        Execute(self->Inner, signature, call.MaxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+    }
+
+    [HotPath]
+    private static void Execute(nint inner, nint signature, uint maxCount, nint arguments, ulong argumentOffset, nint count, ulong countOffset)
+    {
         var execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
+        execute(inner, signature, maxCount, arguments, argumentOffset, count, countOffset);
+    }
 
-        if (IndirectClamp.Record(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
+    /// <summary>
+    /// After the argument clamp's dispatch: a dispatch's execution needs the list's compute state now; a draw's needs
+    /// only the list's pipeline, and the compute root signature goes back before the list's next compute work
+    /// (<see cref="Flush"/>), so a run of indirect draws keeps the clamp's bound (<see cref="IndirectClamp"/>).
+    /// </summary>
+    [HotPath]
+    private static void AfterClamp(XboxObject* self, bool dispatch)
+    {
+        if (dispatch)
         {
             RestoreCompute(self);
-            inner = self->Inner;
-            execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
-            execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, scratch, scratchOffset, countBuffer, countOffset);
-            IndirectClamp.Done(self, scratch);
-            Shapes(self, signature, maxCount, scratch, scratchOffset);
 
             return;
         }
 
-        TimeIndirect(self, signature);
-        Shapes(self, signature, maxCount, 0, 0);
-        execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+        RestorePipeline(self);
     }
 
     /// <summary>With <c>--gpu-timings</c>: an ExecuteIndirect's work for <see cref="WorkShapes"/> (its clamped copy, when there is one).</summary>
     [HotPath]
-    private static void Shapes(XboxObject* self, nint signature, uint maxCount, nint scratch, ulong scratchOffset)
+    private static void Shapes(XboxObject* self, IndirectCall call, nint scratch, ulong scratchOffset)
     {
         if (GpuTimings.Active)
         {
             long frame = ShimContext.Runtime.D3D12X.Presenter.Presents;
-            WorkShapes.Indirect(self->Inner, ListActivity.Of(self)->Pipeline, CommandSignatures.Clampable(signature).Kind, maxCount, scratch, scratchOffset, frame);
+            WorkShapes.Indirect(self->Inner, ListActivity.Of(self)->Pipeline, call.Kind, call.MaxCount, scratch, scratchOffset, frame);
         }
     }
 
@@ -535,22 +576,22 @@ internal static unsafe class CommandListBindingMethods
     /// any other call is clamped and its clamped records launched one by one. Dropped (counted) when the clamp cannot run.
     /// </summary>
     [HotPath]
-    private static void Launch(XboxObject* self, nint signature, uint maxCount, nint argumentBuffer, ulong argumentOffset, nint countBuffer, ulong countOffset)
+    private static void Launch(XboxObject* self, IndirectCall call, nint argumentBuffer, ulong argumentOffset, nint countBuffer, ulong countOffset)
     {
-        if (maxCount == 1 && countBuffer == 0 && argumentBuffer != 0)
+        if (call.MaxCount == 1 && countBuffer == 0 && argumentBuffer != 0)
         {
             ulong budget = IndirectClamp.LaunchBudget(self);
 
             if (budget != 0)
             {
-                TimeIndirect(self, signature);
+                TimeIndirect(self, call.Kind);
                 MeshLaunch.Record(self->Inner, MeshLaunch.ChargedRecord, DesktopCalls.GpuAddress(argumentBuffer) + argumentOffset, budget);
 
                 return;
             }
         }
 
-        if (!IndirectClamp.Record(self, signature, maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
+        if (!IndirectClamp.Record(self, call.Signature, call.MaxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
         {
             MeshLaunch.Drop();
 
@@ -558,7 +599,7 @@ internal static unsafe class CommandListBindingMethods
         }
 
         RestoreCompute(self);
-        IndirectClamp.LaunchClamped(self, scratch, scratchOffset, maxCount, CommandSignatures.Clampable(signature).Stride);
+        IndirectClamp.LaunchClamped(self, scratch, scratchOffset, call.MaxCount, call.Stride);
         IndirectClamp.Done(self, scratch);
     }
 
@@ -574,17 +615,19 @@ internal static unsafe class CommandListBindingMethods
         return problem is not null && NullAddressCheck.Drop(NullAddressKind.IndirectBuffer, self, $"ExecuteIndirect of {maxCount}: {problem}");
     }
 
-    /// <summary>Before an ExecuteIndirect: a depth twin's copy for draws (<see cref="CopyTwin"/>), then both bind points' user data.</summary>
+    /// <summary>
+    /// Before an ExecuteIndirect: a depth twin's copy for draws (<see cref="CopyTwin"/>), then the user data of the bind
+    /// point it runs on; the other's goes out before that bind point's next work, as for a direct draw or dispatch.
+    /// </summary>
     [HotPath]
-    private static void FlushForIndirect(XboxObject* self, nint signature)
+    private static void FlushForIndirect(XboxObject* self, bool dispatch)
     {
-        if (DepthTwins.Any && CommandSignatures.Clampable(signature).Kind != IndirectClamp.DispatchKind)
+        if (DepthTwins.Any && !dispatch)
         {
             CopyTwin(self);
         }
 
-        Flush(self, false);
-        Flush(self, true);
+        Flush(self, dispatch);
     }
 
     /// <summary>
@@ -669,12 +712,26 @@ internal static unsafe class CommandListBindingMethods
     [HotPath]
     internal static void RestoreCompute(XboxObject* self)
     {
-        if (CommandListBindings.Of(self)->ComputeRoot != 0)
+        var bindings = CommandListBindings.Of(self);
+
+        if (bindings->ComputeRoot != 0)
         {
             SetBindlessRoot(self, true);
             Flush(self, true);
         }
+        else
+        {
+            // Ours (the clamp's, a fill's) stays bound and the list has none of its own to go back to.
+            bindings->ComputeDesktopRoot = CommandListBindings.NoRoot;
+        }
 
+        RestorePipeline(self);
+    }
+
+    /// <summary>The list's own pipeline again after ours ran (and a rectangle list's variant, for a draw).</summary>
+    [HotPath]
+    private static void RestorePipeline(XboxObject* self)
+    {
         var rectangles = RectangleListState.Of(self);
         rectangles->VariantBound = 0;
 
@@ -892,14 +949,17 @@ internal static unsafe class CommandListBindingMethods
     {
         var bindings = CommandListBindings.Of(self);
         var layout = Bindings.Layouts.Find(rootSignature);
+        bool same;
 
         if (compute)
         {
+            same = bindings->ComputeLayout == layout && bindings->ComputeDesktopRoot == CommandListBindings.BindlessRoot;
             bindings->ComputeLayout = layout;
             bindings->ComputeRoot = 1;
         }
         else
         {
+            same = bindings->GraphicsLayout == layout && bindings->GraphicsDesktopRoot == CommandListBindings.BindlessRoot;
             bindings->GraphicsLayout = layout;
             bindings->GraphicsRoot = 1;
         }
@@ -907,6 +967,13 @@ internal static unsafe class CommandListBindingMethods
         if (bindings->HeapsBound == 0)
         {
             BindDefaultHeaps(self);
+        }
+
+        // The game's root signature again, its layout known and the same: the bindless one is still bound and the
+        // user data already laid out for it, so neither is set again (each set made every draw upload and bind anew).
+        if (same && layout != null)
+        {
+            return;
         }
 
         SetBindlessRoot(self, compute);
@@ -969,6 +1036,10 @@ internal static unsafe class CommandListBindingMethods
         var state = ListReplayState.Of(self);
         var bindings = CommandListBindings.Of(self);
 
+        // A new desktop list: no root signature bound on it yet.
+        bindings->GraphicsDesktopRoot = CommandListBindings.NoRoot;
+        bindings->ComputeDesktopRoot = CommandListBindings.NoRoot;
+
         if ((state->Set & ListReplayState.HeapsBit) != 0)
         {
             nint inner = self->Inner;
@@ -1011,10 +1082,12 @@ internal static unsafe class CommandListBindingMethods
         if (compute)
         {
             bindings->ComputeDirty = 1;
+            bindings->ComputeDesktopRoot = CommandListBindings.BindlessRoot;
         }
         else
         {
             bindings->GraphicsDirty = 1;
+            bindings->GraphicsDesktopRoot = CommandListBindings.BindlessRoot;
         }
     }
 
@@ -1026,6 +1099,13 @@ internal static unsafe class CommandListBindingMethods
     private static void Flush(XboxObject* self, bool compute)
     {
         var bindings = CommandListBindings.Of(self);
+
+        // The clamp's root signature left in place after an indirect draw (AfterClamp): the list's own goes back first.
+        if (compute && bindings->ComputeRoot != 0 && bindings->ComputeDesktopRoot != CommandListBindings.BindlessRoot)
+        {
+            SetBindlessRoot(self, true);
+        }
+
         MirrorReach(self, bindings, compute);
         uint* userData = compute ? bindings->Compute : bindings->Graphics;
         SharedExponentSamplers.Check(RectangleListState.Of(self)->Pipeline, userData, ShimContext.Runtime.D3D12X.Bindings.Window.Data);

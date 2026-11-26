@@ -24,6 +24,8 @@ public unsafe class D3D12XListSlotBenchmarks : IDisposable
     private const uint Vertices = 3;
     private const uint Constant = 7;
     private const uint TriangleList = 4;
+    private const uint Values = 8;
+    private const ulong Address = 0x2_0000_0000;
 
     private LoaderRuntime? _runtime;
     private nint* _desktopVtable;
@@ -34,6 +36,10 @@ public unsafe class D3D12XListSlotBenchmarks : IDisposable
     private delegate* unmanaged<XboxObject*, uint, uint, uint, void> _constant;
     private delegate* unmanaged<XboxObject*, nint, void> _pipeline;
     private delegate* unmanaged<XboxObject*, uint, void> _topology;
+    private delegate* unmanaged<XboxObject*, uint, uint, uint*, uint, void> _constants;
+    private delegate* unmanaged<XboxObject*, uint, ulong, void> _address;
+    private delegate* unmanaged<XboxObject*, nint, uint, nint, ulong, nint, ulong, void> _indirect;
+    private uint* _values;
 
     [GlobalSetup]
     public void Setup()
@@ -61,6 +67,11 @@ public unsafe class D3D12XListSlotBenchmarks : IDisposable
         _constant = &CommandListBindingMethods.SetGraphicsRoot32BitConstant;
         _pipeline = &RectangleListSlots.SetPipelineState;
         _topology = &PrimitiveTopologies.SetPrimitiveTopology;
+
+        _constants = &CommandListBindingMethods.SetGraphicsRoot32BitConstants;
+        _address = &CommandListBindingMethods.SetGraphicsRootAddress;
+        _indirect = &CommandListBindingMethods.ExecuteIndirect;
+        _values = (uint*)NativeMemory.AllocZeroed(Values, sizeof(uint));
     }
 
     [Benchmark]
@@ -93,6 +104,27 @@ public unsafe class D3D12XListSlotBenchmarks : IDisposable
         _topology(_list, TriangleList);
     }
 
+    /// <summary>Eight root constants in one call (slots 39 and 40).</summary>
+    [Benchmark]
+    public void RootConstants()
+    {
+        _constants(_list, 0, Values, _values, 0);
+    }
+
+    /// <summary>A root CBV, SRV or UAV address (slots 41 to 46).</summary>
+    [Benchmark]
+    public void RootAddress()
+    {
+        _address(_list, 0, Address);
+    }
+
+    /// <summary>An ExecuteIndirect (slot 61) of a signature the shim did not see created: no clamp, the desktop call only.</summary>
+    [Benchmark]
+    public void ExecuteIndirect()
+    {
+        _indirect(_list, 0, 1, 0, 0, 0, 0);
+    }
+
     [GlobalCleanup]
     public void Dispose()
     {
@@ -100,6 +132,7 @@ public unsafe class D3D12XListSlotBenchmarks : IDisposable
         NativeMemory.Free(_desktopVtable);
         NativeMemory.Free((void*)_desktop);
         NativeMemory.Free(_list);
+        NativeMemory.Free(_values);
         GC.SuppressFinalize(this);
     }
 }
