@@ -87,6 +87,7 @@ internal static class HostComposition
         Shims.D3D12X.Binding.WindowGuard.Enabled = !options.NoWindowGuard;
         Shims.D3D12X.Pipelines.EssentialPipelines.Lighting = !options.NoLightingWaits;
         Shims.D3D12X.Resources.MapReadback.Enabled = !options.NoMapReadback;
+        Shims.D3D12X.Resources.MapReadback.Wait = options.MapReadbackWait;
     }
 
     /// <summary>The in-place window of <c>--in-place-window</c> (MB), or the default for 0.</summary>

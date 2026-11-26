@@ -3,6 +3,8 @@
 
 // Facts after Leonida (GPL-3.0; runtime/shims/d3d12_vulkan_device.cpp, read_back_on_map): which targets the title maps and why.
 
+using System.Diagnostics;
+using System.Globalization;
 using FiveStar.Loader.Shims.D3D12X.Present;
 
 namespace FiveStar.Loader.Shims.D3D12X.Resources;
@@ -27,14 +29,35 @@ internal static unsafe class MapReadback
     private const ulong MaxWidth = MaxRowBytes / 16;
 
     private static readonly TextureReadback Readback = new();
+    private static readonly AsyncMapReadback Async = new();
     private static long _filled;
     private static long _failed;
+    private static long _served;
+    private static long _waitTicks;
 
     /// <summary>Whether maps of small GPU-written targets read the GPU's texels back (off with <c>--no-map-readback</c>).</summary>
     public static bool Enabled { get; set; } = true;
 
-    /// <summary>Maps that wrote the GPU's texels into the game's memory, and those that could not.</summary>
-    public static string Summary => $"{Interlocked.Read(ref _filled)} maps of GPU-written targets read back ({Interlocked.Read(ref _failed)} failed)";
+    /// <summary>
+    /// <c>--map-readback-wait</c>: every Map waits for the GPU to finish all submitted work and reads the row back then,
+    /// as before <see cref="AsyncMapReadback"/>. Off by default.
+    /// </summary>
+    public static bool Wait { get; set; }
+
+    /// <summary>
+    /// Maps that wrote the GPU's texels into the game's memory after a wait, those that could not, those served by a copy
+    /// an earlier Map started, and the game's time waiting.
+    /// </summary>
+    public static string Summary
+    {
+        get
+        {
+            var (started, busy) = Async.Counts;
+            double waited = Stopwatch.GetElapsedTime(0, Interlocked.Read(ref _waitTicks)).TotalMilliseconds;
+
+            return string.Create(CultureInfo.InvariantCulture, $"{Interlocked.Read(ref _filled)} maps of GPU-written targets read back after a wait for the GPU ({Interlocked.Read(ref _failed)} failed, {waited:F0} ms waited), {Interlocked.Read(ref _served)} from a copy an earlier map started ({started} copies started, {busy} maps started none: all lists in flight)");
+        }
+    }
 
     /// <summary>Whether a texture qualifies: GPU-written, 2D, one row, one mip, one layer, a narrow row.</summary>
     public static bool Takes(GpuTexture texture)
@@ -62,12 +85,39 @@ internal static unsafe class MapReadback
             return;
         }
 
+        if (Wait)
+        {
+            WaitAndFill(device, texture, throttle, game);
+
+            return;
+        }
+
+        // A texture's first Map waits as before, so the game never reads a row of nothing; later ones read the copy an
+        // earlier Map started (AsyncMapReadback).
+        if (Async.TryServe(texture.Desktop, game))
+        {
+            Interlocked.Increment(ref _served);
+        }
+        else
+        {
+            WaitAndFill(device, texture, throttle, game);
+        }
+
+        Async.Start(device, texture.Desktop, texture.State, throttle.Submitted());
+    }
+
+    /// <summary>The GPU finishes all submitted work (the game's thread waits), then the row is read back into <paramref name="game"/>.</summary>
+    private static void WaitAndFill(nint device, GpuTexture texture, GpuFrameThrottle throttle, byte* game)
+    {
+        long start = Stopwatch.GetTimestamp();
+
         foreach (var (fence, value) in throttle.Submitted())
         {
             throttle.WaitFor(fence, value);
         }
 
         Count(Fill(device, texture.Desktop, texture.State, game));
+        Interlocked.Add(ref _waitTicks, Stopwatch.GetTimestamp() - start);
     }
 
     /// <summary>Reads the row of <paramref name="desktop"/> (resting in <paramref name="state"/>) into <paramref name="destination"/>; whether it did.</summary>

@@ -425,6 +425,9 @@ internal sealed record HostOptions
     /// <summary><c>--no-map-readback</c>: a Map of a small GPU-written target leaves the game's memory as it is (MapReadback).</summary>
     public bool NoMapReadback { get; set; }
 
+    /// <summary><c>--map-readback-wait</c>: every such Map waits for the GPU to finish all submitted work, as before AsyncMapReadback.</summary>
+    public bool MapReadbackWait { get; set; }
+
     /// <summary>Run the XDsp convolution effects on the CPU instead of returning silence (<c>--xdsp-convolution</c>).</summary>
     public bool XDspConvolution { get; set; }
 
