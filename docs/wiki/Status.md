@@ -40,8 +40,13 @@ lost its NaN: the lighting read material ids from a stencil plane nothing wrote 
 exponent light is read through a real R9G9B9E5 texture (after the victory-fork), and depth-plane views, depth-twin
 copies (now in submission order, with the game's own depth step) and resource states were fixed. Ground truth from the
 victory-fork, run on the same machine, showed exposure near 2e-4 and a warm, red-leaning lit image are normal. The lit
-image now stays at zero: the tiled lighting's equal-depth test does not yet see the material depth the classify pass
-writes. On 25 November the device removals that ended
+image then stayed at zero until the tiled lighting saw the material depth the classify pass writes (twins found by
+view index, read through their own views); since the night of 26 November the lit world shows a night sky with stars,
+clouds and a plane. The G-buffer albedo is still black: the deferred pixel shaders compute a zero base colour (the
+exports, blend state, masks and views check out), and the texture contents they sample are being traced. Speed: a
+list the game re-records no longer waits on the CPU for its previous run, which took our submit path from about 191 to
+12 ms a frame and the world frame from 1,096 to 969 ms (w102); the GPU is now idle more than half of each frame, so
+the next work is the game's CPU side. On 25 November the device removals that ended
 every boot ~25–35 s after the world started loading were traced to the game's ray-tracing compute passes walking
 acceleration structures we never build; those pipelines now stay stand-ins unless `--raytracing` is given, and a boot
 ran 18 minutes in the world with no removal. Literal samplers (shadow comparison, clamp) now get their own samplers. The overwrite of the game's
