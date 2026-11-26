@@ -225,7 +225,15 @@ internal sealed unsafe class PipelineFactory
 
         if (OnDemand is not null)
         {
-            programs = OnDemand.Links.Apply(programs, LinkInline);
+            var linked = OnDemand.Links.Apply(programs, LinkInline);
+
+            // A failed link: the pair as compiled does not link either, so the pipeline stays a stand-in.
+            if (linked is null)
+            {
+                return null;
+            }
+
+            programs = linked;
         }
 
         var desktop = description;
