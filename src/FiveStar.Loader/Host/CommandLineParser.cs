@@ -701,14 +701,6 @@ internal sealed class CommandLineParser
                 _options.DepthTwins = true;
 
                 return true;
-            case "--target-clear-census":
-                _options.TargetClearCensus = true;
-
-                return true;
-            case "--clear-targets-each-frame":
-                _options.ClearTargetsEachFrame = true;
-
-                return true;
             case "--typeless-targets":
                 _options.TypelessTargets = true;
 
@@ -731,6 +723,24 @@ internal sealed class CommandLineParser
                 return true;
             case "--unmapped-view-budget":
                 _options.UnmappedViewBudgetBytes = Math.Max(0, long.Parse(Next(), CultureInfo.InvariantCulture)) * BytesPerMebibyte;
+
+                return true;
+            default:
+                return ApplyTargetClears(option);
+        }
+    }
+
+    /// <summary>The accumulating-image diagnostics: the clear census and the per-frame clear.</summary>
+    private bool ApplyTargetClears(string option)
+    {
+        switch (option)
+        {
+            case "--target-clear-census":
+                _options.TargetClearCensus = true;
+
+                return true;
+            case "--clear-targets-each-frame":
+                _options.ClearTargetsEachFrame = true;
 
                 return true;
             default:
