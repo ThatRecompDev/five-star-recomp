@@ -112,8 +112,8 @@ provide it before any step runs.
 The cache (`shader-cache/`, layout in [shader-translation.md](shader-translation.md#cache)) keys every entry by a
 hash, so the hash does not tell which build made it. Each run of `fivestar shader translate --cache` (which setup
 uses) therefore records the entries it reads or writes in `shader-cache/used/<identity>.txt`, one entry path per
-line, appended as it goes. The identity hashes the translator identity (FiveStar.Shaders and the
-translation options) and the dxc identity.
+line, appended as it goes. The identity hashes the translator identity (the sources of FiveStar.Shaders but the DXIL
+backend's and the pipeline cache readers', and the translation options) and the dxc identity.
 
 `--clean-cache` removes every entry the current identity's record does not list, the records of other identities and
 left-over temporary files, then prints what it removed and kept. Entries a new build reuses (the DXIL of unchanged
