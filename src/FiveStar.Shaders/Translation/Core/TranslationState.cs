@@ -81,7 +81,13 @@ internal sealed class TranslationState
     public int WaveSize => Config.WaveSize ?? Wave64;
 
     /// <summary>Wave operations keep console lane numbers on any hardware wave size (see TranslationOptions).</summary>
-    public bool EmulateWaves { get; init; }
+    public bool EmulateWaves { get; set; }
+
+    /// <summary>
+    /// Wave emulation was asked for but changes nothing this program can observe (Waves.NativeWaveCheck): it runs on the
+    /// native wave operations.
+    /// </summary>
+    public bool NativeWaves { get; set; }
 
     /// <summary>A mesh program the window analysis rejects may keep the native form, approximately (TranslationOptions.FastWaves).</summary>
     public bool FastWaves { get; init; }
