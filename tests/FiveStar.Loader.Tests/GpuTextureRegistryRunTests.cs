@@ -41,6 +41,51 @@ public sealed class GpuTextureRegistryRunTests
     }
 
     [Fact]
+    public void Unmapping_and_mapping_mark_exactly_the_textures_over_the_range()
+    {
+        var random = new Random(11);
+        var textures = Layout(random);
+        var registry = new GpuTextureRegistry(() => [], () => []);
+
+        foreach (var texture in textures.Reverse())
+        {
+            registry.Register(texture);
+        }
+
+        var expected = new bool[textures.Length];
+
+        for (int i = 0; i < Ranges; i++)
+        {
+            ulong address = (ulong)random.Next(0, Textures * 8) * Page / 2;
+            ulong bytes = (ulong)random.Next(1, 6) * Page;
+            bool unmap = random.Next(2) == 0;
+            int changes = 0;
+
+            for (int index = 0; index < textures.Length; index++)
+            {
+                var texture = textures[index];
+
+                if (texture.Address < address + bytes && address < texture.Address + texture.Size && expected[index] != unmap)
+                {
+                    expected[index] = unmap;
+                    changes++;
+                }
+            }
+
+            if (unmap)
+            {
+                Assert.Equal(changes, registry.Unmapped(address, bytes));
+            }
+            else
+            {
+                registry.Mapped(address, bytes);
+            }
+
+            Assert.Equal(expected, textures.Select(texture => texture.OverUnmapped).ToArray());
+        }
+    }
+
+    [Fact]
     public void An_empty_registry_places_a_texture_first()
     {
         Assert.Equal((0, 0), GpuTextureRegistry.OverlapRun([], 0x10000, Page));
