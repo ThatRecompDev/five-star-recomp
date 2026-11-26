@@ -4,6 +4,7 @@
 using FiveStar.Loader.Shims;
 using FiveStar.Loader.Shims.D3D12X;
 using FiveStar.Loader.Shims.D3D12X.Binding;
+using FiveStar.Loader.Shims.D3D12X.Present;
 using FiveStar.Loader.Tests.Support;
 using FiveStar.Shaders.Disassembly;
 using Xunit;
@@ -22,6 +23,7 @@ public sealed unsafe class IndirectGatherTests
     private const uint Stride = 12;
     private const uint Records = 3;
     private const nint Pipeline = 0x7001;
+    private const int IndirectArgumentState = 0x200;
 
     [Fact]
     public void Gathered_dispatch_records_are_clamped_before_the_list_runs()
@@ -75,32 +77,66 @@ public sealed unsafe class IndirectGatherTests
 
             // A barrier before any work that may write changes nothing, nor does work of a pipeline that stores nothing.
             PipelineStores.Note(Pipeline, false);
-            IndirectGather.Synced(list);
+            IndirectGather.Synced(list, IndirectGatherCloser.UavBarrier);
             IndirectGather.AfterWork(list, false, Pipeline);
-            IndirectGather.Synced(list);
+            IndirectGather.Synced(list, IndirectGatherCloser.UavBarrier);
             Assert.True(IndirectGather.IsOpen(list));
 
             // Work of a pipeline not known to store nothing may write: the barrier after it ends gathering.
             IndirectGather.AfterWork(list, false, Pipeline + 1);
             Assert.True(IndirectGather.IsOpen(list));
-            IndirectGather.Synced(list);
+            IndirectGather.Synced(list, IndirectGatherCloser.UavBarrier);
             Assert.False(IndirectGather.IsOpen(list));
+            Assert.Equal(IndirectGatherMiss.AfterUndecodedDraw, (IndirectGatherMiss)ListIndirectScratch.Of(list)->GatherClosed);
 
             ListSegments.Of(list)->Count = 1;
             IndirectGather.SegmentStarted(list);
             Assert.True(IndirectGather.IsOpen(list));
 
             IndirectGather.AfterWork(list, true, Pipeline);
-            IndirectGather.Synced(list);
+            IndirectGather.Wrote(list, IndirectGatherMiss.AfterCopy);
+            IndirectGather.Synced(list, IndirectGatherCloser.UavBarrier);
             Assert.False(IndirectGather.IsOpen(list));
+
+            // The segment's first writer is the reason.
+            Assert.Equal(IndirectGatherMiss.AfterIndirectDispatch, (IndirectGatherMiss)ListIndirectScratch.Of(list)->GatherClosed);
 
             // A new recording (its segments start over first, as in ResetList).
             ListSegments.Of(list)->Count = 0;
             IndirectGather.Reset(list);
-            IndirectGather.Wrote(list);
+            Assert.Equal(0, ListIndirectScratch.Of(list)->GatherClosed);
+
+            IndirectGather.Wrote(list, IndirectGatherMiss.AfterCopy);
             Assert.True(IndirectGather.IsOpen(list));
             IndirectGather.Close(list);
             Assert.False(IndirectGather.IsOpen(list));
+            Assert.Equal(IndirectGatherMiss.MemoryWait, (IndirectGatherMiss)ListIndirectScratch.Of(list)->GatherClosed);
+        }
+        finally
+        {
+            IndirectGather.Enabled = false;
+            System.Runtime.InteropServices.NativeMemory.Free(list);
+        }
+    }
+
+    [Fact]
+    public void A_resource_barrier_after_a_copy_ends_gathering_with_the_copy_as_the_reason()
+    {
+        IndirectGather.Enabled = true;
+        var list = (XboxObject*)System.Runtime.InteropServices.NativeMemory.AllocZeroed(XboxInterfaces.CommandListObjectSize);
+        var barrier = TransitionBarrier.Of(Pipeline, TransitionBarrier.CopyDestState, IndirectArgumentState);
+
+        try
+        {
+            IndirectGather.Reset(list);
+            IndirectGather.SyncedBy(list, 1, &barrier);
+            Assert.True(IndirectGather.IsOpen(list));
+
+            IndirectGather.Wrote(list, IndirectGatherMiss.AfterCopy);
+            IndirectGather.SyncedBy(list, 1, &barrier);
+
+            Assert.False(IndirectGather.IsOpen(list));
+            Assert.Equal(IndirectGatherMiss.AfterCopy, (IndirectGatherMiss)ListIndirectScratch.Of(list)->GatherClosed);
         }
         finally
         {
