@@ -31,6 +31,16 @@ public sealed class GpuTimingsTests
         Assert.Equal("none", GpuTimings.PassName("none"));
     }
 
+    [Fact]
+    public void The_queues_work_is_merged_into_the_time_some_queue_was_busy_and_the_time_it_spanned()
+    {
+        // Two queues overlapping from 10 to 30 and 20 to 50, a third alone from 70 to 80: busy 50 of 70.
+        List<(long Start, long End)> spans = [(70, 80), (20, 50), (10, 30), (25, 35)];
+
+        Assert.Equal((50L, 70L), GpuTimings.Union(spans));
+        Assert.Equal((0L, 0L), GpuTimings.Union([]));
+    }
+
     [WarpFact]
     public void Each_pass_of_a_list_is_timed_and_summed_by_its_first_pipeline()
     {
@@ -121,6 +131,7 @@ public sealed class GpuTimingsTests
         string report = GpuTimings.Report(2);
 
         Assert.Contains("queue #1 busy ", report, StringComparison.Ordinal);
+        Assert.Contains("; all queues: some queue busy ", report, StringComparison.Ordinal);
         // Passes are listed by time; on WARP they may all take 0.00 ms, so their order is not asserted.
         Assert.Contains(" meshlet_culling~CS_Cull ", report.Replace("(", " ", StringComparison.Ordinal), StringComparison.Ordinal);
         Assert.Contains("sr_tracing~CS_Trace ", report, StringComparison.Ordinal);

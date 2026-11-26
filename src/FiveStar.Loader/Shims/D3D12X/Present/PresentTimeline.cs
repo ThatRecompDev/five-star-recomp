@@ -111,7 +111,7 @@ internal sealed class PresentTimeline
     /// <summary><c>--frame-log</c>: the frame's line when it is due or slow; the submit and mirroring sums start over.</summary>
     private void LogFrame(long presents, long now, TimeSpan pause)
     {
-        var (submit, refresh) = FrameLog.Take();
+        var submit = FrameLog.Take();
         long mirroring = ShimContext.Runtime.D3D12X.DescriptorHeaps.TableTicks;
         long mirrored = mirroring - _previousMirroring;
         _previousMirroring = mirroring;
@@ -128,8 +128,8 @@ internal sealed class PresentTimeline
         }
 
         double present = Milliseconds(now - _entered);
-        var times = new FrameTimes(frame, Milliseconds(_entered - _previousExit), Milliseconds(submit), Milliseconds(refresh), Milliseconds(mirrored),
-            (pause - _previousPause).TotalMilliseconds, present, Milliseconds(_marks[LatencyWait]), Milliseconds(_marks[RetireWait]), Milliseconds(_marks[Submit]), Milliseconds(_marks[Present]), allocatedFrame / BytesPerMegabyte, gen0, gen1, gen2);
+        var times = new FrameTimes(frame, Milliseconds(_entered - _previousExit), Milliseconds(submit.Submit), Milliseconds(submit.Refresh), Milliseconds(mirrored),
+            (pause - _previousPause).TotalMilliseconds, present, Milliseconds(_marks[LatencyWait]), Milliseconds(_marks[RetireWait]), Milliseconds(_marks[Submit]), Milliseconds(_marks[Present]), allocatedFrame / BytesPerMegabyte, gen0, gen1, gen2, Milliseconds(submit.ListWaits), Milliseconds(submit.Preludes));
         _log.Info(FrameLog.Line(presents, times));
     }
 

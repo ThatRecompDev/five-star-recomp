@@ -129,7 +129,9 @@ internal static unsafe class XboxQueueMethods
             }
 
             ExecuteRange(self, i - start, lists + start);
+            long mark = FrameLog.Start();
             DepthTwinPrelude.Run(device, self->Inner, copies);
+            FrameLog.AddPrelude(mark);
             start = i;
         }
 
