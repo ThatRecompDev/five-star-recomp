@@ -39,7 +39,10 @@ flowchart LR
 ```
 
 - **Registry** (`GpuTextureRegistry`): textures sorted by console address over the span of their XG layout; lookups
-  take no lock. A texture registered over an overlapping range retires the old one. Of those over the same range (other
+  take no lock. A texture registered over an overlapping range retires the old one; the overlapped textures are one run
+  of the sorted array (registered ranges never overlap), found by binary search, so a registration copies the array
+  around the run instead of sorting it (sorting 15,000 textures per registration kept a loading screen busy for seconds
+  a frame, and the game's hang watchdog ended the boot). Of those over the same range (other
   views of the same memory, or a streaming slot reused) the newest keeps its reference until shutdown, since
   descriptors written earlier may still name it (`--kept-aliases <n>`, default 1; it was 2, a second texture of video
   memory per reused slot charged to commit, while a placed texture's heap range stays mapped after release anyway), and older ones are released 30 presents later; any other is
