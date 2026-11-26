@@ -83,6 +83,7 @@ internal static class HostComposition
         // Held passes leave fully lit shadow masks, black reflections and a grey screen-probe light.
         Shims.D3D12X.Binding.RtStandIns.Enabled = !options.RayTracing && !options.NoRtStandIns;
         Shims.D3D12X.Binding.WindowGuard.Enabled = !options.NoWindowGuard;
+        Shims.D3D12X.Pipelines.EssentialPipelines.Lighting = !options.NoLightingWaits;
     }
 
     /// <summary>The in-place window of <c>--in-place-window</c> (MB), or the default for 0.</summary>
