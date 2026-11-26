@@ -26,7 +26,12 @@ internal static unsafe class NearStubs
     {
         nint page = 0;
 
-        for (long at = (long)imageBase - Step; at > (long)imageBase - Reach && page == 0; at -= Step)
+        // From the 64 KiB step below the image down; never address 0, which VirtualAlloc takes as "anywhere" (the stub
+        // then landed far from a low image).
+        long start = ((long)imageBase & ~(Step - 1)) - Step;
+        long floor = Math.Max(Step, (long)imageBase - Reach);
+
+        for (long at = start; at >= floor && page == 0; at -= Step)
         {
             page = Kernel32.VirtualAlloc((nint)at, Win32Constants.PageSize, Win32Constants.MemReserveCommit, Win32Constants.PageReadWrite);
         }
