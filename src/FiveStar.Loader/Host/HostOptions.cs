@@ -440,6 +440,15 @@ internal sealed record HostOptions
     /// <summary>Where PIX captures go (<c>--pix-capture-dir</c>); null is <c>pix-captures</c> in the working directory.</summary>
     public string? PixCaptureDirectory { get; set; }
 
+    /// <summary>Where Nsight Aftermath GPU crash dumps go (<c>--aftermath [dir]</c>, default <c>aftermath</c>); null takes none.</summary>
+    public string? AftermathDirectory { get; set; }
+
+    /// <summary>GFSDK_Aftermath_Lib.x64.dll or its folder (<c>--aftermath-dll</c>); null looks beside the loader, then in the SDK.</summary>
+    public string? AftermathLibrary { get; set; }
+
+    /// <summary>An Aftermath event marker per draw, dispatch and copy, and call stacks (<c>--aftermath-markers</c>).</summary>
+    public bool AftermathMarkers { get; set; }
+
     /// <summary>Present a test pattern instead of the game's frame (<c>--present-test</c>).</summary>
     public bool PresentTest { get; set; }
 

@@ -90,6 +90,9 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         XboxBindings.Register(Objects);
     }
 
+    /// <summary>Nsight Aftermath GPU crash dumps (<c>--aftermath</c>), enabled before the device; null when off.</summary>
+    public AftermathCrashDumps? Aftermath { get; set; }
+
     /// <summary>The wrappers and their vtables; <see cref="XboxObjects.SetHandler"/> is where other shims bind slots.</summary>
     public XboxObjects Objects { get; }
 
@@ -203,6 +206,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         }
 
         Debugging.AttachDevice(inner);
+        Aftermath?.AttachDevice(inner);
         Presenter.Pix?.AfterPresent(0);
         SectionHeaps.Budget = GpuMemoryBudget.Open(inner, _log);
         SystemMemoryReserve.Take(inner, SectionHeaps.Budget, _log);

@@ -224,6 +224,10 @@ internal static class HostUsage
           --capture-presents <n,...> present numbers whose plane is read back (default 60,300,900,1500)
           --pix-capture <n,...>  PIX GPU capture of those presents (WinPixGpuCapturer.dll, winget Microsoft.PIX)
           --pix-capture-dir <dir>  where the present-N.wpix files go (default pix-captures)
+          --aftermath [dir]      NVIDIA Nsight Aftermath GPU crash dumps and shader debug info there (default aftermath);
+                                 needs GFSDK_Aftermath_Lib.x64.dll of the Aftermath SDK (developer.nvidia.com/nsight-aftermath)
+          --aftermath-dll <path> that DLL (else next to the loader, else %NSIGHT_AFTERMATH_SDK%\lib\x64)
+          --aftermath-markers    an Aftermath event marker per draw, dispatch and copy naming its pipeline, and call stacks
           --present-test         present moving color bars instead of the game's frame (checks the swap chain)
           --raytracing          XboxBvhBuilder.dll's CPU paths: console acceleration-structure sizes and BLAS
                                  rehydration into game memory (off: desktop sizes, nothing written)
