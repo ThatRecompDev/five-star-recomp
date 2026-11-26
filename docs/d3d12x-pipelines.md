@@ -214,12 +214,14 @@ flowchart LR
 | Opening | every segment is mapped read-only and its names indexed; a background thread gives the segments, newest first, to `CreatePipelineLibrary` (8 segments, 830 MB: 0.9 s) while the device is created. A pipeline whose segment is not open yet is built as if not cached. A segment the driver refuses (D3D12_ERROR_ADAPTER_NOT_FOUND, D3D12_ERROR_DRIVER_VERSION_MISMATCH, a damaged blob) is deleted |
 | New pipelines | go to an empty library of this process. Every minute, after every 2,048 new ones and at exit it is sealed (a new empty library takes new ones at once), written to a segment file of its own through a `.tmp` file and a rename, and replaced by that file mapped read-only; no lock the game waits on is held while the driver serializes |
 | Size | past 32 GiB the oldest segments are deleted when the cache opens |
+| Other processes' segments | after each minute's write the folder is listed again and segments other processes wrote since are mapped and opened (`PipelineLibraryCache.Refresh`): a warm-up run beside the game hands its pipelines to the game within about two minutes, and the warm-up skips what the game built. A segment the process cannot use is passed over, not deleted |
 
 A build that finds its key in the cache when its thread takes it loads the pipeline instead: the game asks for the
 same desktop pipeline again (game pipelines that differ only in what the desktop form drops, such as the root
 signature) while the first build still waits in the queue.
 
-Processes never write each other's segments, so the game and the warm-up can share the folder. A cache hit is
+Processes never write each other's segments, so the game and the warm-up can share the folder, also at the same time
+([running.md](running.md#warm-up-in-the-background)). A cache hit is
 synchronous: the game gets the desktop pipeline itself, never a stand-in. The sample summary counts loads, stores and
 loads the driver refused.
 
