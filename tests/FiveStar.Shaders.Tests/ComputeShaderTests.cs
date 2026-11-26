@@ -78,6 +78,15 @@ public sealed class ComputeShaderTests : IClassFixture<WarpFixture>
         Assert.DoesNotContain("s24 = v13;", hlsl, StringComparison.Ordinal);
     }
 
+    [WarpFact]
+    public void A_branch_over_a_loop_is_not_entered_always_in_the_superstep_form()
+    {
+        var hlsl = new ComputeCaseRunner(_fixture).TranslateSupersteps(ComputeWaveCases.LoopInSkippedPathCase());
+
+        Assert.DoesNotContain("pc = (false) ?", hlsl, StringComparison.Ordinal);
+        Assert.DoesNotContain("pc = (true) ?", hlsl, StringComparison.Ordinal);
+    }
+
     [WarpTheory]
     [MemberData(nameof(BackendCases))]
     public void The_dxil_backend_computes_what_the_isa_defines(string name)
