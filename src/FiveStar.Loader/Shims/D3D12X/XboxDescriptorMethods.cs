@@ -236,7 +236,7 @@ internal static unsafe class XboxDescriptorMethods
             byte* copy = stackalloc byte[TargetViewDescriptions.RenderTargetViewSize];
             void* view = TargetViewDescriptions.RenderTargetView(desktop, description, copy);
             nint destination = Destination(handle);
-            D3D12X.DrawTrace?.RenderTargetView(resource, destination, Format(description), Format(view));
+            D3D12X.DrawTrace?.RenderTargetView(resource, destination, Format(description), Format(view), (int*)view);
 
             CreateDesktopView(self, CreateRenderTargetViewSlot, desktop, view, destination);
             D3D12X.RenderTargets.Note(D3D12X.Objects, destination, resource);
