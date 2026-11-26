@@ -439,6 +439,7 @@ internal sealed partial class ProgramEmitter
         // EXEC starts with live pixels only; wave operations must still see helper lanes (needs ps_6_7).
         text = text.Replace("bool active = true", "bool active = !IsHelperLane()", StringComparison.Ordinal);
         text = WholeQuadEntry(text);
+        text = ActiveRuns.Branch(text);
 
         if (_state.Pops || (_state.Config.Pixel?.Pops ?? false))
         {
