@@ -54,8 +54,8 @@ internal sealed unsafe class AddressShaderViews
             return null;
         }
 
-        var texture = Resolve(device, resource, view);
         var desktop = *view;
+        var texture = Resolve(device, resource, &desktop);
         int viewFormat = DepthFormats.ShaderView(view->Format);
         nint target = 0;
 
@@ -358,7 +358,31 @@ internal sealed unsafe class AddressShaderViews
             return null;
         }
 
-        texture =_textures.CreateForView(device, address, resource, view->Format);
+        return Made(device, texture, resource, view);
+    }
+
+    /// <summary>
+    /// The read-only texture of the levels the view reads (<see cref="ResidentLevels"/>, which renumbers
+    /// <paramref name="view"/>'s): <paramref name="registered"/> when it is that one, else one made from the memory.
+    /// </summary>
+    private GpuTexture? Made(nint device, GpuTexture? registered, ResourceDescription* resource, AddressViewDescription* view)
+    {
+        var levels = *resource;
+
+        if (ResidentLevels.Reduce(ref levels, ref *view))
+        {
+            _textures.Counters.Add(GpuResourceEvent.ViewResident);
+
+            if (registered is not null && registered.Matches(view->Address, levels))
+            {
+                _textures.Counters.Add(GpuResourceEvent.ViewResolved);
+                _textures.RefreshForView(registered);
+
+                return registered;
+            }
+        }
+
+        var texture = _textures.CreateForView(device, view->Address, &levels, view->Format);
 
         if (texture is not null)
         {
