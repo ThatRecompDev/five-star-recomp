@@ -539,12 +539,16 @@ bool fmt_raw(uint sh, uint layout, uint num, uint s) {
 uint4 FmtLoad(uint heap_index, uint addr, uint code, uint d3) {
     ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(view_slot(heap_index))];
     uint base = addr & ~3u, sh = (addr & 3u) * 8u;
+#ifndef FIVESTAR_FMT_DECODE_ONLY
+    // A program with thousands of formatted loads defines FIVESTAR_FMT_DECODE_ONLY (ProgramEmitter.FormatLoadLimit): the
+    // branch is blocks at every inlined call, and the driver's compile memory follows the block count.
     [branch] if (fmt_raw(sh, code >> 3, code & 7u, d3 & 0xfffu)) {
         uint raw_one = select((code & 7u) == 7u, asuint(1.0), 1u);
         [branch] if ((code >> 3) == 4u) return uint4(b.Load(base), 0u, 0u, raw_one);
         uint4 r = b.Load4(base);
         return uint4(r.x, select((code >> 3) >= 11u, r.y, 0u), select((code >> 3) >= 13u, r.z, 0u), select((code >> 3) == 14u, r.w, raw_one));
     }
+#endif
     uint4 w = b.Load4(base); uint w4 = b.Load(base + 16);
     uint4 shifted = (w >> sh) | (uint4(w.yzw, w4) << ((32u - sh) & 31u));
     w = select(sh != 0u, shifted, w);

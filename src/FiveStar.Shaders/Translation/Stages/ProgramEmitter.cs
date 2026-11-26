@@ -430,6 +430,7 @@ internal sealed partial class ProgramEmitter
     {
         // AMD rounds f32 to f16 to nearest even; HLSL f32tof16 rounding is implementation-defined.
         text = F32ToF16Pattern().Replace(text, "f32tof16_rne(");
+        text = FormatLoadForm(text);
 
         if (_state.Stage != ShaderStage.Pixel)
         {
@@ -449,6 +450,32 @@ internal sealed partial class ProgramEmitter
 
         return text.Replace("\nOut main(", "\n[WaveOpsIncludeHelperLanes]\nOut main(", StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// The most formatted loads a program may hold and keep FmtLoad's fast path for 32-bit components (a branch, so a
+    /// few blocks at every inlined call). indirect_diffuse_lighting~CS_ScreenProbes_ActivateProbes 9083c094 holds 3,281:
+    /// the fast path took its DXIL from 33,535 blocks and 561,823 instructions to 49,940 and 807,237, and the driver's
+    /// compile of it took 11.5-12.8 GB (a warm-up stopped at the memory guard). The light proxy holds 113.
+    /// </summary>
+    public const int FormatLoadLimit = 512;
+
+    /// <summary>The program text, with the prelude's formatted loads decode-only past <see cref="FormatLoadLimit"/>.</summary>
+    internal static string FormatLoadForm(string text)
+    {
+        const string Include = "#include \"rdna_prelude.hlsli\"";
+        int loads = FormatLoadPattern().Count(text);
+        int at = text.IndexOf(Include, StringComparison.Ordinal);
+
+        if (loads <= FormatLoadLimit || at < 0)
+        {
+            return text;
+        }
+
+        return text.Insert(at, "#define FIVESTAR_FMT_DECODE_ONLY 1\n");
+    }
+
+    [GeneratedRegex(@"\bFmtLoad\(")]
+    private static partial Regex FormatLoadPattern();
 
     /// <summary>
     /// A pixel program's s_wqm of its initial EXEC (the live pixels), straight from the entry with no branch, discard or
