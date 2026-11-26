@@ -8,9 +8,10 @@ compute, pixel, vertex, mesh and geometry (including the rectangle-list geometry
 ```
 fivestar shader translate <fssm> <out> --backend dxil        the backend, dxc for what it cannot lower
 fivestar shader translate <fssm> <out> --backend dxil-only   no dxc at all (programs it cannot lower fail)
+fivestar shader translate ... --dxil-llvm-opt          also dxcompiler.dll's LLVM passes over each container (LLVM post-pass)
 fivestar shader rect-gs <out> --backend dxil|dxil-only       the same for the rectangle-list geometry shaders
 fivestar shader dxil <hlsl file or folder> [--out <dir>] [--validate] [--compare] [--stages cs,ps,vs,ms,gs]
-                     [--jobs N] [--step K] [--limit N] [--repeat N] [--phases] [--ir <file>]
+                     [--jobs N] [--step K] [--limit N] [--repeat N] [--phases] [--ir <file>] [--no-if-conversion]
 ```
 
 The loader compiles the programs it makes on demand with the backend by default, validated by dxil.dll, with dxc for
@@ -71,7 +72,7 @@ unoptimized form for comparison. VIctory reports about 43% fewer host instructio
 | `MS_VS_TransformD`, w32 form | 2.65 MB | 2.04 MB (-23%) | |
 | the same, native | 2.02 MB | 1.63 MB (-19%) | |
 
-`Simplifier` follows (skipped by `--no-optimize` too), twice, each round cleaned by `DeadCode`. A block that only its
+`Simplifier` follows (skipped by `--no-optimize` too), in four rounds, each cleaned by `DeadCode`. A block that only its
 predecessor's unconditional branch reaches joins it (every inlined call and structured region ends in one); a branch on
 a constant or to one block twice becomes unconditional, a phi of one value that value, and `ConstantFolding` folds
 what that decides. Wave and quad reads (ballot, any, read-lane, active ops) are declared nounwind as dxc declares them,
@@ -86,6 +87,73 @@ a ballot pair for every mask write and an any for every SCC, most never read.
 
 All five pass dxil.dll validation. What is left is mostly the wave emulation's control flow: in the cascade program
 73,515 phis (about 6 operands each) and 124,610 blocks, which neither pass touches.
+
+**What LLVM still finds.** dxcompiler.dll's `IDxcOptimizer` (the interface `dxopt` wraps) runs LLVM passes on a DXIL
+part. Run over the backend's output with dxc -O3's module pipeline after `-dxilgen` (`dxc -Odump`, Windows SDK
+10.0.26100; HL-only passes, loop unrolling and finalization left out), 20 forms of 15 programs:
+
+| Program | DXIL | instructions | blocks | phis |
+|---|---|---|---|---|
+| `MS_VS_TransformD_aa739e09` | 55 KB | -10% | -18% | -20% |
+| `TL_PS_PBR_MATERIAL_STANDARD` | 172 KB | 33,783 -> 30,499 (-10%) | 2,481 -> 1,998 (-19%) | -31% |
+| `TL_PS_PBR_MATERIAL_STANDARD_GLOBAL_GLINTS` | 255 KB | -9% | -18% | -28% |
+| `MSNC_VS_PropFoliageSkinDeferred` 0468631e | 260 KB | -15% | 3,545 -> 2,180 (-39%) | -30% |
+| `MS_VS_TransformTerrainNormalTint`, native / w32 | 321 / 466 KB | -9% / -20% | -22% / -48% | -22% / -68% |
+| `MSNC_VS_LinearDepthSkin_f1f2249c`, native / w32 | 390 / 572 KB | -10% / -27% | -24% / 10,714 -> 4,708 (-56%) | -24% / -70% |
+| `PS_Textured_Eight_Fire` | 454 KB | -9% | -22% | -28% |
+| `PS_DeferredTextured`, `_AlphaClipNC` (G-buffer) | 540, 582 KB | -12%, -13% | -21%, -21% | -28%, -28% |
+| `CS_ShadowRenderTiledCascadesCBPPPC`, native / w32 | 726 / 1,888 KB | -7% / -36% | -20% / 41,036 -> 14,373 (-65%) | -21% / -83% |
+| `MS_VS_TransformD_c5fd36bb`, native / w32 | 732 / 1,083 KB | -9% / -28% | -24% / 21,618 -> 9,004 (-58%) | -21% / -74% |
+| `MSNC_VS_PropFoliageSkinDeferred` 0470cb3c, native / w32 | 812 / 1,184 KB | -9% / -27% | -23% / -57% | -22% / -73% |
+| `CS_RaytracingResolve` (ped diffraction) | 1,042 KB | -10% | -23% | -19% |
+| `CS_ScreenProbes_ActivateRays` | 3,841 KB | 663,631 -> 603,927 (-9%) | 55,341 -> 40,738 (-26%) | -9% |
+| `CS_ScreenProbes_ActivateProbes` | 4,845 KB | 771,659 -> 497,670 (-36%) | 40,256 -> 26,024 (-35%) | -62% |
+
+`-simplifycfg` alone finds most of the blocks (`TransformD` w32 to 10,975, the cascade w32 to 25,570, `ActivateRays`
+to 44,943); `-instcombine` alone removes no block and 2 to 15% of the instructions. The superstep forms (w32) are where
+the CFG still shrinks by half. The optimized bitcode is not smaller in bytes in most cases (LLVM's writer, compared
+with the module written again without passes), so instructions and blocks are the measure here.
+
+**If-conversion.** Each round of the `Simplifier` (four rounds) first turns a branch whose one or two arms only
+compute into the arms' instructions and a select per phi at the join (`IfConversion`, LLVM's FoldTwoEntryPHINode): an
+arm qualifies when only its branch reaches it, it has no phis and at most 8 instructions, each safe on lanes that
+skipped it (arithmetic but integer division and remainder, compares, casts, selects, extracts, `dx.op` math), and the
+join has at most 8 phis, all scalar. No load, wave, quad or derivative operation moves, so the results are bit for
+bit the same (`DxilIfConversionTests`); `fivestar shader dxil --no-if-conversion` leaves it out.
+
+| Program | blocks before / after | DXIL |
+|---|---|---|
+| `TL_PS_PBR_MATERIAL_STANDARD` | 2,481 / 2,107 (-15%) | 172 -> 169 KB |
+| `TL_PS_PBR_MATERIAL_STANDARD_GLOBAL_GLINTS` | 3,297 / 2,811 (-15%) | 255 -> 251 KB |
+| `MS_VS_TransformD_aa739e09` | 540 / 457 (-15%) | 55 KB |
+| `MS_VS_TransformTerrainNormalTint`, native / w32 | 3,604 / 2,821 (-22%), 7,866 / 4,590 (-42%) | -2%, -5% |
+| `MSNC_VS_PropFoliageSkinDeferred` 0468631e | 3,545 / 2,525 (-29%) | -3% |
+| `MSNC_VS_LinearDepthSkin_f1f2249c`, native / w32 | 4,294 / 3,423 (-20%), 10,714 / 6,078 (-43%) | -2%, -6% |
+
+dxopt's `-simplifycfg` alone reaches 2,018 blocks on `TL_PS_PBR_MATERIAL_STANDARD` and 5,967 on the LinearDepthSkin w32
+form, so the conversion finds most of what it finds. All pass dxil.dll validation.
+
+**LLVM post-pass.** `fivestar shader translate --dxil-llvm-opt` (opt-in) runs dxcompiler.dll's LLVM passes over each
+container the backend makes (`LlvmPostPass`: SimplifyCFG and InstCombine twice, then dead code, dead blocks, unused
+prototypes and globals, which the validator refuses) and validates the result; when the passes fail or dxil.dll
+refuses their output, the backend's container stands. No pass uses fast-math. The pass list is part of the program's
+output identity only when the post-pass runs. LLVM's bitcode writer makes the module larger in bytes (the
+`TL_PS_PBR_MATERIAL_STANDARD` container 169 -> 228 KB at 1,848 blocks) though smaller in blocks and instructions.
+It stays a measurement tool, not the loader's path: RTX 4090 pipeline creation (`fivestar shader pso`, one run each,
+time / peak private memory):
+
+| Program | main | if-conversion | and the post-pass |
+|---|---|---|---|
+| `TL_PS_PBR_MATERIAL_STANDARD` | 1.0 s / 0.2 GB | 1.1 s / 0.2 GB | 1.1 s / 0.2 GB |
+| `PS_DeferredTextured` | 4.0 s / 0.3 GB | 3.3 s / 0.3 GB | 2.9 s / 0.3 GB |
+| `MS_VS_TransformD_c5fd36bb`, w32 | 160 s / 2.1 GB | 154 s / 2.1 GB | 139 s / 2.9 GB |
+| `CS_ShadowRenderTiledCascadesCBPPPC`, w32 | 82 s / 4.2 GB | 81 s / 2.7 GB | 236 s / 5.6 GB |
+| `CS_ScreenProbes_ActivateRays` | 243 s / 8.0 GB | 235 s / 7.7 GB | 239 s / 7.6 GB |
+| `CS_ScreenProbes_ActivateProbes` | 96 s / 5.5 GB | 100 s / 5.4 GB | 111 s / 6.5 GB |
+
+The cascade program's middle column also has the uniform wave operations of its superstep form (831 stops to 216,
+[shader-translation.md](shader-translation.md)); the post-pass nearly doubles that form's DXIL (2.96 MB) and triples
+its build.
 
 **Short-circuit evaluation.** `&&`, `||` and `?:` on scalars skip their later operands (HLSL 2021) unless those are
 pure: no assignments, memory reads or wave operations, and calls only of arithmetic intrinsics and pure user
