@@ -15,6 +15,9 @@ public static class ResourceProperties
     public const uint UavBit = 0x1000;
     public const uint ComparisonBit = 0x8000;
 
+    /// <summary>DxilResourceProperties IsGloballyCoherent (bit 14) of a globallycoherent UAV.</summary>
+    public const uint GloballyCoherentBit = 0x4000;
+
     private const int CountShift = 8;
 
     private static readonly Dictionary<string, ResourceKind> Kinds = new(StringComparer.Ordinal)
@@ -105,6 +108,11 @@ public static class ResourceProperties
         if (IsUav(type.Name))
         {
             word |= UavBit;
+        }
+
+        if (type.GloballyCoherent && IsUav(type.Name))
+        {
+            word |= GloballyCoherentBit;
         }
 
         if (type.Name == "SamplerComparisonState")

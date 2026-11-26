@@ -83,10 +83,10 @@ internal sealed class ImageSampleBuilder
         }
     }
 
-    /// <summary>Whether <see cref="SharedExponentSample"/> takes a request: a 2D or 3D sample without compare or clamp.</summary>
+    /// <summary>Whether <see cref="SharedExponentSample"/> takes a request: a 2D, 2D array or 3D sample without compare.</summary>
     public static bool TakesSharedExponent(ImageRequest request)
     {
-        return SampleOperations.Contains(request.Operation) && !request.HasCompare && !request.HasClamp && request.Dimension is "2D" or "3D";
+        return SampleOperations.Contains(request.Operation) && !request.HasCompare && request.Dimension is "2D" or "2D_ARRAY" or "3D";
     }
 
     /// <summary>
@@ -102,9 +102,11 @@ internal sealed class ImageSampleBuilder
         var uv = $"_seuv{n}";
 
         var volume = request.Dimension == "3D";
+        var array = request.Dimension == "2D_ARRAY";
         var axes = volume ? VolumeAxes : PlaneAxes;
-        var depth = volume ? $"_sed{n}, " : string.Empty;
-        _state.Emit($"  float{axes} {uv} = {address.Coordinates}; uint _sew{n}, _seh{n}, {depth}_sen{n}; {bits}.GetDimensions(0u, _sew{n}, _seh{n}, {depth}_sen{n});");
+        var depth = volume || array ? $"_sed{n}, " : string.Empty;
+        var place = array ? $"{uv}.xy" : uv;
+        _state.Emit($"  float{request.Components} {uv} = {address.Coordinates}; uint _sew{n}, _seh{n}, {depth}_sen{n}; {bits}.GetDimensions(0u, _sew{n}, _seh{n}, {depth}_sen{n});");
 
         var size = volume ? $"float3(_sew{n}, _seh{n}, _sed{n})" : $"float2(_sew{n}, _seh{n})";
         var lod = volume ? "se_lod3" : "se_lod";
@@ -120,7 +122,7 @@ internal sealed class ImageSampleBuilder
         }
         else if (_state.Stage == ShaderStage.Pixel && !request.Operation.EndsWith("_lz", StringComparison.Ordinal))
         {
-            level = $"{lod}(ddx({uv}), ddy({uv}), {size})";
+            level = $"{lod}(ddx({place}), ddy({place}), {size})";
         }
 
         if (address.Bias is not null)
@@ -128,11 +130,32 @@ internal sealed class ImageSampleBuilder
             level = $"{level} + {address.Bias}";
         }
 
+        // _cl: the clamp is the least level the sample takes.
+        if (address.Clamp is not null)
+        {
+            level = $"max({level}, {address.Clamp})";
+        }
+
         var offset = request.Offsets ?? $"int{axes}({string.Join(", ", Enumerable.Repeat("0", axes))})";
-        var call = volume ? "se_sample3" : "se_sample";
+        var call = SharedExponentCall(volume, array);
         _state.UsesSharedExponent = true;
 
         return $"{call}({bits}, {uv}, {level}, {sampler}, {offset})";
+    }
+
+    private static string SharedExponentCall(bool volume, bool array)
+    {
+        if (volume)
+        {
+            return "se_sample3";
+        }
+
+        if (array)
+        {
+            return "se_sample_a";
+        }
+
+        return "se_sample";
     }
 
     private string Sample(ImageRequest request)
