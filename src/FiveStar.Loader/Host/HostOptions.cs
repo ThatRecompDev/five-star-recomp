@@ -281,6 +281,9 @@ internal sealed record HostOptions
     /// <summary>Indirect records clamped in one prelude per list segment where nothing earlier in it wrote them (<c>--indirect-gather</c>).</summary>
     public bool IndirectGather { get; set; }
 
+    /// <summary>Depth textures in a typed depth format made in its typeless family, so shader views read them (<c>--typeless-depth</c>).</summary>
+    public bool TypelessDepth { get; set; }
+
     /// <summary>The descriptor window, the address map and the user-data ring in GPU upload heaps where the device has them (<c>--gpu-upload-heaps</c>).</summary>
     public bool GpuUploadHeaps { get; set; }
 

@@ -34,19 +34,23 @@ internal sealed unsafe class AddressBufferViews
 
     /// <summary>
     /// Writes the buffer view into <paramref name="handle"/>, raw when its <paramref name="record"/> keeps the heap index
-    /// (<see cref="Binding.RawBufferViews"/>); false when the address has no desktop buffer.
+    /// (<see cref="Binding.RawBufferViews"/>); false when the address has no desktop buffer (<paramref name="covered"/> false)
+    /// or the view does not fit the one it has (off its element size, past its end, a raw view off 16 bytes).
     /// </summary>
     [HotPath]
-    public bool Create(nint device, AddressViewDescription* view, nint handle, Binding.BufferRecord record)
+    public bool Create(nint device, AddressViewDescription* view, nint handle, Binding.BufferRecord record, out bool covered)
     {
         BufferViewDescription desktop;
         Buffer.MemoryCopy(view, &desktop, sizeof(BufferViewDescription), AddressViewDescription.DesktopViewSize);
         uint element = ElementBytes(desktop);
+        covered = false;
 
         if (desktop.Dimension != BufferViewDescription.BufferDimension || element == 0 || !_memory.TryFind(view->Address, out var range) || range.Resource == 0)
         {
             return false;
         }
+
+        covered = true;
 
         ulong offset = view->Address - range.GameAddress;
         ulong end = offset + ((desktop.SrvFirstElement + desktop.SrvElements) * element);
