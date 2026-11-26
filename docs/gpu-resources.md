@@ -113,6 +113,11 @@ flowchart LR
   through a loading screen, past the game's hang watchdog) and waits for refreshes in progress, so a texture written
   before it is current. A
   texture never filled is still filled whole. w109's whole-texture refresh on the submitting thread cost 19 ms a frame.
+- **Off the submitting threads** (default): a submission only wakes the refresh worker; the worker's threads take the
+  written, view-checked and CPU-mapped textures (the frame check queues those too, checked page by page) and their
+  uploads reach the GPU at most a frame later. `--texture-refresh-wait` makes every submission take the queue and
+  wait, as before (w113: 59-124 ms of the submit path a frame). With `--frame-log` a second line splits the refresh:
+  read+hash, upload, submissions' waits, textures written and watched, MB read and uploaded.
 - **A slot-70 view of a registered texture** (`GpuTextures.RefreshForView`) marks all its pages for that worker instead
   of reading and hashing the texture on the game's thread: the CPU may have written its memory, which nothing
   reports, so every page is compared with its hash, off the thread, before the next submission. The first view of

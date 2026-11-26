@@ -90,6 +90,8 @@ internal static class HostUsage
                                  in R32_UINT themselves (default indirect_diffuse_lighting~; each sample grows a lot)
           --typeless-targets     GPU-written R8G8B8A8/B8G8R8A8/B8G8R8X8/R8 UNORM textures made typeless, so a view in
                                  their sRGB or integer member reads as the game asked (off by default)
+          --texture-refresh-wait  every submission refreshes and waits for the textures memory changed under (off:
+                                 the refresh worker does it off the submitting threads, up to a frame later)
           --kept-aliases <n>     textures retired over exactly one reused range kept alive for older descriptors (default 1)
           --unmapped-view-budget <MiB>  textures slot-70 views make over reserved memory no page of which is mapped yet,
                                  at most this much (default 1024); past it such views are null descriptors
