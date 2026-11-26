@@ -87,6 +87,60 @@ public sealed class GpuTimingsTests
         }
     }
 
+    [WarpFact]
+    public void A_sampled_indirect_execution_reports_its_first_clamped_record()
+    {
+        using var gpu = GpuDevice.CreateWarp(debugLayer: false);
+
+        try
+        {
+            GpuTimings.Detach();
+            GpuTimings.Enable(true);
+            GpuTimings.Attach(gpu.Device.NativePointer, null);
+            WorkShapes.SettleMilliseconds = 0;
+            using var context = new CommandContext(gpu.Device);
+            using var scratch = Clamped(gpu.Device, context);
+
+            // Two samples per pipeline and frame: the third execution of frame 1 is only counted.
+            for (int execution = 0; execution < 3; execution++)
+            {
+                WorkShapes.Indirect(context.List.NativePointer, Tracing, Shims.D3D12X.IndirectClamp.DispatchKind, 1, scratch.NativePointer, ScratchRecord, 1);
+            }
+
+            context.ExecuteAndWait();
+            string report = WorkShapes.Report(3, ["sr_tracing~CS_Trace"], pipeline => GpuTimings.PassName(Name(pipeline)));
+
+            Assert.Equal("; work per frame: sr_tracing~CS_Trace: 1.0 indirect (up to 1 records; largest first record 4096 x 2 x 1 groups of 2 sampled)", report);
+        }
+        finally
+        {
+            WorkShapes.SettleMilliseconds = 2000;
+            GpuTimings.Detach();
+        }
+    }
+
+    /// <summary>Where the scratch holds the clamped record.</summary>
+    private const ulong ScratchRecord = 256;
+
+    /// <summary>A default buffer in COMMON holding the record 4096 x 2 x 1 at <see cref="ScratchRecord"/>, as a clamp leaves it.</summary>
+    private static ID3D12Resource Clamped(ID3D12Device device, CommandContext context)
+    {
+        const int Bytes = 512;
+        using var upload = device.CreateCommittedResource(new HeapProperties(HeapType.Upload), HeapFlags.None, ResourceDescription.Buffer(Bytes), ResourceStates.GenericRead);
+        var scratch = device.CreateCommittedResource(new HeapProperties(HeapType.Default), HeapFlags.None, ResourceDescription.Buffer(Bytes), ResourceStates.Common);
+
+        uint[] words = new uint[Bytes / sizeof(uint)];
+        words[(ScratchRecord / sizeof(uint)) + 0] = 4096;
+        words[(ScratchRecord / sizeof(uint)) + 1] = 2;
+        words[(ScratchRecord / sizeof(uint)) + 2] = 1;
+        upload.SetData(words);
+
+        context.List.CopyBufferRegion(scratch, 0, upload, 0, Bytes);
+        context.ExecuteAndWait();
+
+        return scratch;
+    }
+
     /// <summary>Compute, clamp and draw passes in turn (the first run also warms the code up).</summary>
     private static void Passes(nint list)
     {
@@ -114,7 +168,10 @@ public sealed class GpuTimingsTests
         // Dispatches of one pipeline are one pass; another compute pipeline, new targets and a draw begin the next, and a
         // split at a memory wait ends the pass before it (the queue waits there, not in the tracing pass).
         GpuTimings.Work(List, list, compute: true, Culling);
+        WorkShapes.Dispatch(Culling, 4096, 1, 1);
         GpuTimings.Work(List, list, compute: true, Culling);
+        WorkShapes.Dispatch(Culling, 0, 1, 1);
+
         GpuTimings.Work(List, list, compute: true, Tracing);
         GpuTimings.Split(List, list);
         GpuTimings.Work(List, list, compute: true, Tracing);
@@ -140,6 +197,10 @@ public sealed class GpuTimingsTests
         Assert.Contains("loader:indirect-clamp ", report, StringComparison.Ordinal);
         Assert.Contains("PS_Light ", report, StringComparison.Ordinal);
         Assert.DoesNotContain("VS_Light", report, StringComparison.Ordinal);
+
+        // Work shapes of the passes shown: the dispatches' groups (no indirect execution in this list).
+        Assert.Contains("; work per frame: ", report, StringComparison.Ordinal);
+        Assert.Contains("meshlet_culling~CS_Cull: 1.0 dispatches, 2048 groups (largest 4096 x 1 x 1)", report, StringComparison.Ordinal);
 
         Assert.Contains("0 read after their block was reused", report, StringComparison.Ordinal);
         Assert.Contains("0 with more than 255 passes", report, StringComparison.Ordinal);

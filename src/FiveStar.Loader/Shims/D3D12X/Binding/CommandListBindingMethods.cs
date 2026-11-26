@@ -421,6 +421,7 @@ internal static unsafe class CommandListBindingMethods
             ListActivity.Of(self)->Dispatches++;
             GpuBreadcrumbs.Before(self, MarkedKind.Dispatch, x, y, z);
             BeforeWork(self, true);
+            WorkShapes.Dispatch(ListActivity.Of(self)->Pipeline, x, y, z);
 
             var trace = ShimContext.Runtime.D3D12X.DrawTrace;
             trace?.Dispatch(self, x, y, z);
@@ -507,12 +508,25 @@ internal static unsafe class CommandListBindingMethods
             execute = (delegate* unmanaged<nint, nint, uint, nint, ulong, nint, ulong, void>)ComObject.Slot(inner, DesktopExecuteIndirect);
             execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, scratch, scratchOffset, countBuffer, countOffset);
             IndirectClamp.Done(self, scratch);
+            Shapes(self, signature, maxCount, scratch, scratchOffset);
 
             return;
         }
 
         TimeIndirect(self, signature);
+        Shapes(self, signature, maxCount, 0, 0);
         execute(inner, ShimContext.Runtime.D3D12X.Objects.Unwrap(signature), maxCount, argumentBuffer, argumentOffset, countBuffer, countOffset);
+    }
+
+    /// <summary>With <c>--gpu-timings</c>: an ExecuteIndirect's work for <see cref="WorkShapes"/> (its clamped copy, when there is one).</summary>
+    [HotPath]
+    private static void Shapes(XboxObject* self, nint signature, uint maxCount, nint scratch, ulong scratchOffset)
+    {
+        if (GpuTimings.Active)
+        {
+            long frame = ShimContext.Runtime.D3D12X.Presenter.Presents;
+            WorkShapes.Indirect(self->Inner, ListActivity.Of(self)->Pipeline, CommandSignatures.Clampable(signature).Kind, maxCount, scratch, scratchOffset, frame);
+        }
     }
 
     /// <summary>
