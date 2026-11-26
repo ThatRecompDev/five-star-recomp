@@ -86,6 +86,7 @@ internal static class ProgramTranslator
             // dxc keeps a wave operation whose result is unused (WaveActiveBallot is not dead code to it): the ballots
             // into SGPR halves that nothing reads cost a ballot and the lane-origin arithmetic each.
             DeadWaveOperations.Remove(state.Blocks, SuperstepWriter.Pinned(state, new MeshDeclarations(state)), ownBits: state.Stage != ShaderStage.Pixel);
+            DropUnseenEmulation(state);
         }
 
         var mesh = new MeshDeclarations(state);
@@ -127,6 +128,16 @@ internal static class ProgramTranslator
         }
 
         return state;
+    }
+
+    /// <summary>A program that cannot tell emulated wave operations from native ones gets the native ones (Waves.NativeWaveCheck).</summary>
+    private static void DropUnseenEmulation(TranslationState state)
+    {
+        if (state.EmulateWaves && NativeWaveCheck.Reason(state) is null)
+        {
+            state.EmulateWaves = false;
+            state.NativeWaves = true;
+        }
     }
 
     private static void Run(TranslationState state)

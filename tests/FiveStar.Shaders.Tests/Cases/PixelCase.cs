@@ -18,6 +18,9 @@ public sealed record PixelCase(string Name, string Program, int Outputs, Func<Pi
 
     public bool Raw { get; init; }
 
+    /// <summary>The console wave the program is assembled and translated for.</summary>
+    public int WaveSize { get; init; } = 32;
+
     /// <summary>No output signature: float SV_Target into R32G32B32A32_FLOAT.</summary>
     public bool FloatTargets { get; init; }
 

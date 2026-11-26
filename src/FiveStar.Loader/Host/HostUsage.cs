@@ -226,6 +226,9 @@ internal static class HostUsage
                                  rehydration into game memory (off: desktop sizes, nothing written)
           --raytracing-gpu       run XboxBvhBuilder.dll's constructor for an inventory of its 52 GPU builder pipelines:
                                  stand-ins never built, no builder program runs (docs/bvh-builder.md)
+          --rt-traversal         run the game's BVH traversal programs (screen probes, irradiance cache, reflections,
+                                 shadows) with --raytracing's paths; a node in unmapped memory misses; passes still
+                                 held by --skip-pipelines keep their stand-ins, the screen-probe light is not greyed
           --no-rt-stand-ins      held ray-tracing passes leave their outputs as they are (default without --raytracing:
                                  shadow masks fully lit, reflections black, the screen-probe light a grey)
           --no-lighting-waits    the lighting pipelines (cascade shadows, shadow masks, tiled lighting, TL_PS, exposure,

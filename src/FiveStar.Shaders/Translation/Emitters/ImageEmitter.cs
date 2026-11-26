@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Numerics;
 using FiveStar.Shaders.Translation.Core;
 using static FiveStar.Shaders.Translation.Emitters.Operands;
 
@@ -410,6 +411,24 @@ internal sealed class ImageEmitter
         {
             EmitSharedExponent(unsignedCall, result, integer);
         }
+
+        if (request.Operation.StartsWith("gather4", StringComparison.Ordinal) && _state.SharedExponentSamples)
+        {
+            GatherSharedExponent(op, unsigned, mask, result, integer);
+        }
+    }
+
+    /// <summary>
+    /// A plain gather of a class-3 view: the four texels' bits through the uint declaration (red holds the whole word),
+    /// each decoded and the asked channel (dmask) taken; alpha reads 1 (<c>se_gather</c>).
+    /// </summary>
+    private void GatherSharedExponent(string op, ImageRequest unsigned, int mask, string result, string integer)
+    {
+        int red = 1;
+        var call = _samples.Call(op, unsigned, ref red);
+        int channel = BitOperations.TrailingZeroCount(mask);
+        _state.UsesSharedExponent = true;
+        _state.Emit($"  if ({integer} == {SharedExponentClass}) {result} = se_gather(asuint({call}), {channel}u);");
     }
 
     /// <summary>

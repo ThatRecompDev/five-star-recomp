@@ -41,6 +41,9 @@ public sealed record ComputeCase(string Name, string Program, int Outputs, Func<
     /// <summary>Textures at their heap slots; a writable one is read back for <see cref="Check"/> under its slot.</summary>
     public IReadOnlyList<TextureResource> Textures { get; init; } = [];
 
+    /// <summary>Samplers at their heap slots: the desktop sampler a literal S# reads (unbound slots differ per driver).</summary>
+    public IReadOnlyList<SamplerResource> Samplers { get; init; } = [];
+
     public int LdsBytes { get; init; }
 
     public bool Raw { get; init; }

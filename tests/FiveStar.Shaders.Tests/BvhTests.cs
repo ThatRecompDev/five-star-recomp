@@ -32,6 +32,15 @@ public sealed class BvhTests : IClassFixture<WarpFixture>
     }
 
     [WarpFact]
+    public void A_bvh_in_game_memory_is_read_through_the_address_map_and_an_unmapped_node_misses()
+    {
+        // The traversal reads nodes at their 64-bit console address; a node in a page with no memory is no node.
+        var mismatches = new ComputeCaseRunner(_fixture).Run(BvhCases.GameMemory());
+
+        Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
+    }
+
+    [WarpFact]
     public void Without_a_built_structure_every_node_over_garbage_memory_misses()
     {
         // The loader defines FIVESTAR_BVH_MISS unless --raytracing: no node is read, so traversal loops end at once (w63).
