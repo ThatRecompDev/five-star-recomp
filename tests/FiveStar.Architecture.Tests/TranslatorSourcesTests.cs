@@ -18,8 +18,9 @@ public sealed partial class TranslatorSourcesTests
 
     private static readonly string[] Excluded = ["Dxil/", "Cache/"];
 
-    // They compile HLSL with the backend; translations never call them.
-    private static readonly string[] BackendFiles = ["Compilation/DxilBackendCompiler.cs", "Compilation/InProcessBackend.cs"];
+    // They compile HLSL with the backend (LlvmPostPass runs over the backend's output, --dxil-llvm-opt); translations
+    // never call them.
+    private static readonly string[] BackendFiles = ["Compilation/DxilBackendCompiler.cs", "Compilation/InProcessBackend.cs", "Compilation/LlvmPostPass.cs"];
 
     [Fact]
     public void No_source_in_the_translator_hash_reaches_the_dxil_backend_or_the_cache_readers()
