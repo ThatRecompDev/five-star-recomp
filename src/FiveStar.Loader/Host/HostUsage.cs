@@ -125,6 +125,8 @@ internal static class HostUsage
           --force-cull-none <text>  pipelines whose programs' names hold <text> cull no faces (a winding check)
           --skip-pipelines <text,...>  pipelines whose programs' names hold a text stay stand-ins: never built or
                                  loaded, their draws skipped (to get past one that hangs the GPU)
+          --no-draws             no pipeline is built and every draw and dispatch is skipped (black picture): the frame
+                                 time is then the game's own CPU and our shims outside the draws
           --mirror-table-records reach|full|<n>  records every descriptor-table bind mirrors (default 64): full
                                  (1024) gives lighting its inputs but mesh programs then reach data they hang on;
                                  reach mirrors each draw's tables as far as its programs read

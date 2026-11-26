@@ -350,8 +350,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         Binding.TableReaches.ProgramFolder = programs;
         Pipelines = new PipelineSlots(factory, warnings);
         PipelineSlotHandlers.Register(Objects);
-        Prefetch(onDemand);
-        JournalPrebuild.Start(factory, cache, _pipelineFolders.Cache, _log);
+        MakeAhead(onDemand, factory, cache);
         _log.Detail($"  [d3d12_xs] pipeline slots on: programs {programs}, translated {translated ?? "none"}");
     }
 
@@ -364,6 +363,18 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         }
 
         return Path.Combine(_pipelineFolders.OnDemand?.Root ?? translated ?? string.Empty, RectangleGeometryShader.Folder);
+    }
+
+    /// <summary>The journal's programs and pipelines made ahead; not with --no-draws, where no pipeline is ever built.</summary>
+    private void MakeAhead(OnDemandPrograms? onDemand, PipelineFactory factory, PipelineLibraryCache? cache)
+    {
+        if (SkippedPipelines.All)
+        {
+            return;
+        }
+
+        Prefetch(onDemand);
+        JournalPrebuild.Start(factory, cache, _pipelineFolders.Cache, _log);
     }
 
     /// <summary>Queues the programs of the journal's pipelines, in first-use order, on a worker thread.</summary>
