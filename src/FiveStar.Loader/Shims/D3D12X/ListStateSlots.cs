@@ -59,6 +59,11 @@ internal static unsafe class ListStateSlots
             nint inner = self->Inner;
             ShimContext.Runtime.D3D12X.RenderTargets.Ensure(self, inner, 1, &view, false);
             ((delegate* unmanaged<nint, nint, float*, uint, int*, void>)ComObject.Slot(inner, DesktopClearRenderTarget))(inner, view, colour, rects, boxes);
+
+            if (DebugLayer.TargetClears.Any)
+            {
+                DebugLayer.TargetClears.GameClear(view);
+            }
         }
         catch (Exception exception)
         {
@@ -201,6 +206,11 @@ internal static unsafe class ListStateSlots
             if (depthStencil != null)
             {
                 ShimContext.Runtime.D3D12X.RenderTargets.EnsureDepth(self, inner, *depthStencil);
+            }
+
+            if (DebugLayer.TargetClears.Any)
+            {
+                DebugLayer.TargetClears.Bound(inner, count, handles, single != 0);
             }
 
             ((delegate* unmanaged<nint, uint, nint*, int, nint*, void>)ComObject.Slot(inner, DesktopSetRenderTargets))(inner, count, handles, single, depthStencil);

@@ -160,6 +160,10 @@ internal static class HostUsage
                                  (the first 8 of each kind, with list and pipeline) and dropped
           --depth-twins          UAVs of a depth texture's depth or stencil plane write a colour twin, copied into it
                                  before the next draw that binds it (needs --mirror-table-records reach)
+          --target-clear-census  every 300 presents, the render targets bound in the frame before, how many the game cleared
+                                 and those it never cleared; GPU-written textures made over one another's memory, once each
+          --clear-targets-each-frame
+                                 diagnostic: each render target is cleared to 0 at its first bind in a frame
           --user-data-constants  draws pass their user data as root constants, not a root CBV in upload memory (needs
                                  programs made on demand)
           --trace-pool-stores    programs made on demand log their stores into the transient pool and the game heap

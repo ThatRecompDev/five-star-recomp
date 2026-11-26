@@ -41,6 +41,9 @@ internal static unsafe class XboxDescriptorMethods
     /// <summary>D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL (d3d12.h).</summary>
     private const int AllowDepthStencil = 0x2;
 
+    /// <summary>ID3D12Resource::GetDesc (desktop order: object, then the return buffer).</summary>
+    private const int ResourceGetDescSlot = 10;
+
     private static XboxDeviceFactory D3D12X => ShimContext.Runtime.D3D12X;
 
     /// <summary>
@@ -240,6 +243,11 @@ internal static unsafe class XboxDescriptorMethods
 
             CreateDesktopView(self, CreateRenderTargetViewSlot, desktop, view, destination);
             D3D12X.RenderTargets.Note(D3D12X.Objects, destination, resource);
+
+            if (DebugLayer.TargetClears.Any)
+            {
+                DebugLayer.TargetClears.NoteView(destination, desktop, TargetShape(desktop));
+            }
         }
         catch (Exception exception)
         {
@@ -451,6 +459,20 @@ internal static unsafe class XboxDescriptorMethods
     }
 
     /// <summary>A view desc's format (its first field), 0 without a desc.</summary>
+    /// <summary>"WxH format F" of a desktop texture, for <see cref="DebugLayer.TargetClears"/>.</summary>
+    private static string TargetShape(nint resource)
+    {
+        if (resource == 0)
+        {
+            return "null";
+        }
+
+        ResourceDescription read;
+        _ = ((delegate* unmanaged<nint, ResourceDescription*, ResourceDescription*>)ComObject.Slot(resource, ResourceGetDescSlot))(resource, &read);
+
+        return $"{read.Width}x{read.Height} format {read.Format}";
+    }
+
     private static int Format(void* description)
     {
         if (description == null)
