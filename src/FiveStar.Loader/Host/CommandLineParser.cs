@@ -845,6 +845,8 @@ internal sealed class CommandLineParser
                 _options.OutputSize = OutputSize(Next());
 
                 return true;
+            case "--aftermath" or "--aftermath-dll" or "--aftermath-markers":
+                return SetAftermath(option);
             default:
                 throw new CommandLineException($"unknown argument {option}");
         }
@@ -1173,6 +1175,30 @@ internal sealed class CommandLineParser
 
                 return true;
         }
+    }
+
+    /// <summary>
+    /// <c>--aftermath [dir]</c> (the folder is optional: the next argument when it is not an option, else
+    /// <c>aftermath</c>), <c>--aftermath-dll &lt;path&gt;</c> and <c>--aftermath-markers</c>; the last two imply the first.
+    /// </summary>
+    private bool SetAftermath(string option)
+    {
+        _options.AftermathDirectory ??= Path.GetFullPath("aftermath");
+
+        if (option == "--aftermath-dll")
+        {
+            _options.AftermathLibrary = Path.GetFullPath(Next());
+        }
+        else if (option == "--aftermath-markers")
+        {
+            _options.AftermathMarkers = true;
+        }
+        else if (_index + 1 < _args.Length && !_args[_index + 1].StartsWith('-'))
+        {
+            _options.AftermathDirectory = Path.GetFullPath(Next());
+        }
+
+        return true;
     }
 
     private bool SetPresentTest()

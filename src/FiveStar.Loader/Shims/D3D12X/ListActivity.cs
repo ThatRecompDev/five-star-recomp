@@ -32,6 +32,9 @@ internal unsafe struct ListActivity
     /// <summary>1 when <see cref="Pipeline"/> has the mesh launch stage (<see cref="MeshLaunch"/>): its mesh draws go through it.</summary>
     public int Launches;
 
+    /// <summary>With <c>--aftermath-markers</c>: the list's Aftermath context handle, made at its first marker and kept over Resets; -1 when none could be made.</summary>
+    public nint Aftermath;
+
     public static ListActivity* Of(XboxObject* list)
     {
         return (ListActivity*)((byte*)list + Offset);

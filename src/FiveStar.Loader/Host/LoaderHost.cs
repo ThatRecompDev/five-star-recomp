@@ -231,9 +231,33 @@ internal sealed class LoaderHost
         _runtime.D3D12X.Presenter.Pix = pix;
     }
 
-    /// <summary>--d3d12-debug (debug layer and DRED) or --d3d12-dred (DRED alone).</summary>
+    /// <summary>--aftermath: the DLL loaded and GPU crash dumps enabled now, before the game creates its device.</summary>
+    private void EnableAftermath()
+    {
+        if (_options.AftermathDirectory is null)
+        {
+            return;
+        }
+
+        if (_options.D3D12Debug)
+        {
+            _log.Warn("[aftermath] the D3D12 debug layer (--d3d12-debug) keeps Aftermath from initializing the device: no markers or shader debug info");
+        }
+
+        var dumps = AftermathCrashDumps.Start(_options.AftermathDirectory, _options.AftermathLibrary, _options.AftermathMarkers, AppContext.BaseDirectory, Environment.GetEnvironmentVariable(AftermathLibrary.SdkVariable), _log);
+
+        if (dumps is not null)
+        {
+            _runtime.D3D12X.Aftermath = dumps;
+            DeviceLoss.BeforeEnd = dumps.WaitForDump;
+        }
+    }
+
+    /// <summary>--d3d12-debug (debug layer and DRED) or --d3d12-dred (DRED alone), and --aftermath.</summary>
     private void EnableDebugging()
     {
+        EnableAftermath();
+
         if (_options.D3D12Debug)
         {
             _runtime.D3D12X.Debugging.Enable(_options.D3D12GpuValidation);
