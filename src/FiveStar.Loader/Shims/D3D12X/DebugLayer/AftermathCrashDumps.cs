@@ -58,6 +58,7 @@ internal sealed unsafe class AftermathCrashDumps
     private readonly bool _markers;
     private readonly LoaderLog _log;
     private readonly ConcurrentDictionary<(nint Pipeline, MarkedKind Kind), nint> _markerTexts = new();
+    private readonly ConcurrentDictionary<nint, nint> _contexts = new();
     private readonly delegate* unmanaged[Cdecl]<nint, nint*, uint> _createContext;
     private readonly delegate* unmanaged[Cdecl]<nint, void*, uint, uint> _setMarker;
     private readonly delegate* unmanaged[Cdecl]<uint, void*, uint, ulong*, uint> _debugInfoIdentifier;
@@ -81,6 +82,9 @@ internal sealed unsafe class AftermathCrashDumps
 
     /// <summary>Our shaders by Aftermath hash, noted once the API version is known.</summary>
     public AftermathShaderTable Shaders { get; private set; }
+
+    /// <summary>The API version the DLL took.</summary>
+    public uint Version => _library.Version;
 
     /// <summary>Whether the device was initialized for Aftermath (markers need it).</summary>
     public bool Initialized { get; private set; }
@@ -194,9 +198,12 @@ internal sealed unsafe class AftermathCrashDumps
     {
         var activity = ListActivity.Of(list);
 
-        if (activity->Aftermath == 0)
+        // The wrapper's desktop list changes (a split at a wait, a replaced dead list): a handle is per desktop list, and
+        // one used on a list closed as a segment is an invalid call that removes the device (boot w176, 0x887a0001).
+        if (activity->AftermathList != list->Inner)
         {
-            activity->Aftermath = OpenContext(list->Inner);
+            activity->Aftermath = Context(list->Inner);
+            activity->AftermathList = list->Inner;
         }
 
         if (activity->Aftermath == NoContext || _setMarker == null)
@@ -212,17 +219,25 @@ internal sealed unsafe class AftermathCrashDumps
         _ = _setMarker(activity->Aftermath, (void*)text, *(uint*)(text - sizeof(int)));
     }
 
-    /// <summary>GFSDK_Aftermath_DX12_CreateContextHandle for a desktop command list; <see cref="NoContext"/> when it has none.</summary>
-    private nint OpenContext(nint inner)
+    /// <summary>
+    /// The context handle of a desktop command list (recording now): the one made for it before, else
+    /// GFSDK_Aftermath_DX12_CreateContextHandle; <see cref="NoContext"/> when it has none.
+    /// </summary>
+    private nint Context(nint inner)
     {
+        if (_contexts.TryGetValue(inner, out nint known))
+        {
+            return known;
+        }
+
         nint handle = 0;
 
         if (_createContext == null || !AftermathLibrary.Succeeded(_createContext(inner, &handle)) || handle == 0)
         {
-            return NoContext;
+            handle = NoContext;
         }
 
-        return handle;
+        return _contexts.GetOrAdd(inner, handle);
     }
 
     /// <summary>"draw 0x... name" as NUL-terminated UTF-8 after its byte count (kept for the run: the SDK copies it per marker).</summary>

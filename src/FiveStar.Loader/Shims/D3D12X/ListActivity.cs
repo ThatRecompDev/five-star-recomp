@@ -32,8 +32,11 @@ internal unsafe struct ListActivity
     /// <summary>1 when <see cref="Pipeline"/> has the mesh launch stage (<see cref="MeshLaunch"/>): its mesh draws go through it.</summary>
     public int Launches;
 
-    /// <summary>With <c>--aftermath-markers</c>: the list's Aftermath context handle, made at its first marker and kept over Resets; -1 when none could be made.</summary>
+    /// <summary>With <c>--aftermath-markers</c>: the Aftermath context handle of <see cref="AftermathList"/>, kept over Resets; -1 when none could be made.</summary>
     public nint Aftermath;
+
+    /// <summary>The desktop list <see cref="Aftermath"/> belongs to; the wrapper's desktop list changes when it is split at a wait.</summary>
+    public nint AftermathList;
 
     public static ListActivity* Of(XboxObject* list)
     {
