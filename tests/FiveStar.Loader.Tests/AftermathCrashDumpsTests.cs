@@ -4,6 +4,7 @@
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Host;
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
+using FiveStar.Loader.Tests.Support;
 using Xunit;
 
 namespace FiveStar.Loader.Tests;
@@ -52,6 +53,46 @@ public sealed class AftermathCrashDumpsTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>The real DLL: every export the loader calls is there, the version probe lands on a version it takes, and the calls return result codes.</summary>
+    [AftermathFact]
+    public unsafe void TalksToTheSdkDll()
+    {
+        string[] exports =
+        [
+            "GFSDK_Aftermath_DX12_CreateContextHandle", "GFSDK_Aftermath_SetEventMarker", "GFSDK_Aftermath_GetShaderDebugInfoIdentifier",
+            "GFSDK_Aftermath_GetShaderHash", "GFSDK_Aftermath_GpuCrashDump_CreateDecoder", "GFSDK_Aftermath_GpuCrashDump_DestroyDecoder",
+            "GFSDK_Aftermath_GpuCrashDump_GetDeviceInfo", "GFSDK_Aftermath_GpuCrashDump_GetPageFaultInfo", "GFSDK_Aftermath_GpuCrashDump_GetPageFaultResourceInfo",
+            "GFSDK_Aftermath_GpuCrashDump_GetActiveShadersInfoCount", "GFSDK_Aftermath_GpuCrashDump_GetActiveShadersInfo", "GFSDK_Aftermath_GetShaderHashForShaderInfo",
+            "GFSDK_Aftermath_GpuCrashDump_GetEventMarkersInfoCount", "GFSDK_Aftermath_GpuCrashDump_GetEventMarkersInfo",
+        ];
+        var console = new StringWriter();
+        var library = AftermathLibrary.Load(AftermathFactAttribute.Library!, out string? problem);
+
+        Assert.NotNull(library);
+        Assert.Null(problem);
+        Assert.All(exports, name => Assert.NotEqual(0, library.Export(name)));
+
+        try
+        {
+            var dumps = AftermathCrashDumps.Start(Path.GetTempPath(), AftermathFactAttribute.Library, false, string.Empty, null, new LoaderLog(console, null, false));
+            Assert.Contains("[aftermath]", console.ToString(), StringComparison.Ordinal);
+
+            // The SDK of 2026.3 is API version 0x21B; any 2.x DLL answers a version it takes, not FAIL_VersionMismatch.
+            Assert.DoesNotContain("no API version", console.ToString(), StringComparison.Ordinal);
+            Assert.InRange(library.CrashDumpStatus(), 0u, 5u);
+
+            // A decoder over bytes that are no dump is refused with a result code.
+            var create = (delegate* unmanaged[Cdecl]<uint, byte*, uint, nint*, uint>)library.Export("GFSDK_Aftermath_GpuCrashDump_CreateDecoder");
+            var junk = stackalloc byte[64];
+            nint decoder = 0;
+            Assert.False(AftermathLibrary.Succeeded(create(dumps?.Version ?? 0x21B, junk, 64, &decoder)));
+        }
+        finally
+        {
+            AftermathCrashDumps.Clear();
         }
     }
 
