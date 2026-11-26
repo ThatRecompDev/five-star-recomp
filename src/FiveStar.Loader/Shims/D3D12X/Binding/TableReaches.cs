@@ -25,6 +25,7 @@ internal static class TableReaches
     private static readonly ConcurrentDictionary<string, IReadOnlyDictionary<int, uint>> Programs = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<nint, TableReachEntry[]> Pipelines = new();
     private static readonly ConcurrentDictionary<nint, TableReachEntry[]> Whole = new();
+    private static readonly ConcurrentDictionary<string, TableReachEntry[]> ByNames = new(StringComparer.Ordinal);
 
     /// <summary>The folder of the extracted FSSM programs (--shader-dir); null reads no reach.</summary>
     public static string? ProgramFolder { get; set; }
@@ -58,6 +59,28 @@ internal static class TableReaches
             return;
         }
 
+        var reach = Reach(names);
+        Pipelines[pipeline] = Entries(reach, DescriptorWindow.MinTableRecords);
+        Whole[pipeline] = Entries(reach, 0);
+    }
+
+    /// <summary>
+    /// Every table the programs <paramref name="names"/> read, with the records they reach, whether or not a pipeline
+    /// was built from them (a held pass stays a stand-in; <see cref="RtStandIns"/>); empty without a program folder.
+    /// </summary>
+    public static TableReachEntry[] OfNames(string names)
+    {
+        if (ProgramFolder is null)
+        {
+            return [];
+        }
+
+        return ByNames.GetOrAdd(names, key => Entries(Reach(key), 0));
+    }
+
+    /// <summary>The records each SGPR's table is read to, over the programs <paramref name="names"/>.</summary>
+    private static Dictionary<int, uint> Reach(string names)
+    {
         var reach = new Dictionary<int, uint>();
 
         foreach (var name in names.Split(Separator, StringSplitOptions.RemoveEmptyEntries))
@@ -68,8 +91,7 @@ internal static class TableReaches
             }
         }
 
-        Pipelines[pipeline] = Entries(reach, DescriptorWindow.MinTableRecords);
-        Whole[pipeline] = Entries(reach, 0);
+        return reach;
     }
 
     /// <summary>The SGPRs whose reach passes <paramref name="mirrored"/> records, with the records they reach.</summary>

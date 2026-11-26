@@ -10,7 +10,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Binding;
 
 /// <summary>
 /// Stand-in outputs for the ray-tracing passes held without <c>--raytracing</c> (default on; <c>--no-rt-stand-ins</c>
-/// turns them off): when such a pass's dispatch is skipped, the texture UAVs of its compute tables get a constant
+/// turns them off): when such a pass's dispatch is skipped, the texture UAVs its programs reach in their compute
+/// tables (<see cref="TableReaches.OfNames"/>; the root signature's UAV ranges without --shader-dir) get a constant
 /// instead of what a frame ago or nothing left there (<see cref="UavFill"/>). Ray-traced shadow masks read fully lit,
 /// planar reflections black; the screen-probe light, whose rays are held, is overwritten after
 /// CS_ScreenProbes_TemporalResolve runs (or at its skip) with a modest grey, as VIctory's ambient stand-in does
@@ -43,9 +44,8 @@ internal static unsafe class RtStandIns
     ];
 
     /// <summary>
-    /// The records of a UAV range a shadow or reflection rule fills, the first 8 (those fill every texture view). A
-    /// colour-only rule takes the whole range: its formats choose what it writes, and the screen-probe light sits at
-    /// records 19, 20 and 23 of the resolve's table.
+    /// Without the programs' reach, the records of a UAV range a shadow or reflection rule fills, the first 8 (those
+    /// fill every texture view); a colour-only rule takes the whole range, its formats choosing what it writes.
     /// </summary>
     private const uint MaxFilledRecords = 8;
 
@@ -146,7 +146,7 @@ internal static unsafe class RtStandIns
         var misses = default(FillMisses);
 
         // Without the game's compute root signature set there is nothing to restore after the fill's own.
-        if (bindings->ComputeRoot == 0 || layout == null || layout->UavRanges == 0 || window.Data == null || window.ViewHeap == 0)
+        if (bindings->ComputeRoot == 0 || layout == null || window.Data == null || window.ViewHeap == 0)
         {
             NoteEmpty(rule, name, misses);
 
@@ -154,16 +154,8 @@ internal static unsafe class RtStandIns
         }
 
         nint inner = list->Inner;
-        int filled = 0;
-
-        for (int range = 0; range < layout->UavRanges; range++)
-        {
-            uint pointer = bindings->Compute[UserData.ComputeBase + layout->Offsets[layout->UavParameters[range]]];
-            uint count = Rules[rule].ColourOnly ? layout->UavCounts[range] : Math.Min(layout->UavCounts[range], MaxFilledRecords);
-            uint end = layout->UavStarts[range] + count;
-            runtime.DescriptorHeaps.MirrorTable(pointer, end);
-            filled += FillRecords(inner, window, pointer, layout->UavStarts[range], end, rule, filled == 0, ref misses);
-        }
+        var reach = TableReaches.OfNames(name);
+        int filled = reach.Length != 0 ? FillReach(inner, bindings, window, reach, rule, ref misses) : FillRanges(inner, bindings, window, rule, ref misses);
 
         if (filled == 0)
         {
@@ -181,6 +173,48 @@ internal static unsafe class RtStandIns
         }
 
         CommandListBindingMethods.RestoreCompute(list);
+    }
+
+    /// <summary>
+    /// The records the pass's programs read from each table (<see cref="TableReaches.OfNames"/>): the game copies its
+    /// descriptors to its binding entries' offsets, past the root signature's ranges, whose records name nothing.
+    /// </summary>
+    private static int FillReach(nint inner, CommandListBindings* bindings, DescriptorWindow window, TableReachEntry[] reach, int rule, ref FillMisses misses)
+    {
+        int filled = 0;
+
+        foreach (var entry in reach)
+        {
+            // A reach of the whole table is an index the decoder could not bound (RTDistantShadowTrace32's s6): not the pass's own outputs.
+            if (entry.Sgpr >= CommandListBindings.UserDataDwords || entry.Records >= DescriptorWindow.MaxTableRecords)
+            {
+                continue;
+            }
+
+            uint pointer = bindings->Compute[entry.Sgpr];
+            ShimContext.Runtime.D3D12X.DescriptorHeaps.MirrorTable(pointer, entry.Records);
+            filled += FillRecords(inner, window, pointer, 0, entry.Records, rule, filled == 0, ref misses);
+        }
+
+        return filled;
+    }
+
+    /// <summary>Without the programs' reach: the root signature's UAV ranges.</summary>
+    private static int FillRanges(nint inner, CommandListBindings* bindings, DescriptorWindow window, int rule, ref FillMisses misses)
+    {
+        var layout = bindings->ComputeLayout;
+        int filled = 0;
+
+        for (int range = 0; range < layout->UavRanges; range++)
+        {
+            uint pointer = bindings->Compute[UserData.ComputeBase + layout->Offsets[layout->UavParameters[range]]];
+            uint count = Rules[rule].ColourOnly ? layout->UavCounts[range] : Math.Min(layout->UavCounts[range], MaxFilledRecords);
+            uint end = layout->UavStarts[range] + count;
+            ShimContext.Runtime.D3D12X.DescriptorHeaps.MirrorTable(pointer, end);
+            filled += FillRecords(inner, window, pointer, layout->UavStarts[range], end, rule, filled == 0, ref misses);
+        }
+
+        return filled;
     }
 
     /// <summary>Fills the texture UAVs of records <paramref name="first"/> to <paramref name="end"/> of the table at window offset <paramref name="pointer"/>; how many.</summary>
