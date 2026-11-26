@@ -93,7 +93,12 @@ internal static unsafe class WaitObjects
     public static void DoneOnSeveral(ReadOnlySpan<nint> handles, bool all, uint result)
     {
         Waits.TryRemove(Native.Kernel32.GetCurrentThreadId(), out _);
-        nint caller = Caller();
+        nint caller = 0;
+
+        if (Tracked(handles))
+        {
+            caller = Caller();
+        }
 
         if (result < handles.Length)
         {
@@ -163,9 +168,13 @@ internal static unsafe class WaitObjects
         return $"wait returned 0x{result:x}";
     }
 
+    /// <summary>Records with the caller's game frame, scanned only for an object the shims saw created.</summary>
     private static void Record(nint handle, string verb)
     {
-        Record(handle, verb, Caller());
+        if (Objects.TryGetValue(handle, out var item))
+        {
+            item.Record(new WaitOperation(verb, Native.Kernel32.GetCurrentThreadId(), Now, Caller()));
+        }
     }
 
     private static void Record(nint handle, string verb, nint caller)
@@ -183,6 +192,19 @@ internal static unsafe class WaitObjects
     private static nint Caller()
     {
         return First(GameFrames(1));
+    }
+
+    private static bool Tracked(ReadOnlySpan<nint> handles)
+    {
+        foreach (var handle in handles)
+        {
+            if (Objects.ContainsKey(handle))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static nint First(nint[] frames)
