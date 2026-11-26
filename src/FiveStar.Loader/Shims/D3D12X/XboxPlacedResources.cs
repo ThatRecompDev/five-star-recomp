@@ -58,10 +58,11 @@ internal sealed unsafe class XboxPlacedResources
         _objects = objects;
         _textures = textures;
         _log = log;
+        Addresses = new AddressTable(new RetiredAddressBuffers(QueueProgress.Submitted, QueueProgress.Completed, ComObject.Release, log));
     }
 
     /// <summary>Console GPU address to desktop GPU address, for every buffer made here.</summary>
-    public AddressTable Addresses { get; } = new();
+    public AddressTable Addresses { get; }
 
     /// <summary>The buffers over memory the game committed itself; set once both exist.</summary>
     public XboxGameMemoryBuffers? GameMemory { get; set; }
