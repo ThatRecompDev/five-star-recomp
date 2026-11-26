@@ -172,6 +172,30 @@ public sealed class GpuTextureRegistryRunTests
     }
 
     [Fact]
+    public void A_texture_reaching_a_mapped_video_plane_with_its_end_keeps_it_but_one_over_its_start_retires_it()
+    {
+        var registry = new GpuTextureRegistry(() => [], () => []);
+        var plane = new GpuTexture(0x300000, default(ResourceDescription), 0, 0, 0, false, new XgSurface { Size = 0x88000 }) { Watched = true };
+        var before = new GpuTexture(0x2c0000, default(ResourceDescription), 0, 0, 0, false, new XgSurface { Size = 0xab000 });
+        var unmapped = new GpuTexture(0x500000, default(ResourceDescription), 0, 0, 0, false, new XgSurface { Size = 0x88000 });
+        var beforeUnmapped = new GpuTexture(0x4c0000, default(ResourceDescription), 0, 0, 0, false, new XgSurface { Size = 0xab000 });
+
+        registry.Register(plane);
+        registry.Register(before);
+        registry.Register(unmapped);
+        registry.Register(beforeUnmapped);
+
+        // w165: a streamed BC texture 0x40000 bytes before a 960x544 chroma plane retired it, and its views went null.
+        Assert.Same(plane, registry.Find(0x300000));
+        Assert.Same(beforeUnmapped, registry.Find(0x500000));
+
+        var over = new GpuTexture(0x300000, default(ResourceDescription), 0, 0, 0, false, new XgSurface { Size = 0x100000 });
+        registry.Register(over);
+        Assert.Same(over, registry.Find(0x300000));
+        Assert.True(plane.Unregistered);
+    }
+
+    [Fact]
     public void An_empty_registry_places_a_texture_first()
     {
         Assert.Equal((0, 0), GpuTextureRegistry.OverlapRun([], 0x10000, Page));
