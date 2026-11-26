@@ -317,6 +317,12 @@ internal sealed record HostOptions
     /// <summary>The floats shown of every NaN-scanned memory input (<c>--d3d12-nan-scan-dwords</c>); null for none.</summary>
     public (int Offset, int Count)? NanScanDwords { get; set; }
 
+    /// <summary>The dispatches to capture for <c>fivestar shader replay</c> (<c>--capture-dispatch</c>); empty when off.</summary>
+    public IReadOnlyList<Shims.D3D12X.DebugLayer.CaptureSpec> CaptureDispatch { get; set; } = [];
+
+    /// <summary>Where captured dispatches go (<c>--capture-dispatch-dir</c>).</summary>
+    public string CaptureDispatchDirectory { get; set; } = Path.GetFullPath("captures");
+
     /// <summary>Retire textures over memory the game unmaps (<c>--retire-unmapped-textures</c>); off: they are only counted.</summary>
     public bool RetireUnmappedTextures { get; set; }
 
