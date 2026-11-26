@@ -134,7 +134,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs" or "--gpu-timings":
                 return SetBreadcrumbs(option);
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--log-draws" or "--capture-when-world" or "--d3d12-dump-targets" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--log-draws" or "--capture-when-world" or "--d3d12-dump-targets" or "--dump-frame" or "--dump-frame-dir" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
                 return SetTraceDraws(option);
             case "--capture-dir" or "--capture-presents" or "--pix-capture" or "--pix-capture-dir":
                 return SetCapture(option);
@@ -1091,12 +1091,28 @@ internal sealed class CommandLineParser
             _options.CaptureWhenWorld = true;
         }
 
+        SetDumps(option);
+
+        return true;
+    }
+
+    /// <summary><c>--d3d12-dump-targets</c>, <c>--dump-frame n</c> and <c>--dump-frame-dir dir</c>.</summary>
+    private void SetDumps(string option)
+    {
         if (option == "--d3d12-dump-targets")
         {
             _options.D3D12DumpTargets = true;
         }
 
-        return true;
+        if (option == "--dump-frame")
+        {
+            _options.DumpFrame = long.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out long present) && present > 0 ? present : throw new CommandLineException("--dump-frame takes a present number, e.g. 2100");
+        }
+
+        if (option == "--dump-frame-dir")
+        {
+            _options.DumpFrameDirectory = Path.GetFullPath(Next());
+        }
     }
 
     /// <summary><c>--d3d12-watch-target WxH:format</c>, <c>--d3d12-watch-limit n</c> and <c>--d3d12-watch-rendered</c>.</summary>
