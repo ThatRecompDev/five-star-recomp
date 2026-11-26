@@ -333,6 +333,12 @@ read 0; the mesh probe of `MS_VS_Transform_PositionOnly` found one format load o
 
 Per access, `buf_limit` gives the end the dwords must fit under and `buf_offset` the checked offset (soffset counts
 for raw V#s). Each dword then costs one compare (`buf_fits`); formatted accesses check the element's first dword.
+A `buffer_load/store_dwordx2-x4` makes one compare when all its dwords are in range (`buf_fits_all`: the last fits and
+its offset does not wrap) and then one `Load2-4` / `Store2-4` through one descriptor (`BufLoadV`, `BufLoadRWV`,
+`BufStoreV`, and `BufStoreN` in compute); partly in range, a rolled loop checks and moves each dword as before
+(`BufStoreEach` for stores). On `CS_PedStandardSkinning` that took the DXIL backend's output from 281,224 to 267,040
+bytes (1,395 to 1,135 raw loads, 481 to 283 raw stores, 793 to 333 heap handles) with the same replay outputs. `s_buffer_load` keeps a select
+per dword: those loads are uniform and branch-free, and a range branch per site grew the constant-heavy programs.
 The shim's records carry the OOB_SELECT of their view's kind (raw 3, structured 0, typed and constant buffers 1).
 
 Audit against the GFX10 rules, per access kind (the corpus's 25,885 programs as a census; `ComputeBufferRuleCases` has
