@@ -509,7 +509,7 @@ internal sealed unsafe class DrawTrace
         text.Append($"\n      pipeline 0x{rectangles->Pipeline:x} topology {rectangles->Topology} variant {rectangles->VariantBound}: {pipeline}");
 
         AppendTargets(text, state);
-        text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x}");
+        text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x} ({DepthView(state.DepthStencil)})");
         text.Append(state.VertexBuffers);
         AppendUserData(text, CommandListBindings.Of(list), compute: false);
 
@@ -554,6 +554,31 @@ internal sealed unsafe class DrawTrace
         }
 
         return QueueProgress.PipelineName(pipeline);
+    }
+
+    /// <summary>The resource behind a depth-stencil view handle and whether it has depth twins.</summary>
+    private string DepthView(nint handle)
+    {
+        string view = "not a view this trace saw";
+
+        if (handle != 0 && _views.TryText(handle, out var known))
+        {
+            view = known;
+        }
+
+        var twin = DepthTwins.OfView(handle, out int format, out var stencil);
+
+        return $"{view}; twins: depth {Twin(twin)}, stencil {Twin(stencil)}, view format {format}";
+    }
+
+    private static string Twin(DepthTwin? twin)
+    {
+        if (twin is null)
+        {
+            return "none";
+        }
+
+        return $"0x{twin.Twin:x} format {twin.Format} of 0x{twin.Depth:x}";
     }
 
     /// <summary>The view this trace saw written at desktop heap index <paramref name="index"/> (resource, size and format).</summary>
@@ -648,7 +673,7 @@ internal sealed unsafe class DrawTrace
         if (!compute)
         {
             AppendTargets(text, state);
-            text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x}");
+            text.Append($"\n      viewport {state.Viewport}; scissor {state.Scissor}; dsv 0x{state.DepthStencil:x} ({DepthView(state.DepthStencil)})");
         }
 
         AppendUserData(text, CommandListBindings.Of(list), compute);

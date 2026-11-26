@@ -121,8 +121,14 @@ internal static unsafe class DepthTwins
         }
 
         twin = new DepthTwin(depth, resource, description.Format, (uint)desc.Width, desc.Height);
+        var added = Twins.GetOrAdd(key, twin);
 
-        return Twins.GetOrAdd(key, twin);
+        if (added == twin)
+        {
+            ShimContext.Log?.Info($"  [d3d12_xs] depth twins: twin 0x{resource:x} in format {twin.Format} for depth 0x{depth:x} ({twin.Width}x{twin.Height}, a UAV in format {viewFormat})");
+        }
+
+        return added;
     }
 
     /// <summary>Forgets every twin and view (their textures belong to the device they were made on): for tests, which make a device each.</summary>
@@ -134,7 +140,7 @@ internal static unsafe class DepthTwins
     }
 
     /// <summary>
-    /// Views were written at game heap indices <paramref name="first"/> to <paramref name="first"/> + <paramref name="count"/>:
+    /// Views were written at desktop heap indices <paramref name="first"/> to <paramref name="first"/> + <paramref name="count"/>:
     /// a twin's UAV that was there is gone (the game reuses heap indices), so its index no longer names the twin and the
     /// twin's handle no longer reads it.
     /// </summary>
@@ -193,13 +199,32 @@ internal static unsafe class DepthTwins
         return Of(view.Depth);
     }
 
-    /// <summary>The twin's UAV went to game heap index <paramref name="index"/>, desktop CPU handle <paramref name="handle"/>.</summary>
-    public static void NoteView(uint index, DepthTwin twin, nint handle)
+    /// <summary>
+    /// The twin's UAV went to desktop CPU handle <paramref name="handle"/> of the shader-visible view heap. Its index there
+    /// is what the window records name (a record's dword 0), which the writers' scan reads; the game's own heap index
+    /// differs once the window remaps it.
+    /// </summary>
+    public static void NoteView(DepthTwin twin, nint handle)
     {
+        var d3d12x = ShimContext.Runtime.D3D12X;
+        nint heap = d3d12x.Bindings.Window.ViewHeap;
+        NoteView(twin, handle, heap, DesktopCalls.HeapCpuStart(heap), d3d12x.DescriptorHeaps.Views?.Increment ?? 1);
+    }
+
+    /// <summary>As <see cref="NoteView(DepthTwin, nint)"/> in the view heap <paramref name="heap"/> starting at CPU handle <paramref name="start"/>.</summary>
+    public static void NoteView(DepthTwin twin, nint handle, nint heap, nint start, uint increment)
+    {
+        uint index = (uint)((ulong)(handle - start) / increment);
         twin.ViewHandle = handle;
-        twin.ViewHeap = ShimContext.Runtime.D3D12X.Bindings.Window.ViewHeap;
+        twin.ViewHeap = heap;
         twin.ViewIndex = index;
         Indices[index] = twin;
+    }
+
+    /// <summary>The twin whose UAV the view heap holds at desktop index <paramref name="index"/>; null for none.</summary>
+    public static DepthTwin? AtIndex(uint index)
+    {
+        return Indices.GetValueOrDefault(index);
     }
 
     /// <summary>
@@ -243,10 +268,21 @@ internal static unsafe class DepthTwins
     [HotPath]
     private static void Written(XboxObject* self, DepthTwin twin)
     {
+        if (twin.TakeFirstWriter())
+        {
+            NoteFirstWriter(self, twin);
+        }
+
         if (DepthTwinSides.UseTwin((nint)self, twin))
         {
             Fill(self, twin);
         }
+    }
+
+    private static void NoteFirstWriter(XboxObject* self, DepthTwin twin)
+    {
+        string pipeline = QueueProgress.PipelineName(RectangleListState.Of(self)->Pipeline);
+        ShimContext.Log?.Info($"  [d3d12_xs] depth twins: {pipeline} writes twin 0x{twin.Twin:x} (format {twin.Format}, depth 0x{twin.Depth:x}, {twin.Width}x{twin.Height}) first");
     }
 
     /// <summary>The plane into the twin on the list; warned once when this list cannot (a compute list).</summary>
@@ -256,7 +292,11 @@ internal static unsafe class DepthTwins
         var states = d3d12x.ListStates.For(self);
         int state = states.Current(twin.Depth, twin.Home);
 
-        if (!DepthTwinFill.Record(d3d12x.Objects.DesktopDevice, self->Inner, twin, state, states.LegalStates))
+        if (DepthTwinFill.Record(d3d12x.Objects.DesktopDevice, self->Inner, twin, state, states.LegalStates))
+        {
+            DepthTwinLog.InList(false, twin);
+        }
+        else
         {
             d3d12x.Warnings.Warn("depth-twin-fill", $"[d3d12_xs] depth twins: a list wrote a depth plane and then a pass that writes its twin (format {twin.Format}), and cannot copy the plane into the twin in between (a compute list, or the formats differ)");
         }
