@@ -220,9 +220,8 @@ Open the dump in Nsight Graphics (File > Open, `.nv-gpudmp`). Add the dump folde
 paths (Tools > Options) so it finds the `.nvdbg` files; the shaders then show at the faulting instruction.
 ## Unknown
 
-- Aftermath: the summary reads only the leading fields of the decoder's structs (shader info, event marker info,
-  page-fault resource info) as laid out in the SDK headers so far; a release that reorders them garbles that log line,
-  not the dump.
+- Aftermath: the summary's struct offsets are those of SDK 2026.3 (API version 0x21B); a release that reorders them
+  garbles that log line, not the dump.
 - Whether ntdll keeps honouring `PEB.NtGlobalFlag` set at the create-process event in later Windows releases (checked
   on Windows 11 build 26200).
 
