@@ -205,6 +205,16 @@ whole console waves because `readfirstlane` takes a per-lane value: TransformD r
 (GS_ALLOC_REQ's m0, and every lane's export test) from the first lane's meshlet record, indexed per lane by instance,
 equal across the wave only by the data.
 
+The same rewrite runs on the superstep form of compute programs, where each such operation is a group round too, and,
+for the values only (no skips: a branch costs less there than running the path), on the native mesh form, where an
+emulated readfirstlane is a ballot and a lane read. Compute and the other stages read their per-lane inputs under other
+names (`in_gtid`, `in_vid`, `in_pos`, ...), which the analysis now treats as lane values; before, an unknown name read
+as its declared value, equal on every lane. `CS_ShadowRenderTiledCascadesCBPPPC`'s superstep form went from 831 stops
+to 216, 1.89 to 1.54 MB of DXIL (with if-conversion), and its RTX 4090 pipeline from 4.2 to 2.7 GB peak memory (81 s
+either way). In every 4th mesh program (2,192) the native forms' readfirstlanes fell from 32,014 to 14,834 and their
+`vw_any`s from 68,732 to 66,814; no floor changed (1,833 at 4 lanes, 359 superstep forms with 9,311 stops, which had
+the rewrite before).
+
 A two-phase mesh program the window analysis holds back that way now exchanges those values instead
 (`FirstLaneExchange`): a v_readfirstlane under a full EXEC before GS_ALLOC_REQ becomes a deposit by console lane 0
 into groupshared memory, a yield to the group's barrier step and a read of lane 0's value by every thread of the

@@ -60,7 +60,7 @@ internal static class ProgramTranslator
         {
             // Every wave operation is a group round in this form: those whose result every lane already holds, and
             // then those whose result nothing reads, go first.
-            if (state.Stage == ShaderStage.Mesh)
+            if (state.Stage is ShaderStage.Mesh or ShaderStage.Compute)
             {
                 UniformWaveOperations.Rewrite(state.Blocks, state.Prologue, state.MeshThreads);
             }
@@ -76,6 +76,13 @@ internal static class ProgramTranslator
         }
         else if (!state.IsCopyShader)
         {
+            if (state.Stage == ShaderStage.Mesh && state.EmulateWaves)
+            {
+                // The emulated readfirstlane is a ballot and a lane read, an emulated any a wave reduction: those whose
+                // result every lane already holds are their operand here too (no skips: a branch costs less than the path).
+                UniformWaveOperations.RewriteValues(state.Blocks, state.Prologue, state.MeshThreads);
+            }
+
             // dxc keeps a wave operation whose result is unused (WaveActiveBallot is not dead code to it): the ballots
             // into SGPR halves that nothing reads cost a ballot and the lane-origin arithmetic each.
             DeadWaveOperations.Remove(state.Blocks, SuperstepWriter.Pinned(state, new MeshDeclarations(state)), ownBits: state.Stage != ShaderStage.Pixel);
