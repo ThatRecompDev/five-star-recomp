@@ -37,6 +37,9 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
 
     private static readonly TimeSpan SaveInterval = TimeSpan.FromMinutes(1);
 
+    /// <summary>Segment files named in this process, over every cache it opens: two never share a name.</summary>
+    private static int _sequence;
+
     private readonly object _active = new();
     private readonly object _saving = new();
     private readonly ConcurrentDictionary<string, PipelineLibrarySegment> _index = new(StringComparer.Ordinal);
@@ -44,6 +47,9 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
     private readonly List<PipelineLibrarySegment> _segments = [];
     private readonly List<string> _activeKeys = [];
     private readonly HashSet<string> _activeSet = new(StringComparer.Ordinal);
+
+    /// <summary>Segment files this process mapped, named for its own writes or passed over; <see cref="Refresh"/> takes the others.</summary>
+    private readonly HashSet<string> _files = new(StringComparer.OrdinalIgnoreCase);
     private readonly ManualResetEventSlim _stop = new();
     private readonly AutoResetEvent _wake = new(false);
     private readonly string _folder;
@@ -54,12 +60,12 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
     private Thread? _opener;
     private nint _library;
     private string _activePath = string.Empty;
-    private int _sequence;
     private bool _dirty;
     private int _unsaved;
     private int _hits;
     private int _stored;
     private int _refused;
+    private int _joined;
 
     private PipelineLibraryCache(string folder, nint device1, byte[] salt, LoaderLog log)
     {
@@ -196,7 +202,8 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
 
     /// <summary>
     /// Writes the active library to its segment file every <see cref="SaveInterval"/>, and after every
-    /// <see cref="SaveBatch"/> stored pipelines, until disposal.
+    /// <see cref="SaveBatch"/> stored pipelines, until disposal; then takes the segments other processes wrote meanwhile
+    /// (<see cref="Refresh"/>).
     /// </summary>
     public void StartSaving()
     {
@@ -269,6 +276,86 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
         while (WaitHandle.WaitAny(wakers, SaveInterval) != 0)
         {
             Save();
+            Refresh();
+        }
+    }
+
+    /// <summary>
+    /// Maps the segments other processes wrote since this one opened the folder: a warm-up run beside the game (or the
+    /// game beside a warm-up). A pipeline one of them built is then loaded here, also by a build still queued, instead
+    /// of built again. A segment this process cannot use is passed over, not deleted: its writer may still use it.
+    /// </summary>
+    public void Refresh()
+    {
+        List<string> files;
+
+        try
+        {
+            files = Directory.EnumerateFiles(_folder, "*" + PipelineLibraryFile.Extension).Order(StringComparer.Ordinal).ToList();
+        }
+        catch (IOException)
+        {
+            return;
+        }
+
+        int joined = 0;
+
+        foreach (var file in files)
+        {
+            if (_stop.IsSet)
+            {
+                break;
+            }
+
+            if (!Unseen(file))
+            {
+                continue;
+            }
+
+            var segment = MapOther(file);
+
+            if (segment is null)
+            {
+                continue;
+            }
+
+            if (HResult.Failed(segment.Activate(_device1)))
+            {
+                segment.Dispose();
+
+                continue;
+            }
+
+            Add(segment);
+            joined += segment.Keys.Count;
+        }
+
+        if (joined > 0)
+        {
+            Interlocked.Add(ref _joined, joined);
+            _log.Detail($"  [d3d12_xs] pipeline cache: {joined} pipelines from segments other processes wrote ({Volatile.Read(ref _joined)} since opening)");
+        }
+    }
+
+    /// <summary>Whether <paramref name="file"/> is new to this process; it is not afterwards.</summary>
+    private bool Unseen(string file)
+    {
+        lock (_files)
+        {
+            return _files.Add(file);
+        }
+    }
+
+    /// <summary>Another process's segment file, mapped; null when it is foreign, damaged or gone (deleted by its writer's eviction).</summary>
+    private PipelineLibrarySegment? MapOther(string file)
+    {
+        try
+        {
+            return PipelineLibrarySegment.Map(file, _salt);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 
@@ -281,6 +368,7 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
     {
         var files = Directory.EnumerateFiles(_folder, "*" + PipelineLibraryFile.Extension).Order(StringComparer.Ordinal).ToList();
         var mapped = new List<PipelineLibrarySegment>();
+        files.ForEach(file => Unseen(file));
 
         foreach (var file in Evict(files))
         {
@@ -407,6 +495,7 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
         _library = library;
         var id = DateTime.UtcNow.ToString(IdFormat, CultureInfo.InvariantCulture);
         _activePath = Path.Combine(_folder, $"{id}-{Environment.ProcessId}-{Interlocked.Increment(ref _sequence)}{PipelineLibraryFile.Extension}");
+        Unseen(_activePath);
 
         return true;
     }
