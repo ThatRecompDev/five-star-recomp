@@ -6,8 +6,8 @@ GTA VI does not run yet. Updated 26 November 2026.
 
 - **Boots to the world.** Logo, intro, first-run screens, story load and the opening cutscene (art, credits, dialogue,
   sound) run at 30 fps. The 3D world draws from about present 950.
-- **World image:** the city at night is on screen, but wrong. It accumulates over frames (light trails, as if a target
-  is never cleared), is banded and too bright, then goes white. Being traced.
+- **World image:** the city at night is on screen and lit (the lit HDR matches the reference port's range). Still wrong:
+  blocky shadows, banding in bloom, exposure about 4 stops dark, no bounced light (needs ray tracing).
 - **Materials:** fixed. Every texture the G-buffer samples now has data (streamed textures are re-read as their pages
   change).
 - **Speed:** a world frame takes about 540 ms (about 2 fps), down from 1,100 ms. The GPU's main queue is now the limit.
@@ -19,7 +19,8 @@ GTA VI does not run yet. Updated 26 November 2026.
 
 | Problem | Next step |
 |---|---|
-| Image accumulates, washes out to white | find the target that isn't cleared; auto-exposure trace |
+| Blocky shadows on near geometry | trace the shadow-mask pages and cascade shadow draws |
+| Banding in bloom and flares | check the bloom chain's formats |
 | Heaviest GPU passes: depth pre-pass mesh shader 95 ms, deferred G-buffer 77 ms, our indirect clamp 58 ms | `--mesh-launch` (no per-draw clamp), one clamp per list |
 | Texture refresh 84 ms a frame on the submit path | refresh only what the frame reads, off the submit thread |
 | Ray tracing | not built; those passes are skipped |
