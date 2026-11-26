@@ -101,6 +101,8 @@ internal static unsafe class SharedExponentAliases
 
             _indices[word] |= 1u << (int)(index % BitsPerWord);
         }
+
+        ShimContext.ActiveRuntime?.D3D12X.Bindings.Window.Records.Watch(index);
     }
 
     /// <summary>A barrier of <paramref name="list"/> named the desktop <paramref name="resource"/>: if it is a source, its next read copies.</summary>
@@ -124,38 +126,33 @@ internal static unsafe class SharedExponentAliases
 
     /// <summary>
     /// Before a draw or dispatch on <paramref name="list"/>: each shadow whose view the tables the pipeline reaches hold
-    /// (<paramref name="userData"/> pointers into <paramref name="window"/>) gets the source's texels unless the list
+    /// (<paramref name="userData"/> pointers into the window, read through <paramref name="records"/>) gets the source's texels unless the list
     /// copied them since it last used the source.
     /// </summary>
     [HotPath]
-    public static void BeforeWork(nint list, ListResourceStates states, uint* userData, byte* window, TableReachEntry[] tables)
+    public static void BeforeWork(nint list, ListResourceStates states, uint* userData, WindowRecordIndices records, TableReachEntry[] tables)
     {
         var indices = Volatile.Read(ref _indices);
 
-        if (window == null)
+        if (!records.Any)
         {
             return;
         }
 
         foreach (var entry in tables)
         {
-            if (entry.Sgpr >= CommandListBindings.UserDataDwords)
+            if (entry.Sgpr >= CommandListBindings.UserDataDwords || userData[entry.Sgpr] % DescriptorWindow.ViewRecordBytes != 0)
             {
                 continue;
             }
 
-            uint table = userData[entry.Sgpr];
-            uint records = entry.Records;
+            // Only the records naming a watched index (the window is write-combined: see WindowRecordIndices).
+            uint first = userData[entry.Sgpr] / DescriptorWindow.ViewRecordBytes;
+            uint end = WindowRecordIndices.End(first, entry.Records, ScanLimit);
 
-            if (records > ScanLimit)
+            for (uint slot = records.NextMarked(first, end); slot < end; slot = records.NextMarked(slot + 1, end))
             {
-                records = ScanLimit;
-            }
-
-            // 64-bit: a table offset near 4 GiB must not wrap past the check (as in DepthTwins' writer scan).
-            for (uint i = 0; i < records && (ulong)table + ((i + 1UL) * DescriptorWindow.ViewRecordBytes) <= DescriptorWindow.RecordsEnd; i++)
-            {
-                uint? index = DebugLayer.DepthUavs.HeapIndex((uint*)(window + table + (i * DescriptorWindow.ViewRecordBytes)));
+                uint? index = records.HeapIndex(slot);
 
                 if (index is uint at && at / BitsPerWord < indices.Length && (indices[at / BitsPerWord] & (1u << (int)(at % BitsPerWord))) != 0)
                 {

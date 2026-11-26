@@ -1165,7 +1165,7 @@ internal static unsafe class CommandListBindingMethods
         // its depth twins' UAVs in a table of 8 records).
         if (DepthTwins.Any)
         {
-            DepthTwins.MarkWriters(self, data, ShimContext.Runtime.D3D12X.Bindings.Window.Data, TableReaches.AllOf(pipeline));
+            DepthTwins.MarkWriters(self, data, ShimContext.Runtime.D3D12X.Bindings.Window.Records, TableReaches.AllOf(pipeline));
         }
 
         var entries = TableReaches.Of(pipeline);
@@ -1182,7 +1182,7 @@ internal static unsafe class CommandListBindingMethods
 
         if (SharedExponentAliases.Any)
         {
-            SharedExponentAliases.BeforeWork(self->Inner, ShimContext.Runtime.D3D12X.ListStates.For(self), data, ShimContext.Runtime.D3D12X.Bindings.Window.Data, entries);
+            SharedExponentAliases.BeforeWork(self->Inner, ShimContext.Runtime.D3D12X.ListStates.For(self), data, ShimContext.Runtime.D3D12X.Bindings.Window.Records, entries);
         }
 
         var heaps = ShimContext.Runtime.D3D12X.DescriptorHeaps;

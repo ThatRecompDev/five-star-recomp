@@ -156,8 +156,11 @@ internal sealed unsafe class DescriptorWindow
     /// <summary>The window buffer; 0 until the view heap exists.</summary>
     public nint Buffer { get; private set; }
 
-    /// <summary>The window's CPU mapping; null until the view heap exists.</summary>
+    /// <summary>The window's CPU mapping; null until the view heap exists. Write-combined: read <see cref="Records"/> instead.</summary>
     public byte* Data { get; private set; }
+
+    /// <summary>The heap index each view record names, in cached memory, and the records naming a watched index.</summary>
+    public WindowRecordIndices Records { get; } = new();
 
     /// <summary>The window flags of <see cref="WindowFeedback"/>, indexed by window id; null without it or a window.</summary>
     public uint* WindowFlags
