@@ -69,6 +69,9 @@ internal sealed unsafe class Presenter : IDisposable
     /// <summary>Reads back the plane at chosen presents (<c>--capture-dir</c>); null when off.</summary>
     public FrameCapture? Capture { get; set; }
 
+    /// <summary>PIX GPU captures of chosen presents (<c>--pix-capture</c>); null when off.</summary>
+    public PixGpuCapture? Pix { get; set; }
+
     /// <summary>Signatures of presents for an input script's screens; null without a script.</summary>
     public ScreenSampler? Screens { get; set; }
 
@@ -269,6 +272,7 @@ internal sealed unsafe class Presenter : IDisposable
 
         Volatile.Write(ref _presents, _presents + 1);
         Pipelines.StandInUse.Frame = _presents;
+        Pix?.AfterPresent(_presents);
 
         if (_presents <= EarlyPresents)
         {
