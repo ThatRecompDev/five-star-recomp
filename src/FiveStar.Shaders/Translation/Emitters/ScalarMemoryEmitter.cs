@@ -57,7 +57,7 @@ internal sealed class ScalarMemoryEmitter
 
             for (var dword = 0; dword < count; dword++)
             {
-                _operands.Write(a[Destination], $"select({checkedOffset} + {dword * BytesPerDword}u < {limit}, BufLoad({view}.x, {start} + {dword}u * 4u), 0u)", dword);
+                _operands.Write(a[Destination], $"select({checkedOffset} + {dword * BytesPerDword}u < {limit}, SBufLoad({view}.x, {start} + {dword}u * 4u), 0u)", dword);
             }
 
             return;
@@ -66,16 +66,47 @@ internal sealed class ScalarMemoryEmitter
         var values = _operands.Snap(_operands.Read(pointer, Low), offsetValue);
         var (address, offset) = (values[0], values[1]);
         var high = _operands.SnapOne(_operands.Read(pointer, High));
+        var shared = SharedView(address, offset, high, count);
 
         for (var dword = 0; dword < count; dword++)
         {
-            _operands.Write(a[Destination], PointerLoad(address, offset, high, dword), dword);
+            _operands.Write(a[Destination], PointerLoad(address, offset, high, dword, shared), dword);
         }
     }
 
-    private string PointerLoad(string address, string offset, string high, int dword)
+    /// <summary>
+    /// The address-map walk an s_load of several dwords shares (prelude sptr_view), or null: one dword, a load that may
+    /// read the program's code or the ring table, or one with an S# dword read from the sampler records.
+    /// </summary>
+    private string? SharedView(string address, string offset, string high, int count)
     {
-        var function = "PtrLoad";
+        if (count == 1 || _state.UsesCode || _state.Stage == ShaderStage.Geometry || _state.IsCopyShader)
+        {
+            return null;
+        }
+
+        for (var dword = 0; dword < count; dword++)
+        {
+            if (_state.SamplerLoadDwords.Contains((_state.Address, dword)))
+            {
+                return null;
+            }
+        }
+
+        var view = "_t" + _state.NextTemporary().ToString(System.Globalization.CultureInfo.InvariantCulture);
+        _state.Emit($"  uint3 {view} = sptr_view({address}, {high}, {offset}, {count * BytesPerDword}u);");
+
+        return view;
+    }
+
+    private string PointerLoad(string address, string offset, string high, int dword, string? view)
+    {
+        if (view is not null)
+        {
+            return $"SPtrLoadAt({view}, {dword * BytesPerDword}u, {address}, {high}, {offset} + {dword}u * 4u)";
+        }
+
+        var function = "SPtrLoad";
 
         if (_state.SamplerLoadDwords.Contains((_state.Address, dword)))
         {
