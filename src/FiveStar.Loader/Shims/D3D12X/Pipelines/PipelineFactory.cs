@@ -441,7 +441,10 @@ internal sealed unsafe class PipelineFactory
         var heavy = stream.ShaderBytes >= HeavyShaderBytes;
         // Build loads a cached pipeline itself, under the compile budget: the driver's recompiles on load take its memory
         // too (w149, which loaded them without it, reached 35 GB private in 90 s).
-        Func<PipelineResult> make = () => Build(stream, wanted, names);
+        // A cached one is a load, not a build of ours: urgent, so the load window's hold on heavy compiles does not keep
+        // it back (w150 waited 20 s at first use for cached pipelines held until the window closed).
+        bool cached = !loadHere && Cache is not null && Cache.Contains(stream.Key);
+        Func<PipelineResult> make = cached ? () => Urgently(() => Build(stream, wanted, names)) : () => Build(stream, wanted, names);
 
         if (deferral is not null)
         {
@@ -449,6 +452,22 @@ internal sealed unsafe class PipelineFactory
         }
 
         return StandIns.Create(make, result, names, named, heavy, small);
+    }
+
+    /// <summary>Runs <paramref name="make"/> with this thread's compiles urgent (<see cref="CompileBudget.Urgent"/>).</summary>
+    private static PipelineResult Urgently(Func<PipelineResult> make)
+    {
+        bool was = CompileBudget.Urgent;
+        CompileBudget.Urgent = true;
+
+        try
+        {
+            return make();
+        }
+        finally
+        {
+            CompileBudget.Urgent = was;
+        }
     }
 
     /// <summary>
