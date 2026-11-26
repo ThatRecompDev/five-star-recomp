@@ -7,6 +7,7 @@
 
 using System.Collections.Concurrent;
 using FiveStar.Loader.Shims.D3D12X.Binding;
+using FiveStar.Loader.Shims.D3D12X.Present;
 using FiveStar.Loader.Shims.D3D12X.States;
 
 namespace FiveStar.Loader.Shims.D3D12X;
@@ -34,7 +35,16 @@ internal static unsafe class IndirectGather
     private const ulong RecordAlignment = 16;
     private const int DefaultHeap = 1;
 
+    /// <summary>Pipelines named in the summary as those whose work ended gathering.</summary>
+    private const int TopClosers = 8;
+
     private static readonly ConcurrentDictionary<nint, GatherBatch> Batches = new();
+    private static readonly ConcurrentDictionary<nint, long> Closers = new();
+    private static readonly long[] Misses = new long[Enum.GetValues<IndirectGatherMiss>().Length];
+    private static readonly long[] ClosedBy = new long[Enum.GetValues<IndirectGatherCloser>().Length];
+
+    /// <summary>D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT.</summary>
+    private const int IndirectArgumentState = 0x200;
     private static long _gathered;
     private static long _clamped;
 
@@ -56,7 +66,7 @@ internal static unsafe class IndirectGather
 
             var (gathered, alone) = Counts;
 
-            return $"; [indirect gather] {gathered} ExecuteIndirects gathered, {alone} clamped alone, {IndirectGatherPrelude.Count} preludes of {IndirectGatherPrelude.Passes} passes";
+            return $"; [indirect gather] {gathered} ExecuteIndirects gathered, {alone} clamped alone ({MissSummary()}), {IndirectGatherPrelude.Count} preludes of {IndirectGatherPrelude.Passes} passes; segments whose gathering a barrier ended: {ClosedBySummary()}; ended most by the work of {CloserSummary()}";
         }
     }
 
@@ -71,8 +81,8 @@ internal static unsafe class IndirectGather
 
         var scratch = ListIndirectScratch.Of(self);
         scratch->GatherOpen = 1;
-        scratch->GatherWritten = 0;
         scratch->GatherSegment = 0;
+        Opened(scratch);
 
         // The buffer is written again by this recording's preludes, which run after the list's last run on its queue.
         if (Batches.TryGetValue((nint)self, out var batch))
@@ -90,8 +100,8 @@ internal static unsafe class IndirectGather
         {
             var scratch = ListIndirectScratch.Of(self);
             scratch->GatherOpen = 1;
-            scratch->GatherWritten = 0;
             scratch->GatherSegment = ListSegments.Of(self)->Count;
+            Opened(scratch);
         }
     }
 
@@ -101,18 +111,34 @@ internal static unsafe class IndirectGather
     {
         if (Enabled)
         {
-            ListIndirectScratch.Of(self)->GatherOpen = 0;
+            var scratch = ListIndirectScratch.Of(self);
+
+            if (scratch->GatherOpen != 0)
+            {
+                scratch->GatherOpen = 0;
+                scratch->GatherClosed = (int)IndirectGatherMiss.MemoryWait;
+            }
         }
     }
 
-    /// <summary>Work that may write memory (a dispatch, a copy, a memory write): a barrier after it ends gathering.</summary>
+    /// <summary>Work that may write memory (a dispatch, a copy, a memory write: <paramref name="writer"/>): a barrier after it ends gathering.</summary>
     [HotPath]
-    public static void Wrote(XboxObject* self)
+    public static void Wrote(XboxObject* self, IndirectGatherMiss writer)
     {
-        if (Enabled)
+        if (!Enabled)
         {
-            ListIndirectScratch.Of(self)->GatherWritten = 1;
+            return;
         }
+
+        // A copy or a memory write has no pipeline of its own; a dispatch is named by the one bound.
+        nint pipeline = 0;
+
+        if (writer == IndirectGatherMiss.AfterDispatch)
+        {
+            pipeline = RectangleListState.Of(self)->Pipeline;
+        }
+
+        Written(ListIndirectScratch.Of(self), writer, pipeline);
     }
 
     /// <summary>
@@ -120,22 +146,92 @@ internal static unsafe class IndirectGather
     /// game must order them so), and gathering ends in this segment; before any such work it changes nothing.
     /// </summary>
     [HotPath]
-    public static void Synced(XboxObject* self)
+    public static void Synced(XboxObject* self, IndirectGatherCloser closer)
     {
-        if (Enabled && ListIndirectScratch.Of(self)->GatherWritten != 0)
+        var scratch = ListIndirectScratch.Of(self);
+
+        if (Enabled && scratch->GatherWritten != 0 && scratch->GatherOpen != 0)
         {
-            ListIndirectScratch.Of(self)->GatherOpen = 0;
+            scratch->GatherOpen = 0;
+            scratch->GatherClosed = scratch->GatherWriter;
+            Interlocked.Increment(ref ClosedBy[(int)closer]);
+            NoteCloser(scratch->GatherWriterPipeline);
         }
+    }
+
+    /// <summary>As <see cref="Synced"/> for a ResourceBarrier of <paramref name="count"/> <paramref name="barriers"/>, told apart by what they do.</summary>
+    [HotPath]
+    public static void SyncedBy(XboxObject* self, uint count, TransitionBarrier* barriers)
+    {
+        if (!Enabled || ListIndirectScratch.Of(self)->GatherWritten == 0)
+        {
+            return;
+        }
+
+        var closer = IndirectGatherCloser.OtherTransition;
+
+        for (uint i = 0; barriers != null && i < count; i++)
+        {
+            if (barriers[i].Type == TransitionBarrier.TransitionType && (barriers[i].StateAfter & IndirectArgumentState) != 0)
+            {
+                closer = IndirectGatherCloser.ArgumentTransition;
+
+                break;
+            }
+
+            if (barriers[i].Type == TransitionBarrier.UavType)
+            {
+                closer = IndirectGatherCloser.UavBarrier;
+            }
+        }
+
+        Synced(self, closer);
     }
 
     /// <summary>After a draw or ExecuteIndirect recorded: a dispatch, or a pipeline that stores, may have written.</summary>
     [HotPath]
     public static void AfterWork(XboxObject* self, bool dispatch, nint pipeline)
     {
-        if (Enabled && (dispatch || PipelineStores.Stores(pipeline)))
+        if (!Enabled || (!dispatch && !PipelineStores.Stores(pipeline)))
         {
-            ListIndirectScratch.Of(self)->GatherWritten = 1;
+            return;
         }
+
+        var writer = IndirectGatherMiss.AfterIndirectDispatch;
+
+        if (!dispatch && PipelineStores.Registered(pipeline))
+        {
+            writer = IndirectGatherMiss.AfterStoringDraw;
+        }
+        else if (!dispatch)
+        {
+            writer = IndirectGatherMiss.AfterUndecodedDraw;
+        }
+
+        Written(ListIndirectScratch.Of(self), writer, pipeline);
+    }
+
+    /// <summary>The segment's writer noted (the first one counts), so a barrier after it ends gathering.</summary>
+    [HotPath]
+    private static void Written(ListIndirectScratch* scratch, IndirectGatherMiss writer, nint pipeline)
+    {
+        if (scratch->GatherWritten == 0)
+        {
+            scratch->GatherWriter = (int)writer;
+            scratch->GatherWriterPipeline = pipeline;
+        }
+
+        scratch->GatherWritten = 1;
+    }
+
+    /// <summary>A segment opened for gathering: nothing written in it yet.</summary>
+    [HotPath]
+    private static void Opened(ListIndirectScratch* scratch)
+    {
+        scratch->GatherWritten = 0;
+        scratch->GatherWriter = 0;
+        scratch->GatherWriterPipeline = 0;
+        scratch->GatherClosed = 0;
     }
 
     /// <summary>
@@ -154,9 +250,17 @@ internal static unsafe class IndirectGather
             return false;
         }
 
-        if (!Gatherable(self, call, arguments, offset, count) || !Take(self, (ulong)call.Stride * call.MaxCount, out buffer, out slot))
+        var miss = Miss(self, call, arguments, offset, count);
+
+        if (miss == IndirectGatherMiss.None && !Take(self, (ulong)call.Stride * call.MaxCount, out buffer, out slot))
+        {
+            miss = IndirectGatherMiss.NoBuffer;
+        }
+
+        if (miss != IndirectGatherMiss.None)
         {
             Interlocked.Increment(ref _clamped);
+            Interlocked.Increment(ref Misses[(int)miss]);
 
             return false;
         }
@@ -200,14 +304,85 @@ internal static unsafe class IndirectGather
         return scratch->GatherOpen != 0 && scratch->GatherSegment == ListSegments.Of(self)->Count;
     }
 
+    /// <summary>Why the ExecuteIndirect cannot be gathered; <see cref="IndirectGatherMiss.None"/> when it can.</summary>
     [HotPath]
-    private static bool Gatherable(XboxObject* self, IndirectCall call, nint arguments, ulong offset, nint count)
+    private static IndirectGatherMiss Miss(XboxObject* self, IndirectCall call, nint arguments, ulong offset, nint count)
     {
-        bool open = IsOpen(self);
+        var scratch = ListIndirectScratch.Of(self);
         ulong end = offset + ((ulong)call.Stride * call.MaxCount);
 
-        return open && count == 0 && arguments != 0 && call.Kind >= 0 && call.MaxCount > 0 && call.MaxCount <= MaxRecords && end <= uint.MaxValue
-            && IndirectGatherProgram.Ready(ShimContext.Runtime.D3D12X.Objects.DesktopDevice, out _, out _);
+        if (!IsOpen(self))
+        {
+            return Closed(scratch, ListSegments.Of(self)->Count);
+        }
+
+        if (count != 0)
+        {
+            return IndirectGatherMiss.CountBuffer;
+        }
+
+        if (call.MaxCount > MaxRecords)
+        {
+            return IndirectGatherMiss.TooManyRecords;
+        }
+
+        if (arguments == 0 || call.Kind < 0 || call.MaxCount == 0 || end > uint.MaxValue)
+        {
+            return IndirectGatherMiss.NotClampable;
+        }
+
+        if (!IndirectGatherProgram.Ready(ShimContext.Runtime.D3D12X.Objects.DesktopDevice, out _, out _))
+        {
+            return IndirectGatherMiss.ProgramNotReady;
+        }
+
+        return IndirectGatherMiss.None;
+    }
+
+    /// <summary>Why gathering ended in the list's segment <paramref name="segment"/>.</summary>
+    [HotPath]
+    private static IndirectGatherMiss Closed(ListIndirectScratch* scratch, int segment)
+    {
+        if (scratch->GatherSegment != segment || scratch->GatherClosed == 0)
+        {
+            return IndirectGatherMiss.OtherSegment;
+        }
+
+        return (IndirectGatherMiss)scratch->GatherClosed;
+    }
+
+    /// <summary>Counts the pipeline whose work ended a segment's gathering.</summary>
+    private static void NoteCloser(nint pipeline)
+    {
+        Closers.AddOrUpdate(pipeline, 1, static (_, count) => count + 1);
+    }
+
+    /// <summary>"reason N, ..." over the misses counted, most first.</summary>
+    private static string MissSummary()
+    {
+        var parts = Enum.GetValues<IndirectGatherMiss>()
+            .Where(miss => miss != IndirectGatherMiss.None && Interlocked.Read(ref Misses[(int)miss]) > 0)
+            .OrderByDescending(miss => Interlocked.Read(ref Misses[(int)miss]))
+            .Select(miss => $"{miss} {Interlocked.Read(ref Misses[(int)miss])}");
+
+        return string.Join(", ", parts);
+    }
+
+    /// <summary>"kind N, ..." over the barriers and flushes that ended gathering.</summary>
+    private static string ClosedBySummary()
+    {
+        var parts = Enum.GetValues<IndirectGatherCloser>().Select(closer => $"{closer} {Interlocked.Read(ref ClosedBy[(int)closer])}");
+
+        return string.Join(", ", parts);
+    }
+
+    /// <summary>The pipelines whose work ended gathering most often, by name.</summary>
+    private static string CloserSummary()
+    {
+        var parts = Closers.OrderByDescending(entry => entry.Value).Take(TopClosers)
+            .Select(entry => $"{QueueProgress.PipelineName(entry.Key)} x{entry.Value}");
+
+        return string.Join(", ", parts);
     }
 
     /// <summary>The next aligned piece of <paramref name="bytes"/> in the list's gather buffer, growing it when full.</summary>
