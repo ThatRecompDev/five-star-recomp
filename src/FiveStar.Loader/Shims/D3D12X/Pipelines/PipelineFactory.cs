@@ -160,7 +160,7 @@ internal sealed unsafe class PipelineFactory
                 work = _ => Task.CompletedTask;
             }
 
-            var waiting = StandIns.Waiting(work, () => Prepared(PrepareGraphics(description), wanted), result, deferral, what, ProgramsNow(description, all, lacking, onDemand));
+            var waiting = StandIns.Waiting(work, () => Prepared(PrepareGraphics(description), wanted), result, deferral, what, ProgramsNow(description, all, lacking, onDemand), all);
 
             return Remember(description, waiting, result, "programs made on demand");
         }

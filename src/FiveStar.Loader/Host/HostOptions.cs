@@ -413,6 +413,9 @@ internal sealed record HostOptions
     /// <summary><c>--no-rt-stand-ins</c>: held ray-tracing passes leave their outputs as they are (RtStandIns).</summary>
     public bool NoRtStandIns { get; set; }
 
+    /// <summary><c>--no-lighting-waits</c>: the lighting pipelines are skipped while stand-ins, as any other (EssentialPipelines).</summary>
+    public bool NoLightingWaits { get; set; }
+
     /// <summary>Run the XDsp convolution effects on the CPU instead of returning silence (<c>--xdsp-convolution</c>).</summary>
     public bool XDspConvolution { get; set; }
 

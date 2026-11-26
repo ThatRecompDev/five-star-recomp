@@ -43,6 +43,9 @@ internal sealed unsafe class StandInPipelines
     private readonly ConcurrentDictionary<string, long> _skippedBefore = new(StringComparer.Ordinal);
     private readonly HashSet<nint> _small = [];
     private readonly HashSet<nint> _essential = [];
+    private readonly HashSet<nint> _lighting = [];
+    private int _lightingMade;
+    private int _lightingMissed;
     private readonly ConcurrentDictionary<nint, string> _kinds = new();
     private readonly ConcurrentDictionary<string, string> _skippedKinds = new(StringComparer.Ordinal);
     private int _essentialMade;
@@ -92,7 +95,7 @@ internal sealed unsafe class StandInPipelines
     public PipelineWaits? Waits { get; init; } = PipelineWaits.Current;
 
     /// <summary>Stand-ins handed out, how many have their pipeline, the work skipped meanwhile and the work recorded.</summary>
-    public string Summary => $"{Volatile.Read(ref _created)} stand-in pipelines ({Volatile.Read(ref _deferred)} built on first use, {Volatile.Read(ref _used)} of them used, {Volatile.Read(ref _onDemand)} with programs made on demand, {Volatile.Read(ref _ready)} built since, {Count(queue => queue.Backlog)} queued, {Count(queue => queue.WaitingForMemory)} build threads waiting for memory), {Interlocked.Read(ref _skipped)} draws and dispatches skipped, {Interlocked.Read(ref _skippedAfterChain)} dispatches and ExecuteIndirects skipped after a skipped one of their list,{Interlocked.Read(ref _recorded)} recorded, {SkippedBeforeSummary()}, {Volatile.Read(ref _smallMade)} small pipelines made at first use ({Volatile.Read(ref _smallProgramsInline)} with programs made inline or found ready,{Volatile.Read(ref _smallNotReady)} not waited for: programs not made, {Volatile.Read(ref _smallOverBudget)} over the first-use budget), {Volatile.Read(ref _waitedFor)} waited for by name ({Volatile.Read(ref _waitsPastLimit)} past the limit), {Volatile.Read(ref _essentialMade)} clears, blits and UI pipelines made at first use ({Volatile.Read(ref _essentialMissed)} not within {EssentialPipelines.Limit.TotalSeconds:F0} s), {MostSkippedSummary()}";
+    public string Summary => $"{Volatile.Read(ref _created)} stand-in pipelines ({Volatile.Read(ref _deferred)} built on first use, {Volatile.Read(ref _used)} of them used, {Volatile.Read(ref _onDemand)} with programs made on demand, {Volatile.Read(ref _ready)} built since, {Count(queue => queue.Backlog)} queued, {Count(queue => queue.WaitingForMemory)} build threads waiting for memory), {Interlocked.Read(ref _skipped)} draws and dispatches skipped, {Interlocked.Read(ref _skippedAfterChain)} dispatches and ExecuteIndirects skipped after a skipped one of their list,{Interlocked.Read(ref _recorded)} recorded, {SkippedBeforeSummary()}, {Volatile.Read(ref _smallMade)} small pipelines made at first use ({Volatile.Read(ref _smallProgramsInline)} with programs made inline or found ready,{Volatile.Read(ref _smallNotReady)} not waited for: programs not made, {Volatile.Read(ref _smallOverBudget)} over the first-use budget), {Volatile.Read(ref _waitedFor)} waited for by name ({Volatile.Read(ref _waitsPastLimit)} past the limit), {Volatile.Read(ref _essentialMade)} clears, blits and UI pipelines made at first use ({Volatile.Read(ref _essentialMissed)} not within {EssentialPipelines.Limit.TotalSeconds:F0} s), {Volatile.Read(ref _lightingMade)} lighting pipelines waited for at first use ({Volatile.Read(ref _lightingMissed)} not within {EssentialPipelines.LightingLimit.TotalSeconds:F0} s), {MostSkippedSummary()}";
 
     /// <summary>
     /// Runs <paramref name="create"/> and writes its pipeline to <paramref name="result"/>; when it takes longer than
@@ -191,9 +194,9 @@ internal sealed unsafe class StandInPipelines
     /// starts when a command list first sets the stand-in (as <see cref="Deferred"/>), else now. A small compute
     /// stand-in has <paramref name="programsNow"/>, which makes its programs on the thread of its first use.
     /// </summary>
-    public int Waiting(Func<StandInUse?, Task> programs, Func<PendingBuild?> prepare, nint* result, Action? used, string what = "", Func<bool>? programsNow = null)
+    public int Waiting(Func<StandInUse?, Task> programs, Func<PendingBuild?> prepare, nint* result, Action? used, string what = "", Func<bool>? programsNow = null, string? names = null)
     {
-        nint standIn = NewStandIn(what, programsNow is not null, "programs on demand");
+        nint standIn = NewStandIn(what, programsNow is not null, "programs on demand", names);
         Track(standIn, new StandInWork { Programs = programs, ProgramsNow = programsNow });
         Interlocked.Increment(ref _created);
         Interlocked.Increment(ref _onDemand);
@@ -348,7 +351,12 @@ internal sealed unsafe class StandInPipelines
 
         if (firstUse && IsIn(_essential, pipeline))
         {
-            desktop = MakeEssential(pipeline);
+            desktop = MakeEssential(pipeline, EssentialPipelines.Limit, ref _essentialMade, ref _essentialMissed);
+            pending = desktop == 0;
+        }
+        else if (firstUse && IsIn(_lighting, pipeline))
+        {
+            desktop = MakeEssential(pipeline, EssentialPipelines.LightingLimit, ref _lightingMade, ref _lightingMissed);
             pending = desktop == 0;
         }
         else if (firstUse && IsIn(_small, pipeline))
@@ -511,8 +519,10 @@ internal sealed unsafe class StandInPipelines
             _live.Remove((nint)standIn);
             _waiting.Remove((nint)standIn);
             _work.Remove((nint)standIn);
+
             _small.Remove((nint)standIn);
             _essential.Remove((nint)standIn);
+            _lighting.Remove((nint)standIn);
             _waited.Remove((nint)standIn);
 
             desktop = standIn->Desktop;
@@ -627,28 +637,29 @@ internal sealed unsafe class StandInPipelines
 
     /// <summary>
     /// The first use of an essential stand-in (<see cref="EssentialPipelines"/>): its programs and pipeline are made
-    /// now, up to <see cref="EssentialPipelines.Limit"/>, the hang watchdog paused; no first-use budget applies.
+    /// now, up to <paramref name="limit"/>, the hang watchdog paused; no first-use budget applies. Counted in
+    /// <paramref name="made"/> or <paramref name="missed"/>.
     /// </summary>
-    private nint MakeEssential(nint pipeline)
+    private nint MakeEssential(nint pipeline, TimeSpan limit, ref int made, ref int missed)
     {
         long started = Stopwatch.GetTimestamp();
         nint desktop;
 
         using (WatchdogPause.Enter())
         {
-            desktop = MakeNow(pipeline, EssentialPipelines.Limit, essential: true);
+            desktop = MakeNow(pipeline, limit, essential: true);
         }
 
         if (desktop != 0)
         {
-            Interlocked.Increment(ref _essentialMade);
+            Interlocked.Increment(ref made);
 
             return desktop;
         }
 
-        Interlocked.Increment(ref _essentialMissed);
+        Interlocked.Increment(ref missed);
         var took = Stopwatch.GetElapsedTime(started);
-        _warnings.Warn($"essential-{Name(pipeline)}", $"[d3d12_xs] pipeline {Name(pipeline)} not made within {took.TotalSeconds:F1} s of its first use: its clears or blits are skipped until it is");
+        _warnings.Warn($"essential-{Name(pipeline)}", $"[d3d12_xs] pipeline {Name(pipeline)} not made within {took.TotalSeconds:F1} s of its first use: its work is skipped until it is");
 
         return 0;
     }
@@ -760,7 +771,8 @@ internal sealed unsafe class StandInPipelines
     /// <param name="what">Its programs' names; essential ones (<see cref="EssentialPipelines"/>) are made at first use.</param>
     /// <param name="small">Whether it is made at first use within the first-use budget.</param>
     /// <param name="kind">How its pipeline comes, for the summary's most skipped pipelines.</param>
-    private nint NewStandIn(string what = "", bool small = false, string kind = "")
+    /// <param name="names">All its programs' names when <paramref name="what"/> names only some (those made on demand).</param>
+    private nint NewStandIn(string what = "", bool small = false, string kind = "", string? names = null)
     {
         var standIn = (StandInPipelineObject*)NativeMemory.AllocZeroed((nuint)sizeof(StandInPipelineObject));
         standIn->Vtable = (nint)_vtable;
@@ -769,7 +781,9 @@ internal sealed unsafe class StandInPipelines
         _uses[(nint)standIn] = new StandInUse();
 
         _kinds[(nint)standIn] = kind;
-        bool essential = kind != HeldKind && EssentialPipelines.Matches(what);
+        string classified = names ?? what;
+        bool essential = kind != HeldKind && EssentialPipelines.Matches(classified);
+        bool lighting = kind != HeldKind && !essential && EssentialPipelines.IsLighting(classified);
 
         lock (_gate)
         {
@@ -783,6 +797,11 @@ internal sealed unsafe class StandInPipelines
             if (essential)
             {
                 _essential.Add((nint)standIn);
+            }
+
+            if (lighting)
+            {
+                _lighting.Add((nint)standIn);
             }
         }
 
