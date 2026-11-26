@@ -73,12 +73,19 @@ internal sealed partial class SaluEmitter
         }
     }
 
+    /// <summary>The whole-quad mask of <paramref name="source"/>: a lane's bit is set when any lane of its quad has it.</summary>
+    public static string QuadMask(string source)
+    {
+        var bit = $"(({source}) ? 1u : 0u)";
+
+        return $"(({bit} | QuadReadAcrossX({bit}) | QuadReadAcrossY({bit}) | QuadReadAcrossDiagonal({bit})) != 0)";
+    }
+
     /// <summary>s_wqm: on PS, a lane is live when any lane of its quad is (no short-circuit around the quad reads).</summary>
     private void WholeQuadMode(IReadOnlyList<Operand> a)
     {
         var source = _operands.Mask(a[Source0]);
-        var bit = $"(({source}) ? 1u : 0u)";
-        var quad = $"(({bit} | QuadReadAcrossX({bit}) | QuadReadAcrossY({bit}) | QuadReadAcrossDiagonal({bit})) != 0)";
+        var quad = QuadMask(source);
         var update = _state.Stage == ShaderStage.Pixel ? quad : source;
         _operands.WriteMask(a[Destination], update);
         _operands.SetScc($"{WaveOps.AnyTrue}({_operands.Mask(a[Destination])})");

@@ -288,7 +288,7 @@ The D3D12.X layer creates the views and samplers, so it decides what descriptor 
 | T# / V# dword0 heap index | `view_slot` / `uav_slot`: an index past the desktop view heap names the null SRV or UAV of unmapped pages. A texture goes through `tex_slot` (`NullTextureSlots`): an index below `FIVESTAR_FIRST_GAME_VIEW` (the loader's 21: the reserved buffers 0 to 9, then a null SRV per dimension and a null UAV per writable one at 10 to 20) or past the heap reads the null texture of its own dimension, never a buffer as a texture (a zero T# named the raw window at slot 0; XCL reports a zero T# indexing slot 0 hung NVIDIA). Without the define (offline) only the heap's end applies |
 | V# base (dword0, dword1 bits 0-15) | a console GPU address, found in the address map (`buf_view`): the D3D12.X shim's records of read-only buffer views of game memory hold the view's address as the console's do, so a program can build pointers from it; base_hi 0: dword0 is a heap index (records of buffers the desktop placed, or `--buffer-records-heap-index`) |
 | V# dword1 bits 16-29 / dword3 | stride (idxen) / hardware format word: gfx10 unified format (bits 12-18, decoded by `buf_code`) and destination swizzle (bits 0-11, `fmt_swizzle`, loads only) |
-| 64-bit pointers (`s_load`, `global_*`) | high dword 0: byte address in the window `ResourceDescriptorHeap[GPU_MEM_HEAP]` (writable view at `+ 1`); otherwise a console GPU address in the address map (`PtrLoad`, `PtrStore`, `gpu_rw`). Offsets are added in 64 bits as the hardware does (`ptr_add`: the unsigned VGPR offset and the signed instruction offset carry into or borrow from the high dword); before, a carry out of the low dword was dropped and the access landed 4 GiB lower |
+| 64-bit pointers (`s_load`, `global_*`) | high dword 0: byte address in the window `ResourceDescriptorHeap[GPU_MEM_HEAP]` (writable view at `+ 1`); otherwise a console GPU address in the address map (`PtrLoad`, `PtrStore`, `gpu_rw`). Scalar loads (`s_load`, `s_buffer_load`) read through uniform views (`SPtrLoad`, `SBufLoad`: their address is in SGPRs, as a T# is, so no `NonUniformResourceIndex`), and an `s_load` of several dwords walks the map once (`sptr_view`, `SPtrLoadAt`; one that crosses a 64 KiB page reads each dword through the map): the G-buffer pixel programs read 84-1,064 scalar dwords per pixel against 3-55 samples. Offsets are added in 64 bits as the hardware does (`ptr_add`: the unsigned VGPR offset and the signed instruction offset carry into or borrow from the high dword); before, a carry out of the low dword was dropped and the access landed 4 GiB lower |
 | `s_getpc_b64` pointers | high dword `CODE_TAG`; loads read the program's own code, emitted as `g_code[]`; a per-lane (vector) load indexes only the code words from the earliest table the program's s_getpc pointers are moved to (each s_getpc followed by `s_add_u32`/`s_sub_u32` of its low half; `g_data[]`, `CodeData`): indexed per lane, the whole code array cost the AMD driver 26 s and 1.9 GB for one tiled-lighting pixel program, its 53 table words 14 s and 0.5 GB. Lanes read at or after the table they point to (an address before it reads its first word). When one s_getpc is used otherwise, or there is no table, the loads keep `CodeLoad` and the program is unchanged |
 | BVH T# | dword0 = BVH base address >> 8 in the memory window (see [ray-intersection.md](ray-intersection.md)) |
 
@@ -397,7 +397,7 @@ world against the wrong depths in victory-gta6's meshlet culling. Other dimensio
 | GS | `[maxvertexcount(n)] main(<prim> GSIn gin[], SV_PrimitiveID, inout <Stream><Out>)` | ISG1 registers | via the copy shader |
 
 **Pixel shaders.** `active` starts as `!IsHelperLane()` and the entry has `[WaveOpsIncludeHelperLanes]`, so wave and
-quad operations see helper lanes. The final export (`done vm`) discards lanes with EXEC clear. With primitive-ordered
+quad operations see helper lanes. An `s_wqm` of the initial EXEC straight from the entry (no branch, discard or other EXEC write before it; the body's `do { } while (false)` runs once) is `active = true` (`ProgramEmitter.WholeQuadEntry`): a quad runs only with a covered pixel, so every lane the GPU runs is in it, and the compiler folds the select of each vector write under it (the deferred G-buffer programs' DXIL shrank 6-12%). The final export (`done vm`) discards lanes with EXEC clear. With primitive-ordered
 shading (POPS) every writable view becomes `RasterizerOrdered*`, the exiting-wave-id wait passes at once and
 `MSG_ORDERED_PS_DONE` does nothing.
 
@@ -689,7 +689,7 @@ cross-lane helpers, cube math, exact conversions) and `rdna_bvh.hlsli` are embed
 to the generated HLSL.
 
 dxc inlines every helper at every call, so a helper that one instruction calls has no loops and few branches: `FmtLoad`
-picks its fields from a table with `select`, and the BVH box node handles its four children one call each. dxc unrolls
+picks its fields from a table with `select` (after one branch, uniform as the V# is: an element of 32-bit UINT, SINT or FLOAT components in memory order, dword-aligned, is its own dwords, one dword for a one-component format instead of five), and the BVH box node handles its four children one call each. dxc unrolls
 an `[unroll]` loop by rebuilding analyses of the whole function, so a few thousand inlined loops in a large program
 cost tens of minutes.
 
