@@ -545,6 +545,9 @@ internal sealed class GpuTextureRegistry : IDisposable
         foreach (var texture in textures)
         {
             releasing?.Invoke(texture);
+
+            // Views of it name a released texture from now on: a capture must not touch it (w161 read a freed one).
+            DebugLayer.ViewLiveness.Released(texture.Desktop);
             ComObject.Release(texture.Desktop);
             Interlocked.Increment(ref _released);
         }

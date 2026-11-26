@@ -322,6 +322,11 @@ internal sealed record HostOptions
 
     /// <summary>Pipeline texts whose work logs its tables' records as resolved (<c>--trace-views</c>); null when off.</summary>
     public string? TraceViews { get; set; }
+    /// <summary>The dispatches to capture for <c>fivestar shader replay</c> (<c>--capture-dispatch</c>); empty when off.</summary>
+    public IReadOnlyList<Shims.D3D12X.DebugLayer.CaptureSpec> CaptureDispatch { get; set; } = [];
+
+    /// <summary>Where captured dispatches go (<c>--capture-dispatch-dir</c>).</summary>
+    public string CaptureDispatchDirectory { get; set; } = Path.GetFullPath("captures");
 
     /// <summary>Retire textures over memory the game unmaps (<c>--retire-unmapped-textures</c>); off: they are only counted.</summary>
     public bool RetireUnmappedTextures { get; set; }
