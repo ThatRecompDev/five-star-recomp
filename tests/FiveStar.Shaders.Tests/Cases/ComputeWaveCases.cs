@@ -170,6 +170,31 @@ public static class ComputeWaveCases
     // back edge restores EXEC from the mask saved before a v_cmpx and the loop mask, a lane leaves through v_cmpx and
     // s_andn2_b64 of the loop mask, and the branch back reads the SCC of that s_andn2 (any lane left in either half).
     // Lane t of a wave runs (t & 7) + 1 trips, or (t & 7) + 33 in its upper half, so the high half leaves last.
+    // vfx_triangleClip~CS_DefragHeap_ComputeRelocations' shape: a branch on "any active lane" over a loop whose exit
+    // reads a lane value through readlane. With no lane of the console wave active the console skips the loop; run
+    // with every lane inactive it reads no progress and never leaves (w98: the round bound every frame). Not run: only
+    // its superstep form is read (Waves.UniformWaveOperations must not enter the loop always).
+    public static ComputeCase LoopInSkippedPathCase()
+    {
+        const string Program = """
+            v_mov_b32_e32 v5, 0
+            v_cmp_gt_u32_e32 vcc, s8, v0
+            s_and_saveexec_b64 s[30:31], vcc
+            s_cbranch_execz .Lskip
+            .Lloop:
+            v_add_nc_u32_e32 v5, 1, v5
+            v_readlane_b32 s3, v5, 63
+            s_cmp_lt_u32 s3, 4
+            s_cbranch_scc1 .Lloop
+            .Lskip:
+            s_mov_b64 exec, s[30:31]
+            s_mov_b32 s3, 0
+            v_mov_b32_e32 v20, v5
+            """;
+
+        return new ComputeCase("cs_loop_in_skipped_path_w64", Program, 1, null) { Wave = 64 };
+    }
+
     private static ComputeCase MergePathLoopCase()
     {
         const string Program = """
