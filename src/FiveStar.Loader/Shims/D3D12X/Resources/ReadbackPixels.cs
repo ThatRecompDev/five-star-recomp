@@ -203,7 +203,7 @@ internal static class ReadbackPixels
     }
 
     /// <summary>An unsigned 11- or 10-bit float (5-bit exponent, bias 15, no sign).</summary>
-    private static float SmallFloat(uint bits, int mantissaBits)
+    internal static float SmallFloat(uint bits, int mantissaBits)
     {
         uint exponent = bits >> mantissaBits;
         uint mantissa = bits & ((1u << mantissaBits) - 1);

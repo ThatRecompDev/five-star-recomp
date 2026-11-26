@@ -171,6 +171,7 @@ internal sealed unsafe class PipelineLibraryCache : IDisposable
         if (!HResult.Failed(hr))
         {
             Interlocked.Increment(ref _hits);
+            stream.NoteShaders(*result);
         }
         else if (known && hr != HResult.Pending && _refusedKeys.TryAdd(key, 0) && Interlocked.Increment(ref _refused) == 1)
         {

@@ -17,7 +17,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Binding;
 /// points the page where the GPU addresses it (its GPU-only alias when it has one, else its CPU address) into views
 /// over the section that holds its frame now, chunk by chunk of its heap window, or at the null views; a page whose
 /// window has no heap (<see cref="SectionHeaps"/>: over budget, or refused) waits for one there. Buffers placed over pages
-/// keep their frames; the map does not. The map lives in write-combined system memory read at heap slot
+/// keep their frames; the map does not. A range the table replaces leaves the map before its buffer retires
+/// (<see cref="Remove"/>). The map lives in write-combined system memory read at heap slot
 /// <see cref="DescriptorWindow.AddressMapSlot"/>; the views take whole remap pages of the desktop heap. Ranges and
 /// pages mapped before the game's view heap exists wait for it.
 /// </summary>
@@ -59,6 +60,7 @@ internal sealed unsafe class GameMemoryViews
     private readonly Dictionary<(nint Section, ulong Window, ulong Chunk), nint> _buffers = [];
     private readonly Dictionary<(nint Section, ulong Start), HashSet<ulong>> _resident = [];
     private readonly Dictionary<ulong, (nint Section, ulong Start)> _pageWindow = [];
+    private readonly Dictionary<AddressRange, List<uint>> _rangePairs = [];
 
     /// <summary>The desktop buffer and byte offset of each view pair's byte 0 (<see cref="Locate"/>).</summary>
     private readonly Dictionary<uint, (nint Buffer, ulong Offset)> _viewSources = [];
@@ -74,6 +76,8 @@ internal sealed unsafe class GameMemoryViews
     private uint _next;
     private uint _end;
     private bool _following;
+    private long _replacedRanges;
+    private ulong _replacedPages;
 
     public GameMemoryViews(XMemPhysicalMemory memory, SectionHeaps heaps, OnceLog warnings, LoaderLog log)
     {
@@ -528,11 +532,84 @@ internal sealed unsafe class GameMemoryViews
             uint pair = _next;
             _next += PairSize;
             WriteViews(range.Resource, start, Math.Min(ViewBytes, range.Size - start), pair, writable);
+            RangePairs(range).Add(pair);
 
             if (!_map.Map(map, range.GameAddress + start, Math.Min(ChunkBytes, range.Size - start), pair, range.GameAddress + start))
             {
                 _warnings.Warn("address-map-spans", $"[d3d12_xs] address map: no page table left for 0x{range.GameAddress + start:x}; it reads as zeros");
             }
+        }
+    }
+
+    private List<uint> RangePairs(AddressRange range)
+    {
+        if (!_rangePairs.TryGetValue(range, out var pairs))
+        {
+            pairs = [];
+            _rangePairs[range] = pairs;
+        }
+
+        return pairs;
+    }
+
+    /// <summary>
+    /// <see cref="AddressTable"/> replaced <paramref name="range"/> (the game placed a new resource over its pages): its
+    /// views become null views and each of its pages follows its frame again, or names the null views, before its buffer
+    /// retires (<see cref="RetiredAddressBuffers"/>). The range replacing it maps its own pages after this. Left as they
+    /// were, pages outside the new range named views of a buffer about to be released.
+    /// </summary>
+    public void Remove(AddressRange range)
+    {
+        if (range.Resource == 0)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            if (_data == null)
+            {
+                _pending.Remove(range);
+
+                return;
+            }
+
+            if (_rangePairs.Remove(range, out var pairs))
+            {
+                foreach (uint pair in pairs)
+                {
+                    WriteViews(0, 0, 0, pair, false);
+                }
+            }
+
+            ulong first = range.GameAddress & ~PageMask;
+            bool outer = !_following;
+            _following = true;
+
+            for (ulong page = first; page < range.GameAddress + range.Size; page += XMemPhysicalMemory.PageSize)
+            {
+                MapPage(page);
+            }
+
+            if (outer)
+            {
+                FollowOpened();
+                _following = false;
+            }
+
+            Unmapped(range, (range.GameAddress + range.Size - first + PageMask) / XMemPhysicalMemory.PageSize);
+        }
+    }
+
+    /// <summary>The first replaced range, and then each power of two, logs the counts.</summary>
+    private void Unmapped(AddressRange range, ulong pages)
+    {
+        _replacedRanges++;
+        _replacedPages += pages;
+
+        if ((_replacedRanges & (_replacedRanges - 1)) == 0)
+        {
+            _log.Info($"[d3d12_xs] address map: {_replacedRanges} replaced ranges left the map before their buffers retire ({_replacedPages} pages pointed at their frames or the null views; last 0x{range.GameAddress:x}, 0x{range.Size:x} bytes)");
         }
     }
 

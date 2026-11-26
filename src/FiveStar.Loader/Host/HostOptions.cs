@@ -320,6 +320,11 @@ internal sealed record HostOptions
     /// <summary>The floats shown of every NaN-scanned memory input (<c>--d3d12-nan-scan-dwords</c>); null for none.</summary>
     public (int Offset, int Count)? NanScanDwords { get; set; }
 
+    /// <summary>Presents between two exposure lines of one mapped target (<c>--trace-exposure</c>); 0 when off.</summary>
+    public int TraceExposure { get; set; }
+
+    /// <summary>Pipeline texts whose work logs its tables' records as resolved (<c>--trace-views</c>); null when off.</summary>
+    public string? TraceViews { get; set; }
     /// <summary>The dispatches to capture for <c>fivestar shader replay</c> (<c>--capture-dispatch</c>); empty when off.</summary>
     public IReadOnlyList<Shims.D3D12X.DebugLayer.CaptureSpec> CaptureDispatch { get; set; } = [];
 
@@ -398,6 +403,12 @@ internal sealed record HostOptions
     /// <summary>With the draw trace, every target of the frame after a captured present as a PNG (<c>--d3d12-dump-targets</c>).</summary>
     public bool D3D12DumpTargets { get; set; }
 
+    /// <summary>The present after which every pass's targets are written as PNGs (<c>--dump-frame n</c>); 0 for none.</summary>
+    public long DumpFrame { get; set; }
+
+    /// <summary>Where <c>--dump-frame</c> writes (<c>--dump-frame-dir</c>); null is <c>frame-N</c> in the working directory.</summary>
+    public string? DumpFrameDirectory { get; set; }
+
     /// <summary>Pipelines whose draws the trace also logs after each captured present (<c>--d3d12-trace-pipeline</c>).</summary>
     public string? D3D12TracePipeline { get; set; }
 
@@ -442,6 +453,15 @@ internal sealed record HostOptions
 
     /// <summary>Where PIX captures go (<c>--pix-capture-dir</c>); null is <c>pix-captures</c> in the working directory.</summary>
     public string? PixCaptureDirectory { get; set; }
+
+    /// <summary>Where Nsight Aftermath GPU crash dumps go (<c>--aftermath [dir]</c>, default <c>aftermath</c>); null takes none.</summary>
+    public string? AftermathDirectory { get; set; }
+
+    /// <summary>GFSDK_Aftermath_Lib.x64.dll or its folder (<c>--aftermath-dll</c>); null looks beside the loader, then in the SDK.</summary>
+    public string? AftermathLibrary { get; set; }
+
+    /// <summary>An Aftermath event marker per draw, dispatch and copy, and call stacks (<c>--aftermath-markers</c>).</summary>
+    public bool AftermathMarkers { get; set; }
 
     /// <summary>Present a test pattern instead of the game's frame (<c>--present-test</c>).</summary>
     public bool PresentTest { get; set; }

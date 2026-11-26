@@ -47,11 +47,19 @@ flowchart LR
   array around the run per registration allocated 1.4 GB in w126's 20 s window (81% of the managed allocations): the
   game makes about 250,000 textures over streaming memory it reuses. A page the game maps or unmaps marks only the
   textures over it too, instead of scanning them all.
+  A slot-70 Texture2D view that skips a texture's large levels (MostDetailedMip, or the whole part of
+  ResourceMinLODClamp) reads a texture of the levels it reads, when those lie at the same bytes (ResidentLevels;
+  counted as ViewResident): the game keeps a streamed texture's small levels and packs the next texture over the large
+  ones (w179: 1024x1024 textures of 0xab000 bytes 0x4000 apart), so a texture of the whole desc retired its neighbours,
+  their views went null and the G-buffer's albedo read 0.
   --stale-in-first-page (off by default) retires an older read-only texture only when the new one starts in its first
   4 KiB: the game keeps a streamed texture's small levels, which come first, and places the next texture over the large
   ones. Replaying w126's registrations it cuts them from 264,000 to 133,000 (the same desc made again at the same address
   from 132,000 to 8,000) but keeps 61,000 textures alive instead of 21,600 (18.8 GB of console bytes instead of 9.8),
-  each with all its levels. Ranges may then overlap; a lookup takes the texture that starts last. Of those over the same range (other
+  each with all its levels. Ranges may then overlap; a lookup takes the texture that starts last. A texture the CPU maps
+  (a Bink plane) is never retired by one that starts before it and ends inside it, whatever the flag: in w165/w166 a
+  streamed texture's missing large levels retired playing credits videos' chroma planes, their views went null and the
+  cards drew green. Of those over the same range (other
   views of the same memory, or a streaming slot reused) the newest keeps its reference until shutdown, since
   descriptors written earlier may still name it (`--kept-aliases <n>`, default 1; it was 2, a second texture of video
   memory per reused slot charged to commit, while a placed texture's heap range stays mapped after release anyway), and older ones are released 30 presents later; any other is
