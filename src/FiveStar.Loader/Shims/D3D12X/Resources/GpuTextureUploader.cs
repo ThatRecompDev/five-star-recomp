@@ -21,8 +21,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// exception: the uploader is called from the game's threads, and an exception there ended the process (0xE0434352).
 /// The failed slot is dropped, and the next fill on it makes a new one.
 /// <para>
-/// The lock covers taking a slot and submitting its copy; detiling into the slot's upload buffer and recording its list
-/// run outside it, on the caller's thread, so fills from several threads (the refresh worker's settle, the frame's check
+/// The lock covers taking a slot and submitting its copy; waiting for the slot's previous copy, detiling into its upload
+/// buffer and recording its list run outside it, on the caller's thread, so fills from several threads (the refresh worker's settle, the frame's check
 /// of CPU-mapped textures) detile at once and only the GPU copies queue in turn. A slot being filled is busy: a fill that
 /// comes round to it waits for it.
 /// </para>
@@ -84,15 +84,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
 
         try
         {
-            lock (_gate)
-            {
-                if (_disposed)
-                {
-                    return false;
-                }
-
-                fill = Prepare(device, texture, layout);
-            }
+            fill = Prepare(device, texture, layout);
         }
         catch (Exception exception) when (Expected(exception))
         {
@@ -193,12 +185,19 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
     }
 
     /// <summary>
-    /// Under the lock: the texture's reference, its footprints in <paramref name="layout"/> and a busy slot with an upload
-    /// buffer of their size; null when the texture cannot be filled (nothing held then).
+    /// The texture's reference, its footprints in <paramref name="layout"/> and a busy slot with an upload buffer of their
+    /// size; null when the texture cannot be filled or the uploader is disposed (nothing held then). Only taking the slot
+    /// is under the lock: waiting for the slot's previous copy, resetting its list and growing its upload buffer are not,
+    /// as the slot is busy and no other fill takes it. With the wait under the lock every fill queued behind one slot's
+    /// GPU copy, and w125's game thread spent a tenth of its samples waiting for the lock.
     /// </summary>
     private Fill? Prepare(nint device, GpuTexture texture, Footprints layout)
     {
-        Open(device);
+        if (!Opened(device))
+        {
+            return null;
+        }
+
         Marshal.AddRef(texture.Desktop);
         var resource = new ID3D12Resource(texture.Desktop);
         int count;
@@ -222,31 +221,86 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
             return null;
         }
 
-        int index = _next;
-        UploadSlot? slot = null;
+        return Reserved(resource, count, total);
+    }
+
+    /// <summary>A busy slot for the fill of <paramref name="resource"/>, ready for its copies; null when the uploader is disposed.</summary>
+    private Fill? Reserved(ID3D12Resource resource, int count, ulong total)
+    {
+        var (index, slot, created) = Reserve();
+
+        if (slot is null)
+        {
+            resource.Dispose();
+
+            return null;
+        }
 
         try
         {
-            slot = TakeSlot(index);
-            EnsureStaging(slot, total);
+            Ready(slot, created, total);
         }
         catch
         {
-            // Nothing of this slot runs on the GPU (a failed wait in TakeSlot leaves the slot as it was): the texture is
-            // let go, and a slot that was handed out with its list open is dropped for a new one.
+            // Nothing of this slot runs on the GPU: the texture is let go, and the slot is dropped for a new one (its list
+            // may be open), or left as it was when its previous copy did not finish.
             resource.Dispose();
-
-            if (slot is not null)
-            {
-                Drop(index, slot);
-            }
+            Unreserve(index, slot, drop: !slot.Waiting);
 
             throw;
         }
 
-        slot.Busy = true;
-
         return new Fill(slot, index, resource, count);
+    }
+
+    /// <summary>Under the lock: the next slot, made busy (a new one when there is none yet); none when the uploader is disposed.</summary>
+    private (int Index, UploadSlot? Slot, bool Created) Reserve()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return (0, null, false);
+            }
+
+            var (index, slot, created) = TakeSlot();
+            slot.Busy = true;
+
+            return (index, slot, created);
+        }
+    }
+
+    /// <summary>Outside the lock: the busy slot's previous copy finished, its texture let go, its list open and its upload buffer of <paramref name="total"/> bytes.</summary>
+    private void Ready(UploadSlot slot, bool created, ulong total)
+    {
+        if (!created)
+        {
+            slot.Waiting = true;
+            WaitFor(slot.Fence, slot.Completed);
+            slot.Waiting = false;
+            slot.Finish();
+            slot.Allocator.Reset();
+            slot.List.Reset(slot.Allocator, null);
+        }
+
+        EnsureStaging(slot, total);
+    }
+
+    /// <summary>Under the lock: a reserved slot no fill used goes back, or is dropped for a new one.</summary>
+    private void Unreserve(int index, UploadSlot slot, bool drop)
+    {
+        lock (_gate)
+        {
+            slot.Busy = false;
+            slot.Waiting = false;
+
+            if (drop)
+            {
+                Drop(index, slot);
+            }
+
+            Monitor.PulseAll(_gate);
+        }
     }
 
     /// <summary>
@@ -342,21 +396,37 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         return count;
     }
 
-    private void Open(nint device)
+    /// <summary>Under the lock: the device, queue and fence made the first time; false when the uploader is disposed.</summary>
+    private bool Opened(nint device)
     {
-        if (_device is null)
+        lock (_gate)
         {
-            Marshal.AddRef(device);
-            _device = new ID3D12Device(device);
-        }
+            if (_disposed)
+            {
+                return false;
+            }
 
-        _queue ??= _device.CreateCommandQueue(new Vortice.Direct3D12.CommandQueueDescription(CommandListType.Direct));
-        _fence ??= _device.CreateFence(0);
+            if (_device is null)
+            {
+                Marshal.AddRef(device);
+                _device = new ID3D12Device(device);
+            }
+
+            _queue ??= _device.CreateCommandQueue(new Vortice.Direct3D12.CommandQueueDescription(CommandListType.Direct));
+            _fence ??= _device.CreateFence(0);
+
+            return true;
+        }
     }
 
-    /// <summary>Slot <paramref name="index"/>, its previous upload finished and its texture let go, its list open; the next fill takes the next slot.</summary>
-    private UploadSlot TakeSlot(int index)
+    /// <summary>
+    /// Under the lock: the next slot once no fill holds it (a new one, its list open, when there is none), and whether it
+    /// is new; the next fill takes the slot after it. The slot's previous copy may still run (<see cref="Ready"/>).
+    /// </summary>
+    private (int Index, UploadSlot Slot, bool Created) TakeSlot()
     {
+        int index = _next;
+
         // Another thread may still be filling this slot (detiling outside the lock): its copy is submitted first.
         while (_slots[index]?.Busy == true)
         {
@@ -364,35 +434,31 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         }
 
         var slot = _slots[index];
+        bool created = slot is null;
 
         if (slot is null)
         {
             slot = new UploadSlot(_device!);
             _slots[index] = slot;
         }
-        else
-        {
-            WaitFor(slot.Fence);
-            slot.Finish();
-            slot.Allocator.Reset();
-            slot.List.Reset(slot.Allocator, null);
-        }
 
         _next = (index + 1) % Slots;
 
-        return slot;
+        return (index, slot, created);
     }
 
-    private void WaitFor(ulong value)
+    private void WaitFor(ulong value, AutoResetEvent completed)
     {
-        if (value == 0 || _fence!.CompletedValue >= value)
+        var fence = _fence!;
+
+        if (value == 0 || fence.CompletedValue >= value)
         {
             return;
         }
 
-        _fence.SetEventOnCompletion(value, _completed.SafeWaitHandle.DangerousGetHandle()).CheckError();
+        fence.SetEventOnCompletion(value, completed.SafeWaitHandle.DangerousGetHandle()).CheckError();
 
-        for (int waited = 0; _fence.CompletedValue < value; waited++)
+        for (int waited = 0; fence.CompletedValue < value; waited++)
         {
             if (_device!.DeviceRemovedReason.Failure)
             {
@@ -404,7 +470,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
                 throw new TimeoutException("the GPU did not finish a texture upload");
             }
 
-            _completed.WaitOne(WaitMilliseconds);
+            completed.WaitOne(WaitMilliseconds);
         }
     }
 
@@ -417,7 +483,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
 
         try
         {
-            WaitFor(value);
+            WaitFor(value, _completed);
 
             return true;
         }
@@ -557,8 +623,14 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
 
         public ulong Fence { get; set; }
 
-        /// <summary>Whether a fill is detiling into the slot or recording it outside the lock; no other fill takes it then.</summary>
+        /// <summary>Whether a fill holds the slot (waiting for its previous copy, detiling into it, recording it outside the lock); no other fill takes it then.</summary>
         public bool Busy { get; set; }
+
+        /// <summary>Whether the fill holding the slot is waiting for its previous copy (a failed wait leaves the slot as it was).</summary>
+        public bool Waiting { get; set; }
+
+        /// <summary>Signalled when the slot's previous copy finished: the fill waiting on it has its own event.</summary>
+        public AutoResetEvent Completed { get; } = new(false);
 
         /// <summary>The texture the last upload wrote, referenced until its copy finished.</summary>
         public ID3D12Resource? Target { get; set; }
@@ -576,6 +648,7 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
             List.Dispose();
             Allocator.Dispose();
             Staging?.Dispose();
+            Completed.Dispose();
         }
     }
 
