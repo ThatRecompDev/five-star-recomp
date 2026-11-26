@@ -170,16 +170,58 @@ internal sealed unsafe class DrawTrace
     public void ShaderResourceView(nint resource, nint handle, nint wrapper = 0, void* description = null)
     {
         var game = _d3d12.Objects.AsResource(wrapper);
-        string text = resource == 0 ? "SRV of null" : $"SRV of 0x{resource:x} {Describe(resource)}{ViewFormat(description)}";
+        string text = resource == 0 ? "SRV of null" : $"SRV of 0x{resource:x} {Describe(resource)}{ViewFormat(description)}{ViewDimensionText(description)}";
 
         if (resource != 0 && game != null)
         {
-            _views.Write(handle, text, resource, game->HomeState, ViewPlane(description));
+            _views.Write(handle, text, resource, game->HomeState, ViewPlane(description), game->GameAddress);
 
             return;
         }
 
         View(handle, text);
+    }
+
+    /// <summary>
+    /// ", view dimension D" with the mip and slice fields of a texture SRV desc (D3D12_SHADER_RESOURCE_VIEW_DESC: the
+    /// format at dword 0, the dimension at 1, the union from dword 4); empty for a buffer view or none. A bindless
+    /// program declares its texture by the instruction's dimension, so a 2D view read as a 2D array shows here.
+    /// </summary>
+    internal static string ViewDimensionText(void* description)
+    {
+        const int Texture1D = 2;
+        const int Texture2D = 4;
+        const int Texture2DArray = 5;
+        const int Texture3D = 8;
+        const int TextureCube = 9;
+
+        const int Union = 4;
+        const int MostDetailedMip = 0;
+        const int MipLevels = 1;
+        const int FirstSlice = 2;
+        const int ArraySize = 3;
+
+        if (description == null || ((int*)description)[1] == BufferViewDescription.BufferDimension)
+        {
+            return string.Empty;
+        }
+
+        int* view = (int*)description;
+        int dimension = view[1];
+        int* fields = view + Union;
+        string text = $", view dimension {dimension}";
+
+        if (dimension is Texture1D or Texture2D or Texture2DArray or Texture3D or TextureCube)
+        {
+            text += $", mips {fields[MostDetailedMip]}+{fields[MipLevels]}";
+        }
+
+        if (dimension == Texture2DArray)
+        {
+            text += $", slices {fields[FirstSlice]}+{fields[ArraySize]}";
+        }
+
+        return text;
     }
 
     /// <summary>The plane slice of a 2D or 2D-array SRV desc (1: a depth-stencil's stencil); 0 for any other view.</summary>
@@ -599,12 +641,19 @@ internal sealed unsafe class DrawTrace
         uint increment = ((delegate* unmanaged<nint, int, uint>)ComObject.Slot(device, IncrementSlot))(device, ViewHeapType);
         nint handle = DesktopCalls.HeapCpuStart(window.ViewHeap) + (nint)((ulong)index * increment);
 
-        if (_views.TryText(handle, out var known))
+        if (!_views.TryText(handle, out var known))
         {
-            return known;
+            return "not a view this trace saw";
         }
 
-        return "not a view this trace saw";
+        ulong address = _views.Address(handle);
+
+        if (address == 0)
+        {
+            return $"{known}; no game address (made by the shim)";
+        }
+
+        return $"{known}; game resource at 0x{address:x}: {MapState(address)}; {TextureState(address)}";
     }
 
     /// <summary>How the texture registered at <paramref name="address"/> got its texels: GPU-written, copied into, or uploaded from memory.</summary>
@@ -629,7 +678,17 @@ internal sealed unsafe class DrawTrace
             source += ", copied into";
         }
 
-        return $"texture 0x{texture.Desktop:x} at 0x{texture.Address:x} fmt {texture.DesktopFormat}, {source}";
+        if (texture.Watched)
+        {
+            source += ", watched (refreshed when its bytes change)";
+        }
+
+        if (texture.OverUnmapped)
+        {
+            source += $", memory unmapped since present {texture.UnmappedSince}";
+        }
+
+        return $"texture 0x{texture.Desktop:x} at 0x{texture.Address:x} (0x{texture.Size:x} bytes) fmt {texture.DesktopFormat}, {source}";
     }
 
     /// <summary>The game's own view-heap record behind window offset <paramref name="windowOffset"/>; 0 past its heap.</summary>
@@ -770,22 +829,42 @@ internal sealed unsafe class DrawTrace
         uint increment = ((delegate* unmanaged<nint, int, uint>)ComObject.Slot(device, IncrementSlot))(device, ViewHeapType);
         nint start = DesktopCalls.HeapCpuStart(window.ViewHeap);
 
-        foreach (var (sgpr, table) in TraceRecords.Tables(Sgprs(CommandListBindings.Of(list), compute), DescriptorWindow.NullTableBase, TraceRecords.Offsets))
+        var sgprs = Sgprs(CommandListBindings.Of(list), compute);
+
+        foreach (var (sgpr, table) in TraceRecords.Tables(sgprs, DescriptorWindow.NullTableBase, TraceRecords.Offsets))
         {
             foreach (var entry in TraceRecords.Offsets)
             {
-                uint? index = TraceRecords.HeapIndex((uint*)(window.Data + table + entry.Offset));
+                var record = (uint*)(window.Data + table + entry.Offset);
+                string label = $"record sgpr {sgpr} +0x{entry.Offset:x}";
+                uint? value = TraceRecords.DwordValue(record, entry, sgprs, (address, bytes) => (nint)_memory.Find(address, (ulong)bytes));
+                uint? followed = value.HasValue ? TraceRecords.Followed(entry, value.Value, sgprs, DescriptorWindow.NullTableBase) : null;
 
-                if (!index.HasValue || !_views.TryTexture(start + (nint)((ulong)index.Value * increment), out var view))
+                // A followed record (a bindless texture the dword numbers) is the one read back; else the record itself.
+                if (followed.HasValue)
                 {
-                    continue;
+                    record = (uint*)(window.Data + followed.Value);
+                    label += $" > record {value!.Value}";
                 }
 
-                int current = _d3d12.ListStates.Find(list)?.Current(view.Resource, view.Home) ?? view.Home;
-                string label = $"record sgpr {sgpr} +0x{entry.Offset:x}, heap index {index.Value} (texture 0x{view.Resource:x} {Describe(view.Resource)}, plane {view.Plane})";
-                _probes.Record(device, list->Inner, view.Resource, current, label, (nint)list, state.Resets, plane: view.Plane);
+                ProbeRecord(list, state, record, label, start, increment);
             }
         }
+    }
+
+    /// <summary>Reads back the texture SRV behind window record <paramref name="record"/>'s heap index, if it names one.</summary>
+    private void ProbeRecord(XboxObject* list, DrawTraceList state, uint* record, string label, nint start, uint increment)
+    {
+        uint? index = TraceRecords.HeapIndex(record);
+
+        if (!index.HasValue || !_views.TryTexture(start + (nint)((ulong)index.Value * increment), out var view))
+        {
+            return;
+        }
+
+        int current = _d3d12.ListStates.Find(list)?.Current(view.Resource, view.Home) ?? view.Home;
+        string text = $"{label}, heap index {index.Value} (texture 0x{view.Resource:x} {Describe(view.Resource)}, plane {view.Plane})";
+        _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, view.Resource, current, text, (nint)list, state.Resets, plane: view.Plane);
     }
 
     /// <summary>After a traced ExecuteIndirect: its first two render targets and its depth target are read back in the list.</summary>

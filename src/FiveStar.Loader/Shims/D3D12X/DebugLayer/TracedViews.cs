@@ -18,9 +18,17 @@ internal sealed class TracedViews
     /// A view was written at <paramref name="handle"/>; <paramref name="resource"/> 0 when no texture can be read there,
     /// <paramref name="plane"/> the plane it views (1: a depth-stencil's stencil).
     /// </summary>
-    public void Write(nint handle, string text, nint resource = 0, int home = 0, int plane = 0)
+    public void Write(nint handle, string text, nint resource = 0, int home = 0, int plane = 0, ulong address = 0)
     {
-        _views[handle] = new TracedView(text, resource, home, plane);
+        _views[handle] = new TracedView(text, resource, home, plane, address);
+    }
+
+    /// <summary>The console address of the game resource behind the view at <paramref name="handle"/>; 0 for none.</summary>
+    public ulong Address(nint handle)
+    {
+        _views.TryGetValue(handle, out var view);
+
+        return view.Address;
     }
 
     /// <summary>The text of the view at <paramref name="handle"/>.</summary>
@@ -41,5 +49,5 @@ internal sealed class TracedViews
         return known;
     }
 
-    private readonly record struct TracedView(string Text, nint Resource, int Home, int Plane);
+    private readonly record struct TracedView(string Text, nint Resource, int Home, int Plane, ulong Address);
 }

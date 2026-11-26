@@ -57,6 +57,31 @@ internal sealed unsafe class DrawProbes
     private const uint LargestFloatExponent = 127 + 16;
     private const long BytesPerMegabyte = 1L << 20;
 
+    // Block-compressed DXGI formats (TYPELESS, UNORM, UNORM_SRGB or SNORM, UF16/SF16 of each): BC1 70-72, BC2 73-75,
+    // BC3 76-78, BC4 79-81, BC5 82-84, BC6H 94-96, BC7 97-99; 8-byte blocks for BC1 and BC4, 16 for the others.
+    private const int Bc1First = 70;
+    private const int Bc1Last = 72;
+    private const int Bc2First = 73;
+    private const int Bc3Last = 78;
+    private const int Bc4First = 79;
+    private const int Bc4Last = 81;
+    private const int Bc5Last = 84;
+    private const int Bc6First = 94;
+    private const int Bc7Last = 99;
+    private const int HalfBlock = 8;
+    private const int FullBlock = 16;
+    private const int BlockSide = 4;
+
+    // A BC1-BC3 colour block starts with two RGB565 endpoints (little-endian): red bits 11-15, green 5-10, blue 0-4.
+    private const int EndpointBytes = 4;
+    private const int RedShift = 11;
+    private const int GreenShift = 5;
+    private const int GreenMask = 0x3F;
+    private const int BlueMask = 0x1F;
+    private const int Red = 0;
+    private const int Green = 1;
+    private const int Blue = 2;
+
     private readonly object _gate = new();
     private readonly List<Probe> _pending = [];
     private readonly List<Probe> _reported = [];
@@ -246,7 +271,7 @@ internal sealed unsafe class DrawProbes
 
             if (summary is null)
             {
-                return $"format {probe.Format} not converted{floats}";
+                return $"format {probe.Format} not converted{floats}{BlockSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format)}";
             }
 
             summary += floats;
@@ -265,6 +290,90 @@ internal sealed unsafe class DrawProbes
             if (image is not null)
             {
                 System.Buffers.ArrayPool<byte>.Shared.Return(image);
+            }
+        }
+    }
+
+    /// <summary>
+    /// For a block-compressed texture (BC1-BC7, read back in blocks: <paramref name="rows"/> block rows): how many blocks
+    /// hold any non-zero byte (a texture never filled is all zero), and for BC1-BC3 the range of each RGB565 endpoint
+    /// channel over the colour blocks (0-31, green 0-63), so a channel the texture never has shows as max 0. Empty for
+    /// other formats.
+    /// </summary>
+    public static string BlockSummary(ReadOnlySpan<byte> source, int rowPitch, int width, int rows, int format)
+    {
+        int blockBytes = format switch
+        {
+            >= Bc1First and <= Bc1Last => HalfBlock,
+            >= Bc4First and <= Bc4Last => HalfBlock,
+            >= Bc2First and <= Bc5Last => FullBlock,
+            >= Bc6First and <= Bc7Last => FullBlock,
+            _ => 0,
+        };
+
+        if (blockBytes == 0 || width == 0 || rows == 0)
+        {
+            return string.Empty;
+        }
+
+        // The colour block: the whole BC1 block, the second half of a BC2 or BC3 block (after the alpha).
+        int colourAt = -1;
+
+        if (format is >= Bc1First and <= Bc1Last)
+        {
+            colourAt = 0;
+        }
+        else if (format is >= Bc2First and <= Bc3Last)
+        {
+            colourAt = HalfBlock;
+        }
+
+        int columns = (width + BlockSide - 1) / BlockSide;
+        long filled = 0;
+        int[] max = [0, 0, 0];
+        int[] min = [int.MaxValue, int.MaxValue, int.MaxValue];
+
+        for (int y = 0; y < rows; y++)
+        {
+            for (int x = 0; x < columns; x++)
+            {
+                var block = source.Slice((y * rowPitch) + (x * blockBytes), blockBytes);
+
+                if (block.IndexOfAnyExcept((byte)0) >= 0)
+                {
+                    filled++;
+                }
+
+                if (colourAt >= 0)
+                {
+                    Endpoints(block[colourAt..], min, max);
+                }
+            }
+        }
+
+        string text = $"; {filled} of {(long)columns * rows} blocks non-zero";
+
+        if (colourAt >= 0)
+        {
+            text += $"; endpoint r {min[Red]}-{max[Red]}, g {min[Green]}-{max[Green]}, b {min[Blue]}-{max[Blue]}";
+        }
+
+        return text;
+    }
+
+    /// <summary>Widens <paramref name="min"/> and <paramref name="max"/> by the RGB565 channels of a colour block's two endpoints.</summary>
+    private static void Endpoints(ReadOnlySpan<byte> colourBlock, int[] min, int[] max)
+    {
+        var endpoints = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, ushort>(colourBlock[..EndpointBytes]);
+
+        foreach (int colour in endpoints)
+        {
+            int[] channels = [colour >> RedShift, (colour >> GreenShift) & GreenMask, colour & BlueMask];
+
+            for (int c = 0; c < channels.Length; c++)
+            {
+                max[c] = Math.Max(max[c], channels[c]);
+                min[c] = Math.Min(min[c], channels[c]);
             }
         }
     }

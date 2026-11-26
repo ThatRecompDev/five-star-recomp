@@ -12,7 +12,9 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// passes as a root constant, which the root signature's tables do not show). Each record's dwords, then for a V# its
 /// base (or heap index), whether the address map has the base's page and the first dwords there; for a T# its base and
 /// map state; and the game's own record at the same heap index, to tell a record the window lacks from one the game
-/// never wrote. An entry <c>offset@byte</c> also shows the dword at that byte of the V#'s buffer.
+/// never wrote. An entry <c>offset@byte</c> also shows the dword at that byte of the V#'s buffer; <c>offset@sgprN+byte</c>
+/// at that byte past user SGPR N's value (a material offset), and <c>...&gt;sgprM</c> then the window record that dword
+/// numbers in the table user SGPR M points to, with the view behind its heap index (a bindless texture).
 /// </summary>
 internal static unsafe class TraceRecords
 {
@@ -41,6 +43,8 @@ internal static unsafe class TraceRecords
     private const int DwordBits = 32;
 
     private const char DwordSeparator = '@';
+    private const char FollowSeparator = '>';
+    private const string SgprPrefix = "sgpr";
 
     /// <summary>The entries; empty for none.</summary>
     public static IReadOnlyList<TraceRecord> Offsets { get; set; } = [];
@@ -62,7 +66,114 @@ internal static unsafe class TraceRecords
             return new TraceRecord(ParseOne(text));
         }
 
-        return new TraceRecord(ParseOne(text[..at].Trim()), ParseOne(text[(at + 1)..].Trim()));
+        var offset = ParseOne(text[..at].Trim());
+        var dword = text[(at + 1)..].Trim();
+        int? follow = null;
+        var arrow = dword.IndexOf(FollowSeparator, StringComparison.Ordinal);
+
+        if (arrow >= 0)
+        {
+            follow = ParseSgpr(dword[(arrow + 1)..].Trim());
+            dword = dword[..arrow].Trim();
+        }
+
+        if (dword.StartsWith(SgprPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var plus = dword.IndexOf('+', StringComparison.Ordinal);
+            uint bytes = 0;
+
+            if (plus >= 0)
+            {
+                bytes = ParseOne(dword[(plus + 1)..].Trim());
+                dword = dword[..plus].Trim();
+            }
+
+            return new TraceRecord(offset, bytes, ParseSgpr(dword), follow);
+        }
+
+        return new TraceRecord(offset, ParseOne(dword), null, follow);
+    }
+
+    /// <summary>A user SGPR number written <c>sgprN</c>.</summary>
+    private static int ParseSgpr(string text)
+    {
+        if (!text.StartsWith(SgprPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new FormatException($"'{text}' is not sgprN");
+        }
+
+        return int.Parse(text.AsSpan(SgprPrefix.Length), NumberStyles.None, CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// The window offset of the record an entry's dword names (<see cref="TraceRecord.FollowSgpr"/>): the table that
+    /// SGPR points to plus the dword times the record size; null without one, past <paramref name="windowBytes"/>, or
+    /// for an SGPR beyond <paramref name="sgprs"/>.
+    /// </summary>
+    public static uint? Followed(TraceRecord entry, uint value, ReadOnlySpan<uint> sgprs, uint windowBytes)
+    {
+        if (!entry.FollowSgpr.HasValue || entry.FollowSgpr.Value >= sgprs.Length)
+        {
+            return null;
+        }
+
+        ulong offset = sgprs[entry.FollowSgpr.Value] + ((ulong)value * RecordBytes);
+
+        if (offset + RecordBytes > windowBytes)
+        {
+            return null;
+        }
+
+        return (uint)offset;
+    }
+
+    /// <summary>
+    /// The byte in the V#'s buffer an entry's dword is at: its byte offset plus, with <see cref="TraceRecord.DwordSgpr"/>,
+    /// that user SGPR's value; null without a dword or for an SGPR beyond <paramref name="sgprs"/>.
+    /// </summary>
+    public static ulong? DwordAt(TraceRecord entry, ReadOnlySpan<uint> sgprs)
+    {
+        if (!entry.Dword.HasValue)
+        {
+            return null;
+        }
+
+        if (!entry.DwordSgpr.HasValue)
+        {
+            return entry.Dword.Value;
+        }
+
+        if (entry.DwordSgpr.Value >= sgprs.Length)
+        {
+            return null;
+        }
+
+        return (ulong)sgprs[entry.DwordSgpr.Value] + entry.Dword.Value;
+    }
+
+    /// <summary>
+    /// The dword an entry names in the buffer of the V# <paramref name="record"/>: null for no dword, a record that is
+    /// no V# with a console base, or memory not readable.
+    /// </summary>
+    public static uint? DwordValue(uint* record, TraceRecord entry, ReadOnlySpan<uint> sgprs, Func<ulong, int, nint> memory)
+    {
+        ulong? at = DwordAt(entry, sgprs);
+        uint high = record[BaseHigh] & BaseHighMask;
+
+        if (!at.HasValue || record[TypeDword] >> TypeShift >= FirstImageType || high == 0)
+        {
+            return null;
+        }
+
+        ulong address = record[0] | ((ulong)high << DwordBits);
+        var value = (uint*)memory(address + at.Value, sizeof(uint));
+
+        if (value == null)
+        {
+            return null;
+        }
+
+        return *value;
     }
 
     /// <summary>
@@ -82,10 +193,43 @@ internal static unsafe class TraceRecords
             {
                 var record = (uint*)(window + pointer + entry.Offset);
                 text.Append(CultureInfo.InvariantCulture, $"\n      sgpr {sgpr} 0x{pointer:x} +0x{entry.Offset:x}:");
-                AppendRecord(text, record, sources, entry.Dword);
+                AppendRecord(text, record, sources, DwordAt(entry, sgprs));
                 AppendGameRecord(text, pointer + entry.Offset, sources.GameRecord);
+                AppendFollowed(text, window, windowBytes, record, entry, sgprs, sources);
             }
         }
+    }
+
+    /// <summary>The window record an entry's dword names as a record number (<c>&gt;sgprM</c>), and what it views.</summary>
+    private static void AppendFollowed(StringBuilder text, byte* window, uint windowBytes, uint* record, TraceRecord entry, ReadOnlySpan<uint> sgprs, TraceRecordSources sources)
+    {
+        if (!entry.FollowSgpr.HasValue)
+        {
+            return;
+        }
+
+        uint? value = DwordValue(record, entry, sgprs, sources.Memory);
+
+        if (!value.HasValue)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"\n        follow >sgpr{entry.FollowSgpr.Value}: no dword to follow");
+
+            return;
+        }
+
+        uint? offset = Followed(entry, value.Value, sgprs, windowBytes);
+
+        if (!offset.HasValue)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"\n        follow >sgpr{entry.FollowSgpr.Value}: record {value.Value} is outside the window");
+
+            return;
+        }
+
+        var followed = (uint*)(window + offset.Value);
+        text.Append(CultureInfo.InvariantCulture, $"\n        follow >sgpr{entry.FollowSgpr.Value}: record {value.Value} at window 0x{offset.Value:x}:");
+        AppendRecord(text, followed, sources, null);
+        AppendGameRecord(text, offset.Value, sources.GameRecord);
     }
 
     /// <summary>
@@ -156,7 +300,7 @@ internal static unsafe class TraceRecords
         return record[0];
     }
 
-    private static void AppendRecord(StringBuilder text, uint* record, TraceRecordSources sources, uint? dword)
+    private static void AppendRecord(StringBuilder text, uint* record, TraceRecordSources sources, ulong? dword)
     {
         var mapState = sources.MapState;
         var memory = sources.Memory;
@@ -202,7 +346,7 @@ internal static unsafe class TraceRecords
     }
 
     /// <summary>The dword at byte <paramref name="at"/> of the buffer at <paramref name="address"/>.</summary>
-    private static void AppendDword(StringBuilder text, ulong address, uint at, Func<ulong, int, nint> memory)
+    private static void AppendDword(StringBuilder text, ulong address, ulong at, Func<ulong, int, nint> memory)
     {
         var value = (uint*)memory(address + at, sizeof(uint));
 

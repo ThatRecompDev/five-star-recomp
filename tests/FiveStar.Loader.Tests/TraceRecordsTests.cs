@@ -73,6 +73,87 @@ public sealed unsafe class TraceRecordsTests
         }
     }
 
+    [Fact]
+    public void A_material_dword_past_an_sgpr_is_followed_as_a_bindless_record_number()
+    {
+        Assert.Equal([new TraceRecord(0xac0, 0xc, 14, 15), new TraceRecord(0xac0, 0, 14)], TraceRecords.Parse("0xac0@sgpr14+0xc>sgpr15, 0xac0 @ sgpr14"));
+        Assert.Equal([new TraceRecord(0x20, 0x24, null, 3)], TraceRecords.Parse("0x20@0x24>sgpr3"));
+
+        byte* window = (byte*)NativeMemory.AllocZeroed(WindowBytes);
+        uint* material = (uint*)NativeMemory.AllocZeroed(sizeof(uint));
+        uint* gameRecord = (uint*)NativeMemory.AllocZeroed(TraceRecords.RecordDwords * sizeof(uint));
+
+        try
+        {
+            // The table's +0x40 V# is the material buffer at console 0x26a_00b00000; the draw's SGPR 14 is its offset,
+            // and the dword 12 bytes past it numbers record 5 of the table SGPR 15 points to (0: the heap's first records).
+            Write(window + Table + 0x40, [0x00b00000, 0x26a, 0x0ae00000, 0x31014fac]);
+            Write(window + (5 * 32), [91571, 0, 0, 0x11014fac]);
+            *material = 5;
+            gameRecord[3] = 0x9000f000;
+
+            uint[] sgprs = [Table, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x31e0510, 0];
+            var memory = new Dictionary<ulong, nint> { [0x26a00b00000 + 0x31e0510 + 0xc] = (nint)material };
+            var game = new Dictionary<uint, nint> { [5 * 32] = (nint)gameRecord };
+            var sources = new TraceRecordSources(_ => "mapped", (address, _) => memory.GetValueOrDefault(address), offset => game.GetValueOrDefault(offset), _ => "?", index => $"SRV {index}, view dimension 5");
+            var entry = TraceRecords.Parse("0x40@sgpr14+0xc>sgpr15")[0];
+
+            Assert.Equal(0x31e0510UL + 0xc, TraceRecords.DwordAt(entry, sgprs));
+            Assert.Equal(5u, TraceRecords.DwordValue((uint*)(window + Table + 0x40), entry, sgprs, sources.Memory));
+            Assert.Equal(5u * 32, TraceRecords.Followed(entry, 5, sgprs, WindowBytes));
+            Assert.Null(TraceRecords.Followed(entry, WindowBytes / 32, sgprs, WindowBytes));
+
+            var text = new StringBuilder();
+            TraceRecords.Append(text, window, WindowBytes, sgprs, [entry], sources);
+            string log = text.ToString();
+
+            Assert.Contains("; dword at +0x31e051c: 00000005 (5)", log, StringComparison.Ordinal);
+            Assert.Contains("follow >sgpr15: record 5 at window 0xa0: 000165b3", log, StringComparison.Ordinal);
+            Assert.Contains("heap index 91571, no console base: SRV 91571, view dimension 5", log, StringComparison.Ordinal);
+            Assert.Contains("game record 5: 00000000 00000000 00000000 9000f000", log, StringComparison.Ordinal);
+        }
+        finally
+        {
+            NativeMemory.Free(window);
+            NativeMemory.Free(material);
+            NativeMemory.Free(gameRecord);
+        }
+    }
+
+    [Fact]
+    public void A_texture_view_desc_shows_its_dimension_mips_and_slices()
+    {
+        // D3D12_SHADER_RESOURCE_VIEW_DESC: format, dimension, mapping, pad, then the union (8-byte aligned).
+        int[] array = [71, 5, 0x1688, 0, 0, -1, 2, 6, 0, 0];
+        int[] plain = [71, 4, 0x1688, 0, 1, 9, 0, 0, 0, 0];
+        int[] buffer = [0, 1, 0x1688, 0, 0, 0, 0, 0, 0, 0];
+
+        fixed (int* a = array, p = plain, b = buffer)
+        {
+            Assert.Equal(", view dimension 5, mips 0+-1, slices 2+6", DrawTrace.ViewDimensionText(a));
+            Assert.Equal(", view dimension 4, mips 1+9", DrawTrace.ViewDimensionText(p));
+            Assert.Equal(string.Empty, DrawTrace.ViewDimensionText(b));
+        }
+    }
+
+    [Fact]
+    public void A_block_compressed_readback_counts_filled_blocks_and_endpoint_channels()
+    {
+        // An 8x4 BC1 texture: one block row of two blocks, the first all zero, the second with endpoints
+        // 0xF800 (red 31) and 0x001F (blue 31); the row pitch pads to 256 bytes.
+        var source = new byte[256];
+        source[8] = 0x00;
+        source[9] = 0xF8;
+        source[10] = 0x1F;
+        source[11] = 0x00;
+
+        Assert.Equal("; 1 of 2 blocks non-zero; endpoint r 0-31, g 0-0, b 0-31", DrawProbes.BlockSummary(source, 256, 8, 1, 71));
+
+        // BC7: blocks only; any other format: nothing.
+        Assert.Equal("; 0 of 1 blocks non-zero", DrawProbes.BlockSummary(new byte[256], 256, 4, 1, 98));
+        Assert.Equal(string.Empty, DrawProbes.BlockSummary(source, 256, 8, 1, 28));
+    }
+
     private static void Write(byte* at, uint[] dwords)
     {
         dwords.CopyTo(new Span<uint>(at, dwords.Length));

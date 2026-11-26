@@ -168,7 +168,10 @@ internal static class HostUsage
           --d3d12-probe-traced   those draws also read back their first render target (a float target's mean and max)
           --d3d12-trace-records <offset,...>  for those draws, the window records at these byte offsets from each
                                  user SGPR holding a window offset: dwords, the V#/T# base's map state, a V#'s first values
-                                 (offset@byte: also the dword at that byte of the V#'s buffer, e.g. 0x380@0x11c)
+                                 (offset@byte: also the dword at that byte of the V#'s buffer, e.g. 0x380@0x11c;
+                                 offset@sgprN+byte: at that byte past user SGPR N, e.g. 0xac0@sgpr14+0xc; a trailing
+                                 >sgprM follows the dword as a record number in the table SGPR M points to and shows
+                                 the view there, read back with --d3d12-probe-traced, e.g. 0xac0@sgpr14+0xc>sgpr15)
           --d3d12-watch-target WxH:format  with the draw trace, every pass that renders into a target of this shape
                                  (and each traced dispatch) reads it back after captured presents, e.g. 2560x1440:10
           --d3d12-watch-limit <n>  watched-target readbacks per frame (16); each pipeline's first write to a target only
