@@ -406,6 +406,12 @@ internal sealed record HostOptions
     /// <summary>Where <c>--dump-frame</c> writes (<c>--dump-frame-dir</c>); null is <c>frame-N</c> in the working directory.</summary>
     public string? DumpFrameDirectory { get; set; }
 
+    /// <summary>PNGs <c>--dump-frame</c> writes at most (<c>--dump-frame-max n</c>).</summary>
+    public int DumpFrameMax { get; set; } = Shims.D3D12X.DebugLayer.FrameStageDump.DefaultMax;
+
+    /// <summary>Only passes whose pipeline name holds one of these comma-separated texts (<c>--dump-frame-filter</c>).</summary>
+    public string? DumpFrameFilter { get; set; }
+
     /// <summary>Pipelines whose draws the trace also logs after each captured present (<c>--d3d12-trace-pipeline</c>).</summary>
     public string? D3D12TracePipeline { get; set; }
 
