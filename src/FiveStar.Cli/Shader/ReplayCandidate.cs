@@ -58,16 +58,18 @@ internal sealed record ReplayCandidate(string Source, byte[] Dxil, double? Compi
         }
 
         var body = program.Hlsl;
+        var source = "current translator";
 
         if (groupWave)
         {
             body = program.GroupWave?.Hlsl ?? throw new InvalidOperationException($"{capture.Program.Name} has no wave32 variant: {program.GroupWave?.Reason ?? "not wave64-pinned"}");
+            source += ", wave32 variant";
         }
 
         var work = Work(folder, capture, useCaptured: false);
         var hlsl = (capture.Program.Header ?? string.Empty) + body;
 
-        return Compile(compiler, work, capture.Program, hlsl, groupWave ? "current translator, wave32 variant" : "current translator");
+        return Compile(compiler, work, capture.Program, hlsl, source);
     }
 
     private static ReplayCandidate Compile(IShaderCompiler compiler, string work, CapturedProgram program, string hlsl, string source)
