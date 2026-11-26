@@ -438,6 +438,7 @@ internal sealed partial class ProgramEmitter
 
         // EXEC starts with live pixels only; wave operations must still see helper lanes (needs ps_6_7).
         text = text.Replace("bool active = true", "bool active = !IsHelperLane()", StringComparison.Ordinal);
+        text = WholeQuadEntry(text);
 
         if (_state.Pops || (_state.Config.Pixel?.Pops ?? false))
         {
@@ -447,6 +448,82 @@ internal sealed partial class ProgramEmitter
 
         return text.Replace("\nOut main(", "\n[WaveOpsIncludeHelperLanes]\nOut main(", StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// A pixel program's s_wqm of its initial EXEC (the live pixels), straight from the entry with no branch, discard or
+    /// other EXEC write before it, sets every lane the GPU runs: a quad runs only with a covered pixel, its other lanes as
+    /// helpers. So that EXEC is <c>true</c>, and the compiler folds the select of each vector write under it (and of the
+    /// writes after a restore of a mask saved from it) instead of keeping a quad reduction it cannot see through:
+    /// 350 of PS_DeferredTextured_c5fd36bb 07a9003b's 515 selects are straight after it.
+    /// </summary>
+    internal static string WholeQuadEntry(string text)
+    {
+        var start = text.IndexOf("\nOut main(", StringComparison.Ordinal);
+
+        if (start < 0)
+        {
+            return text;
+        }
+
+        var body = text.IndexOf('\n', start + 1) + 1;
+        var line = $"\n  active = {Emitters.SaluEmitter.QuadMask("active")};\n";
+        var at = text.IndexOf(line, body - 1, StringComparison.Ordinal);
+
+        if (at < 0 || !StraightLine(OnceWrapper(text, text[body..(at + 1)])))
+        {
+            return text;
+        }
+
+        return text[..at] + "\n  active = true;\n" + text[(at + line.Length)..];
+    }
+
+    /// <summary>
+    /// The entry code without the line opening the body's <c>do { ... } while (false);</c> (a program that ends early
+    /// breaks out of it), which runs once: only when the first loop end at the body's level is that one.
+    /// </summary>
+    private static string OnceWrapper(string text, string prefix)
+    {
+        const string Open = "\n  do {\n";
+
+        if (!prefix.StartsWith(Open[1..], StringComparison.Ordinal) && !prefix.Contains(Open, StringComparison.Ordinal))
+        {
+            return prefix;
+        }
+
+        var end = BodyLoopEndPattern().Match(text);
+
+        if (!end.Success || end.Value.Trim() != "} while (false);")
+        {
+            return prefix;
+        }
+
+        return ("\n" + prefix).Replace(Open, "\n", StringComparison.Ordinal);
+    }
+
+    /// <summary>Whether entry code runs every line in order and leaves EXEC alone: no block, branch, discard or EXEC write.</summary>
+    private static bool StraightLine(string prefix)
+    {
+        if (prefix.IndexOfAny(['{', '}']) >= 0 || ExecWritePattern().IsMatch(prefix))
+        {
+            return false;
+        }
+
+        foreach (var word in (string[])["if (", "for (", "while (", "switch (", "discard", "return"])
+        {
+            if (prefix.Contains(word, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    [GeneratedRegex(@"^  \} while \(.*$", RegexOptions.Multiline)]
+    private static partial Regex BodyLoopEndPattern();
+
+    [GeneratedRegex(@"^\s*active = ", RegexOptions.Multiline)]
+    private static partial Regex ExecWritePattern();
 
     [GeneratedRegex(@"^\s*pc = \(.*\) \? 0x[0-9a-f]+ : 0x[0-9a-f]+;\s*$")]
     private static partial Regex BranchPattern();
