@@ -150,6 +150,22 @@ internal static unsafe class ViewLiveness
         return (view, view.Resource == 0 || Live.ContainsKey(view.Resource));
     }
 
+    /// <summary>The slots noted as views of any of <paramref name="resources"/>: a scan of every slot, for the texture releases' check.</summary>
+    public static List<(nint Handle, SlotView View)> Naming(IReadOnlySet<nint> resources)
+    {
+        var found = new List<(nint Handle, SlotView View)>();
+
+        foreach (var (handle, view) in Slots)
+        {
+            if (view.Resource != 0 && resources.Contains(view.Resource))
+            {
+                found.Add((handle, view));
+            }
+        }
+
+        return found;
+    }
+
     /// <summary>The desktop object's last reference went: views of it name a released resource.</summary>
     [HotPath]
     public static void Released(nint resource)
