@@ -27,7 +27,10 @@ internal unsafe struct RootLayout
     /// <summary>Descriptors a table parameter spans (the end of its last range), at most <see cref="DescriptorWindow.MaxTableRecords"/>.</summary>
     public fixed ushort Extents[MaxParameters];
 
-    /// <summary>The tables' UAV ranges: <see cref="UavParameters"/>, first record and record count each (stand-in fills, <see cref="RtStandIns"/>).</summary>
+    /// <summary>
+    /// The tables' UAV ranges: <see cref="UavParameters"/>, first record and record count each (up to the table's
+    /// <see cref="DescriptorWindow.MaxTableRecords"/>; stand-in fills, <see cref="RtStandIns"/>).
+    /// </summary>
     public int UavRanges;
     public fixed byte UavParameters[MaxUavRanges];
     public fixed ushort UavStarts[MaxUavRanges];
