@@ -143,14 +143,14 @@ internal sealed unsafe class AddressShaderViews
     }
 
     /// <summary>
-    /// The view written at <paramref name="handle"/>: its texture's handles (<see cref="TextureViewHandles"/>, for the
-    /// retirement of textures over unmapped memory), and with <c>--check-view-liveness</c> its shape.
+    /// The view written at <paramref name="handle"/>: its texture's handles (<see cref="TextureViewHandles"/>, nulled or
+    /// written again before the texture is released), and with <c>--check-view-liveness</c> its shape.
     /// </summary>
     private void Noted(nint handle, GpuTexture? texture, nint target, AddressViewDescription* view)
     {
         if (texture is not null)
         {
-            _textures.Views.Written(handle, texture, view->ViewDimension);
+            _textures.Views.Written(handle, texture, target, view, unordered: false);
         }
 
         if (DebugLayer.ViewLiveness.Noting)

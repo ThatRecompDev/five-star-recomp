@@ -6,24 +6,53 @@ using System.Collections.Concurrent;
 namespace FiveStar.Loader.Shims.D3D12X.Resources;
 
 /// <summary>
-/// The desktop descriptor handles that hold a shader-resource view of a registered texture: noted where a view is
-/// written (slot 70, CreateShaderResourceView) and where descriptors are copied, forgotten where a handle is written
-/// anew (<see cref="XboxDescriptorHeaps.Destination(nint, Binding.BufferRecord)"/>). A texture over unmapped memory is
-/// retired only while no window record names one of its handles' heap indices, and its views still there are nulled
-/// first (<see cref="GpuTextures"/>), so a later read finds a null view, not a released texture.
+/// The desktop descriptor handles that hold an SRV or UAV of a registered texture: noted where a view is written (slot
+/// 70, CreateShaderResourceView, CreateUnorderedAccessView) and where descriptors are copied (a copy holds what its
+/// source held), forgotten where a handle is written anew (<see cref="XboxDescriptorHeaps.Destination(nint, Binding.BufferRecord)"/>).
+/// Before a texture is released its views still held are nulled or written over its replacement
+/// (<see cref="ReleasedTextureViews"/>), so a later read never reaches a released texture.
 /// </summary>
-internal sealed class TextureViewHandles
+internal sealed unsafe class TextureViewHandles
 {
-    private readonly ConcurrentDictionary<nint, (GpuTexture Texture, int Dimension)> _byHandle = new();
+    /// <summary>D3D12_SRV_DIMENSION_TEXTURE2D (and D3D12_UAV_DIMENSION_TEXTURE2D): a view written without a desc.</summary>
+    private const int WholeTextureView = 4;
+
+    private const int DimensionDword = 1;
+
+    private readonly ConcurrentDictionary<nint, HeldTextureView> _byHandle = new();
     private readonly ConcurrentDictionary<GpuTexture, ConcurrentDictionary<nint, byte>> _byTexture = new();
     private volatile bool _any;
 
-    /// <summary>A view of <paramref name="texture"/> of SRV dimension <paramref name="dimension"/> was written at <paramref name="handle"/>.</summary>
+    /// <summary>An SRV of <paramref name="texture"/> of SRV dimension <paramref name="dimension"/> was written at <paramref name="handle"/>, without a desc kept.</summary>
     public void Written(nint handle, GpuTexture texture, int dimension)
     {
+        Held(handle, new HeldTextureView(texture, dimension, false, texture.Desktop, false, default));
+    }
+
+    /// <summary>
+    /// A view of <paramref name="texture"/> naming the desktop <paramref name="target"/> was written at <paramref name="handle"/>
+    /// with <paramref name="description"/> (an SRV or, when <paramref name="unordered"/>, a UAV desc; null for none).
+    /// </summary>
+    public void Written(nint handle, GpuTexture texture, nint target, void* description, bool unordered)
+    {
+        var kept = default(TextureViewDescription);
+        int dimension = WholeTextureView;
+
+        if (description != null)
+        {
+            new ReadOnlySpan<int>(description, TextureViewDescription.Dwords).CopyTo(kept);
+            dimension = ((int*)description)[DimensionDword];
+        }
+
+        Held(handle, new HeldTextureView(texture, dimension, unordered, target, description != null, kept));
+    }
+
+    /// <summary><paramref name="handle"/> holds <paramref name="view"/>.</summary>
+    public void Held(nint handle, HeldTextureView view)
+    {
         Forget(handle);
-        _byHandle[handle] = (texture, dimension);
-        _byTexture.GetOrAdd(texture, _ => new ConcurrentDictionary<nint, byte>())[handle] = 0;
+        _byHandle[handle] = view;
+        _byTexture.GetOrAdd(view.Texture, _ => new ConcurrentDictionary<nint, byte>())[handle] = 0;
         _any = true;
     }
 
@@ -58,7 +87,7 @@ internal sealed class TextureViewHandles
 
             if (_byHandle.TryGetValue(from, out var held))
             {
-                Written(to, held.Texture, held.Dimension);
+                Held(to, held);
             }
             else
             {
@@ -70,7 +99,13 @@ internal sealed class TextureViewHandles
     /// <summary>The handles holding a view of <paramref name="texture"/> now, with each view's dimension.</summary>
     public List<(nint Handle, int Dimension)> Of(GpuTexture texture)
     {
-        var found = new List<(nint Handle, int Dimension)>();
+        return [.. Views(texture).Select(view => (view.Handle, view.View.Dimension))];
+    }
+
+    /// <summary>The handles holding a view of <paramref name="texture"/> now, with the views.</summary>
+    public List<(nint Handle, HeldTextureView View)> Views(GpuTexture texture)
+    {
+        var found = new List<(nint Handle, HeldTextureView View)>();
 
         if (!_byTexture.TryGetValue(texture, out var handles))
         {
@@ -81,11 +116,17 @@ internal sealed class TextureViewHandles
         {
             if (_byHandle.TryGetValue(handle, out var held) && held.Texture == texture)
             {
-                found.Add((handle, held.Dimension));
+                found.Add((handle, held));
             }
         }
 
         return found;
+    }
+
+    /// <summary>Whether <paramref name="handle"/> still holds a view of <paramref name="texture"/>.</summary>
+    public bool Holds(nint handle, GpuTexture texture)
+    {
+        return _byHandle.TryGetValue(handle, out var held) && held.Texture == texture;
     }
 
     /// <summary>Forgets <paramref name="texture"/> and its handles (it is released).</summary>
