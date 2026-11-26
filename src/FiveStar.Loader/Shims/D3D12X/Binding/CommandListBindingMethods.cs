@@ -533,6 +533,15 @@ internal static unsafe class CommandListBindingMethods
             return;
         }
 
+        // --indirect-batch: the others join the clamp batch opened since arguments last may have changed.
+        if (IndirectBatch.Try(self, call, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint batched, out ulong batchSlot, out bool opened))
+        {
+            Batched(self, call, opened);
+            Execute(self->Inner, signature, call.MaxCount, batched, batchSlot, countBuffer, countOffset);
+
+            return;
+        }
+
         if (IndirectClamp.Record(self, call.Signature, call.MaxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
         {
             AfterClamp(self, call.Kind == IndirectClamp.DispatchKind);
@@ -571,6 +580,25 @@ internal static unsafe class CommandListBindingMethods
         }
 
         RestorePipeline(self);
+    }
+
+    /// <summary>
+    /// Before a batched ExecuteIndirect runs: after the batch's pass (<paramref name="opened"/>) the list's state goes back
+    /// as after a clamp, else only its pass timestamp; its work shape without a clamped copy to read.
+    /// </summary>
+    [HotPath]
+    private static void Batched(XboxObject* self, IndirectCall call, bool opened)
+    {
+        if (opened)
+        {
+            AfterClamp(self, call.Kind == IndirectClamp.DispatchKind);
+        }
+        else
+        {
+            TimeIndirect(self, call.Kind);
+        }
+
+        Shapes(self, call, 0, 0);
     }
 
     /// <summary>With <c>--gpu-timings</c>: an ExecuteIndirect's work for <see cref="WorkShapes"/> (its clamped copy, when there is one).</summary>

@@ -140,7 +140,8 @@ internal static unsafe class IndirectClamp
     /// buffer <paramref name="arguments"/> at <paramref name="argumentOffset"/> (bounded by the count at
     /// <paramref name="count"/>, when given) into the list's scratch; returns the scratch and its offset to execute
     /// instead, or false when the arguments run as they are. Replaces the list's compute root signature and pipeline:
-    /// the caller sets its own again.
+    /// the caller sets its own again. Ends the list's open clamp batch first (<see cref="IndirectBatch.End"/>), so its
+    /// piece is in the state this clamp's barriers expect.
     /// </summary>
     public static bool Record(XboxObject* self, nint signature, uint maxCount, nint arguments, ulong argumentOffset, nint count, ulong countOffset, out nint scratch, out ulong scratchOffset)
     {
@@ -148,6 +149,7 @@ internal static unsafe class IndirectClamp
         scratchOffset = 0;
         var (kind, stride) = CommandSignatures.Clampable(signature);
         nint list = self->Inner;
+        IndirectBatch.End(self);
 
         if (kind < 0 || arguments == 0 || maxCount == 0 || !Ready())
         {
@@ -198,6 +200,31 @@ internal static unsafe class IndirectClamp
         ClampBarriers.AfterClamp(list, scratch);
         Interlocked.Increment(ref _clamped);
         GpuTimings.Work((nint)self, list, kind == DispatchKind, ListActivity.Of(self)->Pipeline);
+
+        return true;
+    }
+
+    /// <summary>
+    /// A piece of <paramref name="bytes"/> in the list's scratch for a clamp batch (<see cref="IndirectBatch"/>): the
+    /// buffer, the piece's offset and the buffer's size, and the GPU address of the recording's budget counter, which
+    /// the batch zeroes first when <paramref name="zero"/>. False when the clamp's program or the scratch cannot be made.
+    /// </summary>
+    internal static bool Piece(XboxObject* self, ulong bytes, out nint scratch, out ulong offset, out ulong scratchBytes, out ulong budget, out bool zero)
+    {
+        scratch = 0;
+        offset = 0;
+        scratchBytes = 0;
+        budget = 0;
+        zero = false;
+
+        if (!Ready() || !Take(self, bytes + Alignment, out scratch, out offset))
+        {
+            return false;
+        }
+
+        budget = BudgetAddress(self, scratch, offset, out zero);
+        offset += Alignment;
+        scratchBytes = ListIndirectScratch.Of(self)->Bytes;
 
         return true;
     }

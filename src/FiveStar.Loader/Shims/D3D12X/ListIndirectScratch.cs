@@ -51,6 +51,9 @@ internal unsafe struct ListIndirectScratch
     /// <summary>Why gathering ended in the segment (an <see cref="IndirectGatherMiss"/>); 0 while it is open.</summary>
     public int GatherClosed;
 
+    /// <summary>1 once work that may write memory was recorded after the list's last barrier or cache flush (<see cref="IndirectBatch"/>).</summary>
+    public int Unsynced;
+
     /// <summary>Memory writes of the segment with known console ranges kept apart (<see cref="IndirectGather.WroteMemory"/>), at most this many.</summary>
     public const int MaxWrites = 8;
 
