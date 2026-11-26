@@ -52,7 +52,10 @@ internal static partial class UniformWaveOperations
     /// A branch on "any active lane" (<c>[!]vw_any(active)</c>) whose path, run with every lane inactive, changes nothing
     /// read where the paths meet (and the other path likewise, when the console takes it), enters that path always: the
     /// console runs it whenever a lane is active, and with none active both give the same state at the join. Not a
-    /// loop's exit test (the path coming back to the branch), which would never end.
+    /// loop's exit test (the path coming back to the branch), which would never end, nor a path holding a loop: run with
+    /// no lane of the console wave active, a loop whose exit reads lane values (a readlane of a register only active
+    /// lanes advance) never ends either. vfx_triangleClip~CS_DefragHeap_ComputeRelocations entered such a loop always
+    /// and ran to its round bound in every frame (w98, about 28 ms).
     /// </summary>
     private static int Skips(List<CodeBlock> blocks, IReadOnlyList<string> prologue, int threads)
     {
@@ -89,7 +92,7 @@ internal static partial class UniformWaveOperations
             var negated = any.Groups["not"].Value.Length > 0;
             var (some, none) = negated ? ((int)exit.Next!.Value, (int)exit.Target!.Value) : ((int)exit.Target!.Value, (int)exit.Next!.Value);
 
-            if (Returns(graph, some, block.Address, join)
+            if (Returns(graph, some, block.Address, join) || Loops(graph, some, join)
                 || new SkipRegion(graph, some, join, state, false).Check() is not null
                 || new SkipRegion(graph, none, join, state, true).Check() is not null)
             {
@@ -126,6 +129,51 @@ internal static partial class UniformWaveOperations
             }
 
             graph.Find(address)?.Successors.ToList().ForEach(pending.Push);
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether the path from <paramref name="start"/> to <paramref name="join"/> holds a loop: a block it reaches again before <paramref name="join"/>.</summary>
+    private static bool Loops(WindowGraph graph, int start, int join)
+    {
+        var finished = new HashSet<int>();
+        var open = new HashSet<int>();
+        var pending = new Stack<(int Address, bool Leaving)>([(start, false)]);
+
+        while (pending.Count > 0)
+        {
+            var (address, leaving) = pending.Pop();
+
+            if (leaving)
+            {
+                open.Remove(address);
+                finished.Add(address);
+
+                continue;
+            }
+
+            if (address == join || finished.Contains(address))
+            {
+                continue;
+            }
+
+            if (!open.Add(address))
+            {
+                return true;
+            }
+
+            pending.Push((address, true));
+
+            foreach (var successor in graph.Find(address)?.Successors ?? [])
+            {
+                if (open.Contains(successor))
+                {
+                    return true;
+                }
+
+                pending.Push((successor, false));
+            }
         }
 
         return false;
