@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Collections.Concurrent;
-using System.Runtime.InteropServices;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.Xg;
 
@@ -15,7 +14,6 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// detiled and uploaded, read whole from memory. A background thread takes the textures as they are marked; a
 /// submission (<see cref="Settle"/>) takes the ones left and waits for those in progress, so every texture marked
 /// before a submission is current for it. w109's whole-texture refresh on the submitting thread cost 19 ms a frame.
-/// New textures' first fills (<see cref="AddFirst"/>) go first, and every submission waits for those queued before it.
 /// </summary>
 internal sealed unsafe class TextureRefreshWorker : IDisposable
 {
@@ -38,17 +36,13 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
     private readonly GpuTextures _textures;
     private readonly GameMemorySource _source;
     private readonly ConcurrentDictionary<GpuTexture, byte> _marked = new();
-    private readonly ConcurrentDictionary<GpuTexture, byte> _firsts = new();
     private readonly AutoResetEvent _signal = new(false);
     private readonly ManualResetEventSlim _idle = new(true);
-    private readonly ManualResetEventSlim _firstIdle = new(true);
     private readonly object _startGate = new();
     private Thread? _thread;
     private nint _device;
     private int _busy;
     private int _queued;
-    private int _firstBusy;
-    private int _firstQueued;
     private volatile bool _stopping;
 
     public TextureRefreshWorker(GpuTextures textures, GameMemorySource source)
@@ -69,42 +63,12 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
     }
 
     /// <summary>
-    /// Queues the first fill of <paramref name="texture"/>, just made and registered (<see cref="GpuTextures.FirstFill"/>):
-    /// the worker makes it, and the next submission waits for it (<see cref="Settle"/>). The texture's reference is held
-    /// until then, so a texture retired and released meanwhile is not freed under the fill. Made on the thread that
-    /// creates the view, the fills took about a third of w125's game-thread samples.
-    /// </summary>
-    public void AddFirst(GpuTexture texture)
-    {
-        Marshal.AddRef(texture.Desktop);
-
-        if (!_firsts.TryAdd(texture, 0))
-        {
-            ComObject.Release(texture.Desktop);
-
-            return;
-        }
-
-        Interlocked.Increment(ref _firstQueued);
-        _textures.Counters.Add(GpuResourceEvent.FirstFillQueued);
-        _signal.Set();
-    }
-
-    /// <summary>Whether the first fill of <paramref name="texture"/> is queued and not begun.</summary>
-    public bool FirstQueued(GpuTexture texture)
-    {
-        return Volatile.Read(ref _firstQueued) > 0 && _firsts.ContainsKey(texture);
-    }
-
-    /// <summary>
-    /// Before a submission on <paramref name="device"/>: the textures made before it have their first fill (this thread
-    /// makes the queued ones along with the worker, and waits for the ones in progress); with <see cref="WaitAtSubmit"/>
-    /// it also refreshes the written textures queued and waits for those. Starts the worker the first time.
+    /// Before a submission on <paramref name="device"/>: refreshes the queued textures on this thread along with the
+    /// worker, and waits until none is in progress. Starts the worker the first time.
     /// </summary>
     public void Settle(nint device)
     {
         Start(device);
-        SettleFirsts(device);
 
         if (!WaitAtSubmit)
         {
@@ -116,30 +80,10 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
         Flush(device);
     }
 
-    /// <summary>Makes the queued first fills on this thread along with the worker, and waits until none is in progress.</summary>
-    internal void SettleFirsts(nint device)
-    {
-        if (Volatile.Read(ref _firstQueued) == 0 && Volatile.Read(ref _firstBusy) == 0)
-        {
-            return;
-        }
-
-        long start = System.Diagnostics.Stopwatch.GetTimestamp();
-        DrainFirsts(device);
-
-        while (Volatile.Read(ref _firstBusy) > 0)
-        {
-            _firstIdle.Wait(WaitMilliseconds);
-        }
-
-        TextureRefreshStats.AddFirstWait(start);
-    }
-
-    /// <summary>First fills and refreshes, everything queued, on this thread along with the worker; waits until none is in progress.</summary>
+    /// <summary>Refreshes everything queued on this thread along with the worker and waits until none is in progress.</summary>
     public void Flush(nint device)
     {
         Start(device);
-        SettleFirsts(device);
         long start = System.Diagnostics.Stopwatch.GetTimestamp();
 
         if (Volatile.Read(ref _queued) > 0)
@@ -169,19 +113,8 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
         _stopping = true;
         _signal.Set();
         _thread?.Join();
-
-        // First fills never made: their references go.
-        foreach (var texture in _firsts.Keys)
-        {
-            if (_firsts.TryRemove(texture, out _))
-            {
-                ComObject.Release(texture.Desktop);
-            }
-        }
-
         _signal.Dispose();
         _idle.Dispose();
-        _firstIdle.Dispose();
     }
 
     /// <summary>The content hash of each <see cref="GpuTexture.PageBytes"/> page of the texture's bytes at <paramref name="source"/>.</summary>
@@ -267,12 +200,6 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
         {
             _signal.WaitOne(IdleMilliseconds);
 
-            // First fills first: the next submission waits for them.
-            if (Volatile.Read(ref _firstQueued) > 0)
-            {
-                DrainFirsts(Volatile.Read(ref _device));
-            }
-
             if (Volatile.Read(ref _queued) > 0)
             {
                 Drain(Volatile.Read(ref _device));
@@ -303,50 +230,6 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
         finally
         {
             End();
-        }
-    }
-
-    /// <summary>Makes the queued first fills on <see cref="SettleThreads"/> threads.</summary>
-    private void DrainFirsts(nint device)
-    {
-        Parallel.ForEach(_firsts.Keys, new ParallelOptions { MaxDegreeOfParallelism = SettleThreads }, texture => TakeFirst(device, texture));
-    }
-
-    /// <summary>Makes the first fill of <paramref name="texture"/> if it is still queued; it counts as in progress before it leaves the queue.</summary>
-    private void TakeFirst(nint device, GpuTexture texture)
-    {
-        if (Interlocked.Increment(ref _firstBusy) == 1)
-        {
-            _firstIdle.Reset();
-        }
-
-        try
-        {
-            if (_firsts.TryRemove(texture, out _))
-            {
-                Interlocked.Decrement(ref _firstQueued);
-                First(device, texture);
-            }
-        }
-        finally
-        {
-            if (Interlocked.Decrement(ref _firstBusy) == 0)
-            {
-                _firstIdle.Set();
-            }
-        }
-    }
-
-    private void First(nint device, GpuTexture texture)
-    {
-        try
-        {
-            TextureRefreshStats.AddFirst();
-            _textures.FirstFill(device, texture);
-        }
-        finally
-        {
-            ComObject.Release(texture.Desktop);
         }
     }
 

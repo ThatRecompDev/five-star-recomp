@@ -75,9 +75,6 @@ internal enum GpuResourceEvent
     /// <summary>A placed texture its first refresh did not fill was filled with zeros (its heap range held an older texture's bytes).</summary>
     UploadZeros,
 
-    /// <summary>A new texture's first fill was queued for the refresh worker (made before the next submission).</summary>
-    FirstFillQueued,
-
     /// <summary>A DirectStorage write or a new page mapping changed memory under a texture filled from memory.</summary>
     Written,
 
