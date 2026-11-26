@@ -159,7 +159,7 @@ internal sealed unsafe class DrawTrace
             return;
         }
 
-        _views.Write(handle, text, texture.Desktop, texture.State);
+        _views.Write(handle, text, texture.Desktop, texture.State, texture: texture);
     }
 
     /// <summary>Slot 17 wrote a CBV into the game's heaps (a raw SRV) at <paramref name="handle"/>.</summary>
@@ -888,7 +888,7 @@ internal sealed unsafe class DrawTrace
     {
         uint? index = TraceRecords.HeapIndex(record);
 
-        if (!index.HasValue || !_views.TryTexture(start + (nint)((ulong)index.Value * increment), out var view))
+        if (!index.HasValue || !_views.TryTexture(start + (nint)((ulong)index.Value * increment), out var view, Registered))
         {
             return;
         }
@@ -896,6 +896,18 @@ internal sealed unsafe class DrawTrace
         int current = _d3d12.ListStates.Find(list)?.Current(view.Resource, view.Home) ?? view.Home;
         string text = $"{label}, heap index {index.Value} (texture 0x{view.Resource:x} {Describe(view.Resource)}, plane {view.Plane})";
         _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, view.Resource, current, text, (nint)list, state.Resets, plane: view.Plane);
+    }
+
+    /// <summary>Whether the texture registry still holds <paramref name="texture"/> (and so its desktop texture is alive).</summary>
+    private bool Registered(GpuTexture texture)
+    {
+        return _d3d12.Textures.Registry.Find(texture.Address) == texture;
+    }
+
+    /// <summary>A game resource had its last Release: the probes no longer read it through views written before.</summary>
+    public void Released(nint resource)
+    {
+        _views.Released(resource);
     }
 
     /// <summary>After a traced ExecuteIndirect: its first two render targets and its depth target are read back in the list.</summary>

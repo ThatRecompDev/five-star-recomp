@@ -65,7 +65,10 @@ internal static unsafe class XboxObjectMethods
         }
     }
 
-    /// <summary>With <c>--check-view-liveness</c>: the desktop object is gone, and so are views of it.</summary>
+    /// <summary>
+    /// The desktop object is gone, and so are views of it: for <c>--check-view-liveness</c> and for the draw trace's
+    /// probes, which read textures through views written before.
+    /// </summary>
     [HotPath]
     public static void Released(nint inner)
     {
@@ -73,6 +76,8 @@ internal static unsafe class XboxObjectMethods
         {
             DebugLayer.ViewLiveness.Released(inner);
         }
+
+        ShimContext.ActiveRuntime?.D3D12X.DrawTrace?.Released(inner);
     }
 
     /// <summary>QueryInterface on the desktop object; an answer that is the desktop object itself becomes the wrapper.</summary>
