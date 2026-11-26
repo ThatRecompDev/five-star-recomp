@@ -25,6 +25,7 @@ internal sealed class OnDemandPrograms : IProgramLibrary
     private readonly ProgramWorkers _workers;
     private readonly OnceLog _warnings;
     private readonly Func<string>? _compilerCounts;
+    private readonly FiveStar.Shaders.Compilation.ShaderOverrides? _overrides;
     private readonly ConcurrentDictionary<string, ProgramJob> _jobs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, int> _failures = new(StringComparer.Ordinal);
     private int _made;
@@ -43,7 +44,8 @@ internal sealed class OnDemandPrograms : IProgramLibrary
     {
         _index = index;
         _translated = translated;
-        _compiled = new TranslatedProgramLibrary(index, producer.Folder, null);
+        _compiled = new TranslatedProgramLibrary(index, producer.Folder, null) { DxilPathOf = ReplacedPaths(producer) };
+        _overrides = producer.Overrides;
 
         _producer = producer;
         _workers = workers;
@@ -96,6 +98,13 @@ internal sealed class OnDemandPrograms : IProgramLibrary
 
     public TranslatedProgram? Find(ReadOnlySpan<byte> prefix)
     {
+        var replaced = Replaced(_index.Find(prefix));
+
+        if (replaced is not null)
+        {
+            return Load(replaced);
+        }
+
         return _translated?.Find(prefix) ?? _compiled.Find(prefix);
     }
 
@@ -104,18 +113,65 @@ internal sealed class OnDemandPrograms : IProgramLibrary
         return [.. _index.Find(prefix)];
     }
 
+    /// <summary>The program; a replaced one (<c>--shader-overrides</c>) is its replacement, said once.</summary>
     public TranslatedProgram? Load(string name)
     {
-        return _translated?.Load(name) ?? _compiled.Load(name);
+        if (_overrides is null || !_overrides.Has(name))
+        {
+            return _translated?.Load(name) ?? _compiled.Load(name);
+        }
+
+        var program = _compiled.Load(name);
+
+        if (program is not null)
+        {
+            _warnings.Warn($"override-{name}", $"[override] {name} replaced");
+        }
+
+        return program;
+    }
+
+    /// <summary>The first of <paramref name="names"/> with a replacement, or null.</summary>
+    private string? Replaced(IReadOnlyList<string> names)
+    {
+        if (_overrides is null)
+        {
+            return null;
+        }
+
+        return names.FirstOrDefault(_overrides.Has);
+    }
+
+    /// <summary>The replacements' DXIL paths (<see cref="ProgramProducer.DxilPath"/>) when the producer has any; else null.</summary>
+    private static Func<string, string>? ReplacedPaths(ProgramProducer producer)
+    {
+        if (producer.Overrides is null)
+        {
+            return null;
+        }
+
+        return producer.DxilPath;
     }
 
     /// <summary>
     /// The extracted programs of <paramref name="prefix"/> to make, in the order a library tries them; null when one of
-    /// them is loadable now or none was extracted (the pipeline then fails as without this source).
+    /// them is loadable now or none was extracted (the pipeline then fails as without this source). A replaced program
+    /// is made from its replacement alone.
     /// </summary>
     public IReadOnlyList<string>? Lacking(ReadOnlySpan<byte> prefix)
     {
         var names = _index.Find(prefix);
+        var replaced = Replaced(names);
+
+        if (replaced is not null && _compiled.Has(replaced))
+        {
+            return null;
+        }
+
+        if (replaced is not null)
+        {
+            return [replaced];
+        }
 
         if (names.Count == 0 || names.Any(name => (_translated?.Has(name) ?? false) || _compiled.Has(name)))
         {

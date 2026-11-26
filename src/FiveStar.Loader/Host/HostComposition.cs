@@ -139,12 +139,7 @@ internal static class HostComposition
 
         if (folders.Programs is not null && !options.NoOnDemand)
         {
-            var root = options.ProgramCache ?? Path.Combine(WorkDirectory(options), OnDemandStart.FolderName);
-            Shims.D3D12X.DebugLayer.PoolStoreTrace.Enabled = options.TracePoolStores;
-            Shims.D3D12X.Binding.UserDataConstants.Enabled = options.UserDataConstants;
-            Shims.D3D12X.Binding.WindowFeedback.Enabled = options.EvictWindows;
-            OnDemandStart.Translation = OnDemandTranslation(options, root);
-            folders = folders with { OnDemand = OnDemandStart.Begin(root, options.Dxc, options.DxcBackend, options.ShaderJobs, out var message), OnDemandNote = message };
+            folders = StartOnDemand(options, folders);
         }
 
         // Root constants need programs compiled for them: without programs made on demand the user data stays in the ring.
@@ -166,6 +161,45 @@ internal static class HostComposition
         }
 
         return folders with { Index = ProgramIndexLoad.Start(folders.Programs!) };
+    }
+
+    /// <summary>Programs made on demand into the program cache, with the replacements of <c>--shader-overrides</c>.</summary>
+    private static PipelineFolders StartOnDemand(HostOptions options, PipelineFolders folders)
+    {
+        var root = options.ProgramCache ?? Path.Combine(WorkDirectory(options), OnDemandStart.FolderName);
+        Shims.D3D12X.DebugLayer.PoolStoreTrace.Enabled = options.TracePoolStores;
+        Shims.D3D12X.Binding.UserDataConstants.Enabled = options.UserDataConstants;
+        Shims.D3D12X.Binding.WindowFeedback.Enabled = options.EvictWindows;
+        OnDemandStart.Translation = OnDemandTranslation(options, root);
+
+        var overrides = ReadOverrides(options.ShaderOverrides, out var note);
+        OnDemandStart.Overrides = overrides;
+        var onDemand = OnDemandStart.Begin(root, options.Dxc, options.DxcBackend, options.ShaderJobs, out var message);
+
+        return folders with { OnDemand = onDemand, OnDemandNote = message + note };
+    }
+
+    /// <summary>The replacements in <paramref name="folder"/> (none for null) and a note on them for the log.</summary>
+    private static FiveStar.Shaders.Compilation.ShaderOverrides? ReadOverrides(string? folder, out string note)
+    {
+        note = string.Empty;
+
+        if (folder is null)
+        {
+            return null;
+        }
+
+        if (!Directory.Exists(folder))
+        {
+            note = $"; --shader-overrides {folder}: no such folder, nothing replaced";
+
+            return null;
+        }
+
+        var overrides = FiveStar.Shaders.Compilation.ShaderOverrides.Open(folder);
+        note = $"; {overrides.Names.Count} programs replaced from {folder} (--shader-overrides)";
+
+        return overrides;
     }
 
     /// <summary>Placed texture heaps, kept aliases and the budget of views' textures over memory never mapped.</summary>

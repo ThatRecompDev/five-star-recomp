@@ -697,6 +697,33 @@ picks its fields from a table with `select` (after one branch, uniform as the V#
 an `[unroll]` loop by rebuilding analyses of the whole function, so a few thousand inlined loops in a large program
 cost tens of minutes.
 
+## Replacing a translation
+
+`fivestar-loader --shader-overrides <dir>` runs hand-written programs in place of translations: `<dir>/<name>.hlsl` or
+`<dir>/<name>.dxil`, by the extracted program's name (`sgd1_0c5c2b06_t32_ped_skinning_cs~CS_PedStandardSkinning_0_15f19d85_Wrapped`).
+`fivestar shader override-init <name> <dir> [--programs <fssm>] [--group-wave]` writes the translation (default choices;
+`--group-wave` the wave32 group form) as a start, headed by the translation's hash so a later translator change shows.
+The files are read once at start; the log says `[override] <name> replaced` when a pipeline first takes one.
+
+An HLSL replacement is compiled as the translation is (DXIL backend, dxc as its fallback, or dxc alone), in this
+process, behind the same mode header (`--user-data-constants`, `--evict-windows`, the window guard). Its DXIL goes to
+`<program cache>/<identity>/<adapter>/<name>.override-<hash>.dxil`, the hash of the file's content, as do its `.fail`
+and its linked or trimmed forms, so the translation and every edit keep their own files and pipeline-cache keys (the
+pipeline key hashes the DXIL). A DXIL replacement is used as it is and cannot be linked or trimmed. Replacements need
+programs made on demand.
+
+A replacement keeps the translation's interface, since its pipeline is built with the same bindless root signature:
+
+- the entry `main`, its `[numthreads]` and `[WaveSize]` (the adapter must run its waves, as for the translation), and its
+  stage signature (for a pixel shader's producer: the same outputs, which the linker matches);
+- user SGPRs read through `user_sgpr(i)` (root constants `g_user4`, or the user-data CBV), never a new root parameter;
+- memory through the prelude: `sptr_views`/`SPtrLoadAt` (scalar loads from a game address), `buf_view`, `buf_offset`,
+  `buf_limit`, `buf_fits`, `BufLoad`, `SBufLoad`, `BufStore`, `FmtLoad` (buffer descriptors in game memory, resolved to
+  the descriptor window), `vstore_span` and the `TRACE_*` hooks (window feedback and store tracing; keep them on stores);
+- `#include "rdna_prelude.hlsli"` (and `rdna_bvh.hlsli` when the translation has it); the cross-lane helpers
+  (`vw_ballot`, `vw_any`, `lane_bit`, `vw_begin` in group forms) may be replaced by native wave operations where the
+  program's wave is the hardware's.
+
 ## Commands
 
 ```
