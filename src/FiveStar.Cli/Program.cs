@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using FiveStar.Cli.Archive;
 using FiveStar.Cli.Run;
 using FiveStar.Cli.Setup;
 
@@ -20,9 +21,21 @@ public static class Program
             return UsageError;
         }
 
-        var rest = args[1..];
+        try
+        {
+            return Dispatch(args[0], args[1..]);
+        }
+        catch (CommandLineException exception)
+        {
+            Console.Error.WriteLine($"fivestar: {exception.Message}");
 
-        switch (args[0])
+            return UsageError;
+        }
+    }
+
+    private static int Dispatch(string group, string[] rest)
+    {
+        switch (group)
         {
             case "archive":
                 return ArchiveCommands.Run(rest);

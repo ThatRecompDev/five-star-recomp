@@ -7,7 +7,7 @@ namespace FiveStar.Cli.Archive;
 
 /// <summary>
 /// The arguments of one command: positional values, <c>--name value</c> options and bare <c>--flag</c> switches.
-/// Every option takes one value unless it is listed as a flag.
+/// Every option takes one value unless it is listed as a flag; an option without one throws <see cref="CommandLineException"/>.
 /// </summary>
 internal sealed class CommandArguments
 {
@@ -37,11 +37,13 @@ internal sealed class CommandArguments
                 continue;
             }
 
-            if (index + 1 < args.Count)
+            if (index + 1 >= args.Count || args[index + 1].StartsWith(OptionPrefix, StringComparison.Ordinal))
             {
-                _options[arg] = args[index + 1];
-                index++;
+                throw new CommandLineException($"{arg} needs a value");
             }
+
+            _options[arg] = args[index + 1];
+            index++;
         }
     }
 
