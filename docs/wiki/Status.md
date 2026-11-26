@@ -35,7 +35,13 @@ grows huge and then NaN, which `--d3d12-nan-scan` is tracing. Overnight about 1,
 superstep form (a readfirstlane exchanged through group memory) and the rest lost half their stops, which roughly
 halved the G-buffer mesh passes' GPU time (w84); a boot then ran about 900 presents in the world. A memory climb of
 about 11 GB per long run was traced to textures over game memory the game has unmapped, now counted, with their
-release behind `--retire-unmapped-textures` while it is tested. On 25 November the device removals that ended
+release behind `--retire-unmapped-textures` while it is tested. On the night of 25 November the world's lit image
+lost its NaN: the lighting read material ids from a stencil plane nothing wrote (stencil twins now carry it), shared-
+exponent light is read through a real R9G9B9E5 texture (after the victory-fork), and depth-plane views, depth-twin
+copies (now in submission order, with the game's own depth step) and resource states were fixed. Ground truth from the
+victory-fork, run on the same machine, showed exposure near 2e-4 and a warm, red-leaning lit image are normal. The lit
+image now stays at zero: the tiled lighting's equal-depth test does not yet see the material depth the classify pass
+writes. On 25 November the device removals that ended
 every boot ~25–35 s after the world started loading were traced to the game's ray-tracing compute passes walking
 acceleration structures we never build; those pipelines now stay stand-ins unless `--raytracing` is given, and a boot
 ran 18 minutes in the world with no removal. Literal samplers (shadow comparison, clamp) now get their own samplers. The overwrite of the game's
