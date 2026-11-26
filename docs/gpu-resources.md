@@ -74,8 +74,13 @@ flowchart LR
   With ALLOW_RENDER_TARGET, ALLOW_DEPTH_STENCIL or ALLOW_UNORDERED_ACCESS it is GPU-written and never filled from
   memory; otherwise it is filled at creation.
   Its texels reach the game's memory only at a Map of a one-row target (`MapReadback`, off with `--no-map-readback`):
-  the game reads its exposure statistics from a 1x1 and a 5x1 RGBA32F target that way; the GPU first finishes all
-  submitted work, then the row is read back and written at offset 0 (facts after Leonida).
+  the game reads its exposure statistics from a 1x1 and a 5x1 RGBA32F target that way, once a frame; the row is written
+  at offset 0 (facts after Leonida). A target's first Map waits for the GPU to finish all submitted work and reads the
+  row back then; every Map also starts a copy on a private queue that waits on the GPU for the work submitted so far
+  (`AsyncMapReadback`), and later Maps write the row of the last finished copy without a wait, one Map older. Waiting
+  at every Map (`--map-readback-wait`) drained the GPU once a frame while the game's thread recorded the rest of it:
+  in w121 a world frame's GPU work spanned the whole frame with 12 to 89 ms in which no queue was busy, and the game's
+  thread waited up to 117 ms there.
 - **Slot 70, replaced textures**: a view of a GPU-written texture's extent whose address a newer GPU-written texture of another shape took reads the replaced one (retired or kept, counted as ViewResolvedReplaced), not a null view: the game keeps drawing into it through its old depth views (w120c: format-53 shadow pages re-made at other sizes). A retired texture whose depth view was bound, or which a view found, within its grace is kept another grace.
 - **Slot 70** (`AddressShaderViews`): the registered texture at the view's address with the same extent and format
   (a GPU-written one with the same extent, whatever its format); else, when every byte of the desc's XG layout is

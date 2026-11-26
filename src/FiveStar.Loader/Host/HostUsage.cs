@@ -217,6 +217,8 @@ internal static class HostUsage
                                  bloom, tone map) are skipped while stand-ins instead of waited for up to 60 s at first use
           --no-map-readback      a Map of a small GPU-written target (the exposure statistics) leaves the game's memory as
                                  it is (default: the GPU's texels are read back into it)
+          --map-readback-wait    such a Map waits for the GPU to finish all submitted work and reads the row then (default:
+                                 it gets the row of a copy an earlier Map started, and the game's thread does not wait)
           --xdsp-convolution     run the XDsp convolution effects on the CPU (default: silence; response format inferred)
           --audio-capture <wav>  record what the game plays (process loopback, 48 kHz stereo) and print how much had sound
           --desktop-timers       keep 15.6 ms timer ticks (default with --run: 1 ms, which the game's audio mixer needs)

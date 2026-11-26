@@ -777,6 +777,11 @@ internal sealed class CommandLineParser
                 _options.NoMapReadback = true;
 
                 return true;
+
+            case "--map-readback-wait":
+                _options.MapReadbackWait = true;
+
+                return true;
             case "--clamp-enhanced-barriers":
                 _options.ClampEnhancedBarriers = true;
 
