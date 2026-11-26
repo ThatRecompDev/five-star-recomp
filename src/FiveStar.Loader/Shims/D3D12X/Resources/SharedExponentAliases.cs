@@ -105,6 +105,30 @@ internal static unsafe class SharedExponentAliases
         ShimContext.ActiveRuntime?.D3D12X.Bindings.Window.Records.Watch(index);
     }
 
+    /// <summary>
+    /// <paramref name="source"/> is about to be released: its shadow is no longer copied into (the copy would read the
+    /// released texture). The shadow itself stays, as views of it may still be held. Whether it had one.
+    /// </summary>
+    public static bool Released(GpuTexture source)
+    {
+        if (!_any || !BySource.TryGetValue(source.Desktop, out var alias) || alias is null || alias.Source != source)
+        {
+            return false;
+        }
+
+        BySource.TryRemove(source.Desktop, out _);
+
+        foreach (var (index, held) in ByIndex)
+        {
+            if (held == alias)
+            {
+                ByIndex.TryRemove(index, out _);
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>A barrier of <paramref name="list"/> named the desktop <paramref name="resource"/>: if it is a source, its next read copies.</summary>
     [HotPath]
     public static void Used(nint list, nint resource)

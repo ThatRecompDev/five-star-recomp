@@ -70,6 +70,19 @@ flowchart LR
   new texture over the same range retires one otherwise, and #13's long run (w79, w80 alike) grew its placed texture heaps
   from 0.5 to 10.5 GB. Off by default: if the game maps the pages again at the same address and reads through descriptors
   it made before (slot 70 or records copied from them), those would name a released texture.
+- **Texture lifetime: views at release** (`ReleasedTextureViews`). Before the registry releases any texture (replaced,
+  aged alias, unmapped), every descriptor still holding one of its SRVs or UAVs is written again: over the texture now
+  at its address when that one has its shape, format and flags, else as a null view of the same dimension. The handles
+  are kept per texture with their descs (`TextureViewHandles`: slot 70, CreateShaderResourceView/UnorderedAccessView,
+  GPU-written textures included), and a descriptor copy carries its source's entry, so copies into tables are covered.
+  A texture whose views were rewritten waits for the queues' work submitted after the rewrite (its fences), then goes;
+  one without views goes at once. A released R32_UINT source's shared-exponent shadow and a depth texture's twins stop
+  copying from it. Before this only the unmapped retirement nulled views: every boot lost the device (0x887a0005, DRED
+  empty) minutes into the world, and a replay showed heap index 16903 holding a BC7 sRGB SRV over the BC5 texture that
+  had taken its address. The log shows `texture release: N released textures had views held, X nulled, Y written over
+  the texture replacing them, Z unaccounted` at each power of two, and `texture release: ...` once per kind of view it
+  could not account for (with `--check-view-liveness`, a view another path wrote; a shadow; a twin). Limits: a
+  descriptor the game rewrites while the release writes it can lose the race; descriptor rings are not tracked.
 - **Placed textures** (on by default, `--committed-textures` turns it off, `PlacedTextureHeaps`; a released texture's range stays mapped,
   so a stale read the game still makes hits memory, as on the console, instead of a freed resource: issue #23, and w28
   lost the device at 185 s without it while w29 ran 1,018 s into gameplay with it): read-only single-sample textures

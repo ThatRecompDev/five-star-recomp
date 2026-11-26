@@ -15,7 +15,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// released <see cref="GraceFrames"/> presents later. Either is released only once every queue has completed the work
 /// it had submitted when the texture was retired (its shim fences, <see cref="QueueProgress"/>), so no list that could
 /// sample it is still on the GPU; the presents give the game time to rewrite its descriptors for the new contents.
-/// The grace was 120 and 600 presents, without the fences: boot w36 held 4,905 retired textures, their video memory
+/// Descriptors still holding its views then are written again (<see cref="Unviewing"/>), and it is released only once
+/// the queues complete what they submitted after that. The grace was 120 and 600 presents, without the fences: boot w36 held 4,905 retired textures, their video memory
 /// charged to commit, when commit reached its limit. Before that every streamed-out texture stayed alive: a cutscene's
 /// streaming grew the process by about 3 GB a minute once video memory spilled into system memory.
 /// </summary>
@@ -44,6 +45,9 @@ internal sealed class GpuTextureRegistry : IDisposable
     private readonly Dictionary<(ulong Address, ulong Size), Queue<GpuTexture>> _aliases = [];
     private readonly Queue<RetiredTexture> _retired = new();
     private readonly Queue<RetiredTexture> _agedAliases = new();
+
+    /// <summary>Textures whose views were written again before release, waiting for the queues' work since (<see cref="Unviewing"/>).</summary>
+    private readonly Queue<RetiredTexture> _unviewed = new();
     private readonly HashSet<GpuTexture> _overUnmapped = [];
     private readonly ConcurrentDictionary<nint, long> _lastUse = new();
     private long _keptInUse;
@@ -110,7 +114,7 @@ internal sealed class GpuTextureRegistry : IDisposable
         {
             lock (_gate)
             {
-                return _aliasCount + _retired.Count + _agedAliases.Count;
+                return _aliasCount + _retired.Count + _agedAliases.Count + _unviewed.Count;
             }
         }
     }
@@ -125,9 +129,9 @@ internal sealed class GpuTextureRegistry : IDisposable
         {
             lock (_gate)
             {
-                int retired = _aliasCount + _retired.Count + _agedAliases.Count;
+                int retired = _aliasCount + _retired.Count + _agedAliases.Count + _unviewed.Count;
 
-                return $"{_ranges.Count} textures, retired {retired} (aliased {_aliasCount + _agedAliases.Count}, {AliasBytes() / BytesPerGigabyte:F2} GB), released {_released}, {_unmapped} retired as their memory was unmapped, {_overUnmapped.Count} live over unmapped memory ({_unmappedBytes / BytesPerGigabyte:F2} GB)";
+                return $"{_ranges.Count} textures, retired {retired} (aliased {_aliasCount + _agedAliases.Count}, {AliasBytes() / BytesPerGigabyte:F2} GB; {_unviewed.Count} with their views rewritten, waiting for the GPU), released {Released},{_unmapped} retired as their memory was unmapped, {_overUnmapped.Count} live over unmapped memory ({_unmappedBytes / BytesPerGigabyte:F2} GB)";
             }
         }
     }
@@ -395,10 +399,15 @@ internal sealed class GpuTextureRegistry : IDisposable
         return _ranges.Overlapping(address, bytes);
     }
 
-    /// <summary>Once per present: releases the retired textures whose grace period ended.</summary>
+    /// <summary>
+    /// Once per present: the retired textures whose grace period ended and whose work is done have their views written
+    /// again (<see cref="Unviewing"/>) and are released once the queues complete what they had submitted by then; one
+    /// with no views held is released at once.
+    /// </summary>
     public void Advance(long frame)
     {
         var due = new List<GpuTexture>();
+        var ready = new List<GpuTexture>();
         var retiring = new List<GpuTexture>();
         var referenced = Referenced;
 
@@ -423,9 +432,10 @@ internal sealed class GpuTextureRegistry : IDisposable
                 RetireUnreferencedTextures(frame, referenced, retiring);
             }
 
-            if (_retired.Count > 0 || _agedAliases.Count > 0)
+            if (_retired.Count > 0 || _agedAliases.Count > 0 || _unviewed.Count > 0)
             {
                 var completed = _completed();
+                TakeUnviewed(completed, ready);
                 ReleaseDue(_retired, frame - GraceFrames, completed, due);
                 ReleaseDue(_agedAliases, frame - AliasGraceFrames, completed, due);
             }
@@ -437,12 +447,83 @@ internal sealed class GpuTextureRegistry : IDisposable
         }
 
         // Released outside the lock: a release runs the driver and the placed range's owner (PlacedTextureHeaps).
+        Release(ready);
+        Release(Unview(due));
+    }
+
+    /// <summary>
+    /// Called outside the lock with the textures about to be released: the descriptors still holding their views are
+    /// written again (null views, or views of the texture replacing them). Returns those that had views: each waits for
+    /// the queues' work submitted after the rewrite (a list that read the old descriptor), the others go at once.
+    /// </summary>
+    public Func<IReadOnlyList<GpuTexture>, List<GpuTexture>>? Unviewing { get; set; }
+
+    /// <summary>Has <paramref name="due"/>'s views written again; returns those to release now, queues the rest (<see cref="Unviewing"/>).</summary>
+    private List<GpuTexture> Unview(List<GpuTexture> due)
+    {
+        var unviewing = Unviewing;
+
+        if (unviewing is null || due.Count == 0)
+        {
+            return due;
+        }
+
+        var rewritten = unviewing(due).ToHashSet();
+
+        if (rewritten.Count == 0)
+        {
+            return due;
+        }
+
+        var now = due.Where(texture => !rewritten.Contains(texture)).ToList();
+
+        lock (_gate)
+        {
+            // Taken after the rewrite: any list submitted later reads the new descriptors.
+            var submitted = _submitted();
+
+            foreach (var texture in rewritten)
+            {
+                _unviewed.Enqueue(new RetiredTexture(texture, _frame, submitted));
+            }
+
+            // Nothing in flight: no list can read the old descriptors.
+            TakeUnviewed(_completed(), now);
+        }
+
+        return now;
+    }
+
+    /// <summary>Under the lock: takes the textures whose views were written again and whose queues' work since is done.</summary>
+    private void TakeUnviewed(ulong[] completed, List<GpuTexture> ready)
+    {
+        while (_unviewed.Count > 0 && Finished(_unviewed.Peek().Submitted, completed))
+        {
+            var head = _unviewed.Dequeue();
+
+            // Drawn into since (its depth or target views, Used): kept for another grace, its shader views gone.
+            if (_lastUse.TryGetValue(head.Texture.Desktop, out long used) && used > head.Frame)
+            {
+                _retired.Enqueue(new RetiredTexture(head.Texture, _frame, _submitted()));
+                _keptInUse++;
+
+                continue;
+            }
+
+            _lastUse.TryRemove(head.Texture.Desktop, out _);
+            ready.Add(head.Texture);
+        }
+    }
+
+    private void Release(List<GpuTexture> textures)
+    {
         var releasing = Releasing;
 
-        foreach (var texture in due)
+        foreach (var texture in textures)
         {
             releasing?.Invoke(texture);
             ComObject.Release(texture.Desktop);
+            Interlocked.Increment(ref _released);
         }
     }
 
@@ -517,7 +598,6 @@ internal sealed class GpuTextureRegistry : IDisposable
 
             _lastUse.TryRemove(head.Texture.Desktop, out _);
             due.Add(head.Texture);
-            _released++;
         }
     }
 
@@ -601,7 +681,7 @@ internal sealed class GpuTextureRegistry : IDisposable
         lock (_gate)
         {
             var aliases = _aliases.Values.SelectMany(queue => queue);
-            var retired = _retired.Concat(_agedAliases).Select(entry => entry.Texture);
+            var retired = _retired.Concat(_agedAliases).Concat(_unviewed).Select(entry => entry.Texture);
 
             foreach (var entry in _ranges.All.Concat(aliases).Concat(retired))
             {
@@ -615,6 +695,7 @@ internal sealed class GpuTextureRegistry : IDisposable
 
             _retired.Clear();
             _agedAliases.Clear();
+            _unviewed.Clear();
             _ranges.Clear();
         }
     }
