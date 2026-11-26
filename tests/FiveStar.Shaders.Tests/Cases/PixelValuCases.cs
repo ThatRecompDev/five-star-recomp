@@ -27,6 +27,8 @@ public static class PixelValuCases
             ConvertInt(),
             ConvertHalfByte(),
             ConvertPack(),
+            HalfRoundTowardZero(),
+            HalfOutputModifiers(),
         ];
     }
 
@@ -375,6 +377,45 @@ public static class PixelValuCases
              F(FloatBits.HalfValue(0xC000)), FloatBits.Half(Math.Pow(2, -20)), FloatBits.Half(third),
              FloatBits.Pack(FloatBits.Half(third, towardZero: true), FloatBits.Half(twoThirds, towardZero: true))],
             0x80FF0102, 0x3F801800, F(65520.0), 0x0001, 0xC000, F(Math.Pow(2, -20)), F(1.0 / 3), F(-2.0 / 3));
+    }
+
+    // While the MODE register's f16 rounding is toward zero (the game's s_setreg_imm32_b32 hwreg(HW_REG_MODE, 2, 2), 3),
+    // f16 results round toward zero and a finite overflow gives 65504, not inf; written back to 0, nearest even again.
+    private static PixelCase HalfRoundTowardZero()
+    {
+        const string Program = """
+            v_mov_b32 v22, 0
+            s_setreg_imm32_b32 hwreg(HW_REG_MODE, 2, 2), 3
+            v_cvt_f16_f32_e32 v20, s0
+            v_cvt_f16_f32_e32 v21, s1
+            v_mov_b32 v10, s2
+            v_mul_f16_e32 v22, s2, v10
+            s_setreg_imm32_b32 hwreg(HW_REG_MODE, 2, 2), 0
+            v_cvt_f16_f32_e32 v23, s0
+            """;
+        var h = FloatBits.ExactHalf;
+
+        return PixelCase.Uniform(
+            "f16_round_toward_zero",
+            Program,
+            [FloatBits.Half(65520.0, towardZero: true), FloatBits.Half(1.0 / 3, towardZero: true), FloatBits.Half(h(0x5CB0) * h(0x5CB0), towardZero: true), FloatBits.Half(65520.0)],
+            F(65520.0), F(1.0 / 3), 0x5CB0);
+    }
+
+    // mul:2 and div:2 do nothing on an f16 result in the game's float mode (clamp still saturates); an f32 result is scaled.
+    private static PixelCase HalfOutputModifiers()
+    {
+        const string Program = """
+            v_mov_b32 v20, 0
+            v_mov_b32 v21, 0
+            v_mov_b32 v10, s0
+            v_mul_f16_e64 v20, s0, v10 mul:2
+            v_add_f16_e64 v21, s0, v10 clamp
+            v_mul_f32_e64 v22, s1, s1 mul:2
+            v_cvt_f16_f32_e64 v23, s1 div:2
+            """;
+
+        return PixelCase.Uniform("f16_output_modifiers", Program, [0x4400u, 0x3C00u, F(8.0), FloatBits.Half(2.0)], 0x4000, F(2.0));
     }
 
     // v_cvt_pk_u8_f32: round to nearest even and clamp to [0, 255] into the selected byte; pknorm: RNE of saturate(x) * 65535.

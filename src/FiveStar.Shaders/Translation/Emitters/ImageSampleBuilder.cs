@@ -137,6 +137,7 @@ internal sealed class ImageSampleBuilder
 
     private string Sample(ImageRequest request)
     {
+        request = TexelAddress.Fix(_state, request, foldOffsets: true);
         var address = new SampleAddress(request);
         var call = SampleCall(request, address);
 
@@ -242,6 +243,7 @@ internal sealed class ImageSampleBuilder
             throw new UnsupportedProgramException("gather dmask");
         }
 
+        request = TexelAddress.Fix(_state, request, foldOffsets: false);
         var offsetTail = request.Offsets is null ? string.Empty : $", {request.Offsets}";
         var coordinates = request.Coordinates;
 
@@ -249,7 +251,7 @@ internal sealed class ImageSampleBuilder
         {
             var state = $"_smpc{request.Number}";
             _state.Emit($"  SamplerComparisonState {state} = SamplerDescriptorHeap[sampler_slot({SamplerIndex(request)})];");
-            var location = request.FloatVector(coordinates.Skip(1).Take(request.Components).ToList());
+            var location = request.Adjusted(request.FloatVector(coordinates.Skip(1).Take(request.Components).ToList()));
 
             return $"{request.Texture}.GatherCmp{channel}({state}, {location}, asfloat({coordinates[0]}){offsetTail})";
         }
@@ -260,7 +262,7 @@ internal sealed class ImageSampleBuilder
         }
 
         // gather4_l on other dimensions: HLSL Gather has no level operand (it reads level 0).
-        var position = request.FloatVector(coordinates.Take(request.Components).ToList());
+        var position = request.Adjusted(request.FloatVector(coordinates.Take(request.Components).ToList()));
 
         return $"{request.Texture}.Gather{channel}({request.Sampler}, {position}{offsetTail})";
     }
@@ -326,7 +328,7 @@ internal sealed class ImageSampleBuilder
             }
 
             next = ReadDerivatives(request, values, next);
-            Coordinates = request.FloatVector(values.Skip(next).Take(request.Components).ToList());
+            Coordinates = request.Adjusted(request.FloatVector(values.Skip(next).Take(request.Components).ToList()));
             next += request.Components;
 
             if (request.Operation.EndsWith("_l", StringComparison.Ordinal))

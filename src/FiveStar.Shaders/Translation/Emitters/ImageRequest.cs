@@ -26,6 +26,15 @@ internal sealed record ImageRequest
     /// <summary>The texel offset vector of an _o variant, or null.</summary>
     public string? Offsets { get; init; }
 
+    /// <summary>The unorm modifier: the coordinates are texels, not 0..1 (MIMG UNRM).</summary>
+    public bool Unnormalized { get; init; }
+
+    /// <summary>A float vector of all address components the coordinates are multiplied by, or null.</summary>
+    public string? CoordinateScale { get; init; }
+
+    /// <summary>A float vector of all address components added to the coordinates after the scale, or null.</summary>
+    public string? CoordinateShift { get; init; }
+
     public required bool HasBias { get; init; }
 
     public required bool HasCompare { get; init; }
@@ -58,6 +67,22 @@ internal sealed record ImageRequest
 
             return Components;
         }
+    }
+
+    /// <summary>Float coordinates with <see cref="CoordinateScale"/> and <see cref="CoordinateShift"/> applied (<see cref="TexelAddress"/>).</summary>
+    public string Adjusted(string coordinates)
+    {
+        if (CoordinateScale is not null)
+        {
+            coordinates = $"({coordinates} * {CoordinateScale})";
+        }
+
+        if (CoordinateShift is not null)
+        {
+            coordinates = $"({coordinates} + {CoordinateShift})";
+        }
+
+        return coordinates;
     }
 
     /// <summary>Float coordinates; on a cube (s, t, face) from the v_cube* math becomes a direction.</summary>
