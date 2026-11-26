@@ -443,6 +443,11 @@ internal sealed class GpuTextureRegistry : IDisposable
     {
         Unmark(entry);
 
+        if (DebugLayer.TargetClears.Census && entry.GpuWritten && replacement.GpuWritten)
+        {
+            DebugLayer.TargetClears.Replaced(entry, replacement);
+        }
+
         if (entry.Address == replacement.Address && entry.Size == replacement.Size)
         {
             Alias(entry);

@@ -700,6 +700,14 @@ internal sealed class CommandLineParser
                 _options.DepthTwins = true;
 
                 return true;
+            case "--target-clear-census":
+                _options.TargetClearCensus = true;
+
+                return true;
+            case "--clear-targets-each-frame":
+                _options.ClearTargetsEachFrame = true;
+
+                return true;
             case "--typeless-targets":
                 _options.TypelessTargets = true;
 
