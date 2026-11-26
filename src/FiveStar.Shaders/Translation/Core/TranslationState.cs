@@ -132,6 +132,9 @@ internal sealed class TranslationState
 
     public bool HasControlFlow { get; set; }
 
+    /// <summary>Whether f16 results round toward zero at the current point (<see cref="HalfRoundMode"/>).</summary>
+    public bool HalfRoundToZero { get; set; }
+
     /// <summary>Every register the program touches (declared as uint).</summary>
     public HashSet<RegisterKey> Variables { get; } = [];
 
