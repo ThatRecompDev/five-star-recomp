@@ -31,7 +31,7 @@ internal static class ShaderCommands
         "        [--jobs N] [--limit N] [--step K]",
         "  translate <fssm-or-folder> <out>       translate to HLSL and compile with dxc, write <out>/results.json",
         "        [--cache <dir>] [--retry results.json] [--stages ps,vs,cs,ms,gs] [--jobs N] [--limit N] [--step K] [--no-compile] [--dispatch]",
-        "        [--native-waves] [--mesh-fallbacks] [--backend hlsl|dxil|dxil-only]; also writes <out>/variants.json (the forms and wave floors of every compiled program)",
+        "        [--native-waves] [--mesh-fallbacks] [--backend hlsl|dxil|dxil-only] [--dxil-llvm-opt]; also writes <out>/variants.json (the forms and wave floors of every compiled program)",
         "  disasm and translate decode in-process; --llvm-disassembler uses llvm-mc/llvm-objdump instead",
         "  dxil <hlsl file or folder>             compile translated compute HLSL with the DXIL backend (no dxc), report coverage and times",
         "        [--out <dir>] [--validate] [--limit N] [--step K] [--jobs N]",

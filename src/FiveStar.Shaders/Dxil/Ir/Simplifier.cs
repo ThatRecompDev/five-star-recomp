@@ -13,11 +13,11 @@ namespace FiveStar.Shaders.Dxil.Ir;
 /// of one value that value, and what their operands then decide is folded again (<see cref="ConstantFolding"/>).
 /// Wave and quad operations that only read are declared nounwind, as dxc declares them, so nothing removed them: one
 /// nothing reads goes, and one with the operands of an earlier one in its block, with no effect between them, is that
-/// one (a discard or a barrier between them may change the lanes). Two rounds, as a folded branch frees blocks to merge.
+/// one (a discard or a barrier between them may change the lanes). Four rounds, as a folded branch frees blocks to merge and a converted branch makes its enclosing one small.
 /// </summary>
 public static class Simplifier
 {
-    private const int Rounds = 2;
+    private const int Rounds = 4;
     private const int MinimumJoins = 2;
 
     /// <summary>Wave and quad operations whose value depends only on their operands and the lanes that run them.</summary>
@@ -29,13 +29,22 @@ public static class Simplifier
         DxOpCode.QuadReadLaneAt, DxOpCode.QuadOp,
     }.Select(code => (int)code).ToFrozenSet();
 
-    /// <summary>Simplifies <paramref name="function"/>, numbered and cleaned; cleans it again after each round.</summary>
-    public static void Run(IrFunction function, DxilModule module)
+    /// <summary>
+    /// Simplifies <paramref name="function"/>, numbered and cleaned; cleans it again after each round. With
+    /// <paramref name="convertBranches"/> each round first turns small computing branches into selects (<see cref="IfConversion"/>).
+    /// </summary>
+    public static void Run(IrFunction function, DxilModule module, bool convertBranches = false)
     {
         for (var round = 0; round < Rounds && function.Blocks.Count > 0; round++)
         {
             BranchFacts.Apply(function, module);
             var replaced = new Dictionary<Value, Value>();
+
+            if (convertBranches)
+            {
+                IfConversion.Run(function, module);
+            }
+
             MergeChains(function, replaced);
             var tree = DominatorTree.Of(function);
             var pending = new Stack<BasicBlock>();

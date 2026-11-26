@@ -18,15 +18,31 @@ public sealed class InProcessBackend : IBackendRunner
     private const string TemporaryExtension = ".tmp";
 
     private readonly string? _validatorPath;
+    private readonly LlvmPostPass? _postPass;
     private readonly ConcurrentBag<DxilValidator> _validators = [];
 
     /// <param name="validatorPath">dxil.dll, whose validator checks every container; null checks none.</param>
-    public InProcessBackend(string? validatorPath)
+    /// <param name="postPass">LLVM passes over each container (<c>--dxil-llvm-opt</c>); null runs none.</param>
+    public InProcessBackend(string? validatorPath, LlvmPostPass? postPass)
     {
         _validatorPath = validatorPath;
+        _postPass = postPass;
     }
 
     public bool Validates => _validatorPath is not null;
+
+    public string PostPass
+    {
+        get
+        {
+            if (_postPass is null)
+            {
+                return string.Empty;
+            }
+
+            return LlvmPostPass.Identity;
+        }
+    }
 
     public BackendResult Run(CompileRequest request)
     {
@@ -49,6 +65,11 @@ public sealed class InProcessBackend : IBackendRunner
 
         var rejected = Validate(container);
 
+        if (rejected is null && _postPass is not null)
+        {
+            container = PostPassed(container);
+        }
+
         if (rejected is not null)
         {
             return new BackendResult(BackendVerdict.Rejected, "validation: " + rejected);
@@ -59,6 +80,28 @@ public sealed class InProcessBackend : IBackendRunner
         File.Move(temporary, request.DxilPath, overwrite: true);
 
         return BackendResult.Compiled;
+    }
+
+    /// <summary>The container after the LLVM post-pass, or as it was when the passes fail or the validator rejects their output.</summary>
+    private byte[] PostPassed(byte[] container)
+    {
+        byte[] optimized;
+
+        try
+        {
+            optimized = _postPass!.Optimize(container);
+        }
+        catch (InvalidOperationException)
+        {
+            return container;
+        }
+
+        if (Validate(optimized) is not null)
+        {
+            return container;
+        }
+
+        return optimized;
     }
 
     /// <summary>The validator's messages when it rejects the container, else null.</summary>

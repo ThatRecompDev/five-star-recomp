@@ -125,7 +125,45 @@ public static class ComputeWaveCases
             .Concat(Variants("cs_mask_on_taken_path", MaskOnTakenPathCase))
             .Concat(Variants("cs_integer_on_taken_path", IntegerOnTakenPathCase))
             .Concat(Variants("cs_mask_after_integer", MaskAfterIntegerCase))
-            .Append(MergePathLoopCase());
+            .Append(MergePathLoopCase())
+            .Append(UniformFirstLaneCase());
+    }
+
+    /// <summary>The name of <see cref="UniformFirstLaneCase"/>.</summary>
+    public const string UniformFirstLane = "cs_uniform_first_lane_w64";
+
+    // A readfirstlane of a value every lane holds (s8 + 5 under a full EXEC) is that value, in the superstep form without
+    // a stop (Waves.UniformWaveOperations); one of the same value written only by the even lanes still reads the first
+    // active lane, since the odd lanes keep an older value.
+    private static ComputeCase UniformFirstLaneCase()
+    {
+        const string Program = """
+            v_mov_b32_e32 v12, s8
+            v_add_nc_u32_e32 v12, 5, v12
+            v_readfirstlane_b32 s23, v12
+            v_mov_b32_e32 v13, v0
+            v_and_b32_e32 v1, 1, v0
+            v_cmp_eq_u32_e32 vcc, 0, v1
+            s_and_saveexec_b64 s[30:31], vcc
+            v_mov_b32_e32 v13, s23
+            v_readfirstlane_b32 s24, v13
+            s_mov_b64 exec, s[30:31]
+            v_mov_b32_e32 v20, s23
+            v_mov_b32_e32 v21, s24
+            v_mov_b32_e32 v22, v13
+            """;
+
+        static uint Written(ComputeThread thread)
+        {
+            if ((thread.GroupIndex & 1) == 0)
+            {
+                return 12u;
+            }
+
+            return (uint)thread.GroupIndex;
+        }
+
+        return new ComputeCase(UniformFirstLane, Program, 3, thread => [12u, 12u, Written(thread)]) { Wave = 64, User = [7] };
     }
 
     // GpuParticleSort~CS_GpuSorting_Sort's merge-path search: a divergent loop whose lanes leave at different trips. The

@@ -112,7 +112,21 @@ public sealed class DxilBackendCompiler : IShaderCompiler
     /// so the compile host (which has none) and the loader share stored programs; a source the backend refuses it
     /// refuses again, so dxc's output stands for it under the same key.
     /// </summary>
-    public string OutputIdentity => ContentHash.OfText(["dxil-backend", Cache.ProgramContentStore.CompilerSources, ValidationMark]);
+    public string OutputIdentity => ContentHash.OfText(["dxil-backend", Cache.ProgramContentStore.CompilerSources, ValidationMark, .. PostPassMark]);
+
+    /// <summary>The post-pass's identity when there is one; nothing otherwise, so stored programs without it keep their keys.</summary>
+    private string[] PostPassMark
+    {
+        get
+        {
+            if (_backend.PostPass.Length == 0)
+            {
+                return [];
+            }
+
+            return [_backend.PostPass];
+        }
+    }
 
     private string ValidationMark
     {
@@ -133,6 +147,6 @@ public sealed class DxilBackendCompiler : IShaderCompiler
         var assembly = typeof(DxilBackend).Assembly.ManifestModule.ModuleVersionId.ToString();
         var validated = _backend.Validates ? "validated" : string.Empty;
 
-        return ContentHash.OfText(["dxil-backend", assembly, validated, _fallback?.Identity ?? string.Empty]);
+        return ContentHash.OfText(["dxil-backend", assembly, validated, .. PostPassMark, _fallback?.Identity ?? string.Empty]);
     }
 }

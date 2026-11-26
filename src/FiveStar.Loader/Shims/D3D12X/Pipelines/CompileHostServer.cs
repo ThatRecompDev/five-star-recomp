@@ -41,7 +41,7 @@ internal static class CompileHostServer
             validator = args[ValidatorArgument];
         }
 
-        var backend = new InProcessBackend(validator);
+        var backend = new InProcessBackend(validator, null);
         var warnings = new OnceLog(new LoaderLog(TextWriter.Null, null, false));
         using var input = new BinaryReader(Console.OpenStandardInput());
         using var output = new BinaryWriter(Console.OpenStandardOutput());

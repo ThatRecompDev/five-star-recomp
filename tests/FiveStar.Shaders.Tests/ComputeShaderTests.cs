@@ -69,6 +69,15 @@ public sealed class ComputeShaderTests : IClassFixture<WarpFixture>
         Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
     }
 
+    [WarpFact]
+    public void A_readfirstlane_of_a_value_every_lane_holds_takes_no_superstep_stop()
+    {
+        var hlsl = new ComputeCaseRunner(_fixture).TranslateSupersteps(ComputeCases.Find(ComputeWaveCases.UniformFirstLane));
+
+        Assert.Contains("s23 = v12;", hlsl, StringComparison.Ordinal);
+        Assert.DoesNotContain("s24 = v13;", hlsl, StringComparison.Ordinal);
+    }
+
     [WarpTheory]
     [MemberData(nameof(BackendCases))]
     public void The_dxil_backend_computes_what_the_isa_defines(string name)
