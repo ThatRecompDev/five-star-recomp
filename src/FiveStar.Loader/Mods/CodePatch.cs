@@ -15,6 +15,11 @@ namespace FiveStar.Loader.Mods;
 /// <param name="Bytes">The replacement; null when <paramref name="JumpTarget"/> is set.</param>
 /// <param name="JumpTarget">A shim "module!symbol" to jump to; null when <paramref name="Bytes"/> is set.</param>
 /// <param name="Source">"file:line" of the section header.</param>
+/// <param name="Stub">
+/// Code to run instead of the bytes at the match: a 5-byte <c>jmp rel32</c> there goes to it, placed near the image
+/// (<see cref="NearStubs"/>), and it ends in a jump to <paramref name="StubReturn"/>; null for none.
+/// </param>
+/// <param name="StubReturn">With <paramref name="Stub"/>: where its jump goes, from the start of the match.</param>
 internal sealed record CodePatch(
     string Name,
     string Module,
@@ -26,4 +31,6 @@ internal sealed record CodePatch(
     int Offset,
     byte[]? Bytes,
     string? JumpTarget,
-    string Source);
+    string Source,
+    byte[]? Stub,
+    int StubReturn);

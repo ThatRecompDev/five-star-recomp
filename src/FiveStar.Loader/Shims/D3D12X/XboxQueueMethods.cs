@@ -89,6 +89,8 @@ internal static unsafe class XboxQueueMethods
         long start = FrameLog.Start();
         var d3d12 = ShimContext.Runtime.D3D12X;
         var objects = d3d12.Objects;
+        Present.GpuKeepAwake.Sent(objects.DesktopDevice);
+
         d3d12.Textures.RefreshWatched(objects.DesktopDevice, d3d12.Presenter.Presents);
         d3d12.Textures.RefreshWritten(objects.DesktopDevice);
         FrameLog.AddRefresh(start);
