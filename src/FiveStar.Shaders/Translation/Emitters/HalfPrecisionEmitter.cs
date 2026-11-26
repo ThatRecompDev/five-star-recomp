@@ -170,6 +170,9 @@ internal sealed partial class HalfPrecisionEmitter
             "subrev" => $"{y} - {x}",
             "mul" => $"{x} * {y}",
             "ldexp" => $"ldexp({x}, {y})",
+
+            // -0 orders below +0 (prelude min_sz, max_sz).
+            "min" or "max" => $"{kind}_sz({x}, {y})",
             _ => $"{kind}({x}, {y})",
         };
     }
@@ -182,8 +185,8 @@ internal sealed partial class HalfPrecisionEmitter
 
         return kind switch
         {
-            "max3" => $"max(max({x}, {y}), {z})",
-            "min3" => $"min(min({x}, {y}), {z})",
+            "max3" => $"max_sz(max_sz({x}, {y}), {z})",
+            "min3" => $"min_sz(min_sz({x}, {y}), {z})",
             _ => $"med3({x}, {y}, {z})",
         };
     }
@@ -202,8 +205,8 @@ internal sealed partial class HalfPrecisionEmitter
             "ceil" => "ceil({0})",
             "trunc" => "trunc({0})",
             "rndne" => "round({0})",
-            "sin" => "sin({0} * 6.2831853)",
-            "cos" => "cos({0} * 6.2831853)",
+            "sin" => "sin_turns({0})",
+            "cos" => "cos_turns({0})",
             _ => null,
         };
 

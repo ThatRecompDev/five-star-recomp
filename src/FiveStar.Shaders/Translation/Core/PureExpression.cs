@@ -17,11 +17,11 @@ internal static partial class PureExpression
     // HLSL intrinsics and prelude helpers without memory access or cross-lane reads.
     private static readonly FrozenSet<string> PureFunctions = new[]
     {
-        "abs", "alignbit", "and", "asfloat", "asint", "asuint", "bfe_i", "bfe_u", "ceil", "clamp", "cmp_class", "cos",
+        "abs", "alignbit", "and", "asfloat", "asint", "asuint", "bfe_i", "bfe_u", "ceil", "clamp", "cmp_class", "cos", "cos_turns",
         "countbits", "cubeid", "cubema", "cubesc", "cubetc", "exp2", "f16tof32", "f32tof16", "f32tof16_rne",
         "f32tof16_rtz", "firstbithigh", "firstbithigh_amd", "firstbitlow", "flbit_signed", "floor", "fma32", "frac",
-        "ldexp_exact", "log2", "mad", "mad_legacy", "max", "med3", "med3i", "med3u", "min", "mul_hi_u", "mul_legacy",
-        "or", "perm_b32", "rcp", "reversebits", "round", "round_ne", "rsqrt", "saturate", "select", "sext24", "sin",
+        "ldexp_exact", "log2", "mad", "mad_legacy", "max", "max_sz", "med3", "med3i", "med3u", "min", "min_sz", "mul_hi_u", "mul_legacy",
+        "or", "perm_b32", "rcp", "reversebits", "round", "round_ne", "rsqrt", "saturate", "select", "sext24", "sin", "sin_turns",
         "sqrt", "trunc",
     }.ToFrozenSet(StringComparer.Ordinal);
 
