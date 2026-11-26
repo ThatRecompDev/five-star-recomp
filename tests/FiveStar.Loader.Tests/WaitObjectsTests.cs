@@ -178,10 +178,16 @@ public sealed unsafe class WaitObjectsTests
         try
         {
             Assert.NotEqual(0, Kernel32.VirtualAlloc(region + page, (nuint)page, Win32Constants.MemCommit, protection));
+            var pages = new byte[2];
 
-            Assert.False(ReturnAddresses.CallBytesReadable(region + 16));
-            Assert.False(ReturnAddresses.CallBytesReadable(region + page + 2));
-            Assert.Equal(read, ReturnAddresses.CallBytesReadable(region + page + 16));
+            Assert.False(ReturnAddresses.CallBytesReadable(pages, region, region + 16));
+            Assert.False(ReturnAddresses.CallBytesReadable(pages, region, region + page + 2));
+            Assert.Equal(read, ReturnAddresses.CallBytesReadable(pages, region, region + page + 16));
+
+            // Each page is asked once: the answers are kept, as an image's code pages keep their protection.
+            Assert.NotEqual(0, pages[0]);
+            Assert.NotEqual(0, pages[1]);
+            Assert.Equal(read, ReturnAddresses.CallBytesReadable(pages, region, region + page + 16));
         }
         finally
         {

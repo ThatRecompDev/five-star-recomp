@@ -63,6 +63,10 @@ internal static unsafe class Kernel32
     [DllImport(Library, SetLastError = true)]
     public static extern nint OpenThread(uint access, int inherit, uint threadId);
 
+    /// <summary>The CPU cycles the thread has run so far; needs THREAD_QUERY_LIMITED_INFORMATION.</summary>
+    [DllImport(Library, SetLastError = true)]
+    public static extern int QueryThreadCycleTime(nint thread, ulong* cycles);
+
     /// <summary>GetThreadDescription(thread, PWSTR*): an HRESULT; the text is freed with <see cref="LocalFree"/>.</summary>
     [DllImport(Library)]
     public static extern int GetThreadDescription(nint thread, char** description);

@@ -36,34 +36,80 @@ internal static unsafe class ReturnAddresses
     /// Pages whose bytes can be read as code. PAGE_EXECUTE alone is not one: the loader maps execute-only sections, and
     /// a read there faults like an uncommitted page.
     /// </summary>
-    private const uint ReadableCode = Win32Constants.PageExecuteRead | Win32Constants.PageExecuteReadWrite | Win32Constants.PageExecuteWriteCopy;
+    /// <summary>What <see cref="LoadedImage.CodePages"/> holds for a page: not asked yet, readable code, not readable.</summary>
+    private const byte UnknownPage = 0;
+    private const byte ReadablePage = 1;
+    private const byte UnreadablePage = 2;
 
-    /// <summary>Up to <paramref name="count"/> return addresses into mapped images above the caller, innermost first.</summary>
+    private const uint ReadableCode =Win32Constants.PageExecuteRead | Win32Constants.PageExecuteReadWrite | Win32Constants.PageExecuteWriteCopy;
+
+    /// <summary>
+    /// Up to <paramref name="count"/> return addresses into mapped images above the caller, innermost first. It runs on
+    /// every wait, signal and wake-up the wait-object shims see (thousands a second in the world), so a stack value
+    /// outside every image costs one compare, the images are walked without an enumerator, and a page's readability
+    /// is asked of the system once (<see cref="CallBytesReadable(LoadedImage, nint)"/>): w104 spent half of a busy
+    /// game thread in NtQueryVirtualMemory under WaitForSingleObject.
+    /// </summary>
     public static nint[] Scan(ImageTable images, int count)
     {
         nuint low;
         nuint high;
         Kernel32.GetCurrentThreadStackLimits(&low, &high);
 
+        var all = images.All;
+        var (first, last) = Bounds(all);
         nint here = 0;
         nint* slot = &here;
         nint* end = (nint*)Math.Min((ulong)high, (ulong)slot + ScannedBytes);
-        var found = new List<nint>();
+        var found = new List<nint>(count);
 
         for (; slot < end && found.Count < count; slot++)
         {
             nint value = *slot;
-            var image = images.FindByAddress(value);
 
-            // The section test first: stacks hold many pointers into an image's data, and each VirtualQuery of
-            // CallBytesReadable is a system call (two thirds of the shims' time in a boot's world load, on every wait).
-            if (image is not null && InCode(image, value) && CallBytesReadable(value) && AfterCall((byte*)value))
+            if ((ulong)value < first || (ulong)value >= last)
+            {
+                continue;
+            }
+
+            // The section test first: stacks hold many pointers into an image's data.
+            var image = Find(all, value);
+
+            if (image is not null && InCode(image, value) && CallBytesReadable(image, value) && AfterCall((byte*)value))
             {
                 found.Add(value);
             }
         }
 
         return [.. found];
+    }
+
+    /// <summary>The lowest image base and the highest image end: a value outside them is in no image.</summary>
+    internal static (ulong First, ulong Last) Bounds(IReadOnlyList<LoadedImage> images)
+    {
+        ulong first = ulong.MaxValue;
+        ulong last = 0;
+
+        for (int i = 0; i < images.Count; i++)
+        {
+            first = Math.Min(first, (ulong)images[i].Base);
+            last = Math.Max(last, (ulong)images[i].Base + images[i].Size);
+        }
+
+        return (first, last);
+    }
+
+    internal static LoadedImage? Find(IReadOnlyList<LoadedImage> images, nint value)
+    {
+        for (int i = 0; i < images.Count; i++)
+        {
+            if (images[i].Contains(value))
+            {
+                return images[i];
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Whether the 6 bytes before <paramref name="value"/> lie in executable sections of <paramref name="image"/>.</summary>
@@ -73,18 +119,41 @@ internal static unsafe class ReturnAddresses
     }
 
     /// <summary>
-    /// Whether the 6 bytes before <paramref name="value"/> are committed readable code (<see cref="ReadableCode"/>): an
-    /// image's range has pages that are not (a section window unmapped, a discarded section, an execute-only section), and
-    /// a read there killed a boot inside a wait.
+    /// Whether the 6 bytes before <paramref name="value"/>, in <paramref name="image"/>'s code (<see cref="InCode"/>
+    /// holds), are committed readable code (<see cref="ReadableCode"/>): an image's range has pages that are not (a
+    /// discarded section, an execute-only section), and a read there killed a boot inside a wait. Each page is asked of
+    /// the system once and kept in <see cref="LoadedImage.CodePages"/>: a code section's protection is set once, when
+    /// the image is mapped (SectionProtector), and an image leaves the table before it is unmapped.
     /// </summary>
-    internal static bool CallBytesReadable(nint value)
+    internal static bool CallBytesReadable(LoadedImage image, nint value)
     {
-        ulong first = (ulong)(value - IndirectCall);
-        ulong last = (ulong)(value - 1);
-        ulong page = (ulong)Environment.SystemPageSize;
-        bool samePage = first / page == last / page;
+        return CallBytesReadable(image.CodePages, image.Base, value);
+    }
 
-        return GameHangWatch.IsReadable(first, ReadableCode) && (samePage || GameHangWatch.IsReadable(last, ReadableCode));
+    /// <summary>The same over <paramref name="pages"/>, one state per page from <paramref name="start"/>.</summary>
+    internal static bool CallBytesReadable(byte[] pages, nint start, nint value)
+    {
+        return PageReadable(pages, start, value - IndirectCall) && PageReadable(pages, start, value - 1);
+    }
+
+    private static bool PageReadable(byte[] pages, nint start, nint address)
+    {
+        int page = (int)((ulong)(address - start) / Win32Constants.PageSize);
+        byte state = Volatile.Read(ref pages[page]);
+
+        if (state == UnknownPage)
+        {
+            state = UnreadablePage;
+
+            if (GameHangWatch.IsReadable((ulong)address, ReadableCode))
+            {
+                state = ReadablePage;
+            }
+
+            Volatile.Write(ref pages[page], state);
+        }
+
+        return state == ReadablePage;
     }
 
     /// <summary>Whether the bytes before <paramref name="address"/> end a call instruction (6 readable bytes before it).</summary>
