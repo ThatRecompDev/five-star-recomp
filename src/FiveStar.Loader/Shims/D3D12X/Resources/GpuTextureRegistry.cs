@@ -149,9 +149,9 @@ internal sealed class GpuTextureRegistry : IDisposable
         {
             var replaced = _ranges.Overlapping(texture.Address, texture.Size);
 
-            if (OnlyFirstPageStales && replaced.Count > 0)
+            if (replaced.Count > 0)
             {
-                replaced = [.. replaced.Where(entry => Stales(texture, entry))];
+                replaced = [.. replaced.Where(entry => Retires(texture, entry))];
             }
 
             foreach (var entry in replaced)
@@ -178,6 +178,29 @@ internal sealed class GpuTextureRegistry : IDisposable
 
     /// <summary>The bytes at a texture's start a newer texture must start in to retire it under <see cref="StaleInFirstPage"/>.</summary>
     public const ulong StalePageBytes = 4096;
+
+    /// <summary>Whether <paramref name="texture"/>, registered now, retires <paramref name="older"/>, a registered texture it overlaps.</summary>
+    internal bool Retires(GpuTexture texture, GpuTexture older)
+    {
+        if (OnlyFirstPageStales && !Stales(texture, older))
+        {
+            return false;
+        }
+
+        return !TailOverMapped(texture, older);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="texture"/> reaches <paramref name="older"/>, a texture the CPU maps (a video plane), only
+    /// with its end: a streamed texture placed just before it, whose large levels are not there (the small ones come
+    /// first). It does not retire it. In w165 such textures retired playing Bink planes (a 960x544 chroma plane by a
+    /// 1024x1024 BC texture 0x40000 bytes before it, whose 0xab000 bytes reach 0x6b000 into it); since the release
+    /// rewrites the views (1007c713) the plane's views went null, and its video drew with U = V = 0: green.
+    /// </summary>
+    internal static bool TailOverMapped(GpuTexture texture, GpuTexture older)
+    {
+        return older.Watched && texture.Address < older.Address && texture.Address + texture.Size < older.Address + older.Size;
+    }
 
     /// <summary>Whether <paramref name="texture"/> retires <paramref name="older"/>, a registered texture it overlaps (<see cref="StaleInFirstPage"/>).</summary>
     internal static bool Stales(GpuTexture texture, GpuTexture older)

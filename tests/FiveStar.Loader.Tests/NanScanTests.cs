@@ -90,6 +90,25 @@ public sealed unsafe class NanScanTests
         }
     }
 
+    /// <summary>
+    /// --trace-exposure: the exposure pipelines match any of the filter's texts, and a 5x1 RGBA32F target's texels and a
+    /// mapped row's floats are shown as values, NaN included.
+    /// </summary>
+    [Fact]
+    public void Exposure_pipelines_match_and_their_small_targets_show_values()
+    {
+        Assert.True(NanScan.Matches("sgd1_06e1f075_t32_PS_CalculateExposure_396dfccc_Wrapped", ExposureTrace.Pipelines));
+        Assert.True(NanScan.Matches("avgLuminanceCompute~ComputeAverageLuminanceFromHistogramCS", ExposureTrace.Pipelines));
+        Assert.False(NanScan.Matches("PS_DeferredTextured", ExposureTrace.Pipelines));
+
+        var row = new byte[5 * Channels * sizeof(float)];
+        BinaryPrimitives.WriteSingleLittleEndian(row.AsSpan(4), float.NaN);
+        BinaryPrimitives.WriteSingleLittleEndian(row.AsSpan(16), 2.5f);
+
+        Assert.Equal([0f, float.NaN, 0f, 0f, 2.5f, 0f], FloatScan.Values(row, row.Length, 5, 1, 2, 6));
+        Assert.Equal("0, NaN, 0, 0, 2.5", ExposureTrace.Floats(row.AsSpan(0, 20)));
+    }
+
     /// <summary>A 4x4 R32G32B32A32_FLOAT texture of 0.5s in CPU-written memory, with a NaN green at <see cref="NanTexel"/>.</summary>
     private static ID3D12Resource Texture(ID3D12Device device, bool withNan)
     {

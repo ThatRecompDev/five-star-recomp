@@ -547,7 +547,9 @@ flowchart LR
   UAV per 256 MiB of its buffer (each view up to 512 MiB, the raw element limit; no UAV on the upload buffer), from 4
   reserved remap pages (8,192 pairs), and the map in write-combined system memory names, per 64 KiB page, its
   chunk's pair and offset ([shader-translation.md](shader-translation.md#resources) has the layout; 64 spans of
-  4 GiB). Ranges added before the game's view heap exists wait for it. The boot's first clears read a record in the
+  4 GiB). Ranges added before the game's view heap exists wait for it. A range a newer one replaces leaves the map
+  (null views, pages follow their frames) before its buffer is released past the GPU's work
+  ([physical-memory.md](physical-memory.md)). The boot's first clears read a record in the
   slot-133 pool: header 0x8e3 (positions from byte 16, 28 bytes apart), header 0xee4 (colours from byte 28), a
   full-screen triangle and opaque black (0, 0, 0, 1), so their targets stay black (RGB) either way.
 - **Draws and dispatches (12 to 14, 61)** upload the bind point's 128 dwords when they changed (a 64 MiB upload ring
@@ -831,7 +833,8 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   the target is the list's last one. `--d3d12-dump-targets` adds, in the frame after each captured present, a readback
   of every render and depth target at least 1024 wide the 1st, 2nd, 4th, 8th... time a list leaves it, at most 96, written
   as `present-N-target-0x<resource>-leave-K.png` beside the captures (depth and one-channel floats as grey, float colour formats
-  clamped to 0..1). With `--d3d12-trace-pipeline <text>` an ExecuteIndirect of a matching pipeline in that frame is logged too (its first argument records from game memory, targets, the depth-stencil view's resource and home state (CreateDepthStencilView notes it with the render targets), bindings, and for each user SGPR pair holding a GPU address and each root view whether the address map has a page there or the GPU reads zeros), and its first render target and depth target are read back right after it. The game executes some closed lists again, so a probe's buffer is released only once its list was reset
+  clamped to 0..1). `--dump-frame <n>` (`FrameStageDump`) instead reads every target and UAV texture back where a pass
+  stops writing it, named by order and pass, with HDR exposed and normals and depth mapped (`StagePixels`; [loader.md](loader.md)). With `--d3d12-trace-pipeline <text>` an ExecuteIndirect of a matching pipeline in that frame is logged too (its first argument records from game memory, targets, the depth-stencil view's resource and home state (CreateDepthStencilView notes it with the render targets), bindings, and for each user SGPR pair holding a GPU address and each root view whether the address map has a page there or the GPU reads zeros), and its first render target and depth target are read back right after it. The game executes some closed lists again, so a probe's buffer is released only once its list was reset
   (releasing it at the report removed the device, debug-layer error #921).
 - `--d3d12-trace-pipeline <text,...>` (implies the draw trace) also logs, in the frame after each captured present, up
   to 64 draws whose pipeline name holds one of the texts, without probes: a frame's UI draws (`sgd2_` Scaleform programs

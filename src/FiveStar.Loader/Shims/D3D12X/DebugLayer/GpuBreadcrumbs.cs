@@ -302,6 +302,15 @@ internal static unsafe class GpuBreadcrumbs
     [HotPath]
     private static void Before(XboxObject* list, MarkedOperation* operation)
     {
+        if (operation->Kind == MarkedKind.Command)
+        {
+            AftermathCrashDumps.Mark(list, operation->Kind, operation->Pipeline);
+        }
+        else
+        {
+            AftermathCrashDumps.Mark(list, operation->Kind, ListActivity.Of(list)->Pipeline);
+        }
+
         var recording = Current(list);
 
         if (recording == null)
@@ -476,7 +485,8 @@ internal static unsafe class GpuBreadcrumbs
         return text.ToString().TrimEnd();
     }
 
-    private static bool Readable(ulong address, ulong bytes)
+    /// <summary>Whether this process can read <paramref name="bytes"/> at <paramref name="address"/> (one committed, accessible region).</summary>
+    internal static bool Readable(ulong address, ulong bytes)
     {
         MemoryBasicInformation info;
 

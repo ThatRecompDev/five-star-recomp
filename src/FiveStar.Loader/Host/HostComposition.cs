@@ -23,6 +23,8 @@ internal static class HostComposition
         Shims.D3D12X.DebugLayer.ViewLiveness.Enabled = options.CheckViewLiveness;
         Shims.D3D12X.DebugLayer.NanScan.Filter = options.NanScan;
         Shims.D3D12X.DebugLayer.NanScan.Dwords = options.NanScanDwords;
+        Shims.D3D12X.DebugLayer.ExposureTrace.Interval = options.TraceExposure;
+        Shims.D3D12X.DebugLayer.ViewTrace.Filter = options.TraceViews;
 
         Shims.D3D12X.Resources.GpuTextureRegistry.RetireUnmapped = options.RetireUnmappedTextures;
         Shims.D3D12X.Resources.GpuTextureRegistry.RetireUnreferenced = !options.KeepUnmappedTextures;

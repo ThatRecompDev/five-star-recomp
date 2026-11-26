@@ -13,6 +13,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// blend on the other seven, the runtime allows dual-source factors only when target 0 is the one blend
 /// (debug-layer errors 112, 113, 115). Independent blending is turned off and targets 1 to 7 get the default blend
 /// (one render target is all dual-source blending can write);</item>
+/// <item>blending on a target whose format does not blend (R8_UINT; "This format does not support blending"): blending
+/// is turned off on that target, the others keep theirs;</item>
 /// <item>a forced sample count with depth or stencil on (error 672): the forced count is dropped;</item>
 /// <item>a NaN depth-bias clamp or slope scale (CreateRasterizerState: invalid value): it becomes 0, no clamp and no
 /// slope bias.</item>
@@ -38,6 +40,63 @@ internal static class DesktopStateRules
         DesktopStateBytes.Write(desktop, DesktopStateBytes.IndependentBlendField, false);
 
         return desktop;
+    }
+
+    /// <summary>
+    /// <see cref="Blend(byte[])"/>, then blending off on the bound targets whose format does not blend
+    /// (<paramref name="blends"/>; a copy when it changes). With one blend for all targets it is first repeated on each,
+    /// independent blending on, so the other targets keep it (not with dual-source blending, which has one target).
+    /// </summary>
+    public static byte[] Blend(byte[] blend, IReadOnlyList<int> formats, Func<int, bool> blends)
+    {
+        var desktop = Blend(blend);
+        bool independent = BinaryPrimitives.ReadInt32LittleEndian(desktop.AsSpan(DesktopStateBytes.IndependentBlendField)) != 0;
+        var refused = new List<int>();
+
+        for (var slot = 0; slot < formats.Count && slot < PipelineLayout.RenderTargetSlots; slot++)
+        {
+            int source = independent ? slot : 0;
+
+            if (formats[slot] != 0 && Enabled(desktop, source) && !blends(formats[slot]))
+            {
+                refused.Add(slot);
+            }
+        }
+
+        if (refused.Count == 0)
+        {
+            return desktop;
+        }
+
+        desktop = (byte[])desktop.Clone();
+
+        if (!independent && !UsesDualSource(desktop))
+        {
+            for (var slot = 1; slot < PipelineLayout.RenderTargetSlots; slot++)
+            {
+                desktop.AsSpan(DesktopStateBytes.TargetsField, DesktopStateBytes.TargetSize).CopyTo(desktop.AsSpan(Target(slot)));
+            }
+
+            DesktopStateBytes.Write(desktop, DesktopStateBytes.IndependentBlendField, true);
+            independent = true;
+        }
+
+        foreach (int slot in refused.Where(slot => independent || slot == 0))
+        {
+            DesktopStateBytes.Write(desktop.AsSpan(Target(slot)), DesktopStateBytes.TargetEnableField, false);
+        }
+
+        return desktop;
+    }
+
+    private static int Target(int slot)
+    {
+        return DesktopStateBytes.TargetsField + (slot * DesktopStateBytes.TargetSize);
+    }
+
+    private static bool Enabled(byte[] blend, int slot)
+    {
+        return BinaryPrimitives.ReadInt32LittleEndian(blend.AsSpan(Target(slot) + DesktopStateBytes.TargetEnableField)) != 0;
     }
 
     /// <summary>The rasterizer desc the desktop accepts with <paramref name="depthStencil"/> (a copy when it changes).</summary>

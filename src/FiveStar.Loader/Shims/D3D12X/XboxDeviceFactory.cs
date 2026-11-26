@@ -75,7 +75,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         AddressBuffers = new AddressBufferViews(GameMemory);
         AddressViews = new AddressShaderViews(Textures, AddressBuffers, Warnings, log);
         MemoryViews = new GameMemoryViews(memory, SectionHeaps, Warnings, log);
-        PlacedResources.Addresses.Observe(MemoryViews.Add);
+        PlacedResources.Addresses.Observe(MemoryViews.Add, MemoryViews.Remove);
         memory.ObservePages(MemoryViews.PageChanged);
 
         var hooks = new TitleMemoryHooks(images);
@@ -89,6 +89,9 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         BindObjectSlots();
         XboxBindings.Register(Objects);
     }
+
+    /// <summary>Nsight Aftermath GPU crash dumps (<c>--aftermath</c>), enabled before the device; null when off.</summary>
+    public AftermathCrashDumps? Aftermath { get; set; }
 
     /// <summary>The wrappers and their vtables; <see cref="XboxObjects.SetHandler"/> is where other shims bind slots.</summary>
     public XboxObjects Objects { get; }
@@ -203,6 +206,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         }
 
         Debugging.AttachDevice(inner);
+        Aftermath?.AttachDevice(inner);
         Presenter.Pix?.AfterPresent(0);
         SectionHeaps.Budget = GpuMemoryBudget.Open(inner, _log);
         SystemMemoryReserve.Take(inner, SectionHeaps.Budget, _log);
