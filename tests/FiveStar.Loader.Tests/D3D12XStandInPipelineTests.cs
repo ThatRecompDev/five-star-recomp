@@ -204,6 +204,43 @@ public sealed unsafe class D3D12XStandInPipelineTests
         never.Set();
     }
 
+    /// <summary>
+    /// A lighting pipeline (boot w120 washed out with the main cascade shadow draw a stand-in) is waited for at its first
+    /// use like --wait-pipelines (up to 60 s), here a build that ends 100 ms in; with --no-lighting-waits it is skipped as before.
+    /// </summary>
+    [Fact]
+    public void A_lighting_pipeline_is_waited_for_at_its_first_use_unless_turned_off()
+    {
+        const string Cascade = "sgd1_00049447_t41_MS_VS_CascadeShadows_draw_f6ce4799_Wrapped";
+        using var memory = new NativeBlocks();
+        using var gate = new ManualResetEventSlim();
+        nint pipeline = FakePipeline(memory);
+        var standIns = StandIns(TimeSpan.Zero);
+        nint waited = 0;
+
+        standIns.Deferred(() => Slow(gate, pipeline), &waited, Cascade, null, heavy: false, () => OpenLater(gate));
+        Assert.Equal(pipeline, standIns.Desktop(waited, out bool pending));
+        Assert.False(pending);
+        Assert.Contains("1 lighting pipelines waited for at first use", standIns.Summary, StringComparison.Ordinal);
+
+        EssentialPipelines.Lighting = false;
+
+        try
+        {
+            // Not disposed: the build thread may reach its wait after the test ends.
+            var never = new ManualResetEventSlim();
+            nint skipped = 0;
+            standIns.Deferred(() => Slow(never, pipeline), &skipped, Cascade, null, heavy: false, () => { });
+            Assert.Equal(0, standIns.Desktop(skipped, out pending));
+            Assert.True(pending);
+            never.Set();
+        }
+        finally
+        {
+            EssentialPipelines.Lighting = true;
+        }
+    }
+
     private static StandInPipelines StandIns(TimeSpan budget, PipelineWaits? waits = null)
     {
         var builds = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
