@@ -3,13 +3,13 @@
 
 using System.Reflection;
 using FiveStar.Shaders.Compilation;
-using FiveStar.Shaders.Translation;
 
 namespace FiveStar.Shaders.Cache;
 
 /// <summary>
 /// Compiled programs by what they were compiled from: <c>&lt;folder&gt;/&lt;aa&gt;/&lt;key&gt;.dxil</c>, the key a
-/// hash of the HLSL, the profile, the optimization level, the runtime headers it includes, the compiler (dxc's files, or
+/// hash of the HLSL, the profile, the optimization level, what it reads from the runtime headers it includes
+/// (<see cref="PreludeClosure"/>), the compiler (dxc's files, or
 /// the DXIL backend's sources: every source of this assembly but the translator's, <see cref="CompilerSources"/>) and
 /// whether the output is validated. The loader's program folders are named by the translator's build, so each translator
 /// change starts an empty one; with the store a program whose HLSL that change left alone is copied from here instead of
@@ -33,7 +33,7 @@ public sealed class ProgramContentStore
     public ProgramContentStore(string folder, string compilerIdentity)
     {
         _folder = folder;
-        _identity = ContentHash.OfText([compilerIdentity, .. RuntimeIncludes.Names.Select(RuntimeIncludes.Read)]);
+        _identity = compilerIdentity;
     }
 
     /// <summary>The hash of the sources of the DXIL backend and the rest of this assembly but the translator (set at build).</summary>
@@ -66,7 +66,7 @@ public sealed class ProgramContentStore
     {
         string level = request.DisableOptimizations ? "-Od" : "-O3";
 
-        return ContentHash.OfText([_identity, request.Profile, level, request.Hlsl]);
+        return ContentHash.OfText([_identity, PreludeClosure.Of(request.Hlsl), request.Profile, level, request.Hlsl]);
     }
 
     /// <summary>Writes the stored DXIL of <paramref name="request"/> to its <see cref="CompileRequest.DxilPath"/>; false when none is stored.</summary>
