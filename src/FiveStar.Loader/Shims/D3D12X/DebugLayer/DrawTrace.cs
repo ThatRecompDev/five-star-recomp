@@ -94,6 +94,7 @@ internal sealed unsafe class DrawTrace
     private readonly ConcurrentDictionary<nint, int> _dumped = new();
     private readonly ConcurrentDictionary<nint, byte> _indirectProbes = new();
     private readonly ConcurrentDictionary<nint, long> _targetWidths = new();
+    private readonly FrameStageDump _stages = new();
     private long _dumpPresent;
     private int _dumps;
     private readonly ConcurrentDictionary<nint, DrawTraceList> _lists = new();
@@ -427,6 +428,7 @@ internal sealed unsafe class DrawTrace
 
         state.Targets = targets;
         state.DepthStencil = depthStencil;
+        state.Worked = false;
         var bound = WatchedTargets(state, boundOnly: true);
 
         foreach (var (resource, _) in bound)
@@ -1015,6 +1017,103 @@ internal sealed unsafe class DrawTrace
 
         _census.Add(pipeline, target, skipped);
         Interlocked.Increment(ref _presentWork);
+
+        if (!skipped && _stages.IsOpen)
+        {
+            StageWork(list, pipeline);
+        }
+    }
+
+    /// <summary>In the dumped frame: the list's pass is named by <paramref name="pipeline"/>, and its desktop list is noted for barriers.</summary>
+    private void StageWork(XboxObject* list, nint pipeline)
+    {
+        var state = List(list);
+        state.LastPipeline = pipeline;
+        state.Worked = true;
+        _stages.Seen((nint)list, list->Inner);
+    }
+
+    /// <summary>
+    /// Barrier on desktop list <paramref name="inner"/>: <paramref name="resource"/> leaves <paramref name="current"/>,
+    /// a write state, so in the dumped frame the pass that wrote it ended and it is read back (<see cref="FrameStageDump"/>).
+    /// </summary>
+    public void Leaving(nint inner, nint resource, int current)
+    {
+        nint game = _stages.IsOpen ? _stages.GameList(inner) : 0;
+
+        if (game != 0 && _lists.TryGetValue(game, out var state))
+        {
+            Stage((XboxObject*)game, state, resource, current, "barrier");
+        }
+    }
+
+    /// <summary>
+    /// Before Close, in the dumped frame: the bound targets and every texture the list holds in a write state that Close
+    /// moves home out of it are read back (the list's last pass ends here).
+    /// </summary>
+    public void Closing(XboxObject* list)
+    {
+        if (!_stages.IsOpen || !_lists.TryGetValue((nint)list, out var state))
+        {
+            return;
+        }
+
+        StageTargets(list, state, "close");
+        var states = _d3d12.ListStates.Find(list);
+
+        for (int i = 0; states is not null && i < states.Count; i++)
+        {
+            var (resource, home, current) = states.At(i);
+
+            if ((current & ~home & FrameStageDump.WriteStates) != 0)
+            {
+                Stage(list, state, resource, current, "close");
+            }
+        }
+    }
+
+    /// <summary>The list leaves its bound render and depth targets: each is read back after the pass that wrote it.</summary>
+    private void StageTargets(XboxObject* list, DrawTraceList state, string how)
+    {
+        if (!state.Worked)
+        {
+            return;
+        }
+
+        foreach (nint handle in state.Targets.Append(state.DepthStencil))
+        {
+            if (handle != 0 && _targetViews.TryGetValue(handle, out var target))
+            {
+                int current = _d3d12.ListStates.Find(list)?.Current(target.Resource, target.Home) ?? target.Home;
+                Stage(list, state, target.Resource, current, how);
+            }
+        }
+    }
+
+    /// <summary>Copies <paramref name="resource"/> (in <paramref name="current"/> on the list) for the dumped frame, once per target and pass.</summary>
+    private void Stage(XboxObject* list, DrawTraceList state, nint resource, int current, string how)
+    {
+        Marshal.AddRef(resource);
+        using var desktop = new ID3D12Resource(resource);
+        var description = desktop.Description;
+        bool depth = (description.Flags & ResourceFlags.AllowDepthStencil) != 0;
+        string pass = QueueProgress.PipelineName(state.LastPipeline);
+
+        if (description.Dimension != ResourceDimension.Texture2D)
+        {
+            return;
+        }
+
+        string? png = _stages.Take(resource, pass, description.Width, description.Height, (int)description.Format, depth, out int order);
+
+        if (png is null)
+        {
+            return;
+        }
+
+        string label = $"stage {order} {pass} ({how}) target 0x{resource:x} {Describe(resource)} -> {Path.GetFileName(png)}";
+        _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, resource, current, label, (nint)list, state.Resets, png, stage: true);
+        Interlocked.CompareExchange(ref _reportAt, Volatile.Read(ref _lastPresent) + ReportDelay, 0);
     }
 
     /// <summary>
@@ -1073,7 +1172,9 @@ internal sealed unsafe class DrawTrace
         Volatile.Write(ref _dumps, 0);
         long dumping = 0;
 
-        if (wanted && DumpTargets)
+        _stages.Begin(present);
+
+        if ((wanted && DumpTargets) || _stages.IsOpen)
         {
             dumping = present;
         }
@@ -1145,6 +1246,13 @@ internal sealed unsafe class DrawTrace
     private void Dump(XboxObject* list, DrawTraceList state)
     {
         long present = Volatile.Read(ref _dumpPresent);
+
+        if (_stages.IsOpen)
+        {
+            StageTargets(list, state, "targets set");
+
+            return;
+        }
 
         foreach (nint handle in state.Targets.Append(state.DepthStencil))
         {

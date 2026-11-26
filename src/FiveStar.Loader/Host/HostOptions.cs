@@ -395,6 +395,12 @@ internal sealed record HostOptions
     /// <summary>With the draw trace, every target of the frame after a captured present as a PNG (<c>--d3d12-dump-targets</c>).</summary>
     public bool D3D12DumpTargets { get; set; }
 
+    /// <summary>The present after which every pass's targets are written as PNGs (<c>--dump-frame n</c>); 0 for none.</summary>
+    public long DumpFrame { get; set; }
+
+    /// <summary>Where <c>--dump-frame</c> writes (<c>--dump-frame-dir</c>); null is <c>frame-N</c> in the working directory.</summary>
+    public string? DumpFrameDirectory { get; set; }
+
     /// <summary>Pipelines whose draws the trace also logs after each captured present (<c>--d3d12-trace-pipeline</c>).</summary>
     public string? D3D12TracePipeline { get; set; }
 
