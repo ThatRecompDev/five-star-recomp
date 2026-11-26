@@ -175,13 +175,7 @@ internal sealed class LoaderHost
             _log.Info($"  [input] mapping from {_options.InputConfig}");
         }
 
-        FrameCapture? capture = null;
-
-        if (_options.CaptureDirectory is not null || _options.D3D12TraceDraws)
-        {
-            capture = new FrameCapture(_options.CaptureDirectory, _options.CapturePresents, _log);
-            _runtime.D3D12X.EnableCapture(capture, _options.D3D12TraceDraws, _options.D3D12TracePipeline);
-        }
+        var capture = EnableCapture();
 
         if (_options.InputScript is not null)
         {
@@ -231,9 +225,33 @@ internal sealed class LoaderHost
         _runtime.D3D12X.Presenter.Pix = pix;
     }
 
-    /// <summary>--d3d12-debug (debug layer and DRED) or --d3d12-dred (DRED alone).</summary>
+    /// <summary>--aftermath: the DLL loaded and GPU crash dumps enabled now, before the game creates its device.</summary>
+    private void EnableAftermath()
+    {
+        if (_options.AftermathDirectory is null)
+        {
+            return;
+        }
+
+        if (_options.D3D12Debug)
+        {
+            _log.Warn("[aftermath] the D3D12 debug layer (--d3d12-debug) keeps Aftermath from initializing the device: no markers or shader debug info");
+        }
+
+        var dumps = AftermathCrashDumps.Start(_options.AftermathDirectory, _options.AftermathLibrary, _options.AftermathMarkers, AppContext.BaseDirectory, Environment.GetEnvironmentVariable(AftermathLibrary.SdkVariable), _log);
+
+        if (dumps is not null)
+        {
+            _runtime.D3D12X.Aftermath = dumps;
+            DeviceLoss.BeforeEnd = dumps.WaitForDump;
+        }
+    }
+
+    /// <summary>--d3d12-debug (debug layer and DRED) or --d3d12-dred (DRED alone), and --aftermath.</summary>
     private void EnableDebugging()
     {
+        EnableAftermath();
+
         if (_options.D3D12Debug)
         {
             _runtime.D3D12X.Debugging.Enable(_options.D3D12GpuValidation);
@@ -478,6 +496,27 @@ internal sealed class LoaderHost
         }
     }
 
+    /// <summary>The present readback and the draw trace, when either is asked for; null otherwise.</summary>
+    private FrameCapture? EnableCapture()
+    {
+        if (_options.CaptureDirectory is null && !_options.D3D12TraceDraws)
+        {
+            return null;
+        }
+
+        var capture = new FrameCapture(_options.CaptureDirectory, _options.CapturePresents, _log);
+
+        // --dump-frame: the present is captured too, so the census and the trace window cover the dumped frame.
+        if (_options.DumpFrame > 0)
+        {
+            capture.Add(_options.DumpFrame);
+        }
+
+        _runtime.D3D12X.EnableCapture(capture, _options.D3D12TraceDraws, _options.D3D12TracePipeline);
+
+        return capture;
+    }
+
     /// <summary>The draw trace's options: dumps, probes, records, the watched target and the world trigger.</summary>
     private void ApplyTraceOptions()
     {
@@ -490,6 +529,9 @@ internal sealed class LoaderHost
         Shims.D3D12X.DebugLayer.DrawTrace.WatchRendered = _options.D3D12WatchRendered;
         Shims.D3D12X.DebugLayer.DrawTrace.CaptureWhenWorld = _options.CaptureWhenWorld;
         Shims.D3D12X.DebugLayer.DrawTrace.LogDraws = _options.LogDraws;
+
+        Shims.D3D12X.DebugLayer.FrameStageDump.Present = _options.DumpFrame;
+        Shims.D3D12X.DebugLayer.FrameStageDump.Directory = _options.DumpFrameDirectory ?? Path.GetFullPath($"frame-{_options.DumpFrame}");
     }
 
     /// <summary>Pipeline and binding options the D3D12.X shim reads as static settings.</summary>

@@ -18,26 +18,41 @@ internal sealed class AddressTable
     private readonly object _gate = new();
     private AddressRange[] _ranges = [];
     private Action<AddressRange>? _added;
+    private Action<AddressRange>? _replaced;
 
-    /// <summary>Calls <paramref name="added"/> with every range added from now on, in order.</summary>
-    public void Observe(Action<AddressRange> added)
+    public AddressTable(RetiredAddressBuffers retired)
+    {
+        Retired = retired;
+    }
+
+    /// <summary>The buffers of replaced ranges, released once the GPU is past them.</summary>
+    public RetiredAddressBuffers Retired { get; }
+
+    /// <summary>
+    /// Calls <paramref name="added"/> with every range added from now on, in order, and <paramref name="replaced"/>
+    /// with each range an addition replaces, before that addition is observed.
+    /// </summary>
+    public void Observe(Action<AddressRange> added, Action<AddressRange>? replaced = null)
     {
         lock (_gate)
         {
             _added = added;
+            _replaced = replaced;
         }
     }
 
     /// <summary>
     /// Adds <paramref name="range"/>, which holds a reference on its desktop resource until a later range replaces it:
     /// the game releases buffers whose addresses views, copies and the shader address map still translate, and a view
-    /// made on a released buffer crashed the driver (CreateShaderResourceView, nvwgf2umx.dll, at the story load).
+    /// made on a released buffer crashed the driver (CreateShaderResourceView, nvwgf2umx.dll, at the story load). A
+    /// replaced range leaves the map first (<see cref="Observe"/>), and its buffer retires (<see cref="RetiredAddressBuffers"/>).
     /// </summary>
     public void Add(AddressRange range)
     {
         lock (_gate)
         {
             var kept = new List<AddressRange>(_ranges.Length + 1);
+            var replaced = new List<AddressRange>();
 
             foreach (var existing in _ranges)
             {
@@ -47,7 +62,7 @@ internal sealed class AddressTable
                 }
                 else
                 {
-                    Release(existing.Resource);
+                    replaced.Add(existing);
                 }
             }
 
@@ -55,8 +70,25 @@ internal sealed class AddressTable
             kept.Add(range);
             kept.Sort((a, b) => a.GameAddress.CompareTo(b.GameAddress));
             Volatile.Write(ref _ranges, kept.ToArray());
+
+            foreach (var existing in replaced)
+            {
+                _replaced?.Invoke(existing);
+            }
+
             _added?.Invoke(range);
+
+            foreach (var existing in replaced)
+            {
+                Retired.Retire(existing.Resource);
+            }
         }
+    }
+
+    /// <summary>Once per present: releases the replaced buffers the GPU is past (<see cref="RetiredAddressBuffers.Advance"/>).</summary>
+    public void Advance(long present)
+    {
+        Retired.Advance(present);
     }
 
     private static unsafe void AddRef(nint resource)
@@ -64,14 +96,6 @@ internal sealed class AddressTable
         if (resource != 0)
         {
             ((delegate* unmanaged<nint, uint>)ComObject.Slot(resource, AddRefSlot))(resource);
-        }
-    }
-
-    private static void Release(nint resource)
-    {
-        if (resource != 0)
-        {
-            ComObject.Release(resource);
         }
     }
 

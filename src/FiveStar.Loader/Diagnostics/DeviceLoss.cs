@@ -40,6 +40,9 @@ internal static class DeviceLoss
     /// <summary>Where the end is logged; null logs nothing.</summary>
     public static LoaderLog? Log { get; set; }
 
+    /// <summary>Runs after the grace period, before the end: waits for reports written elsewhere (an Aftermath crash dump); null for none.</summary>
+    public static Action? BeforeEnd { get; set; }
+
     /// <summary>Ends the process with an exit code (tests replace it).</summary>
     public static Action<int> End { get; set; } = code =>
     {
@@ -75,6 +78,7 @@ internal static class DeviceLoss
     private static void Finish()
     {
         Thread.Sleep((int)(GraceSeconds * MillisecondsPerSecond));
+        BeforeEnd?.Invoke();
         Log?.Error($"[device lost] ending the process (exit code {ExitCode}); {MemorySnapshot.Summary()}");
         End(ExitCode);
     }

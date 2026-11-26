@@ -157,8 +157,11 @@ internal static class HostUsage
           --indirect-batch       with --indirect-gather: records not gathered join one clamp pass per stretch between
                                  barriers after writes (a job table filled while recording) instead of a pass each
           --check-view-liveness  before each draw and dispatch, check the bound tables' views: released resources, wrong kinds
-          --d3d12-nan-scan <t>   read back the inputs of draws whose pipeline contains t and log those holding NaN or Inf
+          --d3d12-nan-scan <t>   read back the inputs of draws whose pipeline contains t (comma-separated texts) and log
+                                 those holding NaN or Inf
           --d3d12-nan-scan-dwords <offset>:<n>  also show n floats of every scanned buffer and CBV from that byte offset
+          --trace-exposure <n>   every n presents log the values the game reads from the exposure targets it maps
+          --trace-views <t>      log what each table record of draws whose pipeline contains t resolves to (CPU only)
           --retire-unmapped-textures  release textures over memory the game unmaps (default: only counted)
           --keep-unmapped-textures  keep textures over memory the game unmapped that no view record names (default:
                                  retired after 120 presents unmapped and 60 unnamed, their views nulled)
@@ -217,10 +220,18 @@ internal static class HostUsage
                                  pixel and compute programs per wave, with the first float site whose value is NaN or Inf
           --d3d12-dump-targets   the draw trace, and in the frame after each captured present every render and depth
                                  target read back when a list leaves it, as PNG in the capture folder
+          --dump-frame <n>       the draw trace, and in the frame after present n every target and UAV texture at
+                                 least 480 wide read back after each pass that wrote it (64 at most), as
+                                 NN-pass-WxH-fmtF.png (HDR exposed, normals and depth mapped; stats in the log)
+          --dump-frame-dir <dir> where --dump-frame writes (default frame-<n>)
           --capture-dir <dir>    write read-back planes and render targets there as PNG
           --capture-presents <n,...> present numbers whose plane is read back (default 60,300,900,1500)
           --pix-capture <n,...>  PIX GPU capture of those presents (WinPixGpuCapturer.dll, winget Microsoft.PIX)
           --pix-capture-dir <dir>  where the present-N.wpix files go (default pix-captures)
+          --aftermath [dir]      NVIDIA Nsight Aftermath GPU crash dumps and shader debug info there (default aftermath);
+                                 needs GFSDK_Aftermath_Lib.x64.dll of the Aftermath SDK (developer.nvidia.com/nsight-aftermath)
+          --aftermath-dll <path> that DLL (else next to the loader, else %NSIGHT_AFTERMATH_SDK%\lib\x64)
+          --aftermath-markers    an Aftermath event marker per draw, dispatch and copy naming its pipeline, and call stacks
           --present-test         present moving color bars instead of the game's frame (checks the swap chain)
           --raytracing          XboxBvhBuilder.dll's CPU paths: console acceleration-structure sizes and BLAS
                                  rehydration into game memory (off: desktop sizes, nothing written)

@@ -40,8 +40,8 @@ internal static unsafe class ViewLiveness
     /// <summary>Whether tables are checked (views are noted then too).</summary>
     public static bool Enabled { get; set; }
 
-    /// <summary>Whether views are noted: for the checks or for <see cref="NanScan"/>.</summary>
-    public static bool Noting => Enabled || NanScan.Enabled;
+    /// <summary>Whether views are noted: for the checks, for <see cref="NanScan"/> or for <see cref="ViewTrace"/>.</summary>
+    public static bool Noting => Enabled || NanScan.Enabled || ViewTrace.Enabled;
 
     /// <summary>"view liveness: N records checked, findings by reason (distinct)" for the sample line.</summary>
     public static string Summary

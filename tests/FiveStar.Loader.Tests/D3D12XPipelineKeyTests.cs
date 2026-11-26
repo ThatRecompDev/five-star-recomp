@@ -26,7 +26,10 @@ public sealed unsafe class D3D12XPipelineKeyTests
         void main(out vertices V v[3], out indices uint3 t[1]) { SetMeshOutputCounts(3, 1); v[0].p = 0; v[1].p = 0; v[2].p = 0; t[0] = uint3(0, 1, 2); }
         """;
 
+    private const string IntegerPixel = "struct O { float4 c : SV_Target0; uint m : SV_Target1; }; O main() { O o; o.c = 1; o.m = 1; return o; }";
+
     private const int Rgba32Float = 2;
+    private const int R8Uint = 62;
     private const int Rgba8Unorm = 28;
     private const int B5G6R5Unorm = 85;
 
@@ -54,6 +57,39 @@ public sealed unsafe class D3D12XPipelineKeyTests
             Assert.Equal(0, StoreAndLoad(device2, nanBias));
             Assert.Equal(0, StoreAndLoad(device2, meshStream));
 
+            DesktopDevice.Release(root);
+            DesktopDevice.Release(device2);
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
+    }
+
+    [DxcFact]
+    public void A_blend_on_an_integer_target_builds_with_blending_off_there()
+    {
+        // The runtime refuses blending on R8_UINT (E_INVALIDARG, "This format does not support blending").
+        var folder = Directory.CreateTempSubdirectory("fivestar-psoblend-");
+
+        try
+        {
+            using var device = GpuDevice.CreateWarp(debugLayer: false);
+            var (device2, root) = DesktopObjects(device.Device.NativePointer);
+            var vertex = TranslatedProgram.Of("vs", HardwareStage.Vertex, Compile(folder.FullName, "vs_6_6", Vertex));
+            var pixel = TranslatedProgram.Of("ps", HardwareStage.Pixel, Compile(folder.FullName, "ps_6_6", IntegerPixel));
+
+            var blend = DesktopStateBytes.DefaultBlend();
+            DesktopStateBytes.Write(blend, DesktopStateBytes.IndependentBlendField, true);
+            DesktopStateBytes.WriteTarget(blend, 0, true, [2, 2, 5, 2, 1, 1], 0x0F);
+            DesktopStateBytes.WriteTarget(blend, 1, true, [2, 2, 5, 2, 1, 1], 0x0F);
+
+            using var stream = DesktopPipelineBuilder.GraphicsStream(device2, root, Description(0f) with { Blend = blend, RenderTargetFormats = [Rgba8Unorm, R8Uint] }, [vertex, pixel]);
+            var iid = DesktopDevice.PipelineStateIid;
+            nint pipeline;
+
+            Assert.Equal(0, stream.Create(device2, &iid, &pipeline));
+            DesktopDevice.Release(pipeline);
             DesktopDevice.Release(root);
             DesktopDevice.Release(device2);
         }

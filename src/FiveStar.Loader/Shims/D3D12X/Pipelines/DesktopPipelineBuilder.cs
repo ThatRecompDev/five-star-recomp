@@ -40,7 +40,8 @@ internal static unsafe class DesktopPipelineBuilder
             stream.AddShader(PipelineStateSubObjectType.AmplificationShader, MeshLaunch.Code);
         }
 
-        stream.AddBytes(PipelineStateSubObjectType.Blend, StatePadding.Blend(DesktopStateRules.Blend(description.Blend)));
+        Func<int, bool> blends = format => FormatSupport.Blends(device2, TargetFormats.GpuWritten(device2, format));
+        stream.AddBytes(PipelineStateSubObjectType.Blend, StatePadding.Blend(DesktopStateRules.Blend(description.Blend, description.RenderTargetFormats, blends)));
         stream.AddWords(PipelineStateSubObjectType.SampleMask, [unchecked((int)description.SampleMask)]);
         stream.AddBytes(PipelineStateSubObjectType.Rasterizer, DesktopStateRules.Rasterizer(description.Rasterizer, description.DepthStencil));
         stream.AddBytes(PipelineStateSubObjectType.DepthStencil1, StatePadding.DepthStencil(description.DepthStencil));

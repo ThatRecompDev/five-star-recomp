@@ -71,6 +71,7 @@ internal static unsafe class ResourceBarrierSlots
         {
             nint inner = self->Inner;
             var states = D3D12X.ListStates.Find(self);
+            D3D12X.DrawTrace?.Closing(self);
 
             if (states is not null && states.Count > 0)
             {
@@ -190,6 +191,12 @@ internal static unsafe class ResourceBarrierSlots
         if (!IsLegal(states, current, after))
         {
             return;
+        }
+
+        // --dump-frame: a texture leaving a write state is read back first, after the pass that wrote it.
+        if ((current & ~after & FrameStageDump.WriteStates) != 0)
+        {
+            D3D12X.DrawTrace?.Leaving(list, resource, current);
         }
 
         BarrierWriter.Transition(list, resource, current, after);
