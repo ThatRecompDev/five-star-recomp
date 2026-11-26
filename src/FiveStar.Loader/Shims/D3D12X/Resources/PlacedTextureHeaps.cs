@@ -21,8 +21,11 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// </summary>
 internal sealed unsafe class PlacedTextureHeaps
 {
-    /// <summary>Bytes in a shared heap.</summary>
-    public const ulong HeapBytes = 256UL << 20;
+    /// <summary>
+    /// Bytes in a shared heap: 64 MiB. With 256 MiB heaps one texture left in a heap held the whole heap, and w111b kept
+    /// 2 to 3 GB of its 12 GB of heaps unused, no heap ever empty enough to go back.
+    /// </summary>
+    public const ulong HeapBytes = 64UL << 20;
 
     // ID3D12Device GetResourceAllocationInfo, CreateHeap, CreatePlacedResource; ID3D12Object SetPrivateDataInterface (d3d12.h).
     private const int AllocationInfoSlot = 25;
@@ -78,6 +81,34 @@ internal sealed unsafe class PlacedTextureHeaps
 
                 return (long)bytes;
             }
+        }
+    }
+
+    /// <summary>Bytes of the shared heaps handed out to textures.</summary>
+    public long UsedBytes
+    {
+        get
+        {
+            lock (_gate)
+            {
+                ulong used = 0;
+
+                foreach (var heap in _heaps)
+                {
+                    used += heap.Used;
+                }
+
+                return (long)used;
+            }
+        }
+    }
+
+    /// <summary>Once a frame: shared heaps empty long enough go back even when no texture is freed or placed meanwhile.</summary>
+    public void Trim()
+    {
+        lock (_gate)
+        {
+            ReturnEmpty(Environment.TickCount64);
         }
     }
 
@@ -148,11 +179,14 @@ internal sealed unsafe class PlacedTextureHeaps
 
         lock (_gate)
         {
+            ReturnEmpty(Environment.TickCount64);
+
+            // The fullest heap with room first: textures gather in few heaps, and the emptier ones drain and go back.
             if (!own)
             {
-                foreach (var shared in _heaps)
+                foreach (var shared in _heaps.Where(candidate => !candidate.Own).OrderByDescending(candidate => candidate.Used))
                 {
-                    if (!shared.Own && shared.TryTake(size, alignment, out offset))
+                    if (shared.TryTake(size, alignment, out offset))
                     {
                         heap = shared;
 

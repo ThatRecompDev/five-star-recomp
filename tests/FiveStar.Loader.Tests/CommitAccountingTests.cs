@@ -24,10 +24,14 @@ public sealed class CommitAccountingTests
             CompileArenasExpected: 8 * Gigabyte,
             XMemPages: 14 * Gigabyte,
             SectionHeaps: 3 * Gigabyte,
-            Helpers: Gigabyte / 2);
+            Helpers: Gigabyte / 2,
+            PlacedUsed: 7 * Gigabyte,
+            OverUnmapped: 2 * Gigabyte,
+            KeptAliases: Gigabyte / 2,
+            UploadBuffers: Gigabyte / 5 * 2);
 
         Assert.Equal(
-            "commit by category: private 40.0 GB = video memory mirror 12.0 GB (placed texture heaps 9.0 GB, other 3.0 GB) + managed 2.0 GB + game memory 6.0 GB + driver and native 20.0 GB (compile arenas expected 8.0 GB); outside it XMem pages 14.0 GB (section heaps open over 3.0 GB of them), helper processes 0.5 GB",
+            "commit by category: private 40.0 GB = video memory mirror 12.0 GB (placed texture heaps 9.0 GB: 7.0 GB used, of it 2.0 GB over unmapped memory and 0.5 GB kept aliases; other 3.0 GB, of it upload buffers 0.4 GB) + managed 2.0 GB + game memory 6.0 GB + driver and native 20.0 GB (compile arenas expected 8.0 GB); outside it XMem pages 14.0 GB (section heaps open over 3.0 GB of them), helper processes 0.5 GB",
             CommitAccounting.Format(figures));
     }
 

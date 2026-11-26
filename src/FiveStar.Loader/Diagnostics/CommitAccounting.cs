@@ -26,7 +26,11 @@ internal static class CommitAccounting
         long CompileArenasExpected,
         long XMemPages,
         long SectionHeaps,
-        long Helpers);
+        long Helpers,
+        long PlacedUsed = 0,
+        long OverUnmapped = 0,
+        long KeptAliases = 0,
+        long UploadBuffers = 0);
 
     /// <summary>"commit by category: private P GB = ...; outside it ...".</summary>
     public static string Format(Figures figures)
@@ -36,7 +40,7 @@ internal static class CommitAccounting
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"commit by category: private {Gb(figures.Private)} = video memory mirror {Gb(figures.WriteCombined)} (placed texture heaps {Gb(figures.PlacedTextureHeaps)}, other {Gb(otherVideo)}) + managed {Gb(figures.Managed)} + game memory {Gb(figures.GameMemory)} + driver and native {Gb(rest)} (compile arenas expected {Gb(figures.CompileArenasExpected)}); outside it XMem pages {Gb(figures.XMemPages)} (section heaps open over {Gb(figures.SectionHeaps)} of them), helper processes {Gb(figures.Helpers)}");
+            $"commit by category: private {Gb(figures.Private)} = video memory mirror {Gb(figures.WriteCombined)} (placed texture heaps {Gb(figures.PlacedTextureHeaps)}: {Gb(figures.PlacedUsed)} used, of it {Gb(figures.OverUnmapped)} over unmapped memory and {Gb(figures.KeptAliases)} kept aliases; other {Gb(otherVideo)}, of it upload buffers {Gb(figures.UploadBuffers)}) + managed {Gb(figures.Managed)} + game memory {Gb(figures.GameMemory)} + driver and native {Gb(rest)} (compile arenas expected {Gb(figures.CompileArenasExpected)}); outside it XMem pages {Gb(figures.XMemPages)} (section heaps open over {Gb(figures.SectionHeaps)} of them), helper processes {Gb(figures.Helpers)}");
     }
 
     private static string Gb(long bytes)
