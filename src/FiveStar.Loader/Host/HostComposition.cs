@@ -62,6 +62,8 @@ internal static class HostComposition
     {
         Shims.D3D12X.MeshLaunch.Enabled = options.MeshLaunch;
         Shims.D3D12X.ClampBarriers.Requested = options.ClampEnhancedBarriers;
+        Shims.D3D12X.IndirectGather.Enabled = options.IndirectGather;
+        Shims.D3D12X.Binding.PipelineStores.Enabled = options.IndirectGather;
         Shims.D3D12X.Binding.GpuUploadHeaps.Enabled = options.GpuUploadHeaps;
 
         Shims.D3D12X.DebugLayer.DrawCensus.Passes = options.CensusPasses;
@@ -101,8 +103,7 @@ internal static class HostComposition
         var boot = System.Diagnostics.Stopwatch.StartNew();
         CompileBudget.LoadWindow = () => Diagnostics.GameHangWatch.Loading(boot.Elapsed, LoadWindowSpan);
 
-        Shims.D3D12X.Resources.PlacedTextureHeaps.Enabled = options.PlacedTextures;
-        Shims.D3D12X.Resources.GpuTextureRegistry.KeptAliases = options.KeptAliases;
+        ApplyTextureLimits(options);
         Shims.D3D12X.Pipelines.PipelineWaits.Current = Shims.D3D12X.Pipelines.PipelineWaits.Parse(options.WaitPipelines);
         Shims.D3D12X.SectionHeaps.InPlaceWindow = InPlaceWindow(options.InPlaceWindowMegabytes);
         Shims.D3D12X.Resources.TypelessTargets.Enabled = options.TypelessTargets;
@@ -153,6 +154,15 @@ internal static class HostComposition
         }
 
         return folders with { Index = ProgramIndexLoad.Start(folders.Programs!) };
+    }
+
+    /// <summary>Placed texture heaps, kept aliases and the budget of views' textures over memory never mapped.</summary>
+    private static void ApplyTextureLimits(HostOptions options)
+    {
+        Shims.D3D12X.Resources.PlacedTextureHeaps.Enabled = options.PlacedTextures;
+        Shims.D3D12X.Resources.GpuTextureRegistry.KeptAliases = options.KeptAliases;
+        Shims.D3D12X.Resources.GpuTextures.UnmappedViewBudget = options.UnmappedViewBudgetBytes;
+        Shims.D3D12X.Resources.TextureRefreshWorker.WaitAtSubmit = options.TextureRefreshWait;
     }
 
     /// <summary>

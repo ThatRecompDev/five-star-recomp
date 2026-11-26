@@ -134,6 +134,9 @@ internal sealed record HostOptions
     /// <summary>GPU-written UNORM color textures made typeless, so views take the game's sRGB or integer member (<c>--typeless-targets</c>).</summary>
     public bool TypelessTargets { get; set; }
 
+    /// <summary>Submissions wait for the texture refresh (<c>--texture-refresh-wait</c>).</summary>
+    public bool TextureRefreshWait { get; set; }
+
     /// <summary>Threads that build the journal's uncached pipelines from device creation on (<c>--prebuild-jobs</c>; 0 for none).</summary>
     public int PrebuildJobs { get; set; } = Shims.D3D12X.Pipelines.JournalPrebuild.DefaultJobs;
 
@@ -142,6 +145,9 @@ internal sealed record HostOptions
 
     /// <summary>Retired textures over exactly one range kept until disposal (<c>--kept-aliases</c>).</summary>
     public int KeptAliases { get; set; } = Shims.D3D12X.Resources.GpuTextureRegistry.DefaultKeptAliases;
+
+    /// <summary>Bytes of textures made for views over reserved memory with no page mapped (<c>--unmapped-view-budget</c>).</summary>
+    public long UnmappedViewBudgetBytes { get; set; } = Shims.D3D12X.Resources.GpuTextures.DefaultUnmappedViewBudget;
 
     /// <summary>The most driver compiles of 256 KB of DXIL or more at once (<c>--max-driver-compiles</c>); 0 for the machine's default.</summary>
     public int MaxDriverCompiles { get; set; }
@@ -271,6 +277,9 @@ internal sealed record HostOptions
 
     /// <summary>Enhanced barriers on the indirect-argument scratch instead of three transitions per ExecuteIndirect (<c>--clamp-enhanced-barriers</c>).</summary>
     public bool ClampEnhancedBarriers { get; set; }
+
+    /// <summary>Indirect records clamped in one prelude per list segment where nothing earlier in it wrote them (<c>--indirect-gather</c>).</summary>
+    public bool IndirectGather { get; set; }
 
     /// <summary>The descriptor window, the address map and the user-data ring in GPU upload heaps where the device has them (<c>--gpu-upload-heaps</c>).</summary>
     public bool GpuUploadHeaps { get; set; }

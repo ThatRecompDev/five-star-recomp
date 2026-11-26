@@ -113,12 +113,29 @@ flowchart LR
   through a loading screen, past the game's hang watchdog) and waits for refreshes in progress, so a texture written
   before it is current. A
   texture never filled is still filled whole. w109's whole-texture refresh on the submitting thread cost 19 ms a frame.
+- **Off the submitting threads** (default): a submission only wakes the refresh worker; the worker's threads take the
+  written, view-checked and CPU-mapped textures (the frame check queues those too, checked page by page) and their
+  uploads reach the GPU at most a frame later. `--texture-refresh-wait` makes every submission take the queue and
+  wait, as before (w113: 59-124 ms of the submit path a frame). With `--frame-log` a second line splits the refresh:
+  read+hash, upload, submissions' waits, textures written and watched, MB read and uploaded.
 - **A slot-70 view of a registered texture** (`GpuTextures.RefreshForView`) marks all its pages for that worker instead
   of reading and hashing the texture on the game's thread: the CPU may have written its memory, which nothing
   reports, so every page is compared with its hash, off the thread, before the next submission. The first view of
   a texture in a frame queues the check (`ViewCheckQueued`); later ones that frame cost nothing (`ViewCheckSkipped`),
   so bytes the CPU writes between two views of one frame are taken at the next frame's view. CPU-mapped textures are
   left to the frame check.
+- **Heap slack and kept aliases**: shared texture heaps are 64 MiB (256 before) and a texture goes into the fullest
+  heap with room, so the emptier ones drain and go back (checked once a frame); w111b kept 2 to 3 GB of its 12 GB of
+  heaps unused and returned none. Retired textures kept over their range for older descriptors stay within 512 MiB
+  (`GpuTextureRegistry.KeptAliasBytes`); past it the oldest are released after their grace. The sample line's commit
+  by category splits the placed heaps into used bytes, textures over unmapped memory and kept aliases, and names the
+  upload buffers.
+- **Views over memory never mapped** (`ViewCreatedUnmapped`) make textures only within `--unmapped-view-budget` (MiB,
+  default 1024) of live such textures: a texture stops counting when a page under it is mapped or it is released.
+  Past the budget such a view is a null descriptor (`ViewUnmappedOverBudget`). They count as over unmapped memory in
+  the summary, so `--retire-unmapped-textures` retires them too. w110/w111b made 134k-227k of them; the placed heaps
+  grew to 12 GB against the game's 7 GB of physical pages. The texture counters line ends with their live bytes, the
+  bytes of the retired textures kept over their range, and the uploader's upload buffers (one past 32 MiB is not kept).
 - **Textures in XMem reservations** are read page by page (`GameMemorySource.Gather`, `UploadGathered`): each 64 KiB
   page from its CPU range or, when the game mapped it at the GPU-only alias itself, from there; zeros for a page mapped
   nowhere (a mip not streamed in). The whole-range read refused every streamed texture with one unmapped page (w108:

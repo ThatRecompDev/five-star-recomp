@@ -11,6 +11,7 @@ namespace FiveStar.Loader.Host;
 internal sealed class CommandLineParser
 {
     private const double BytesPerGigabyte = 1L << 30;
+    private const long BytesPerMebibyte = 1L << 20;
 
     private readonly string[] _args;
     private readonly HostOptions _options = new();
@@ -700,16 +701,12 @@ internal sealed class CommandLineParser
                 _options.DepthTwins = true;
 
                 return true;
-            case "--target-clear-census":
-                _options.TargetClearCensus = true;
-
-                return true;
-            case "--clear-targets-each-frame":
-                _options.ClearTargetsEachFrame = true;
-
-                return true;
             case "--typeless-targets":
                 _options.TypelessTargets = true;
+
+                return true;
+            case "--texture-refresh-wait":
+                _options.TextureRefreshWait = true;
 
                 return true;
             case "--committed-textures":
@@ -726,6 +723,28 @@ internal sealed class CommandLineParser
                 return true;
             case "--kept-aliases":
                 _options.KeptAliases = Math.Max(0, int.Parse(Next(), CultureInfo.InvariantCulture));
+
+                return true;
+            case "--unmapped-view-budget":
+                _options.UnmappedViewBudgetBytes = Math.Max(0, long.Parse(Next(), CultureInfo.InvariantCulture)) * BytesPerMebibyte;
+
+                return true;
+            default:
+                return ApplyTargetClears(option);
+        }
+    }
+
+    /// <summary>The accumulating-image diagnostics: the clear census and the per-frame clear.</summary>
+    private bool ApplyTargetClears(string option)
+    {
+        switch (option)
+        {
+            case "--target-clear-census":
+                _options.TargetClearCensus = true;
+
+                return true;
+            case "--clear-targets-each-frame":
+                _options.ClearTargetsEachFrame = true;
 
                 return true;
             default:
@@ -748,6 +767,10 @@ internal sealed class CommandLineParser
                 return true;
             case "--clamp-enhanced-barriers":
                 _options.ClampEnhancedBarriers = true;
+
+                return true;
+            case "--indirect-gather":
+                _options.IndirectGather = true;
 
                 return true;
             case "--gc-sustained":

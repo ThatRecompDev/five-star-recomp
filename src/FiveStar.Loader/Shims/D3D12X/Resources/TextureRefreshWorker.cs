@@ -42,6 +42,7 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
     private Thread? _thread;
     private nint _device;
     private int _busy;
+    private int _queued;
     private volatile bool _stopping;
 
     public TextureRefreshWorker(GpuTextures textures, GameMemorySource source)
@@ -55,6 +56,7 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
     {
         if (_marked.TryAdd(texture, 0))
         {
+            Interlocked.Increment(ref _queued);
             _textures.Counters.Add(GpuResourceEvent.Written);
             _signal.Set();
         }
@@ -68,7 +70,23 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
     {
         Start(device);
 
-        if (!_marked.IsEmpty)
+        if (!WaitAtSubmit)
+        {
+            _signal.Set();
+
+            return;
+        }
+
+        Flush(device);
+    }
+
+    /// <summary>Refreshes everything queued on this thread along with the worker and waits until none is in progress.</summary>
+    public void Flush(nint device)
+    {
+        Start(device);
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        if (Volatile.Read(ref _queued) > 0)
         {
             Parallel.ForEach(_marked.Keys, new ParallelOptions { MaxDegreeOfParallelism = SettleThreads }, texture => Take(device, texture));
         }
@@ -78,7 +96,17 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
         {
             _idle.Wait(WaitMilliseconds);
         }
+
+        TextureRefreshStats.AddWait(start);
     }
+
+    /// <summary>
+    /// <c>--texture-refresh-wait</c>: a submission refreshes what is queued and waits for refreshes in progress, so a
+    /// texture written before it is current for it. Off by default: the refresh worker's threads take the queue and a
+    /// streamed mip, a CPU write or a video frame reaches the GPU at most a frame later, off the submitting threads
+    /// (w113: 59 to 124 ms of the submit path a frame went to the refresh).
+    /// </summary>
+    public static bool WaitAtSubmit { get; set; }
 
     public void Dispose()
     {
@@ -172,7 +200,7 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
         {
             _signal.WaitOne(IdleMilliseconds);
 
-            if (!_marked.IsEmpty)
+            if (Volatile.Read(ref _queued) > 0)
             {
                 Drain(Volatile.Read(ref _device));
             }
@@ -182,10 +210,8 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
     /// <summary>Refreshes queued textures until none is left. A texture counts as in progress before it leaves the queue.</summary>
     private void Drain(nint device)
     {
-        foreach (var texture in _marked.Keys)
-        {
-            Take(device, texture);
-        }
+        // On SettleThreads threads: reading, hashing and detiling run outside the uploader's lock.
+        Parallel.ForEach(_marked.Keys, new ParallelOptions { MaxDegreeOfParallelism = SettleThreads }, texture => Take(device, texture));
     }
 
     /// <summary>Refreshes <paramref name="texture"/> if it is still queued; it counts as in progress before it leaves the queue.</summary>
@@ -197,6 +223,7 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
         {
             if (_marked.TryRemove(texture, out _))
             {
+                Interlocked.Decrement(ref _queued);
                 Refresh(device, texture);
             }
         }
@@ -232,6 +259,7 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
         }
 
         _textures.Counters.Add(GpuResourceEvent.WrittenRefreshed);
+        TextureRefreshStats.AddWritten();
 
         lock (texture.RefreshGate)
         {
@@ -257,6 +285,9 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
     /// <summary>Reads the written pages, and uploads the subresources a changed one lies in.</summary>
     private void RefreshPages(nint device, GpuTexture texture, ulong[] dirty)
     {
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        ulong bytes = 0;
+
         var hashes = texture.PageHashes!;
         byte* buffer = GpuTextures.CopyBuffer(texture.Size);
         var changed = new bool[hashes.Length];
@@ -273,7 +304,9 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
 
             ReadPage(texture, page, buffer);
             read[page] = true;
+
             var (offset, length) = PageRange(texture, page);
+            bytes += length;
             fresh[page] = ContentHash.Of(buffer + offset, length);
             changed[page] = fresh[page] != hashes[page];
             any |= changed[page];
@@ -281,6 +314,7 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
 
         if (!any)
         {
+            TextureRefreshStats.AddRead(start, bytes);
             _textures.Counters.Add(GpuResourceEvent.UploadSkipped);
 
             return;
@@ -296,15 +330,21 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
             if (needed[page] && !read[page])
             {
                 ReadPage(texture, page, buffer);
+                bytes += PageRange(texture, page).Length;
             }
         }
 
+        TextureRefreshStats.AddRead(start, bytes);
         Upload(device, texture, buffer, affected, fresh, changed);
     }
 
     private void Upload(nint device, GpuTexture texture, byte* buffer, bool[] affected, ulong[] fresh, bool[] changed)
     {
-        if (_textures.Uploader.Upload(device, texture, buffer, affected))
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool uploaded = _textures.Uploader.Upload(device, texture, buffer, affected);
+        TextureRefreshStats.AddUpload(start, UploadedBytes(texture, affected));
+
+        if (uploaded)
         {
             texture.PageHashes = fresh;
             texture.UploadedHash = Combined(fresh);
@@ -324,6 +364,23 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
         }
 
         _textures.ReportFailure(texture);
+    }
+
+    /// <summary>The console bytes of the subresources <paramref name="affected"/> names (<see cref="XgSubresourceSpans"/>).</summary>
+    private static ulong UploadedBytes(GpuTexture texture, bool[] affected)
+    {
+        ulong bytes = 0;
+
+        for (int subresource = 0; subresource < affected.Length; subresource++)
+        {
+            if (affected[subresource])
+            {
+                var (start, end) = XgSubresourceSpans.Of(texture.Layout, subresource);
+                bytes += end - start;
+            }
+        }
+
+        return bytes;
     }
 
     /// <summary>Copies page <paramref name="page"/> of the texture's memory into its place in <paramref name="buffer"/> (zeros where nothing is readable).</summary>

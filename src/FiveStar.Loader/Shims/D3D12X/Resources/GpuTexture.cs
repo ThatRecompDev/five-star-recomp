@@ -68,6 +68,12 @@ internal sealed class GpuTexture
     /// <summary>The content hash of the bytes last uploaded; 0 before the first upload.</summary>
     public ulong UploadedHash { get; set; }
 
+    /// <summary>
+    /// The bytes this texture counts against <see cref="GpuTextures.UnmappedViewBudget"/> (made for a view over memory
+    /// no page of which was mapped); 0 once a page under it is mapped, or for any other texture.
+    /// </summary>
+    public long UnmappedCharge;
+
     /// <summary>The frame (present count) a slot-70 view last queued the check of the texture's pages; long.MinValue for none.</summary>
     public long ViewCheckedFrame = long.MinValue;
 

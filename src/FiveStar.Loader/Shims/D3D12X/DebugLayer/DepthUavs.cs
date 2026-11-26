@@ -39,12 +39,16 @@ internal static unsafe class DepthUavs
     private static readonly ConcurrentDictionary<string, byte> Lighting = new(StringComparer.Ordinal);
 
     /// <summary>Whether a depth resource got a UAV: pipelines are then checked at first use.</summary>
-    public static bool Any => !Indices.IsEmpty;
+    public static bool Any => _any;
+
+    /// <summary>Set with the first UAV noted: ConcurrentDictionary.IsEmpty takes all the dictionary's locks, and every draw asks (w110: 5% of the render threads' managed time in Monitor.Enter).</summary>
+    private static volatile bool _any;
 
     /// <summary>A UAV of a depth texture (<paramref name="what"/>) went to heap index <paramref name="index"/>; logs the resource once.</summary>
     public static void Note(ulong resource, uint index, string what)
     {
         Indices[index] = what;
+        _any = true;
 
         if (Resources.TryAdd(resource, 0))
         {
