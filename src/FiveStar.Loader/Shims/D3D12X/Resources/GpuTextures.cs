@@ -47,6 +47,7 @@ internal sealed unsafe class GpuTextures : IDisposable
     private readonly DesktopResourceDescriptions _descriptions;
     private readonly LoaderLog _log;
     private GpuTexture[] _watched = [];
+    private long _unreadableLogged;
     private long _checkedFrame = -1;
 
     public GpuTextures(GameMemorySource source, DesktopResourceDescriptions descriptions, LoaderLog log)
@@ -101,9 +102,17 @@ internal sealed unsafe class GpuTextures : IDisposable
     {
         XgLayoutBuilder.Build(ToXg(description), out var layout);
 
+        // A view over an XMem reservation gets its texture even before the pages are mapped: the game streams them in
+        // later, and a null descriptor made now would stay null (w105/w108: hundreds of null views of 4x4 to 1024x1024
+        // BC textures). Mapping the pages marks the texture written and the next submission fills it.
         if (_source.Find(address, layout.Size) == null)
         {
-            return null;
+            if (!_source.InReservation(address))
+            {
+                return null;
+            }
+
+            Counters.Add(GpuResourceEvent.ViewCreatedUnmapped);
         }
 
         // Read-only: without the GPU-written flags, so a render-target format keeps its own bytes (no substitute).
@@ -152,7 +161,7 @@ internal sealed unsafe class GpuTextures : IDisposable
 
         if (source == null)
         {
-            Counters.Add(GpuResourceEvent.UploadUnreadable);
+            Gathered(device, texture);
 
             return;
         }
@@ -170,6 +179,44 @@ internal sealed unsafe class GpuTextures : IDisposable
         }
 
         Fill(device, texture, source);
+    }
+
+    /// <summary>
+    /// A texture in an XMem reservation whose pages are not all mapped at its CPU address: filled from the pages mapped
+    /// anywhere (the CPU range or the GPU-only alias), zeros for the rest (<see cref="GameMemorySource.Gather"/>). w108's
+    /// streamed material textures were never readable as a whole (UploadUnreadable 32,415 after 28,366 refreshes):
+    /// a streamed texture has its pages mapped as its mips arrive, and the whole-range read refused it every time.
+    /// </summary>
+    private void Gathered(nint device, GpuTexture texture)
+    {
+        if (!_source.InReservation(texture.Address))
+        {
+            Counters.Add(GpuResourceEvent.UploadUnreadable);
+
+            return;
+        }
+
+        byte* copy = KernelCopy(texture.Size);
+
+        if (_source.Gather(texture.Address, texture.Size, copy) == 0)
+        {
+            Counters.Add(GpuResourceEvent.UploadUnreadable);
+            NoteUnreadable(texture);
+
+            return;
+        }
+
+        Counters.Add(GpuResourceEvent.UploadGathered);
+        Fill(device, texture, copy);
+    }
+
+    /// <summary>The first textures no page of which is mapped anywhere, logged with their CPU range: where their texels are not.</summary>
+    private void NoteUnreadable(GpuTexture texture)
+    {
+        if (Interlocked.Increment(ref _unreadableLogged) <= LoggedFailures)
+        {
+            _log.Info($"  [d3d12_xs] texture at 0x{texture.Address:x} (0x{texture.Size:x} bytes, format {texture.DesktopFormat}): no page of it is mapped, at its address or its CPU range ({_source.Describe(texture.Address)}); left as it was");
+        }
     }
 
     private void Fill(nint device, GpuTexture texture, byte* source)
@@ -347,17 +394,24 @@ internal sealed unsafe class GpuTextures : IDisposable
     /// </summary>
     private static byte* ReadThroughKernel(byte* source, ulong size)
     {
+        byte* copy = KernelCopy(size);
+        nuint done = 0;
+
+        if (Kernel32.ReadProcessMemory(Kernel32.GetCurrentProcess(), (nint)source, copy, (nuint)size, &done) == 0 || done != (nuint)size)
+        {
+            return null;
+        }
+
+        return copy;
+    }
+
+    /// <summary>This thread's copy buffer, grown to <paramref name="size"/> bytes.</summary>
+    private static byte* KernelCopy(ulong size)
+    {
         if ((nuint)size > _kernelCopyBytes)
         {
             _kernelCopy = (byte*)NativeMemory.Realloc(_kernelCopy, (nuint)size);
             _kernelCopyBytes = (nuint)size;
-        }
-
-        nuint done = 0;
-
-        if (Kernel32.ReadProcessMemory(Kernel32.GetCurrentProcess(), (nint)source, _kernelCopy, (nuint)size, &done) == 0 || done != (nuint)size)
-        {
-            return null;
         }
 
         return _kernelCopy;

@@ -43,6 +43,72 @@ internal sealed unsafe class GameMemorySource
         return (byte*)cpu;
     }
 
+    /// <summary>Whether console GPU address <paramref name="address"/> lies in an XMem reservation (memory the game maps pages into, now or later).</summary>
+    public bool InReservation(ulong address)
+    {
+        return address != 0 && _memory.IsReserved(_memory.CpuAddress((nint)address));
+    }
+
+    /// <summary>
+    /// Copies <paramref name="size"/> bytes at console GPU address <paramref name="address"/> of an XMem reservation into
+    /// <paramref name="destination"/> page by page, through the kernel (a page may be unmapped meanwhile): each 64 KiB
+    /// page from where a frame is mapped for it, the CPU range or the GPU-only alias itself, and zeros for a page mapped
+    /// nowhere (a mip the game has not streamed in; the console reads such pages as zeros). Returns the pages copied.
+    /// </summary>
+    public long Gather(ulong address, ulong size, byte* destination)
+    {
+        ulong pageSize = XMemPhysicalMemory.PageSize;
+        nint process = Kernel32.GetCurrentProcess();
+        long copied = 0;
+
+        for (ulong done = 0; done < size;)
+        {
+            ulong at = address + done;
+            ulong length = Math.Min(size - done, pageSize - (at % pageSize));
+            nint source = MappedAt((nint)at);
+            nuint read = 0;
+
+            if (source == 0 || Kernel32.ReadProcessMemory(process, source, destination + done, (nuint)length, &read) == 0 || read != (nuint)length)
+            {
+                new Span<byte>(destination + done, (int)length).Clear();
+            }
+            else
+            {
+                copied++;
+            }
+
+            done += length;
+        }
+
+        return copied;
+    }
+
+    /// <summary>"CPU range 0x…: m of n pages mapped there, k at the address": where a texture's pages are mapped, for a log line.</summary>
+    public string Describe(ulong address)
+    {
+        nint cpu = _memory.CpuAddress((nint)address);
+
+        return $"CPU range 0x{cpu:x}, reserved {_memory.IsReserved(cpu)}, its first page mapped {_memory.IsMapped(cpu)}, at the address {_memory.IsMapped((nint)address)}";
+    }
+
+    /// <summary>Where the CPU reads the page holding <paramref name="address"/>: its CPU range when mapped there, else the address when its own range maps it; 0 for neither.</summary>
+    private nint MappedAt(nint address)
+    {
+        nint cpu = _memory.CpuAddress(address);
+
+        if (_memory.IsMapped(cpu))
+        {
+            return cpu;
+        }
+
+        if (cpu != address && _memory.IsMapped(address))
+        {
+            return address;
+        }
+
+        return 0;
+    }
+
     private bool AllMapped(nint start, ulong size)
     {
         ulong pageSize = XMemPhysicalMemory.PageSize;
