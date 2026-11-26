@@ -830,6 +830,11 @@ internal sealed class CommandLineParser
                 _options.IndirectGatherStrict = true;
 
                 return true;
+            case "--indirect-gather-relaxed":
+                _options.IndirectGather = true;
+                _options.IndirectGatherStrict = false;
+
+                return true;
             case "--gpu-keep-awake":
                 _options.GpuKeepAwake = Shims.D3D12X.Present.GpuKeepAwakeMode.On;
 
