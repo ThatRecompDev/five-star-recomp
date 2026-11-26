@@ -20,7 +20,6 @@ namespace FiveStar.Shaders.Tests.Cases;
 public sealed class PixelCaseRunner
 {
     private const int FirstResult = 20;
-    private const int WaveSize = 32;
 
     private readonly WarpFixture _fixture;
 
@@ -80,7 +79,7 @@ public sealed class PixelCaseRunner
     {
         var exports = string.Join("\n", ExportLines(testCase.Outputs));
         var source = testCase.Raw ? testCase.Program.Replace("{EXPORT}", exports, StringComparison.Ordinal) : $"{testCase.Program}\n{exports}\ns_endpgm";
-        var assembled = _fixture.Workbench.Assemble(testCase.Name, source, WaveSize);
+        var assembled = _fixture.Workbench.Assemble(testCase.Name, source, testCase.WaveSize);
         var signatures = ShaderSignatures.None;
 
         if (!testCase.FloatTargets)
@@ -89,7 +88,7 @@ public sealed class PixelCaseRunner
             signatures = new ShaderSignatures([], [.. targets]);
         }
 
-        var config = new ShaderConfig { Stage = HardwareStage.Pixel, WaveSize = WaveSize, Pixel = PixelBlockOf(testCase.DbShaderControl) };
+        var config = new ShaderConfig { Stage = HardwareStage.Pixel, WaveSize = testCase.WaveSize, Pixel = PixelBlockOf(testCase.DbShaderControl) };
         var (instructions, code) = Patched(testCase, assembled.Instructions, assembled.Code);
 
         return new ShaderProgram(ShaderStage.Pixel, instructions, code, signatures, config, null);
@@ -166,7 +165,7 @@ public sealed class PixelCaseRunner
 
         var patched = ExportPatches.Apply(table, code);
 
-        return (new RdnaDecoder().Disassemble(patched, WaveSize), patched);
+        return (new RdnaDecoder().Disassemble(patched, testCase.WaveSize), patched);
     }
 
     private List<string> Compare(PixelCase testCase, WarpResult result)
