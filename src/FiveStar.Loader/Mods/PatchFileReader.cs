@@ -184,7 +184,7 @@ internal static class PatchFileReader
             throw new FormatException("'matches' must be at least 1");
         }
 
-        return new CodePatch(name, module, sha256, enabled, description, pattern, matches, offset, bytes, jump, where);
+        return new CodePatch(name, module, sha256, enabled, description, pattern, matches, offset, bytes, jump, where, null, 0);
     }
 
     private static string Required(Dictionary<string, string> fields, string key)

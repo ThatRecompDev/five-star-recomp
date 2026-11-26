@@ -825,9 +825,30 @@ internal sealed class CommandLineParser
                 _options.GpuKeepAwake = Shims.D3D12X.Present.GpuKeepAwakeMode.Turns;
 
                 return true;
+            case "--output":
+                _options.OutputSize = OutputSize(Next());
+
+                return true;
             default:
                 throw new CommandLineException($"unknown argument {option}");
         }
+    }
+
+    /// <summary>The parts of WxH.</summary>
+    private const int OutputParts = 2;
+
+    /// <summary>One of the title's output modes as WxH (<see cref="Mods.OutputSizePatches.Modes"/>).</summary>
+    private static (int Width, int Height) OutputSize(string text)
+    {
+        var parts = text.Split('x', 'X');
+
+        if (parts.Length == OutputParts && int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out int width)
+            && int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out int height) && Mods.OutputSizePatches.IsMode(width, height))
+        {
+            return (width, height);
+        }
+
+        throw new CommandLineException($"--output takes one of the title's modes: {string.Join(", ", Mods.OutputSizePatches.Modes.Select(mode => $"{mode.Width}x{mode.Height}"))}");
     }
 
     private bool SetMemoryFloor()

@@ -119,6 +119,8 @@ https://github.com/avatarmanz/VIctory-7900XTX, GPL-3.0-or-later, a fork in the V
 contributors). Commit `5f86fa3` (`crates/victory-gpu/src/host/awake.rs`, `VICTORY_CARD_AWAKE`) is ported with its notice in
 `src/FiveStar.Loader/Shims/D3D12X/Present/GpuKeepAwake.cs` (`--gpu-keep-awake`): one group of 64 threads counting on a
 compute queue of ours while the title submitted within 250 ms, at most two dispatches in flight, and the 20 s turns.
+Commits `e151e71` and `45cad4c` (`resolution.rs`) gave the facts of `--output` (`Mods/OutputSizePatches.cs`): where the title
+applies its output size and its back-buffer pool check; the bytes and the stub are read from our build and written anew.
 Its measurements are cited in the source and docs.
 
 ## Kelvaroq

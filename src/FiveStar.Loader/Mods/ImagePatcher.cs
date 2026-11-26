@@ -16,6 +16,7 @@ namespace FiveStar.Loader.Mods;
 internal sealed unsafe class ImagePatcher
 {
     private const char SymbolSeparator = '!';
+    private const int StubJumpBytes = 5;
 
     private readonly ShimTable _shims;
     private readonly LoaderLog _log;
@@ -111,7 +112,19 @@ internal sealed unsafe class ImagePatcher
 
         foreach (int match in matches)
         {
-            replacement.CopyTo(memory[(match + patch.Offset)..]);
+            var bytes = replacement;
+
+            if (patch.Stub is not null)
+            {
+                bytes = StubJump(image, patch, match);
+            }
+
+            if (bytes is null)
+            {
+                return Outcome(image, patch, PatchStatus.Failed, $"no room for the stub within a rel32 jump of +0x{match:x}");
+            }
+
+            bytes.CopyTo(memory[(match + patch.Offset)..]);
         }
 
         string where = string.Join(", ", matches.Select(m => $"+0x{m + patch.Offset:x}"));
@@ -119,12 +132,31 @@ internal sealed unsafe class ImagePatcher
         return Outcome(image, patch, PatchStatus.Applied, $"{replacement.Length} bytes at {where}");
     }
 
-    /// <summary>The bytes to write: the patch's own, or <c>mov rax,shim; jmp rax</c>. Null when the shim is unknown.</summary>
+    /// <summary>The <c>jmp rel32</c> at the match to the patch's stub, placed near the image; null when no room was found.</summary>
+    private static byte[]? StubJump(LoadedImage image, CodePatch patch, int match)
+    {
+        nint site = (nint)image.Base + match + patch.Offset;
+        nint stub = NearStubs.Place((nint)image.Base, patch.Stub, (nint)image.Base + match + patch.StubReturn);
+
+        if (stub == 0)
+        {
+            return null;
+        }
+
+        return NearStubs.Jump(site, stub);
+    }
+
+    /// <summary>The bytes to write: the patch's own, a stub's jump, or <c>mov rax,shim; jmp rax</c>. Null when the shim is unknown.</summary>
     private byte[]? Replacement(CodePatch patch)
     {
         if (patch.Bytes is not null)
         {
             return patch.Bytes;
+        }
+
+        if (patch.Stub is not null)
+        {
+            return new byte[StubJumpBytes];
         }
 
         string target = patch.JumpTarget!;
