@@ -35,23 +35,30 @@ internal static unsafe class UserData
             return;
         }
 
+        // A value the SGPR already holds leaves the bind point clean: the game sets the same arguments again between
+        // draws, and each dirty draw uploads the user data and binds it anew.
         if (compute)
         {
-            WriteSgpr(bindings->Compute, ComputeBase + layout->Offsets[parameter] + dword, value);
-            bindings->ComputeDirty = 1;
+            if (WriteSgpr(bindings->Compute, ComputeBase + layout->Offsets[parameter] + dword, value))
+            {
+                bindings->ComputeDirty = 1;
+            }
 
             return;
         }
 
         uint sgpr = GraphicsBase + layout->Offsets[parameter] + dword;
-        WriteSgpr(bindings->Graphics, sgpr, value);
+        bool changed = WriteSgpr(bindings->Graphics, sgpr, value);
 
         if (sgpr < GraphicsBase + MergedShift)
         {
-            WriteSgpr(bindings->Graphics, sgpr - MergedShift, value);
+            changed |= WriteSgpr(bindings->Graphics, sgpr - MergedShift, value);
         }
 
-        bindings->GraphicsDirty = 1;
+        if (changed)
+        {
+            bindings->GraphicsDirty = 1;
+        }
     }
 
     /// <summary>
@@ -94,12 +101,17 @@ internal static unsafe class UserData
         Write(bindings, compute, parameter, 1, (uint)(address >> HighShift));
     }
 
+    /// <summary>Writes the SGPR; whether its value changed.</summary>
     [HotPath]
-    private static void WriteSgpr(uint* data, uint sgpr, uint value)
+    private static bool WriteSgpr(uint* data, uint sgpr, uint value)
     {
-        if (sgpr < CommandListBindings.UserDataDwords)
+        if (sgpr >= CommandListBindings.UserDataDwords || data[sgpr] == value)
         {
-            data[sgpr] = value;
+            return false;
         }
+
+        data[sgpr] = value;
+
+        return true;
     }
 }
