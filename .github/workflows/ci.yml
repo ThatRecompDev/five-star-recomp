@@ -67,14 +67,23 @@ jobs:
       - name: Architecture rules
         run: dotnet test tests/FiveStar.Architecture.Tests --no-build
 
-      # One test project at a time: run together, the Loader's and the Shaders' WARP devices outgrew the runner's memory
-      # (E_OUTOFMEMORY in whichever WARP test allocated at the peak) and the profile test lost its CPU samples.
+      # One test process at a time, each running at most 40 test classes: in one process the Loader's WARP tests grow
+      # to about 9 GB and outgrow the runner (E_OUTOFMEMORY in whichever WARP test allocates at the peak), and run
+      # side by side the projects also starved the profile test of CPU samples.
       - name: Test
         run: |
           $failed = @()
           foreach ($project in Get-ChildItem tests -Directory -Filter 'FiveStar.*.Tests' | Where-Object Name -ne 'FiveStar.Architecture.Tests') {
-            dotnet test $project.FullName --no-build --logger trx --results-directory TestResults --blame-crash
-            if ($LASTEXITCODE -ne 0) { $failed += $project.Name }
+            $classes = dotnet test $project.FullName --no-build --list-tests |
+              Where-Object { $_ -match '^\s+FiveStar\.' } |
+              ForEach-Object { ($_.Trim() -replace '\(.*$', '') -replace '\.[^.]+$', '' } |
+              Sort-Object -Unique
+            for ($first = 0; $first -lt [Math]::Max(1, $classes.Count); $first += 40) {
+              $chunk = @($classes | Select-Object -Skip $first -First 40)
+              $filter = ($chunk | ForEach-Object { "FullyQualifiedName~$_." }) -join '|'
+              dotnet test $project.FullName --no-build --logger "trx;LogFilePrefix=$($project.Name)-$first" --results-directory TestResults --blame-crash --filter $filter
+              if ($LASTEXITCODE -ne 0) { $failed += "$($project.Name) (classes from $first)" }
+            }
           }
           if ($failed) { throw "Failed: $($failed -join ', ')" }
 
