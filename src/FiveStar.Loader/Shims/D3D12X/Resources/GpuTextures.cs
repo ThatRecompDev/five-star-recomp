@@ -33,6 +33,8 @@ internal sealed unsafe class GpuTextures : IDisposable
     /// <summary>Failed fills logged one by one; the counters count them all.</summary>
     private const long LoggedFailures = 8;
 
+    private const double BytesPerGigabyte = 1UL << 30;
+
     private static readonly Guid ResourceIid = new("696442be-a72e-4059-bc79-5b5c98040fad");
 
     [ThreadStatic]
@@ -47,6 +49,7 @@ internal sealed unsafe class GpuTextures : IDisposable
     private readonly LoaderLog _log;
     private GpuTexture[] _watched = [];
     private long _unreadableLogged;
+    private long _unmappedViewBytes;
     private long _checkedFrame = -1;
 
     public GpuTextures(GameMemorySource source, DesktopResourceDescriptions descriptions, LoaderLog log)
@@ -55,6 +58,7 @@ internal sealed unsafe class GpuTextures : IDisposable
         _descriptions = descriptions;
         _log = log;
         Writes = new TextureRefreshWorker(this, source);
+        Registry.Releasing = Refund;
     }
 
     public GpuTextureRegistry Registry { get; } = GpuTextureRegistry.OfQueues();
@@ -105,6 +109,8 @@ internal sealed unsafe class GpuTextures : IDisposable
         // A view over an XMem reservation gets its texture even before the pages are mapped: the game streams them in
         // later, and a null descriptor made now would stay null (w105/w108: hundreds of null views of 4x4 to 1024x1024
         // BC textures). Mapping the pages marks the texture written and the next submission fills it.
+        long charge = 0;
+
         if (_source.Find(address, layout.Size) == null)
         {
             if (!_source.InReservation(address))
@@ -112,7 +118,12 @@ internal sealed unsafe class GpuTextures : IDisposable
                 return null;
             }
 
-            Counters.Add(GpuResourceEvent.ViewCreatedUnmapped);
+            charge = UnmappedCharge(address, layout.Size);
+
+            if (charge < 0)
+            {
+                return null;
+            }
         }
 
         // Read-only: without the GPU-written flags, so a render-target format keeps its own bytes (no substitute).
@@ -123,11 +134,22 @@ internal sealed unsafe class GpuTextures : IDisposable
 
         if (HResult.Failed(CreateTexture(device, &desc, ShaderResourceState, null, readOnly: true, out nint desktop)))
         {
+            Interlocked.Add(ref _unmappedViewBytes, -charge);
+
             return null;
         }
 
         var texture = Register(address, description, desktop, desc.Format, ShaderResourceState, false);
         ComObject.Release(desktop);
+
+        // Counted as over unmapped memory (the summary; --retire-unmapped-textures retires it if it stays so).
+        if (charge > 0)
+        {
+            texture.UnmappedCharge = charge;
+            Registry.Unmapped(address, layout.Size);
+            Counters.Add(GpuResourceEvent.ViewCreatedUnmapped);
+        }
+
         Refresh(device, texture);
 
         return texture;
@@ -160,6 +182,62 @@ internal sealed unsafe class GpuTextures : IDisposable
         Writes.Add(texture);
         Counters.Add(GpuResourceEvent.ViewCheckQueued);
     }
+
+    /// <summary>
+    /// The bytes of textures made for views over reserved memory no page of which is mapped yet. Nothing releases such
+    /// a texture until another takes its range, and the game makes views over memory it never maps: w110 made 226,732 of
+    /// them and its private bytes passed the working-set guard (22 GB write-combined). Default 1 GiB; past it such a
+    /// view is a null descriptor, as before f684f08. Textures over memory with a page mapped do not count.
+    /// </summary>
+    public static long UnmappedViewBudget { get; set; } = DefaultUnmappedViewBudget;
+
+    /// <summary>The default <see cref="UnmappedViewBudget"/>: 1 GiB.</summary>
+    public const long DefaultUnmappedViewBudget = 1L << 30;
+
+    /// <summary>
+    /// The bytes a texture of <paramref name="size"/> for a view at <paramref name="address"/> counts against
+    /// <see cref="UnmappedViewBudget"/>: 0 when a page of its memory is mapped; when none is, its size (at least one
+    /// 64 KiB placement) while the live ones stay within the budget, else -1 (no texture: a null view).
+    /// </summary>
+    private long UnmappedCharge(ulong address, ulong size)
+    {
+        if (_source.AnyMapped(address, size))
+        {
+            return 0;
+        }
+
+        long bytes = (long)Math.Max(size, GpuTexture.PageBytes);
+
+        if (Interlocked.Add(ref _unmappedViewBytes, bytes) <= UnmappedViewBudget)
+        {
+            return bytes;
+        }
+
+        Interlocked.Add(ref _unmappedViewBytes, -bytes);
+        Counters.Add(GpuResourceEvent.ViewUnmappedOverBudget);
+
+        return -1;
+    }
+
+    /// <summary>
+    /// <paramref name="texture"/> no longer counts against <see cref="UnmappedViewBudget"/>: a page under it was mapped,
+    /// or it is released. The budget used to count every texture so made for good (w111b made 134k and released 139k).
+    /// </summary>
+    private void Refund(GpuTexture texture)
+    {
+        long charge = Interlocked.Exchange(ref texture.UnmappedCharge, 0);
+
+        if (charge > 0)
+        {
+            Interlocked.Add(ref _unmappedViewBytes, -charge);
+        }
+    }
+
+    /// <summary>The bytes of live textures made for views over memory with no page mapped (<see cref="UnmappedViewBudget"/>).</summary>
+    public long UnmappedViewBytes => Interlocked.Read(ref _unmappedViewBytes);
+
+    /// <summary>"views' textures over memory never mapped X GB of Y, upload buffers Z GB": the memory this class holds besides the registered textures.</summary>
+    public string MemorySummary => FormattableString.Invariant($"views' textures over memory never mapped {UnmappedViewBytes / BytesPerGigabyte:F2} GB of {UnmappedViewBudget / BytesPerGigabyte:F2}, upload buffers {Uploader.StagingBytes / BytesPerGigabyte:F2} GB");
 
     /// <summary>Fills <paramref name="texture"/> from memory when it is not GPU-written, its memory is readable and its bytes changed.</summary>
     public void Refresh(nint device, GpuTexture texture)
@@ -319,6 +397,9 @@ internal sealed unsafe class GpuTextures : IDisposable
     {
         foreach (var texture in Registry.Overlapping(address, bytes))
         {
+            // Memory under it is mapped or written now: it no longer stands for memory the game never mapped.
+            Refund(texture);
+
             if (texture.GpuWritten || texture.CopiedInto)
             {
                 continue;

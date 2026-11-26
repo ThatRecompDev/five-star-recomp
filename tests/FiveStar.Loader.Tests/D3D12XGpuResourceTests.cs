@@ -50,12 +50,16 @@ public sealed unsafe class D3D12XGpuResourceTests
         registry.Register(Texture(test, device, 0x10800));
         registry.Register(Texture(test, device, 0x10800));
 
+        var released = new List<GpuTexture>();
+        registry.Releasing = released.Add;
         registry.Advance(GpuTextureRegistry.GraceFrames - 1);
         Assert.Equal(0, registry.Released);
         registry.Advance(GpuTextureRegistry.GraceFrames);
 
         Assert.Equal(1, registry.Released);
         Assert.Equal(1, registry.RetiredCount);
+        Assert.Equal(0x10000UL, Assert.Single(released).Address);
+        Assert.Contains("aliased 1, 0.00 GB", registry.Summary, StringComparison.Ordinal);
         registry.Dispose();
     }
 
@@ -607,6 +611,61 @@ public sealed unsafe class D3D12XGpuResourceTests
 
         RunEmptyList(device);
         Assert.Equal(linear[0], probe.Read(Size, Size, 0, textures.Uploader.OrderBefore).SelectMany(BitConverter.GetBytes).ToArray());
+    }
+
+    /// <summary>
+    /// Textures for views over reserved memory with no page mapped stay within their budget (w110 made 226,732 and
+    /// passed the working-set guard): past it such a view is a null descriptor; one over a mapped page is not counted.
+    /// </summary>
+    [Fact]
+    public void Views_over_unmapped_memory_make_textures_only_within_their_budget()
+    {
+        using var test = TestRuntime.Create();
+        var (_, gpu, _) = Reserved(test, mapped: false);
+        var (_, mappedGpu, _) = Reserved(test, mapped: true);
+
+        var device = new XboxDevice(test);
+        var description = Description();
+        var textures = test.Runtime.D3D12X.Textures;
+        long budget = GpuTextures.UnmappedViewBudget;
+
+        try
+        {
+            GpuTextures.UnmappedViewBudget = (long)RangeBytes / 2;
+            using var probe = new TextureProbe(test.Runtime.D3D12X.Objects.DesktopDevice);
+            nint handle = (nint)probe.Heap.GetCPUDescriptorHandleForHeapStart().Ptr;
+
+            // The first page's texture fits; the second page's does not; a view over mapped memory is not counted.
+            CreateView(device, gpu, description, handle);
+            CreateView(device, gpu + (nint)(RangeBytes / 2), description, handle);
+            CreateView(device, mappedGpu, description, handle);
+
+            Assert.Equal(1, textures.Counters[GpuResourceEvent.ViewCreatedUnmapped]);
+            Assert.Equal(1, textures.Counters[GpuResourceEvent.ViewUnmappedOverBudget]);
+            Assert.Equal(1, textures.Counters[GpuResourceEvent.ViewNull]);
+
+            Assert.NotNull(textures.Registry.Find((ulong)gpu));
+            Assert.NotNull(textures.Registry.Find((ulong)mappedGpu));
+            Assert.Contains("1 live over unmapped memory", textures.Registry.Summary, StringComparison.Ordinal);
+
+            // The game maps the first range's pages: its texture no longer counts, and the second page's view fits now.
+            var map = (delegate* unmanaged<nint, ulong, ulong*, nint>)test.Shim("xmem.dll", "XMemMapPhysicalPages");
+            var allocate = (delegate* unmanaged<ulong, ulong*, ulong*, int>)test.Shim("xmem.dll", "XMemAllocatePhysicalPages");
+            ulong page = 0;
+            ulong count = 1;
+
+            Assert.Equal(1, allocate(0, &count, &page));
+            nint cpu = test.Runtime.XMemPhysical.CpuAddress(gpu);
+            Assert.Equal(cpu, map(cpu, 1, &page));
+
+            Assert.Equal(0, textures.UnmappedViewBytes);
+            CreateView(device, gpu + (nint)(RangeBytes / 2), description, handle);
+            Assert.Equal(2, textures.Counters[GpuResourceEvent.ViewCreatedUnmapped]);
+        }
+        finally
+        {
+            GpuTextures.UnmappedViewBudget = budget;
+        }
     }
 
     [Fact]
