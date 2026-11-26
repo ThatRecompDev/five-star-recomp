@@ -70,11 +70,19 @@ internal sealed unsafe class ReleasedTextureViews
                 continue;
             }
 
-            var replacement = Replacing(texture, find(texture.Address));
+            var candidate = find(texture.Address);
+            var replacement = Replacing(texture, candidate);
+            int added = 0;
+
+            if (replacement is null)
+            {
+                added = Added(texture, candidate);
+                replacement = added > 0 ? candidate : null;
+            }
 
             foreach (var (handle, view) in held)
             {
-                Rewrite(device, handle, view, replacement);
+                Rewrite(device, handle, view, replacement, added);
             }
 
             rewritten.Add(texture);
@@ -125,7 +133,23 @@ internal sealed unsafe class ReleasedTextureViews
         return candidate;
     }
 
-    private void Rewrite(nint device, nint handle, HeldTextureView view, GpuTexture? replacement)
+    /// <summary>
+    /// The larger levels <paramref name="candidate"/>, registered at the released texture's address, has before the
+    /// released one's (<see cref="ResidentLevels"/>: another view of the same texture asked for them, and the texture
+    /// with them replaced this one); 0 when it is not that texture. The released one's views read it from that level.
+    /// </summary>
+    internal static int Added(GpuTexture released, GpuTexture? candidate)
+    {
+        if (candidate is null || candidate == released || candidate.Address != released.Address || candidate.GpuWritten || released.GpuWritten
+            || candidate.DesktopFormat != released.DesktopFormat)
+        {
+            return 0;
+        }
+
+        return Math.Max(0, ResidentLevels.Dropped(candidate.Console, released.Console));
+    }
+
+    private void Rewrite(nint device, nint handle, HeldTextureView view, GpuTexture? replacement, int added)
     {
         // The game wrote the descriptor anew meanwhile: it is not ours to write.
         if (!_views.Holds(handle, view.Texture))
@@ -133,9 +157,16 @@ internal sealed unsafe class ReleasedTextureViews
             return;
         }
 
-        if (replacement is not null && view.Target == view.Texture.Desktop)
+        var description = view.Description;
+        bool renumbers = !view.Unordered && view.Described && ResidentLevels.Renumbers((int*)&description);
+
+        if (replacement is not null && view.Target == view.Texture.Desktop && (added == 0 || renumbers))
         {
-            var description = view.Description;
+            if (added > 0)
+            {
+                ResidentLevels.Later((int*)&description, added);
+            }
+
             Create(device, view.Unordered, replacement.Desktop, &description, view.Described, handle);
             _views.Held(handle, new HeldTextureView(replacement, view.Dimension, view.Unordered, replacement.Desktop, view.Described, description));
             NoteLiveness(handle, replacement.Desktop, view.Unordered);

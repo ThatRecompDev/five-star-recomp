@@ -367,6 +367,21 @@ internal sealed unsafe class GpuTextures : IDisposable
         }
     }
 
+    /// <summary>The first 8 bytes of <paramref name="texture"/>'s memory now (its smallest level), read through the kernel; 0 when not readable.</summary>
+    public ulong FirstBytes(GpuTexture texture)
+    {
+        byte* source = _source.Find(texture.Address, sizeof(ulong));
+        ulong first = 0;
+        nuint done = 0;
+
+        if (source != null)
+        {
+            _ = Kernel32.ReadProcessMemory(Kernel32.GetCurrentProcess(), (nint)source, &first, sizeof(ulong), &done);
+        }
+
+        return first;
+    }
+
     /// <summary>The bytes of live textures made for views over memory with no page mapped (<see cref="UnmappedViewBudget"/>).</summary>
     public long UnmappedViewBytes => Interlocked.Read(ref _unmappedViewBytes);
 

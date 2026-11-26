@@ -51,7 +51,11 @@ flowchart LR
   ResourceMinLODClamp) reads a texture of the levels it reads, when those lie at the same bytes (ResidentLevels;
   counted as ViewResident): the game keeps a streamed texture's small levels and packs the next texture over the large
   ones (w179: 1024x1024 textures of 0xab000 bytes 0x4000 apart), so a texture of the whole desc retired its neighbours,
-  their views went null and the G-buffer's albedo read 0.
+  their views went null and the G-buffer's albedo read 0. The game makes several views of one texture (w180: all its
+  levels, then from levels 3 and 4): a view whose levels the texture registered at its address holds reads that one,
+  and when a larger one replaces it the held views are written over the larger one from their level, not nulled.
+  --trace-views also logs a census of the texture views by levels and outcome (ViewCensus) and, per traced draw, the
+  views its material names in the bindless table (MaterialViewTrace).
   --stale-in-first-page (off by default) retires an older read-only texture only when the new one starts in its first
   4 KiB: the game keeps a streamed texture's small levels, which come first, and places the next texture over the large
   ones. Replaying w126's registrations it cuts them from 264,000 to 133,000 (the same desc made again at the same address
