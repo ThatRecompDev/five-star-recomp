@@ -25,6 +25,14 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
 
     private const int BitsPerWord = 64;
 
+    /// <summary>
+    /// Threads a submission refreshes the queued textures on: half the logical processors, at least one. The game's
+    /// thread waits for the whole queue there anyway, and reading, hashing and detiling a texture run outside the
+    /// uploader's lock; a loading screen queued about 1,300 textures between two summaries, and one thread took up to
+    /// 16.8 s a frame refreshing them, past the game's 30 s hang watchdog.
+    /// </summary>
+    internal static readonly int SettleThreads = Math.Max(1, Environment.ProcessorCount / 2);
+
     private readonly GpuTextures _textures;
     private readonly GameMemorySource _source;
     private readonly ConcurrentDictionary<GpuTexture, byte> _marked = new();
@@ -62,7 +70,7 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
 
         if (!_marked.IsEmpty)
         {
-            Drain(device);
+            Parallel.ForEach(_marked.Keys, new ParallelOptions { MaxDegreeOfParallelism = SettleThreads }, texture => Take(device, texture));
         }
 
         // The event can be set a moment before another refresh begins; the count decides.
@@ -176,19 +184,25 @@ internal sealed unsafe class TextureRefreshWorker : IDisposable
     {
         foreach (var texture in _marked.Keys)
         {
-            Begin();
+            Take(device, texture);
+        }
+    }
 
-            try
+    /// <summary>Refreshes <paramref name="texture"/> if it is still queued; it counts as in progress before it leaves the queue.</summary>
+    private void Take(nint device, GpuTexture texture)
+    {
+        Begin();
+
+        try
+        {
+            if (_marked.TryRemove(texture, out _))
             {
-                if (_marked.TryRemove(texture, out _))
-                {
-                    Refresh(device, texture);
-                }
+                Refresh(device, texture);
             }
-            finally
-            {
-                End();
-            }
+        }
+        finally
+        {
+            End();
         }
     }
 
