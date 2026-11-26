@@ -119,7 +119,7 @@ internal static unsafe class ResourceBarrierSlots
                 Aliasing(objects, list, barrier);
                 break;
             default:
-                GameUav(list, objects.Unwrap(barrier->Resource));
+                GameUav(list, objects.Unwrap(barrier->Resource), UavTarget(objects, barrier->Resource));
                 break;
         }
     }
@@ -155,7 +155,7 @@ internal static unsafe class ResourceBarrierSlots
 
         if (wrapper->Dimension == ResourceStates.BufferDimension)
         {
-            Uav(list, resource);
+            Uav(list, 0);
 
             return;
         }
@@ -244,14 +244,34 @@ internal static unsafe class ResourceBarrierSlots
 
     /// <summary>The game's UAV barrier: its resource was written, so a shadow of it copies again (<see cref="Resources.SharedExponentAliases"/>).</summary>
     [HotPath]
-    private static void GameUav(nint list, nint resource)
+    private static void GameUav(nint list, nint resource, nint target)
     {
         if (Resources.SharedExponentAliases.Any)
         {
             Resources.SharedExponentAliases.Used(list, resource);
         }
 
-        Uav(list, resource);
+        Uav(list, target);
+    }
+
+    /// <summary>
+    /// The desktop resource a game UAV barrier on <paramref name="gameResource"/> names: a texture's own, and none (every
+    /// UAV access) for a buffer. The game's buffers are views of the desktop buffers over its memory, which every queue
+    /// uses at once: a barrier naming one is a use the debug layer weighs against the other queues' work (#1047, about
+    /// 2,700 in w97). The game's own fences order its queues, and within a list a barrier on every UAV access orders as
+    /// much as one on the buffer over all of its memory.
+    /// </summary>
+    [HotPath]
+    internal static nint UavTarget(XboxObjects objects, nint gameResource)
+    {
+        var wrapper = objects.AsResource(gameResource);
+
+        if (gameResource == 0 || (wrapper != null && wrapper->Dimension == ResourceStates.BufferDimension))
+        {
+            return 0;
+        }
+
+        return objects.Unwrap(gameResource);
     }
 
     /// <summary>A UAV barrier on the desktop <paramref name="resource"/>; 0 orders every UAV access.</summary>
