@@ -7,8 +7,7 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 
 /// <summary>
 /// A finished segment of the pipeline cache: an ID3D12PipelineLibrary1 the driver made from a mapped segment file, or a
-/// library this process filled and is writing to its file. Calls on one segment are serialized, as d3d12 asks of loads
-/// that may hit the same pipeline.
+/// library this process filled and is writing to its file. The gate guards the library pointer; loads run outside it.
 /// </summary>
 internal sealed unsafe class PipelineLibrarySegment : IDisposable
 {
@@ -72,9 +71,16 @@ internal sealed unsafe class PipelineLibrarySegment : IDisposable
         return new PipelineLibrarySegment(path, null, library, keys);
     }
 
-    /// <summary>The pipeline stored as <paramref name="key"/> for the stream <paramref name="desc"/>; E_PENDING before <see cref="Activate"/>.</summary>
+    /// <summary>
+    /// The pipeline stored as <paramref name="key"/> for the stream <paramref name="desc"/>; E_PENDING before
+    /// <see cref="Activate"/>. The library is free-threaded, so loads run side by side: a load the driver recompiles
+    /// takes seconds, and held under the gate it queued the game's other creations behind it (boots w141-w147 stood
+    /// for minutes before the start screen at about 1,000 pipelines per 30 s, with NVIDIA's compiler busy).
+    /// </summary>
     public int Load(string key, void* desc, Guid* iid, nint* result)
     {
+        nint library;
+
         lock (_gate)
         {
             if (_library == 0)
@@ -82,7 +88,17 @@ internal sealed unsafe class PipelineLibrarySegment : IDisposable
                 return HResult.Pending;
             }
 
-            return DesktopPipelineLibrary.Load(_library, key, desc, iid, result);
+            library = _library;
+            DesktopDevice.AddRef(library);
+        }
+
+        try
+        {
+            return DesktopPipelineLibrary.Load(library, key, desc, iid, result);
+        }
+        finally
+        {
+            DesktopDevice.Release(library);
         }
     }
 
