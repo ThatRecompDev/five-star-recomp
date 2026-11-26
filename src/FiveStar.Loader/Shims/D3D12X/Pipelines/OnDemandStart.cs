@@ -202,7 +202,7 @@ internal sealed class OnDemandStart
 
         if (executable is null)
         {
-            return new InProcessBackend(validator);
+            return new InProcessBackend(validator, null);
         }
 
         var host = new CompileHost(executable, validator, CompileHost.AnswerLimit);

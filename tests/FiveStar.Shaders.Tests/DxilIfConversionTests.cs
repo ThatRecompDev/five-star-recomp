@@ -76,6 +76,7 @@ public sealed class DxilIfConversionTests : IClassFixture<WarpFixture>
         var join = module.NewBlock();
         var waveArm = module.NewBlock();
         var end = module.NewBlock();
+
         main.Blocks.AddRange([entry, left, right, join, waveArm, end]);
 
         var builder = new IrBuilder(module, entry);
@@ -101,12 +102,14 @@ public sealed class DxilIfConversionTests : IClassFixture<WarpFixture>
 
         builder.Block = waveArm;
         var any = ops.Call(DxOpCode.WaveAnyTrue, "waveAnyTrue", AttributeSet.NoUnwind, types.Bool, high);
+        var anyWord = builder.Cast(CastOp.ZExt, any, types.Int32);
         builder.Branch(end);
 
         builder.Block = end;
         var flag = IrBuilder.Phi(end, types.Int32);
-        flag.Operands.AddRange([builder.Cast(CastOp.ZExt, any, types.Int32), module.Int32(0)]);
+        flag.Operands.AddRange([anyWord, module.Int32(0)]);
         flag.Targets.AddRange([waveArm, join]);
+
         var handle = ops.HeapHandle(module.Int32(OutputSlot), sampler: false, DxOps.RawBufferKind | DxOps.UavBit, 0);
         ops.RawStore(handle, thread, [merged, flag]);
         builder.Return();
