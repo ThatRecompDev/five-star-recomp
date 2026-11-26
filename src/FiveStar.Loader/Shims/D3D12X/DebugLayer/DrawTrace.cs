@@ -24,6 +24,9 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// </summary>
 internal sealed unsafe class DrawTrace
 {
+    /// <summary>A handle the trace saw no view written at.</summary>
+    private const string NotSeen = "not a view this trace saw";
+
     private const int FirstDraws = 24;
 
     /// <summary>Render targets a traced ExecuteIndirect reads back (the lit HDR and the tiled lighting's second target).</summary>
@@ -605,16 +608,35 @@ internal sealed unsafe class DrawTrace
     /// <summary>The resource behind a depth-stencil view handle and whether it has depth twins.</summary>
     private string DepthView(nint handle)
     {
-        string view = "not a view this trace saw";
-
-        if (handle != 0 && _views.TryText(handle, out var known))
-        {
-            view = known;
-        }
-
+        string view = DepthViewText(_views, _targetViews, handle, Describe);
         var twin = DepthTwins.OfView(handle, out int format, out var stencil);
 
         return $"{view}; twins: depth {Twin(twin)}, stencil {Twin(stencil)}, view format {format}";
+    }
+
+    /// <summary>
+    /// What a depth-stencil view handle names. CreateDepthStencilView notes its views with the render targets
+    /// (<see cref="RenderTargetView"/>), so they are looked up there after the shader views; before, every DSV read
+    /// "not a view this trace saw".
+    /// </summary>
+    internal static string DepthViewText(TracedViews views, IReadOnlyDictionary<nint, (nint Resource, int Home)> targets, nint handle, Func<nint, string> describe)
+    {
+        if (handle == 0)
+        {
+            return NotSeen;
+        }
+
+        if (views.TryText(handle, out var known))
+        {
+            return known;
+        }
+
+        if (targets.TryGetValue(handle, out var target))
+        {
+            return $"resource 0x{target.Resource:x} {describe(target.Resource)}, home state 0x{target.Home:x}";
+        }
+
+        return NotSeen;
     }
 
     private static string Twin(DepthTwin? twin)
@@ -643,7 +665,7 @@ internal sealed unsafe class DrawTrace
 
         if (!_views.TryText(handle, out var known))
         {
-            return "not a view this trace saw";
+            return NotSeen;
         }
 
         ulong address = _views.Address(handle);
@@ -1150,7 +1172,7 @@ internal sealed unsafe class DrawTrace
         {
             if (!_targetViews.TryGetValue(handle, out var view))
             {
-                text.Append($"\n      rtv 0x{handle:x}: not a view this trace saw");
+                text.Append($"\n      rtv 0x{handle:x}: {NotSeen}");
 
                 continue;
             }
@@ -1351,7 +1373,7 @@ internal sealed unsafe class DrawTrace
             uint offset = pointer + (record * DescriptorWindow.ViewRecordBytes);
             uint index = ((uint*)(window.Data + offset))[Binding.DescriptorWindow.MirroredDesktopDword];
             nint handle = start + (nint)((ulong)index * increment);
-            string view = _views.TryText(handle, out var known) ? known : "not a view this trace saw";
+            string view = _views.TryText(handle, out var known) ? known : NotSeen;
 
             text.Append($"\n        [{record}] desktop {index}: {view}");
             AppendTitleRecord(text, offset);
