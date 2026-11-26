@@ -431,6 +431,7 @@ internal sealed partial class ProgramEmitter
         // AMD rounds f32 to f16 to nearest even; HLSL f32tof16 rounding is implementation-defined.
         text = F32ToF16Pattern().Replace(text, "f32tof16_rne(");
         text = FormatLoadForm(text);
+        text = ScalarLoadForm(text);
 
         if (_state.Stage != ShaderStage.Pixel)
         {
@@ -476,6 +477,35 @@ internal sealed partial class ProgramEmitter
 
     [GeneratedRegex(@"\bFmtLoad\(")]
     private static partial Regex FormatLoadPattern();
+
+    /// <summary>
+    /// The most dwords a program may read through shared s_load views (prelude sptr_views, SPtrLoadAt) and keep them.
+    /// A view walks two pages per load and picks each dword's page with selects: in programs with thousands of s_load
+    /// dwords that is more code than a walk per dword (the RaytracingResolve programs, 3,300 dwords each, grew 10% over
+    /// batch 1, indirect_diffuse_lighting~CS_ScreenProbes_ActivateRays 16%), and the driver's compile memory follows the
+    /// code. The deferred G-buffer pixel programs read 600 or fewer and keep the shared walk.
+    /// </summary>
+    public const int SharedScalarLoadLimit = 1024;
+
+    /// <summary>The program text, each s_load dword read through the map on its own past <see cref="SharedScalarLoadLimit"/>.</summary>
+    internal static string ScalarLoadForm(string text)
+    {
+        if (SharedLoadPattern().Count(text) <= SharedScalarLoadLimit)
+        {
+            return text;
+        }
+
+        // SPtrLoadAt(views, delta, lo, hi, off) reads the dword SPtrLoad(lo, hi, off) reads.
+        text = SharedLoadPattern().Replace(text, "SPtrLoad(");
+
+        return SharedViewPattern().Replace(text, string.Empty);
+    }
+
+    [GeneratedRegex(@"\bSPtrLoadAt\(_t\d+, \d+u, ")]
+    private static partial Regex SharedLoadPattern();
+
+    [GeneratedRegex(@"^[ ]*(?:uint4 )?_t\d+ = sptr_views\([^;\n]*\);\n", RegexOptions.Multiline)]
+    private static partial Regex SharedViewPattern();
 
     /// <summary>
     /// A pixel program's s_wqm of its initial EXEC (the live pixels), straight from the entry with no branch, discard or

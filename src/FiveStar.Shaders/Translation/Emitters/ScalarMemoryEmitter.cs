@@ -75,7 +75,7 @@ internal sealed class ScalarMemoryEmitter
     }
 
     /// <summary>
-    /// The address-map walk an s_load of several dwords shares (prelude sptr_view), or null: one dword, a load that may
+    /// The address-map walk an s_load of several dwords shares (prelude sptr_views), or null: one dword, a load that may
     /// read the program's code or the ring table, or one with an S# dword read from the sampler records.
     /// </summary>
     private string? SharedView(string address, string offset, string high, int count)
@@ -94,7 +94,7 @@ internal sealed class ScalarMemoryEmitter
         }
 
         var view = "_t" + _state.NextTemporary().ToString(System.Globalization.CultureInfo.InvariantCulture);
-        _state.Emit($"  uint3 {view} = sptr_view({address}, {high}, {offset}, {count * BytesPerDword}u);");
+        _state.Emit($"  uint4 {view} = sptr_views({address}, {high}, {offset});");
 
         return view;
     }
