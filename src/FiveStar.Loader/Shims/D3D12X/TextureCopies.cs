@@ -48,7 +48,7 @@ internal static unsafe class TextureCopies
         try
         {
             ListSegments.Of(self)->Commands++;
-            IndirectGather.Wrote(self, IndirectGatherMiss.AfterCopy);
+            IndirectGather.WroteMemory(self, IndirectGatherMiss.AfterCopy, destination, bytes);
             var memory = D3D12X.GameMemory;
 
             if (bytes == 0 || !memory.TryFind(destination, out var to) || !memory.TryFind(source, out var from) || to.Resource == 0 || from.Resource == 0)

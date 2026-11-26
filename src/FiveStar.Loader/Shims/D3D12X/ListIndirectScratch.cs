@@ -13,7 +13,7 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// already recorded may use it; buffers only grow (doubling), so few are left behind.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
-internal struct ListIndirectScratch
+internal unsafe struct ListIndirectScratch
 {
     /// <summary>Offset in the command-list wrapper, past <see cref="ListMemoryWaits"/> (0x1600 to 0x1960).</summary>
     public const int Offset = 0x1A00;
@@ -51,7 +51,15 @@ internal struct ListIndirectScratch
     /// <summary>Why gathering ended in the segment (an <see cref="IndirectGatherMiss"/>); 0 while it is open.</summary>
     public int GatherClosed;
 
-    public static unsafe ListIndirectScratch* Of(XboxObject* list)
+    /// <summary>Memory writes of the segment with known console ranges kept apart (<see cref="IndirectGather.WroteMemory"/>), at most this many.</summary>
+    public const int MaxWrites = 8;
+
+    /// <summary>The segment's memory writes kept apart: console start and end addresses, <see cref="WriteCount"/> of them.</summary>
+    public int WriteCount;
+    public fixed ulong WriteStarts[MaxWrites];
+    public fixed ulong WriteEnds[MaxWrites];
+
+    public static ListIndirectScratch* Of(XboxObject* list)
     {
         return (ListIndirectScratch*)((byte*)list + Offset);
     }

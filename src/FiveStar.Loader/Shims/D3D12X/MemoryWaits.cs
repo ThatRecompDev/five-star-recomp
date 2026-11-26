@@ -100,7 +100,7 @@ internal static unsafe class MemoryWaits
     {
         try
         {
-            IndirectGather.Close(self);
+            IndirectGather.WaitRecorded(self);
             Record(self, address, DwordBytes, (int)comparison, value, mask);
 
             return HResult.Ok;
@@ -119,7 +119,7 @@ internal static unsafe class MemoryWaits
     {
         try
         {
-            IndirectGather.Close(self);
+            IndirectGather.WaitRecorded(self);
             RetireWaits.Recorded(self, address, value);
             Record(self, address, QwordBytes, (int)comparison, value, ulong.MaxValue);
 
@@ -157,6 +157,7 @@ internal static unsafe class MemoryWaits
             if (!ListSplits.Split(list))
             {
                 Interlocked.Increment(ref _dropped);
+                IndirectGather.Close(list);
                 NotKept(address, value, work);
 
                 return;
@@ -168,6 +169,7 @@ internal static unsafe class MemoryWaits
         if (!waits->Record(address, bytes, comparison, value, mask, ListSegments.Of(list)->Count))
         {
             Interlocked.Increment(ref _dropped);
+            IndirectGather.Close(list);
             NotKept(address, value, work);
         }
     }

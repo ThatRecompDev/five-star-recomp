@@ -24,6 +24,7 @@ public sealed unsafe class IndirectGatherTests
     private const uint Records = 3;
     private const nint Pipeline = 0x7001;
     private const int IndirectArgumentState = 0x200;
+    private const ulong WriteAddress = 0x2_0000_1000;
 
     [Fact]
     public void Gathered_dispatch_records_are_clamped_before_the_list_runs()
@@ -93,7 +94,7 @@ public sealed unsafe class IndirectGatherTests
             IndirectGather.SegmentStarted(list);
             Assert.True(IndirectGather.IsOpen(list));
 
-            IndirectGather.AfterWork(list, true, Pipeline);
+            IndirectGather.AfterWork(list, true, Pipeline + 1);
             IndirectGather.Wrote(list, IndirectGatherMiss.AfterCopy);
             IndirectGather.Synced(list, IndirectGatherCloser.UavBarrier);
             Assert.False(IndirectGather.IsOpen(list));
@@ -148,10 +149,92 @@ public sealed unsafe class IndirectGatherTests
     [Fact]
     public void Programs_that_store_to_memory_are_told_from_those_that_only_read()
     {
-        Assert.False(PipelineStores.Writes([Text("s_load_dwordx4 s[0:3], s[4:5], 0x0"), Text("buffer_load_dword v0, v1, s[0:3], 0 offen"), Text("ds_write_b32 v0, v1")]));
-        Assert.True(PipelineStores.Writes([Text("buffer_load_dword v0, v1, s[0:3], 0 offen"), Text("buffer_store_dword v0, v1, s[0:3], 0 offen")]));
-        Assert.True(PipelineStores.Writes([Text("image_atomic_add v0, v[1:2], s[0:7] dmask:0x1")]));
-        Assert.True(PipelineStores.Writes([Text("global_store_dword v[0:1], v2, off")]));
+        Assert.False(PipelineStores.Writes([Text("s_load_dwordx4 s[0:3], s[4:5], 0x0"), Text("buffer_load_dword v0, v1, s[0:3], 0 offen"), Text("ds_write_b32 v0, v1")], images: true));
+        Assert.True(PipelineStores.Writes([Text("buffer_load_dword v0, v1, s[0:3], 0 offen"), Text("buffer_store_dword v0, v1, s[0:3], 0 offen")], images: false));
+        Assert.True(PipelineStores.Writes([Text("global_store_dword v[0:1], v2, off")], images: false));
+
+        // An image store writes a desktop texture, never a buffer: it counts only in strict mode.
+        Assert.False(PipelineStores.Writes([Text("image_atomic_add v0, v[1:2], s[0:7] dmask:0x1")], images: false));
+        Assert.True(PipelineStores.Writes([Text("image_atomic_add v0, v[1:2], s[0:7] dmask:0x1")], images: true));
+    }
+
+    [Fact]
+    public void A_memory_write_of_a_known_range_holds_back_only_arguments_it_overlaps()
+    {
+        IndirectGather.Enabled = true;
+        var list = (XboxObject*)System.Runtime.InteropServices.NativeMemory.AllocZeroed(XboxInterfaces.CommandListObjectSize);
+
+        try
+        {
+            IndirectGather.Reset(list);
+            IndirectGather.WroteMemory(list, IndirectGatherMiss.AfterMemoryWrite, WriteAddress, sizeof(uint));
+            IndirectGather.Synced(list, IndirectGatherCloser.EnhancedBarrier);
+            Assert.True(IndirectGather.IsOpen(list));
+
+            var scratch = ListIndirectScratch.Of(list);
+            Assert.True(IndirectGather.OverlapsWrite(scratch, WriteAddress - Stride + sizeof(uint), Stride));
+            Assert.False(IndirectGather.OverlapsWrite(scratch, WriteAddress + sizeof(uint), Stride));
+            Assert.False(IndirectGather.OverlapsWrite(scratch, WriteAddress - Stride, Stride));
+
+            // Arguments at an address not known may be the write's.
+            Assert.True(IndirectGather.OverlapsWrite(scratch, 0, Stride));
+
+            // Strict: the write is a writer, and the barrier after it ends gathering.
+            IndirectGather.Strict = true;
+            IndirectGather.Reset(list);
+            IndirectGather.WroteMemory(list, IndirectGatherMiss.AfterMemoryWrite, WriteAddress, sizeof(uint));
+            IndirectGather.Synced(list, IndirectGatherCloser.EnhancedBarrier);
+            Assert.False(IndirectGather.IsOpen(list));
+            Assert.Equal(IndirectGatherMiss.AfterMemoryWrite, (IndirectGatherMiss)scratch->GatherClosed);
+        }
+        finally
+        {
+            IndirectGather.Enabled = false;
+            IndirectGather.Strict = false;
+            System.Runtime.InteropServices.NativeMemory.Free(list);
+        }
+    }
+
+    [Fact]
+    public void A_dispatch_that_stores_to_no_buffer_and_a_kept_memory_wait_leave_gathering_open()
+    {
+        IndirectGather.Enabled = true;
+        var list = (XboxObject*)System.Runtime.InteropServices.NativeMemory.AllocZeroed(XboxInterfaces.CommandListObjectSize);
+
+        try
+        {
+            IndirectGather.Reset(list);
+            PipelineStores.Note(Pipeline, false);
+            IndirectGather.Dispatched(list, Pipeline);
+            IndirectGather.AfterWork(list, true, Pipeline);
+
+            IndirectGather.WaitRecorded(list);
+            IndirectGather.Synced(list, IndirectGatherCloser.EnhancedBarrier);
+            Assert.True(IndirectGather.IsOpen(list));
+
+            // A dispatch of a pipeline that may store to a buffer is a writer.
+            IndirectGather.Dispatched(list, Pipeline + 1);
+            IndirectGather.Synced(list, IndirectGatherCloser.EnhancedBarrier);
+            Assert.False(IndirectGather.IsOpen(list));
+            Assert.Equal(IndirectGatherMiss.AfterDispatch, (IndirectGatherMiss)ListIndirectScratch.Of(list)->GatherClosed);
+
+            // Strict: every dispatch writes, and every memory wait ends gathering.
+            IndirectGather.Strict = true;
+            IndirectGather.Reset(list);
+            IndirectGather.WaitRecorded(list);
+            Assert.False(IndirectGather.IsOpen(list));
+
+            IndirectGather.Reset(list);
+            IndirectGather.Dispatched(list, Pipeline);
+            IndirectGather.Synced(list, IndirectGatherCloser.EnhancedBarrier);
+            Assert.False(IndirectGather.IsOpen(list));
+        }
+        finally
+        {
+            IndirectGather.Enabled = false;
+            IndirectGather.Strict = false;
+            System.Runtime.InteropServices.NativeMemory.Free(list);
+        }
     }
 
     private static Instruction Text(string text)

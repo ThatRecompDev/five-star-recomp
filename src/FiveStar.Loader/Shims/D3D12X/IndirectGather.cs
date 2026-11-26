@@ -47,9 +47,18 @@ internal static unsafe class IndirectGather
     private const int IndirectArgumentState = 0x200;
     private static long _gathered;
     private static long _clamped;
+    private static long _writesKept;
+    private static long _quietWork;
+    private static long _waitsKept;
 
     /// <summary>Whether <c>--indirect-gather</c> is on.</summary>
     public static bool Enabled { get; set; }
+
+    /// <summary>
+    /// <c>--indirect-gather-strict</c>: every memory write and dispatch, and every memory wait, ends gathering as before
+    /// the narrower rules (<see cref="WroteMemory"/>, <see cref="Dispatched"/>, <see cref="WaitRecorded"/>).
+    /// </summary>
+    public static bool Strict { get; set; }
 
     /// <summary>ExecuteIndirects gathered and clamped one by one while gathering was on (for the log).</summary>
     public static (long Gathered, long Alone) Counts => (Interlocked.Read(ref _gathered), Interlocked.Read(ref _clamped));
@@ -66,7 +75,7 @@ internal static unsafe class IndirectGather
 
             var (gathered, alone) = Counts;
 
-            return $"; [indirect gather] {gathered} ExecuteIndirects gathered, {alone} clamped alone ({MissSummary()}), {IndirectGatherPrelude.Count} preludes of {IndirectGatherPrelude.Passes} passes; segments whose gathering a barrier ended: {ClosedBySummary()}; ended most by the work of {CloserSummary()}";
+            return $"; [indirect gather] {gathered} ExecuteIndirects gathered, {alone} clamped alone ({MissSummary()}), {IndirectGatherPrelude.Count} preludes of {IndirectGatherPrelude.Passes} passes; kept gathering past {Interlocked.Read(ref _writesKept)} memory writes of known ranges, {Interlocked.Read(ref _quietWork)} dispatches that write no buffer and {Interlocked.Read(ref _waitsKept)} memory waits (only one not kept ends it); segments whose gathering a barrier ended: {ClosedBySummary()}; ended most by the work of {CloserSummary()}";
         }
     }
 
@@ -105,7 +114,31 @@ internal static unsafe class IndirectGather
         }
     }
 
-    /// <summary>A memory wait the list was not split at: later arguments may come from the work it waits for, so gathering ends.</summary>
+    /// <summary>
+    /// A memory wait recorded (<see cref="Close"/> follows when it could not be kept). One the list's order meets, or one
+    /// that joins the waits before the current segment (nothing recorded in it yet), keeps gathering: the segment's
+    /// prelude is submitted after those waits' queue Wait (<see cref="XboxQueueMethods"/>), as the segment is; one that
+    /// splits the list opens a new segment (<see cref="SegmentStarted"/>). Strict: every wait ends gathering.
+    /// </summary>
+    [HotPath]
+    public static void WaitRecorded(XboxObject* self)
+    {
+        if (!Enabled)
+        {
+            return;
+        }
+
+        if (Strict)
+        {
+            Close(self);
+
+            return;
+        }
+
+        Interlocked.Increment(ref _waitsKept);
+    }
+
+    /// <summary>A memory wait the list could not keep (no split or no room): later arguments may come from the work it waits for, so gathering ends.</summary>
     [HotPath]
     public static void Close(XboxObject* self)
     {
@@ -139,6 +172,57 @@ internal static unsafe class IndirectGather
         }
 
         Written(ListIndirectScratch.Of(self), writer, pipeline);
+    }
+
+    /// <summary>
+    /// A memory write (a bottom-of-pipe value, a CopyMemory) of <paramref name="bytes"/> at console address
+    /// <paramref name="address"/>: kept apart, so only a later ExecuteIndirect whose arguments overlap it is clamped
+    /// alone (<see cref="IndirectGatherMiss.OverlapsMemoryWrite"/>), whatever barrier comes between; past
+    /// <see cref="ListIndirectScratch.MaxWrites"/> such writes, or in strict mode, it is a writer as before.
+    /// </summary>
+    [HotPath]
+    public static void WroteMemory(XboxObject* self, IndirectGatherMiss writer, ulong address, ulong bytes)
+    {
+        if (!Enabled)
+        {
+            return;
+        }
+
+        var scratch = ListIndirectScratch.Of(self);
+
+        if (Strict || address == 0 || bytes == 0 || scratch->WriteCount >= ListIndirectScratch.MaxWrites)
+        {
+            Written(scratch, writer, 0);
+
+            return;
+        }
+
+        scratch->WriteStarts[scratch->WriteCount] = address;
+        scratch->WriteEnds[scratch->WriteCount] = address + bytes;
+        scratch->WriteCount++;
+        Interlocked.Increment(ref _writesKept);
+    }
+
+    /// <summary>
+    /// A Dispatch of <paramref name="pipeline"/>: a writer unless its programs store to no buffer (<see cref="PipelineStores"/>:
+    /// image stores write desktop textures, which share no memory with a buffer). Strict: always a writer.
+    /// </summary>
+    [HotPath]
+    public static void Dispatched(XboxObject* self, nint pipeline)
+    {
+        if (!Enabled)
+        {
+            return;
+        }
+
+        if (!Strict && !PipelineStores.Stores(pipeline))
+        {
+            Interlocked.Increment(ref _quietWork);
+
+            return;
+        }
+
+        Written(ListIndirectScratch.Of(self), IndirectGatherMiss.AfterDispatch, pipeline);
     }
 
     /// <summary>
@@ -192,8 +276,13 @@ internal static unsafe class IndirectGather
     [HotPath]
     public static void AfterWork(XboxObject* self, bool dispatch, nint pipeline)
     {
-        if (!Enabled || (!dispatch && !PipelineStores.Stores(pipeline)))
+        if (!Enabled || ((!dispatch || !Strict) && !PipelineStores.Stores(pipeline)))
         {
+            if (Enabled && dispatch)
+            {
+                Interlocked.Increment(ref _quietWork);
+            }
+
             return;
         }
 
@@ -232,6 +321,7 @@ internal static unsafe class IndirectGather
         scratch->GatherWriter = 0;
         scratch->GatherWriterPipeline = 0;
         scratch->GatherClosed = 0;
+        scratch->WriteCount = 0;
     }
 
     /// <summary>
@@ -336,7 +426,40 @@ internal static unsafe class IndirectGather
             return IndirectGatherMiss.ProgramNotReady;
         }
 
+        if (OverlapsWrite(scratch, call.ArgumentsAt, (ulong)call.Stride * call.MaxCount))
+        {
+            return IndirectGatherMiss.OverlapsMemoryWrite;
+        }
+
         return IndirectGatherMiss.None;
+    }
+
+    /// <summary>
+    /// Whether the arguments at console address <paramref name="at"/> (<paramref name="bytes"/> long) overlap a memory
+    /// write of the segment kept apart; arguments whose address is not known overlap any.
+    /// </summary>
+    [HotPath]
+    internal static bool OverlapsWrite(ListIndirectScratch* scratch, ulong at, ulong bytes)
+    {
+        if (scratch->WriteCount == 0)
+        {
+            return false;
+        }
+
+        if (at == 0)
+        {
+            return true;
+        }
+
+        for (int i = 0; i < scratch->WriteCount; i++)
+        {
+            if (at < scratch->WriteEnds[i] && scratch->WriteStarts[i] < at + bytes)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Why gathering ended in the list's segment <paramref name="segment"/>.</summary>
