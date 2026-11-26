@@ -143,6 +143,8 @@ internal static class HostUsage
           --clamp-enhanced-barriers  enhanced barriers on the indirect-argument scratch (one per clamp) instead of
                                  three transitions per ExecuteIndirect, where the device has them; not with --mesh-launch
           --typeless-depth       depth textures in a typed depth format made typeless, so the game's shader views read them
+          --gpu-keep-awake       a compute queue of ours runs a small looped dispatch while the game submitted within 250 ms,
+                                 so the GPU's clocks stay up between submissions (--gpu-keep-awake-turns: 20 s on, 20 s off)
           --indirect-gather      indirect records nothing earlier in their list segment can have written are clamped in
                                  one prelude before the segment instead of one pass per ExecuteIndirect
           --indirect-gather-strict  as --indirect-gather, but every memory write, dispatch and memory wait ends gathering
