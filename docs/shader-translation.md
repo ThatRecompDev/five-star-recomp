@@ -179,7 +179,9 @@ epilogue's, is kept.
 The superstep form first drops the wave operations whose result nothing reads (`DeadWaveOperations`: a ballot into an
 SGPR half or an scc write that is dead after it, by liveness over the block graph), after reading a lane's own bit of a
 ballot from the mask bool it took (`BallotBits`: `lane_bit(lo, hi)` of `vw_ballot(m).x` and `.y` is `m` while
-neither half nor `m` is written, since every thread of the console wave deposits its bit). Over the 8,765 mesh
+neither half nor `m` is written, since every thread of the console wave deposits its bit; a wave32 program needs only
+`.x`, so its `lane_bit(lo, 0u)` of a 32-bit mask such as `s_cselect_b32 s8, exec, 0` counts too, which took
+`CS_PedStandardSkinning` from 57 ballots and 115 `lane_bit`s to 20 and 50). Over the 8,765 mesh
 programs the stops fell from 1,340,858 to 406,824; none has more than 500 left (207 had before), and
 `MSNC_VS_LinearDepthSkin_f1f2249c` went from 611 to 180. The other forms drop them too (pixel programs without the
 own-bit rewrite, since helper lanes take no part in an HLSL ballot): dxc keeps an unused `WaveActiveBallot`. In every
