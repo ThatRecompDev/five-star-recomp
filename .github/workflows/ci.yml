@@ -67,8 +67,16 @@ jobs:
       - name: Architecture rules
         run: dotnet test tests/FiveStar.Architecture.Tests --no-build
 
+      # One test project at a time: run together, the Loader's and the Shaders' WARP devices outgrew the runner's memory
+      # (E_OUTOFMEMORY in whichever WARP test allocated at the peak) and the profile test lost its CPU samples.
       - name: Test
-        run: dotnet test FiveStar.slnx --no-build --logger trx --results-directory TestResults --blame-crash
+        run: |
+          $failed = @()
+          foreach ($project in Get-ChildItem tests -Directory -Filter 'FiveStar.*.Tests' | Where-Object Name -ne 'FiveStar.Architecture.Tests') {
+            dotnet test $project.FullName --no-build --logger trx --results-directory TestResults --blame-crash
+            if ($LASTEXITCODE -ne 0) { $failed += $project.Name }
+          }
+          if ($failed) { throw "Failed: $($failed -join ', ')" }
 
       - name: Upload test results
         if: always()
