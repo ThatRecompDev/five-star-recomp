@@ -122,7 +122,7 @@ public static class BvhCases
         }
 
         var window = BvhReference.Descriptor(BvhScene.Base, options.Sort, options.Grow, options.ReturnBarycentrics);
-        var expected = queries.Select((query, index) => moved[index] ? Miss(query) : BvhReference.Intersect(memory, window, query.Node, query.Ray)).ToList();
+        var expected = queries.Select((query, index) => Expect(memory, window, query, moved[index])).ToList();
 
         var map = new AddressMap(1, NullView);
         var bytes = new byte[map.Bytes];
@@ -140,6 +140,17 @@ public static class BvhCases
                 new BufferResource(SceneHeap, memory.Words(), Writable: false),
             ],
         };
+    }
+
+    /// <summary>What a query gives: the reference over the scene, or a miss when its node was moved into the unmapped page.</summary>
+    private static uint[] Expect(BvhMemory memory, uint[] descriptor, BvhQuery query, bool moved)
+    {
+        if (moved)
+        {
+            return Miss(query);
+        }
+
+        return BvhReference.Intersect(memory, descriptor, query.Node, query.Ray);
     }
 
     /// <summary>The window T# with its base moved to <see cref="GameBase"/>: bits 39:8 in dword 0, bits 47:40 in dword 1's low byte.</summary>
