@@ -753,14 +753,15 @@ finished entry. Keys are SHA-256 hashes:
 
 | Kind | Key | Entry |
 |---|---|---|
-| `programs/*.json` | FiveStar.Shaders.dll (with `--llvm-disassembler` also the llvm-mc and llvm-objdump bytes), the translation options, the FSSM and container bytes | stage, status, reason, instruction count, HLSL key (programs that translated, were unsupported or crashed) |
+| `programs/*.json` | the translator's sources (`TranslatorSources`: FiveStar.Shaders but `Dxil/` and `Cache/`, set at build; with `--llvm-disassembler` also the llvm-mc and llvm-objdump bytes), the translation options, the FSSM and container bytes | stage, status, reason, instruction count, HLSL key (programs that translated, were unsupported or crashed) |
 | `hlsl/*.hlsl` | the HLSL text | the HLSL |
 | `dxil/*.dxil` | dxc.exe, dxcompiler.dll and dxil.dll bytes, the fixed dxc arguments, the runtime headers, profile, `-Od`, the HLSL text | the DXIL |
 | `dxil/*.error` | same | dxc's messages of a failed compile with a source diagnostic (`file:line[:column]: error:`) or `error: validation errors`; crashes and out-of-memory failures are not kept |
 | `dxil/*.timeout` | same | the time limit the compile ran into; reused for limits up to that one, so `--retry` (900 s) tries again |
 
-Programs with the same HLSL compile once, also within one run. Any new build of FiveStar.Shaders invalidates the
-translations (all programs are translated again) but only programs whose HLSL changed are compiled again. Each run lists the entries it used in
+Programs with the same HLSL compile once, also within one run. A change to a source of FiveStar.Shaders outside
+`Dxil/` (the DXIL backend) and `Cache/` (the pipeline cache readers), which no translation reaches, invalidates the
+translations (all programs are translated again, about 0.1 s of one job each) but only programs whose HLSL changed are compiled again. Each run lists the entries it used in
 `used/<identity>.txt`; `fivestar setup <dump> --clean-cache` removes the entries of older builds (see
 [setup.md](setup.md#shader-cache)). Deleting the folder resets it.
 
