@@ -907,7 +907,11 @@ boot.
 at device creation) can run again while its previous submission is still executing, which the console allows and
 the desktop does not (debug-layer error #553, about once per 500 presents at 240 Hz; the submission is dropped).
 `ListSubmissions`: each queue signals a fence of its own after every submission, each list wrapper keeps that value
-(+0xE00), and a list still in flight is waited for on the CPU before it is submitted again. The coreclr fault that
+(+0xE00), and a list still in flight is waited for on the CPU before it is submitted again. A list reset since
+that submission runs a new recording, which the desktop allows: it is not waited for on the CPU (that wait was 90-570
+ms of every world frame in w98, with the GPU idle more than half the frame). On the same queue the queue's order keeps
+the two runs apart; another queue waits for the last run on the GPU, so the loader's per-list argument scratch is
+never shared by two runs. The coreclr fault that
 followed this wait at first (coreclr+0x165f05) was heap corruption from the TLS host ([loader.md](loader.md)),
 which any change of timing exposed.
 

@@ -455,7 +455,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
 
     public void Dispose()
     {
-        _log.Info($"  [d3d12_xs] {ListSubmissions.Waits} submission(s) waited for the list's previous run");
+        _log.Info($"  [d3d12_xs] {ListSubmissions.Summary}");
         _log.Info($"  [d3d12_xs] {Bindings.Layouts.Summary}");
 
         if (DebugLayer.PoolPageWatch.Started)
