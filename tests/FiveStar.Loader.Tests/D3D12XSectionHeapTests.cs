@@ -176,6 +176,88 @@ public sealed unsafe class D3D12XSectionHeapTests
         }
     }
 
+    /// <summary>
+    /// The game places a smaller buffer over the pages of one it is done with (w170 did 33 times): the old range's pages
+    /// leave its views at once, the one outside the new range following its frame, and the old desktop buffer stays alive
+    /// until the GPU is past the work submitted meanwhile; released at once, lists in flight wrote through freed memory.
+    /// </summary>
+    [Fact]
+    public void A_replaced_buffer_leaves_the_address_map_first_and_is_released_once_the_GPU_is_past_it()
+    {
+        using var test = TestRuntime.Create();
+        var virtualAlloc = (delegate* unmanaged<nint, nuint, uint, ulong, uint, nint>)test.Shim("xmem.dll", "XMemVirtualAlloc");
+        var allocate = (delegate* unmanaged<ulong, ulong*, ulong*, int>)test.Shim("xmem.dll", "XMemAllocatePhysicalPages");
+        var map = (delegate* unmanaged<nint, ulong, ulong*, nint>)test.Shim("xmem.dll", "XMemMapPhysicalPages");
+        var device = new XboxDevice(test);
+        ShaderVisibleViewHeap(device);
+
+        ulong* frames = stackalloc ulong[2];
+        ulong count = 2;
+        nint cpu = virtualAlloc(0, (nuint)(2 * Page), Reserve64K, CpuFlags, CpuReadWrite);
+        Assert.Equal(1, allocate(0, &count, frames));
+        Assert.Equal(cpu, map(cpu, 2, frames));
+
+        var views = test.Runtime.D3D12X.MemoryViews;
+        var addresses = test.Runtime.D3D12X.PlacedResources.Addresses;
+        Assert.Equal(0, device.PlacedBuffer(cpu, 2 * Page, out _));
+        Assert.True(addresses.TryFind((ulong)cpu, out var old));
+        uint oldView = views.Entry((ulong)cpu + Page).View;
+        int references = References(old.Resource);
+
+        Assert.Equal(0, device.PlacedBuffer(cpu, Page, out _));
+        Assert.NotEqual(oldView, views.Entry((ulong)cpu).View);
+        Assert.NotEqual(oldView, views.Entry((ulong)cpu + Page).View);
+        Assert.NotEqual(DescriptorWindow.UnmappedSlot, views.Entry((ulong)cpu + Page).View);
+        Assert.Equal(1, addresses.Retired.Retired);
+
+        for (long present = 1; present <= RetiredAddressBuffers.RetirePresents + 1; present++)
+        {
+            Assert.Equal(0, addresses.Retired.Released);
+            Assert.Equal(references, References(old.Resource));
+            addresses.Advance(present);
+        }
+
+        Assert.Equal(1, addresses.Retired.Released);
+        Assert.Equal(references - 1, References(old.Resource));
+    }
+
+    /// <summary>
+    /// A retired buffer waits <see cref="RetiredAddressBuffers.RetirePresents"/> presents, then for every queue to complete
+    /// what it had submitted at that point (lists recorded before the replacement and submitted since).
+    /// </summary>
+    [Fact]
+    public void A_retired_buffer_waits_for_the_presents_and_then_for_the_queues()
+    {
+        ulong[] submitted = [5, 3];
+        ulong[] completed = [2, 3];
+        var released = new List<nint>();
+        var retired = new RetiredAddressBuffers(() => submitted, () => completed, released.Add, null);
+        retired.Retire(0x1234);
+
+        for (long present = 1; present <= RetiredAddressBuffers.RetirePresents; present++)
+        {
+            retired.Advance(present);
+        }
+
+        // Its marks are taken now: work submitted later does not hold it.
+        submitted = [9, 9];
+        retired.Advance(RetiredAddressBuffers.RetirePresents + 1);
+        Assert.Empty(released);
+
+        completed = [5, 3];
+        retired.Advance(RetiredAddressBuffers.RetirePresents + 2);
+        Assert.Equal([(nint)0x1234], released);
+        Assert.Equal(1, retired.Released);
+    }
+
+    /// <summary>The references held on <paramref name="resource"/>.</summary>
+    private static int References(nint resource)
+    {
+        System.Runtime.InteropServices.Marshal.AddRef(resource);
+
+        return System.Runtime.InteropServices.Marshal.Release(resource);
+    }
+
     /// <summary>The window of a page that waits for it: the page's map entry names the null views and the window's tag.</summary>
     private static SectionWindow Waiting(GameMemoryViews views, SectionHeaps heaps, ulong address)
     {
