@@ -161,6 +161,7 @@ internal static class HostUsage
                                  those holding NaN or Inf
           --d3d12-nan-scan-dwords <offset>:<n>  also show n floats of every scanned buffer and CBV from that byte offset
           --trace-exposure <n>   every n presents log the values the game reads from the exposure targets it maps
+          --trace-views <t>      log what each table record of draws whose pipeline contains t resolves to (CPU only)
           --retire-unmapped-textures  release textures over memory the game unmaps (default: only counted)
           --keep-unmapped-textures  keep textures over memory the game unmapped that no view record names (default:
                                  retired after 120 presents unmapped and 60 unnamed, their views nulled)

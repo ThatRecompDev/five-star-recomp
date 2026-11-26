@@ -320,6 +320,9 @@ internal sealed record HostOptions
     /// <summary>Presents between two exposure lines of one mapped target (<c>--trace-exposure</c>); 0 when off.</summary>
     public int TraceExposure { get; set; }
 
+    /// <summary>Pipeline texts whose work logs its tables' records as resolved (<c>--trace-views</c>); null when off.</summary>
+    public string? TraceViews { get; set; }
+
     /// <summary>Retire textures over memory the game unmaps (<c>--retire-unmapped-textures</c>); off: they are only counted.</summary>
     public bool RetireUnmappedTextures { get; set; }
 
