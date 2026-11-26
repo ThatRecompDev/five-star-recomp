@@ -210,14 +210,22 @@ internal sealed class GpuTextureRegistry : IDisposable
         }
     }
 
-    /// <summary>Marks the textures over the range as over unmapped memory (from now) or not, under the lock; how many changed.</summary>
+    /// <summary>
+    /// Marks the textures over the range as over unmapped memory (from now) or not, under the lock; how many changed.
+    /// Only the run over the range is visited (<see cref="OverlapRun"/>): each page the game maps or unmaps used to scan
+    /// all 15,000 textures, which kept the page-mapping thread busy through a loading screen.
+    /// </summary>
     private int Mark(ulong address, ulong bytes, bool unmapped)
     {
         int changed = 0;
+        var sorted = _sorted;
+        var (first, count) = OverlapRun(sorted, address, bytes);
 
-        foreach (var entry in _sorted)
+        for (int index = first; index < first + count; index++)
         {
-            if (entry.Address < address + bytes && address < entry.Address + entry.Size && entry.OverUnmapped != unmapped)
+            var entry = sorted[index];
+
+            if (entry.OverUnmapped != unmapped)
             {
                 Unmark(entry);
 
