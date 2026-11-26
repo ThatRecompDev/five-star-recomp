@@ -1176,6 +1176,11 @@ internal static unsafe class CommandListBindingMethods
         nint pipeline = RectangleListState.Of(self)->Pipeline;
         uint* data = compute ? bindings->Compute : bindings->Graphics;
 
+        if (!compute && TargetClears.Census)
+        {
+            TargetClears.Drew(self->Inner, pipeline);
+        }
+
         // Every table the programs read, also one a bind mirrored whole (the tiled lighting's material-mask pass binds
         // its depth twins' UAVs in a table of 8 records).
         if (DepthTwins.Any)

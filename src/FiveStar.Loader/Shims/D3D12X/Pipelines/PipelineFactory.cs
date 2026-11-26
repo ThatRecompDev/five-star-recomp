@@ -160,7 +160,7 @@ internal sealed unsafe class PipelineFactory
                 work = _ => Task.CompletedTask;
             }
 
-            var waiting = StandIns.Waiting(work, () => Prepared(PrepareGraphics(description), wanted), result, deferral, what);
+            var waiting = StandIns.Waiting(work, () => Prepared(PrepareGraphics(description), wanted), result, deferral, what, ProgramsNow(description, all, lacking, onDemand));
 
             return Remember(description, waiting, result, "programs made on demand");
         }
@@ -262,6 +262,34 @@ internal sealed unsafe class PipelineFactory
     /// emitted triangles' winding in or out when a pass draws nothing. Null for none.
     /// </summary>
     public static string? CullNoneFor { get; set; }
+
+    /// <summary>
+    /// How a small or essential pair (<see cref="EssentialPipelines"/>) makes its lacking programs on the thread of its
+    /// first use rather than in the workers' queue, which kept the UI's blits and Scaleform programs skipped in boot w115
+    /// (programs ready after 58 s on average); null for any other pair.
+    /// </summary>
+    private static Func<bool>? ProgramsNow(GraphicsPipelineDescription description, string names, List<IReadOnlyList<string>> lacking, OnDemandPrograms onDemand)
+    {
+        if (!EssentialPipelines.Matches(names) && !SmallGraphics(description))
+        {
+            return null;
+        }
+
+        return () => lacking.All(onDemand.MakeNow);
+    }
+
+    /// <summary>Whether a graphics description's console shaders total <see cref="SmallGraphicsShaderBytes"/> or less.</summary>
+    private static bool SmallGraphics(GraphicsPipelineDescription description)
+    {
+        long bytes = 0;
+
+        foreach (var source in description.Shaders)
+        {
+            bytes += source.Bytes.Length;
+        }
+
+        return bytes <= SmallGraphicsShaderBytes;
+    }
 
     private static GraphicsPipelineDescription CullNone(GraphicsPipelineDescription description, string names)
     {
