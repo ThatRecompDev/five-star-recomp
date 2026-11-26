@@ -20,6 +20,7 @@ internal sealed partial class GlobalMemoryEmitter
     private const int ShortBits = 16;
     private const int DwordBits = 32;
     private const long AddressMask = 0xffffffff;
+    private const int MaxDwords = 4;
 
     private static readonly IReadOnlyDictionary<string, int> DwordCounts = new Dictionary<string, int>
     {
@@ -87,6 +88,15 @@ internal sealed partial class GlobalMemoryEmitter
 
     private void Access(bool load, Operand data, string low, string high, int count)
     {
+        // A compute program's store of several dwords: the prelude's wide store (PtrStoreN).
+        if (!load && count > 1 && _state.Stage == ShaderStage.Compute)
+        {
+            var words = string.Join(", ", Enumerable.Range(0, count).Select(dword => _operands.Read(data, dword)).Concat(Enumerable.Repeat("0u", MaxDwords - count)));
+            _state.Emit($"  if (active) PtrStoreN({low}, {high}, uint4({words}), {count}u);");
+
+            return;
+        }
+
         for (var dword = 0; dword < count; dword++)
         {
             var byteOffset = dword * BytesPerDword;
