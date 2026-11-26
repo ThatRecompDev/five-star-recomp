@@ -9,7 +9,8 @@ namespace FiveStar.Loader.Shims.Storage;
 
 /// <summary>
 /// Runs the requests of one queue on its worker thread: two overlapped read slots, so the next request reads while the
-/// current one inflates, a reusable zlib inflater, BCPack pages decoded into a reused block buffer, and delivery to system memory or the destination sink. A request
+/// current one inflates, a reusable zlib inflater (the runtime's native zlib, <see cref="NativeZlibInflater"/>, the managed one
+/// when it is not available), BCPack pages decoded into a reused block buffer, and delivery to system memory or the destination sink. A request
 /// whose sector-aligned source does not fit the staging size is read in pieces when it is uncompressed, and fails
 /// otherwise.
 /// </summary>
@@ -21,6 +22,7 @@ internal sealed unsafe class RequestExecutor : IDisposable
 
     private readonly ReadSlot[] _slots = new ReadSlot[SlotCount];
     private readonly ZlibInflater _inflater = new();
+    private readonly NativeZlibInflater? _native = NativeZlibInflater.Create();
     private readonly IStorageDestinationSink _sink;
     private readonly BcPackPages _bcPack;
     private readonly LoaderLog _log;
@@ -82,6 +84,8 @@ internal sealed unsafe class RequestExecutor : IDisposable
         {
             slot.Dispose();
         }
+
+        _native?.Dispose();
     }
 
     [HotPath]
@@ -207,6 +211,19 @@ internal sealed unsafe class RequestExecutor : IDisposable
 
         if (request.Compression == StorageCompression.Zlib)
         {
+            if (_native is not null)
+            {
+                bool whole = _native.Inflate(source, (int)request.DestinationSize);
+                data = _native.Output;
+
+                if (!whole)
+                {
+                    return HResult.InvalidData;
+                }
+
+                return HResult.Ok;
+            }
+
             var inflated = _inflater.Inflate(source, DeflateWrapper.Zlib, (int)request.DestinationSize);
             data = _inflater.Output;
 
