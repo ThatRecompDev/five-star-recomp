@@ -605,6 +605,21 @@ internal sealed class CommandLineParser
         return true;
     }
 
+    /// <summary><c>--capture-dispatch &lt;text&gt;[@n],...</c> and <c>--capture-dispatch-dir &lt;dir&gt;</c>.</summary>
+    private bool SetCaptureDispatch(string option)
+    {
+        if (option == "--capture-dispatch-dir")
+        {
+            _options.CaptureDispatchDirectory = Path.GetFullPath(Next());
+
+            return true;
+        }
+
+        _options.CaptureDispatch = Shims.D3D12X.DebugLayer.DispatchCaptures.Parse(Next());
+
+        return true;
+    }
+
     /// <summary><c>--check-view-liveness</c>.</summary>
     private bool SetViewLiveness()
     {
@@ -641,6 +656,8 @@ internal sealed class CommandLineParser
                 return SetViewLiveness();
             case "--d3d12-nan-scan" or "--d3d12-nan-scan-dwords":
                 return SetNanScan(option);
+            case "--capture-dispatch" or "--capture-dispatch-dir":
+                return SetCaptureDispatch(option);
             case "--retire-unmapped-textures":
                 return SetRetireUnmapped();
             case "--keep-unmapped-textures":

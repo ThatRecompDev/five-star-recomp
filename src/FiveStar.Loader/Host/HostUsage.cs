@@ -159,6 +159,9 @@ internal static class HostUsage
           --check-view-liveness  before each draw and dispatch, check the bound tables' views: released resources, wrong kinds
           --d3d12-nan-scan <t>   read back the inputs of draws whose pipeline contains t and log those holding NaN or Inf
           --d3d12-nan-scan-dwords <offset>:<n>  also show n floats of every scanned buffer and CBV from that byte offset
+          --capture-dispatch <t>[@n],...  capture the n-th dispatch (1st by default) of a compute pipeline whose name
+                                 contains t, with what it reads and writes, for fivestar shader replay
+          --capture-dispatch-dir <dir>  where the captures go (default: captures)
           --retire-unmapped-textures  release textures over memory the game unmaps (default: only counted)
           --keep-unmapped-textures  keep textures over memory the game unmapped that no view record names (default:
                                  retired after 120 presents unmapped and 60 unnamed, their views nulled)

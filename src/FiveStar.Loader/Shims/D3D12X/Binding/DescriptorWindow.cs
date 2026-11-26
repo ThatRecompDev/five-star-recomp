@@ -156,6 +156,9 @@ internal sealed unsafe class DescriptorWindow
     /// <summary>The window buffer; 0 until the view heap exists.</summary>
     public nint Buffer { get; private set; }
 
+    /// <summary>The window buffer's size: the records and the regions past them; 0 until the view heap exists.</summary>
+    public uint Bytes { get; private set; }
+
     /// <summary>The window's CPU mapping; null until the view heap exists. Write-combined: read <see cref="Records"/> instead.</summary>
     public byte* Data { get; private set; }
 
@@ -230,6 +233,8 @@ internal sealed unsafe class DescriptorWindow
 
         Buffer = buffer;
         Data = data;
+        Bytes = bytes;
+
         ViewHeap = heap;
         _viewGpuStart = DesktopCalls.HeapGpuStart(heap);
         _viewIncrement = increment;
