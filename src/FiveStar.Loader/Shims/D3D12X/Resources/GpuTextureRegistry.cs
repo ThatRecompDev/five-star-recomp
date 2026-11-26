@@ -405,6 +405,14 @@ internal sealed class GpuTextureRegistry : IDisposable
         {
             _frame = frame;
 
+            // Past KeptAliasBytes the oldest kept textures, of any range, age too (w111b kept 2,691, never released), but
+            // only those no view record names: a descriptor the game still holds keeps its texture, as before the cap (one
+            // released while named gave its heap range to a new texture, whose bytes the old view then read).
+            if (_aliasBytes > KeptAliasBytes)
+            {
+                AgeUnreferenced();
+            }
+
             if (RetireUnmapped && _overUnmapped.Count > 0)
             {
                 RetireLongUnmapped(frame - UnmappedGraceFrames, retiring);
@@ -603,16 +611,6 @@ internal sealed class GpuTextureRegistry : IDisposable
             Age(kept.Dequeue());
         }
 
-        // Past KeptAliasBytes the oldest kept textures, of any range, age too (w111b kept 2,691, never released).
-        while (_aliasBytes > KeptAliasBytes && _aliasOrder.TryDequeue(out var oldest))
-        {
-            if (_aliases.TryGetValue((oldest.Address, oldest.Size), out var queue) && queue.Contains(oldest))
-            {
-                _aliases[(oldest.Address, oldest.Size)] = new Queue<GpuTexture>(queue.Where(texture => texture != oldest));
-                Age(oldest);
-            }
-        }
-
         // Textures aged by their range stay in the order until met: drop them now and then.
         if (_aliasOrder.Count > (OrderSlack * _aliasCount) + OrderSlackBase)
         {
@@ -624,6 +622,42 @@ internal sealed class GpuTextureRegistry : IDisposable
             {
                 _aliasOrder.Enqueue(texture);
             }
+        }
+    }
+
+    /// <summary>Ages the oldest kept textures no view record names until the kept bytes are within the cap. Under the lock.</summary>
+    private void AgeUnreferenced()
+    {
+        var referenced = Referenced;
+        var keep = new Queue<GpuTexture>();
+
+        while (_aliasBytes > KeptAliasBytes && _aliasOrder.TryDequeue(out var oldest))
+        {
+            if (!_aliases.TryGetValue((oldest.Address, oldest.Size), out var queue) || !queue.Contains(oldest))
+            {
+                continue;
+            }
+
+            if (referenced is null || referenced(oldest))
+            {
+                keep.Enqueue(oldest);
+
+                continue;
+            }
+
+            _aliases[(oldest.Address, oldest.Size)] = new Queue<GpuTexture>(queue.Where(texture => texture != oldest));
+            Age(oldest);
+        }
+
+        // The named ones keep their place, oldest first.
+        while (_aliasOrder.TryDequeue(out var rest))
+        {
+            keep.Enqueue(rest);
+        }
+
+        while (keep.TryDequeue(out var kept))
+        {
+            _aliasOrder.Enqueue(kept);
         }
     }
 
