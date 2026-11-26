@@ -107,4 +107,13 @@ internal enum GpuResourceEvent
 
     /// <summary>A slot-70 view of a typeless depth texture (<c>--typeless-depth</c>) that would have been null.</summary>
     ViewDepthResolved,
+
+    /// <summary>A slot-70 buffer view past its desktop buffer's end, written with the elements it holds.</summary>
+    ViewBufferClamped,
+
+    /// <summary>A slot-70 buffer view off its element size but on 16 bytes, written as a raw view over the same bytes.</summary>
+    ViewBufferRaw,
+
+    /// <summary>A null slot-70 buffer view whose record keeps the heap index: the one kind a program reads.</summary>
+    ViewNullBufferKeptIndex,
 }

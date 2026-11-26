@@ -10,9 +10,10 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// <summary>
 /// Device slot 70 with a buffer desc: a buffer SRV (raw, structured or typed) at a console GPU address. The address
 /// lies in a desktop buffer over game memory (<see cref="XboxGameMemoryBuffers.TryFind"/>); the view's first element
-/// moves by the address's offset in that buffer. An address outside known memory, off the element size or past the
-/// buffer's end gets no view (the caller writes a null one), as does a raw view whose first byte is off the 16 bytes
-/// D3D12 requires (D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT): such a view is invalid, and a driver may move it.
+/// moves by the address's offset in that buffer. A view past the buffer's end is cut to the elements it holds, and one
+/// off its element size whose first byte is on 16 bytes is read raw (<see cref="Fit"/>). An address outside known memory,
+/// a view off its element size and off 16 bytes, one starting past the end, or a raw view whose first byte is off the 16
+/// bytes D3D12 requires (D3D12_RAW_UAV_SRV_BYTE_ALIGNMENT) gets no view (the caller writes a null one).
 /// </summary>
 internal sealed unsafe class AddressBufferViews
 {
@@ -34,37 +35,31 @@ internal sealed unsafe class AddressBufferViews
 
     /// <summary>
     /// Writes the buffer view into <paramref name="handle"/>, raw when its <paramref name="record"/> keeps the heap index
-    /// (<see cref="Binding.RawBufferViews"/>); false when the address has no desktop buffer (<paramref name="covered"/> false)
-    /// or the view does not fit the one it has (off its element size, past its end, a raw view off 16 bytes).
+    /// (<see cref="Binding.RawBufferViews"/>). A view the desktop buffer cannot hold as described is made to fit where that
+    /// reads the same bytes (<see cref="Fit"/>); otherwise nothing is written (the caller writes a null view).
     /// </summary>
     [HotPath]
-    public bool Create(nint device, AddressViewDescription* view, nint handle, Binding.BufferRecord record, out bool covered)
+    public BufferViewOutcome Create(nint device, AddressViewDescription* view, nint handle, Binding.BufferRecord record)
     {
         BufferViewDescription desktop;
         Buffer.MemoryCopy(view, &desktop, sizeof(BufferViewDescription), AddressViewDescription.DesktopViewSize);
         uint element = ElementBytes(desktop);
-        covered = false;
 
-        if (desktop.Dimension != BufferViewDescription.BufferDimension || element == 0 || !_memory.TryFind(view->Address, out var range) || range.Resource == 0)
+        if (desktop.Dimension != BufferViewDescription.BufferDimension || element == 0)
         {
-            return false;
+            return BufferViewOutcome.NotBuffer;
         }
 
-        covered = true;
-
-        ulong offset = view->Address - range.GameAddress;
-        ulong end = offset + ((desktop.SrvFirstElement + desktop.SrvElements) * element);
-
-        if (offset % element != 0 || end > range.Size)
+        if (!_memory.TryFind(view->Address, out var range) || range.Resource == 0)
         {
-            return false;
+            return BufferViewOutcome.Uncovered;
         }
 
-        desktop.SrvFirstElement += offset / element;
+        var outcome = Fit(ref desktop, element, view->Address - range.GameAddress, range.Size);
 
-        if ((desktop.SrvFlags & BufferViewDescription.RawFlag) != 0 && (desktop.SrvFirstElement * RawElementBytes) % RawAlignment != 0)
+        if (outcome is not (BufferViewOutcome.Created or BufferViewOutcome.Clamped or BufferViewOutcome.Raw))
         {
-            return false;
+            return outcome;
         }
 
         var create = (delegate* unmanaged<nint, nint, BufferViewDescription*, nint, void>)ComObject.Slot(device, DesktopShaderResourceViewSlot);
@@ -73,7 +68,55 @@ internal sealed unsafe class AddressBufferViews
         var written = (BufferViewDescription*)Binding.RawBufferViews.View(&desktop, (byte*)&raw, false, record, ref target);
         create(device, target, written, handle);
 
-        return true;
+        return outcome;
+    }
+
+    /// <summary>
+    /// The game's buffer view, <paramref name="offset"/> bytes into a desktop buffer of <paramref name="size"/> bytes,
+    /// described for it: its first element moved by the offset; a view off its element size whose first byte is on 16
+    /// bytes as a raw view over the same bytes (the elements' bytes do not move, only how they are counted); a view past
+    /// the buffer's end cut to the elements it holds (the rest reads 0, as past a console view's range). Anything else
+    /// does not fit: off its element size and off 16 bytes, starting past the end, or raw off 16 bytes.
+    /// </summary>
+    [HotPath]
+    internal static BufferViewOutcome Fit(ref BufferViewDescription desktop, uint element, ulong offset, ulong size)
+    {
+        var outcome = BufferViewOutcome.Created;
+        ulong first = offset + (desktop.SrvFirstElement * element);
+        ulong bytes = (ulong)desktop.SrvElements * element;
+
+        if (offset % element != 0)
+        {
+            if (first % RawAlignment != 0)
+            {
+                return BufferViewOutcome.Misaligned;
+            }
+
+            desktop = BufferViewDescription.RawShaderResource((uint)(bytes / RawElementBytes), first / RawElementBytes);
+            (element, outcome) = (RawElementBytes, BufferViewOutcome.Raw);
+        }
+        else
+        {
+            desktop.SrvFirstElement = first / element;
+        }
+
+        if (first >= size)
+        {
+            return BufferViewOutcome.PastEnd;
+        }
+
+        if (first + bytes > size)
+        {
+            desktop.SrvElements = (uint)((size - first) / element);
+            outcome = desktop.SrvElements == 0 ? BufferViewOutcome.PastEnd : BufferViewOutcome.Clamped;
+        }
+
+        if ((desktop.SrvFlags & BufferViewDescription.RawFlag) != 0 && first % RawAlignment != 0)
+        {
+            return BufferViewOutcome.RawMisaligned;
+        }
+
+        return outcome;
     }
 
     /// <summary>
