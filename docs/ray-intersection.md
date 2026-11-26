@@ -25,14 +25,20 @@ boxes and the direction for triangles; it computes neither.
 
 | Field | Bits | Meaning |
 |---|---|---|
-| base address | dword0, dword1[7:0] | address bits 47..8; byte address = dword0 << 8 (bits above 31 dropped: 32-bit memory window) |
+| base address | dword0, dword1[7:0] | address bits 47..8 (dword0 bits 39..8, dword1[7:0] bits 47..40) |
 | box grow | dword1[30:23] | ULPs (of 2^-24) added to each box interval |
 | box sort | dword1[31] | sort hit children by entry distance |
 | size − 1 | dword2, dword3[9:0] | not checked |
 | triangle return mode | dword3[24] | 1: t_num, t_denom, I, J; 0: t_num, t_denom, triangle_id, hit |
 | type | dword3[31:28] | 8 = BVH |
 
-The T# is a real address, not a heap index; nodes are read with `MemLoad`.
+The T# is a real address, not a heap index. Nodes are read at their 64-bit address as global loads read it (`PtrLoad`):
+a base whose bits 32 and up are 0 is in the loader's window (the tests), any other is game memory through the address
+map. They used to be read from the window at the low 32 bits of the address, never from game memory.
+
+A node in game memory whose page the address map has no memory for (the null view) misses: a box node has no child, a
+triangle node no hit. Read as zeros, it is a box around the origin whose children all point at the BVH base, which a
+ray through the origin takes (the resident-box check of Kelvaroq's VIctory fork; facts only). A base of 0 misses too.
 
 ## Nodes
 
