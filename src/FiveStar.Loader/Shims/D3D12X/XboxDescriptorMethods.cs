@@ -23,9 +23,6 @@ internal static unsafe class XboxDescriptorMethods
     /// <summary>D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV (d3d12.h).</summary>
     private const int ViewHeapType = 0;
 
-    /// <summary>D3D12_SRV_DIMENSION_TEXTURE2D: what a view without a desc is taken as (its null view, if it is retired).</summary>
-    private const int WholeTextureView = 4;
-
     public const int CreateConstantBufferViewSlot = 17;
     public const int CreateShaderResourceViewSlot = 18;
     public const int CreateUnorderedAccessViewSlot = 19;
@@ -689,10 +686,8 @@ internal static unsafe class XboxDescriptorMethods
         {
             D3D12X.DrawTrace?.UnorderedAccessView(desktop, destination);
         }
-        else
-        {
-            NoteTextureView(destination, resource, desktop, view);
-        }
+
+        NoteTextureView(destination, resource, desktop, view, unordered);
 
         if (ViewLiveness.Noting)
         {
@@ -708,9 +703,12 @@ internal static unsafe class XboxDescriptorMethods
         }
     }
 
-    /// <summary>A shader-resource view of a registered texture, for the retirement of textures over unmapped memory (<see cref="TextureViewHandles"/>).</summary>
+    /// <summary>
+    /// An SRV or UAV of a registered texture (<see cref="TextureViewHandles"/>): nulled or written again before the
+    /// texture is released. GPU-written textures' views were left out, and a released render target's UAV stayed.
+    /// </summary>
     [HotPath]
-    private static void NoteTextureView(nint destination, nint resource, nint desktop, void* view)
+    private static void NoteTextureView(nint destination, nint resource, nint desktop, void* view, bool unordered)
     {
         var game = D3D12X.Objects.AsResource(resource);
 
@@ -721,19 +719,12 @@ internal static unsafe class XboxDescriptorMethods
 
         var texture = D3D12X.Textures.Registry.Find(game->GameAddress);
 
-        if (texture is null || texture.Desktop != desktop || texture.GpuWritten)
+        if (texture is null || texture.Desktop != desktop)
         {
             return;
         }
 
-        int dimension = WholeTextureView;
-
-        if (view != null)
-        {
-            dimension = ((int*)view)[1];
-        }
-
-        D3D12X.Textures.Views.Written(destination, texture, dimension);
+        D3D12X.Textures.Views.Written(destination, texture, desktop, view, unordered);
     }
 
     /// <summary>With <c>--check-view-liveness</c>: view descriptors copied carry what was noted of them.</summary>

@@ -33,8 +33,7 @@ internal sealed unsafe class GpuTextures : IDisposable
     /// <summary>Failed fills logged one by one; the counters count them all.</summary>
     private const long LoggedFailures = 8;
 
-    /// <summary>ID3D12Device::CreateShaderResourceView, and the null views of retired textures (<see cref="NullViews"/>).</summary>
-    private const int DesktopCreateShaderResourceViewSlot = 18;
+    /// <summary>The null views of retired textures (<see cref="NullViews"/>).</summary>
     private const int NullViewDwords = 10;
     private const int NullViewFormat = 28;
     private const int DefaultComponentMapping = 0x1688;
@@ -82,11 +81,16 @@ internal sealed unsafe class GpuTextures : IDisposable
         _descriptions = descriptions;
         _log = log;
         Writes = new TextureRefreshWorker(this, source);
+        ReleasedViews = new ReleasedTextureViews(Views, Counters, log);
 
         Registry.Releasing = Released;
         Registry.Referenced = Referenced;
         Registry.Retiring = NullViews;
+        Registry.Unviewing = Unviewing;
     }
+
+    /// <summary>The views of textures about to be released, written again first (<see cref="ReleasedTextureViews"/>).</summary>
+    public ReleasedTextureViews ReleasedViews { get; }
 
     public GpuTextureRegistry Registry { get; } = GpuTextureRegistry.OfQueues();
 
@@ -259,7 +263,14 @@ internal sealed unsafe class GpuTextures : IDisposable
     private void Released(GpuTexture texture)
     {
         Refund(texture);
+        ReleasedViews.Released(texture);
         Views.Drop(texture);
+    }
+
+    /// <summary>Textures about to be released: their views still held are written again; those that had any.</summary>
+    private List<GpuTexture> Unviewing(IReadOnlyList<GpuTexture> textures)
+    {
+        return ReleasedViews.Rewrite(Volatile.Read(ref _device), textures, Registry.Find);
     }
 
     private void Refund(GpuTexture texture)
@@ -316,15 +327,14 @@ internal sealed unsafe class GpuTextures : IDisposable
             return;
         }
 
-        var create = (delegate* unmanaged<nint, nint, int*, nint, void>)ComObject.Slot(device, DesktopCreateShaderResourceViewSlot);
         int* desc = stackalloc int[NullViewDwords];
 
         foreach (var texture in textures)
         {
-            foreach (var (handle, dimension) in Views.Of(texture))
+            foreach (var (handle, view) in Views.Views(texture))
             {
-                NullViewDescription(desc, dimension);
-                create(device, 0, desc, handle);
+                ReleasedTextureViews.NullDescription(desc, view.Unordered, view.Dimension);
+                ReleasedTextureViews.Create(device, view.Unordered, 0, desc, true, handle);
                 Views.Forget(handle);
                 Counters.Add(GpuResourceEvent.ViewNulled);
             }

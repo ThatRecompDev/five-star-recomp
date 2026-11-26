@@ -17,8 +17,11 @@ internal sealed unsafe class PixGpuCapture
 {
     private const string Capturer = "WinPixGpuCapturer.dll";
 
-    /// <summary>PIX_CAPTURE_GPU (pix3.h).</summary>
-    private const uint CaptureGpu = 1 << 3;
+    /// <summary>The PIX event runtimes that export the programmatic capture calls, in the capturer's folder.</summary>
+    private static readonly string[] EventRuntimes = ["WinPixEventRuntime.dll", "WinPixEventRuntime_OneCore.dll"];
+
+    /// <summary>PIX_CAPTURE_GPU (pix3.h: 1 &lt;&lt; 1; 1 &lt;&lt; 3 is a CPU capture kind, refused with E_NOTIMPL in w168).</summary>
+    private const uint CaptureGpu = 1 << 1;
 
     /// <summary>PIXCaptureParameters is a union; its GPU member is one PCWSTR FileName at offset 0. Zeroed beyond.</summary>
     private const int ParameterBytes = 64;
@@ -71,18 +74,43 @@ internal sealed unsafe class PixGpuCapture
             return;
         }
 
-        if (!NativeLibrary.TryLoad(path, out nint module)
-            || !NativeLibrary.TryGetExport(module, "PIXBeginCapture2", out nint begin)
-            || !NativeLibrary.TryGetExport(module, "PIXEndCapture", out nint end))
+        // The capturer only has to be loaded; PIXBeginCapture2 and PIXEndCapture are the event runtime's (issue #65:
+        // PIX 2611.19 has them in WinPixEventRuntime_OneCore.dll of the same folder, not in the capturer).
+        if (!NativeLibrary.TryLoad(path, out nint capturer) || !TryCaptureExports(capturer, Path.GetDirectoryName(path)!, out nint begin, out nint end))
         {
-            _log.Warn($"[pix] {path} did not load with PIXBeginCapture2 and PIXEndCapture; no PIX captures");
+            _log.Warn($"[pix] {path} loaded without PIXBeginCapture2 and PIXEndCapture in it or in the event runtime beside it; no PIX captures");
 
             return;
         }
 
         _begin = (delegate* unmanaged[Stdcall]<uint, void*, int>)begin;
         _end = (delegate* unmanaged[Stdcall]<int, int>)end;
-        _log.Info($"  [pix] {path} loaded; GPU captures of presents {string.Join(',', _presents.Order())} to {_directory}");
+        Pipelines.PipelineLibraryCache.ReadOnly = true;
+        _log.Info($"  [pix] {path} loaded; GPU captures of presents {string.Join(',', _presents.Order())} to {_directory}; the pipeline cache is only read meanwhile");
+    }
+
+    /// <summary>PIXBeginCapture2 and PIXEndCapture from the capturer, else from the event runtime in <paramref name="folder"/>.</summary>
+    private static bool TryCaptureExports(nint capturer, string folder, out nint begin, out nint end)
+    {
+        end = 0;
+
+        if (NativeLibrary.TryGetExport(capturer, "PIXBeginCapture2", out begin) && NativeLibrary.TryGetExport(capturer, "PIXEndCapture", out end))
+        {
+            return true;
+        }
+
+        foreach (string runtime in EventRuntimes)
+        {
+            string file = Path.Combine(folder, runtime);
+
+            if (File.Exists(file) && NativeLibrary.TryLoad(file, out nint module)
+                && NativeLibrary.TryGetExport(module, "PIXBeginCapture2", out begin) && NativeLibrary.TryGetExport(module, "PIXEndCapture", out end))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>After present <paramref name="presents"/> (0: the device was just created): ends and begins captures.</summary>
