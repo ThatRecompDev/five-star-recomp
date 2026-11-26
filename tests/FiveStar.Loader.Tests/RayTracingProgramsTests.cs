@@ -33,6 +33,25 @@ public sealed class RayTracingProgramsTests : IDisposable
     }
 
     [Fact]
+    public void A_fallback_or_a_pass_named_for_ray_tracing_that_traces_no_ray_is_built()
+    {
+        // No image_bvh instruction in any: the laser fallback stores "no hit" (0x7f7fffff) per light, the mask generators
+        // sample the cascades and write the shadow masks the lighting reads. --skip-pipelines Raytrac held them (w172).
+        string[] plain =
+        [
+            "deferred_tiled~CS_LaserLightShadowRaytracingFallback",
+            "shadowmask~CS_GenerateShadowMasks_Raytraced",
+            "shadowmask~CS_GenerateShadowMasks_RaytracedCheckerboard",
+            "indirect_diffuse_lighting~CS_PPR_RaytraceFallback",
+            "indirect_diffuse_lighting~CS_ScreenProbes_TraceRays_Fallback",
+            "sr_tracing~CS_RaytraceVBuffer_Voxels",
+        ];
+
+        Assert.All(plain, name => Assert.False(RayTracingPrograms.ServesRays(Program(name))));
+        Assert.All(plain, name => Assert.False(RayTracingPrograms.Skips(Program(name), _folder, _ => false)));
+    }
+
+    [Fact]
     public void A_pipeline_whose_programs_trace_rays_stays_a_stand_in()
     {
         // Its warning goes to the active runtime's log: one of its own, not a disposed test's (a closed writer threw).
