@@ -58,6 +58,7 @@ internal sealed unsafe class PlacedTextureHeaps
 
     private readonly object _gate = new();
     private readonly List<Heap> _heaps = [];
+    private readonly List<Heap> _order = [];
     private long _placed;
     private long _freed;
     private long _returned;
@@ -184,7 +185,7 @@ internal sealed unsafe class PlacedTextureHeaps
             // The fullest heap with room first: textures gather in few heaps, and the emptier ones drain and go back.
             if (!own)
             {
-                foreach (var shared in _heaps.Where(candidate => !candidate.Own).OrderByDescending(candidate => candidate.Used))
+                foreach (var shared in Fullest())
                 {
                     if (shared.TryTake(size, alignment, out offset))
                     {
@@ -219,6 +220,32 @@ internal sealed unsafe class PlacedTextureHeaps
         }
     }
 
+    /// <summary>
+    /// The shared heaps, fullest first, in a list kept for the next placement (under the gate): a LINQ sort per placement
+    /// allocated 45 MB in w126's 20 s window on the thread that creates the views.
+    /// </summary>
+    private List<Heap> Fullest()
+    {
+        _order.Clear();
+
+        foreach (var heap in _heaps)
+        {
+            if (!heap.Own)
+            {
+                _order.Add(heap);
+            }
+        }
+
+        _order.Sort(ByUsedDescending);
+
+        return _order;
+    }
+
+    private static int ByUsedDescending(Heap left, Heap right)
+    {
+        return right.Used.CompareTo(left.Used);
+    }
+
     /// <summary>Gives a range back; a heap of its own is released with its texture.</summary>
     private void Give(Heap heap, ulong offset, ulong size)
     {
@@ -246,6 +273,22 @@ internal sealed unsafe class PlacedTextureHeaps
     /// </summary>
     private void ReturnEmpty(long now)
     {
+        int count = 0;
+
+        foreach (var heap in _heaps)
+        {
+            if (!heap.Own && heap.Empty)
+            {
+                count++;
+            }
+        }
+
+        // Every placement and every freed texture looks: without more empty heaps than are kept, nothing to sort.
+        if (count <= KeptEmptyHeaps)
+        {
+            return;
+        }
+
         var empty = _heaps.Where(heap => !heap.Own && heap.Empty).OrderBy(heap => heap.EmptySince).ToList();
 
         foreach (var heap in empty.Skip(KeptEmptyHeaps).Where(heap => now - heap.EmptySince >= EmptyMilliseconds))
@@ -426,8 +469,11 @@ internal sealed unsafe class PlacedTextureHeaps
         /// <summary>Whether the heap holds one texture only and goes with it.</summary>
         public bool Own { get; } = own;
 
-        /// <summary>Bytes in ranges handed out.</summary>
-        public ulong Used => Size - _free.Aggregate(0UL, (total, range) => total + range.Size);
+        /// <summary>
+        /// Bytes in ranges handed out, kept as ranges go and come back: every placement sorts the heaps by it under the
+        /// lock, and summing each heap's free list there held the lock the threads releasing textures wait on.
+        /// </summary>
+        public ulong Used { get; private set; }
 
         /// <summary>Whether every range is back.</summary>
         public bool Empty => _free.Count == 1 && _free[0].Size == Size;
@@ -460,6 +506,7 @@ internal sealed unsafe class PlacedTextureHeaps
                 }
 
                 offset = aligned;
+                Used += size;
 
                 return true;
             }
@@ -479,6 +526,7 @@ internal sealed unsafe class PlacedTextureHeaps
             }
 
             _free.Insert(index, (offset, size));
+            Used -= size;
 
             // Merge with the neighbours.
             if (index + 1 < _free.Count && _free[index].Offset + _free[index].Size == _free[index + 1].Offset)
