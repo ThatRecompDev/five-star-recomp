@@ -47,12 +47,14 @@ internal static unsafe class ListSubmissions
         }
 
         Interlocked.Increment(ref _waits);
+        long mark = Present.FrameLog.Start();
         long start = Environment.TickCount64;
         MemoryWaits.ReleaseBehind(fence);
 
         // A null event makes SetEventOnCompletion return once the value is reached (or the device is removed).
         _ = ((delegate* unmanaged<nint, ulong, nint, int>)ComObject.Slot(fence, SetEventOnCompletionSlot))(fence, submission->Value, 0);
         long waited = Environment.TickCount64 - start;
+        Present.FrameLog.AddListWait(mark);
 
         if (waited >= LongWaitMilliseconds && Interlocked.Increment(ref _longWaits) <= LongWaitsLogged)
         {
