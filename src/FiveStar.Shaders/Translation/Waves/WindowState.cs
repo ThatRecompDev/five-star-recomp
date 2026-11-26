@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Runtime.InteropServices;
+
 namespace FiveStar.Shaders.Translation.Waves;
 
 /// <summary>
@@ -69,13 +71,32 @@ internal sealed class WindowState
     /// <summary>Weakens this state to what also holds in <paramref name="other"/>; true when anything changed.</summary>
     public bool MergeFrom(WindowState other)
     {
+        // In place, then the other's names this state lacks in its order: the same facts and insertion order as merging
+        // over the union of both name lists, without building it (EntryFacts merges thousands of names per edge).
         var changed = false;
 
-        foreach (var name in _facts.Keys.Union(other._facts.Keys).ToList())
+        foreach (var (name, mine) in _facts)
         {
-            var merged = ValueFact.Merge(Get(name), other.Get(name));
+            var merged = ValueFact.Merge(mine, other.Get(name));
 
-            if (merged != Get(name))
+            if (merged != mine)
+            {
+                CollectionsMarshal.GetValueRefOrNullRef(_facts, name) = merged;
+                changed = true;
+            }
+        }
+
+        foreach (var (name, theirs) in other._facts)
+        {
+            if (_facts.ContainsKey(name))
+            {
+                continue;
+            }
+
+            var declared = Declared(name);
+            var merged = ValueFact.Merge(declared, theirs);
+
+            if (merged != declared)
             {
                 _facts[name] = merged;
                 changed = true;
@@ -98,9 +119,10 @@ internal sealed class WindowState
     /// </summary>
     public void ExecChanging(bool shrinks)
     {
-        foreach (var name in _facts.Keys.ToList())
+        foreach (var name in _facts.Keys)
         {
-            var fact = _facts[name];
+            ref var entry = ref CollectionsMarshal.GetValueRefOrNullRef(_facts, name);
+            var fact = entry;
 
             if (fact.Kind is not MaskKind.Uniform)
             {
@@ -112,16 +134,17 @@ internal sealed class WindowState
                 fact = fact with { Uniform = fact.AllUniform, Held = fact.Exact };
             }
 
-            _facts[name] = fact;
+            entry = fact;
         }
     }
 
     /// <summary>The window is known to hold an active lane: what is the console's in that case now is.</summary>
     public void HoldsActiveLane()
     {
-        foreach (var name in _facts.Keys.ToList())
+        foreach (var name in _facts.Keys)
         {
-            _facts[name] = _facts[name] with { Exact = _facts[name].Held };
+            ref var fact = ref CollectionsMarshal.GetValueRefOrNullRef(_facts, name);
+            fact = fact with { Exact = fact.Held };
         }
 
         Set(WindowNames.Active, Get(WindowNames.Active) with { NonEmpty = true });
