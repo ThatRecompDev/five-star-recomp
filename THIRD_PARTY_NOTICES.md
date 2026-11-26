@@ -232,6 +232,10 @@ licensed under the BSD 3-Clause license below.
 
 - The loader's `xapu.dll` queue (`src/FiveStar.Loader/Shims/Apu`) decodes the game's Opus packets with it; it is a
   package dependency, not copied code.
+- NuGet package `Concentus.Native.NetCore` 1.5.2 (same project and license) ships the native libopus 1.5.2 builds
+  (`opus.dll`, `libopus`) that Concentus's codec factory loads in place of its C# port; the loader's output carries the
+  one for its runtime. Copyright (c) Xiph.Org Foundation, Skype Limited, CSIRO, Microsoft Corporation and the other
+  holders named in the license below.
 
 ```
 Copyright (c) by various holding parties, including (but not limited to):
