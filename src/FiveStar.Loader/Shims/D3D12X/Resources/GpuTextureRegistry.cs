@@ -255,16 +255,54 @@ internal sealed class GpuTextureRegistry : IDisposable
         if (entry.OverUnmapped)
         {
             entry.UnmappedSince = GpuTexture.Mapped;
+            entry.UnreferencedSince = GpuTexture.Mapped;
             _overUnmapped.Remove(entry);
             _unmappedBytes -= (long)entry.Size;
         }
     }
 
     /// <summary>With <see cref="RetireUnmapped"/>, under the lock: retires the textures unmapped since <paramref name="lastFrame"/> or before.</summary>
-    private void RetireLongUnmapped(long lastFrame)
+    private void RetireLongUnmapped(long lastFrame, List<GpuTexture> retiring)
     {
-        var due = _overUnmapped.Where(entry => entry.UnmappedSince <= lastFrame).ToHashSet();
+        RetireOverUnmapped(_overUnmapped.Where(entry => entry.UnmappedSince <= lastFrame).ToHashSet(), retiring);
+    }
 
+    /// <summary>
+    /// With <see cref="RetireUnreferenced"/> and <see cref="Referenced"/>, under the lock: retires the textures over memory
+    /// unmapped for <see cref="UnreferencedUnmappedFrames"/> presents that no view record has named for
+    /// <see cref="UnreferencedFrames"/> presents (a program cannot read them; their views are nulled first, by
+    /// <see cref="Retiring"/>). w111b held 5,985 such textures, 3.7 GB.
+    /// </summary>
+    private void RetireUnreferencedTextures(long frame, Func<GpuTexture, bool> referenced, List<GpuTexture> retiring)
+    {
+        var due = new HashSet<GpuTexture>();
+
+        foreach (var entry in _overUnmapped)
+        {
+            if (referenced(entry))
+            {
+                entry.UnreferencedSince = GpuTexture.Mapped;
+
+                continue;
+            }
+
+            if (entry.UnreferencedSince == GpuTexture.Mapped)
+            {
+                entry.UnreferencedSince = frame;
+            }
+
+            if (frame - entry.UnmappedSince >= UnreferencedUnmappedFrames && frame - entry.UnreferencedSince >= UnreferencedFrames)
+            {
+                due.Add(entry);
+            }
+        }
+
+        RetireOverUnmapped(due, retiring);
+    }
+
+    /// <summary>Retires <paramref name="due"/>, textures over unmapped memory, under the lock; adds them to <paramref name="retiring"/>.</summary>
+    private void RetireOverUnmapped(HashSet<GpuTexture> due, List<GpuTexture> retiring)
+    {
         if (due.Count == 0)
         {
             return;
@@ -274,11 +312,30 @@ internal sealed class GpuTextureRegistry : IDisposable
         {
             Unmark(entry);
             _retired.Enqueue(new RetiredTexture(entry, _frame, _submitted()));
+            retiring.Add(entry);
         }
 
         Volatile.Write(ref _sorted, _sorted.Where(entry => !due.Contains(entry)).ToArray());
         _unmapped += due.Count;
     }
+
+    /// <summary>
+    /// Textures over unmapped memory no view record names are retired (default on; <c>--keep-unmapped-textures</c> turns
+    /// it off): see <see cref="RetireUnreferencedTextures"/>. Needs <see cref="Referenced"/>.
+    /// </summary>
+    public static bool RetireUnreferenced { get; set; } = true;
+
+    /// <summary>Presents a texture's memory must stay unmapped before <see cref="RetireUnreferenced"/> may retire it.</summary>
+    public const long UnreferencedUnmappedFrames = 120;
+
+    /// <summary>Presents no view record may name a texture's views before <see cref="RetireUnreferenced"/> retires it.</summary>
+    public const long UnreferencedFrames = 60;
+
+    /// <summary>Whether a program can read the texture now (a view record names one of its views); null: none is retired so.</summary>
+    public Func<GpuTexture, bool>? Referenced { get; set; }
+
+    /// <summary>Called, outside the lock, with the textures retired over unmapped memory this present: their views go null.</summary>
+    public Action<IReadOnlyList<GpuTexture>>? Retiring { get; set; }
 
     /// <summary>
     /// Whether a texture of the sorted array overlaps the range (lock-free, before the rebuild): registered ranges never
@@ -341,6 +398,8 @@ internal sealed class GpuTextureRegistry : IDisposable
     public void Advance(long frame)
     {
         var due = new List<GpuTexture>();
+        var retiring = new List<GpuTexture>();
+        var referenced = Referenced;
 
         lock (_gate)
         {
@@ -348,17 +407,24 @@ internal sealed class GpuTextureRegistry : IDisposable
 
             if (RetireUnmapped && _overUnmapped.Count > 0)
             {
-                RetireLongUnmapped(frame - UnmappedGraceFrames);
+                RetireLongUnmapped(frame - UnmappedGraceFrames, retiring);
             }
-
-            if (_retired.Count == 0 && _agedAliases.Count == 0)
+            else if (RetireUnreferenced && referenced is not null && _overUnmapped.Count > 0)
             {
-                return;
+                RetireUnreferencedTextures(frame, referenced, retiring);
             }
 
-            var completed = _completed();
-            ReleaseDue(_retired, frame - GraceFrames, completed, due);
-            ReleaseDue(_agedAliases, frame - AliasGraceFrames, completed, due);
+            if (_retired.Count > 0 || _agedAliases.Count > 0)
+            {
+                var completed = _completed();
+                ReleaseDue(_retired, frame - GraceFrames, completed, due);
+                ReleaseDue(_agedAliases, frame - AliasGraceFrames, completed, due);
+            }
+        }
+
+        if (retiring.Count > 0)
+        {
+            Retiring?.Invoke(retiring);
         }
 
         // Released outside the lock: a release runs the driver and the placed range's owner (PlacedTextureHeaps).
