@@ -33,6 +33,8 @@ internal static unsafe class TargetClears
     private static readonly ConcurrentDictionary<nint, (long Frame, int Binds)> BoundAt = new();
     private static readonly ConcurrentDictionary<nint, long> GameCleared = new();
     private static readonly ConcurrentDictionary<(ulong New, ulong Old), byte> Ranges = new();
+    private static readonly ConcurrentDictionary<nint, nint[]> Pending = new();
+    private static readonly ConcurrentDictionary<nint, string> Writers = new();
     private static readonly float[] Zero = [0, 0, 0, 0];
     private static long _logged = -1;
     private static uint _increment;
@@ -69,6 +71,7 @@ internal static unsafe class TargetClears
     {
         long frame = Frame();
         Report(frame);
+        var resources = new List<nint>();
 
         for (uint i = 0; i < count && handles != null; i++)
         {
@@ -88,6 +91,7 @@ internal static unsafe class TargetClears
             }
 
             BoundAt[view.Resource] = (frame, binds);
+            resources.Add(view.Resource);
 
             if (ClearEachFrame && ClearedAt.GetValueOrDefault(view.Resource, -1) != frame)
             {
@@ -99,6 +103,42 @@ internal static unsafe class TargetClears
                 }
             }
         }
+
+        if (Census && resources.Count > 0)
+        {
+            Pending[list] = [.. resources];
+        }
+    }
+
+    /// <summary>
+    /// A draw on the desktop <paramref name="list"/> with <paramref name="pipeline"/> (a stand-in or a desktop pipeline):
+    /// the targets the list bound last are named by the first pipeline that draws into them, for the census.
+    /// </summary>
+    public static void Drew(nint list, nint pipeline)
+    {
+        if (!Pending.TryRemove(list, out var resources))
+        {
+            return;
+        }
+
+        string name = PipelineName(pipeline);
+
+        foreach (nint resource in resources)
+        {
+            Writers.TryAdd(resource, name);
+        }
+    }
+
+    private static string PipelineName(nint pipeline)
+    {
+        string name = ShimContext.Runtime.D3D12X.Pipelines?.StandIns.Name(pipeline) ?? "unnamed";
+
+        if (name == "unnamed")
+        {
+            name = QueueProgress.PipelineName(pipeline);
+        }
+
+        return name;
     }
 
     /// <summary>
@@ -143,7 +183,7 @@ internal static unsafe class TargetClears
 
         foreach (var entry in never.Take(NamedTargets))
         {
-            text.Append($"\n    never cleared: 0x{entry.Key:x} {shapes.GetValueOrDefault(entry.Key, "?")}, bound {entry.Value.Binds} times");
+            text.Append($"\n[clears]     never cleared: 0x{entry.Key:x} {shapes.GetValueOrDefault(entry.Key, "?")}, bound {entry.Value.Binds} times, first drawn by {Writers.GetValueOrDefault(entry.Key, "no draw seen")}");
         }
 
         ShimContext.Log?.Info(text.ToString());
