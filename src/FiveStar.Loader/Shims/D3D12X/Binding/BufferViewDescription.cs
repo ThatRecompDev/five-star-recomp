@@ -24,7 +24,7 @@ internal struct BufferViewDescription
     /// <summary>D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING.</summary>
     public const int DefaultMapping = 0x1688;
 
-    private const int Size = 40;
+    public const int Size = 40;
 
     [FieldOffset(0)]
     public int Format;
