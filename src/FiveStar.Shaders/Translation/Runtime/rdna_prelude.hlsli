@@ -184,9 +184,11 @@ uint PtrLoad(uint lo, uint hi, uint off) {   // off is signed (a dword offset or
 static const uint SAMPLER_WINDOW_BASE = 0x04008000u;
 // Scalar loads (s_load, s_buffer_load): their address is in SGPRs, the same on every lane of a console wave as a T#
 // is, so the view they read is too: no NonUniformResourceIndex (a vector load's lanes may be in different pages). An
-// s_load of several dwords walks the address map once (sptr_view: the first dword's view and offset, and whether the
-// load stays in that 64 KiB page) and reads each dword at its distance from the first (SPtrLoadAt); one that crosses
-// a page reads each dword through the map.
+// s_load of several dwords (64 bytes at most, so in one 64 KiB page or two) walks the address map once per load
+// (sptr_views: the views and offsets of its first byte's page and of the next page) and reads each dword from the page
+// it falls in with selects (SPtrLoadAt): no branch per dword. A per-dword fallback through the map for loads crossing a
+// page put two paths at every dword and grew programs with thousands of s_loads by up to 22% (cascade shadows'
+// CS_ShadowRenderTiledCascadesCBPPPC 1.56 to 1.91 MB of DXIL, 14.9 GB in the driver's compile).
 uint SPtrLoad(uint lo, uint hi, uint off) {
     uint2 a = ptr_add(lo, hi, 0u, asint(off));
     if (hi == 0u) return MemLoad(a.x, 0u);
@@ -194,16 +196,21 @@ uint SPtrLoad(uint lo, uint hi, uint off) {
     ByteAddressBuffer b = ResourceDescriptorHeap[p.x];
     return b.Load(p.y & ~3u);
 }
-uint3 sptr_view(uint lo, uint hi, uint off, uint bytes) {
+uint4 sptr_views(uint lo, uint hi, uint off) {
     uint2 a = ptr_add(lo, hi, 0u, asint(off));
-    if (hi == 0u) return uint3(GPU_MEM_HEAP, a.x, 1u);
+    uint split = 0x10000u - (a.x & 0xffffu);
+    if (hi == 0u) return uint4(GPU_MEM_HEAP, a.x, GPU_MEM_HEAP, a.x + split);
+    uint2 n = ptr_add(a.x, a.y, split, 0);
     uint2 p = gpu_page(a.x, a.y);
-    return uint3(p.x, p.y, (a.x & 0xffffu) + bytes <= 0x10000u ? 1u : 0u);
+    uint2 q = gpu_page(n.x, n.y);
+    return uint4(p.x, p.y, q.x, q.y);
 }
-uint SPtrLoadAt(uint3 view, uint delta, uint lo, uint hi, uint off) {
-    if (view.z == 0u) return SPtrLoad(lo, hi, off);
-    ByteAddressBuffer b = ResourceDescriptorHeap[view.x];
-    return b.Load((view.y + delta) & ~3u);
+// Dword `delta` bytes past the first of an s_load whose dword is at `lo` + `off` (`hi` only for the probes).
+uint SPtrLoadAt(uint4 views, uint delta, uint lo, uint hi, uint off) {
+    uint split = 0x10000u - ((lo + off - delta) & 0xffffu);
+    bool next = delta >= split;
+    ByteAddressBuffer b = ResourceDescriptorHeap[select(next, views.z, views.x)];
+    return b.Load(select(next, views.w + (delta - split), views.y + delta) & ~3u);
 }
 uint SamplerPtrLoad(uint lo, uint hi, uint off) {
     if (hi == 0u) return MemLoad(SAMPLER_WINDOW_BASE + lo, off);
@@ -763,7 +770,7 @@ void probe_pointer(uint site, uint lo, uint hi, uint off) {
 }
 uint probe_PtrLoad(uint site, uint lo, uint hi, uint off) { probe_pointer(site, lo, hi, off); return PtrLoad(lo, hi, off); }
 uint probe_SPtrLoad(uint site, uint lo, uint hi, uint off) { probe_pointer(site, lo, hi, off); return SPtrLoad(lo, hi, off); }
-uint probe_SPtrLoadAt(uint site, uint3 view, uint delta, uint lo, uint hi, uint off) { probe_pointer(site, lo, hi, off); return SPtrLoadAt(view, delta, lo, hi, off); }
+uint probe_SPtrLoadAt(uint site, uint4 view, uint delta, uint lo, uint hi, uint off) { probe_pointer(site, lo, hi, off); return SPtrLoadAt(view, delta, lo, hi, off); }
 uint probe_SBufLoad(uint site, uint heap_index, uint off) { probe_view(site, heap_index); return SBufLoad(heap_index, off); }
 void probe_value(uint site, uint v) {   // the register a site's line loaded, the first time on thread 0
     if (g_probe_gi != 0u || site >= 32u || (g_probe_g[10] & (1u << site)) != 0u) return;
