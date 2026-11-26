@@ -462,6 +462,8 @@ internal sealed unsafe class GpuTextureUploader : IDisposable
         {
             if (_device!.DeviceRemovedReason.Failure)
             {
+                Diagnostics.DeviceLoss.Noticed("a texture upload found the device removed");
+
                 throw new InvalidOperationException($"device removed: {_device.DeviceRemovedReason}");
             }
 

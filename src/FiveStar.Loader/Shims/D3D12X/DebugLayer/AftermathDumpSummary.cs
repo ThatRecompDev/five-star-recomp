@@ -214,6 +214,12 @@ internal static unsafe class AftermathDumpSummary
         return Encoding.UTF8.GetString(new ReadOnlySpan<byte>((void*)data, (int)size)).TrimEnd('\0');
     }
 
+    /// <summary>A GFSDK_Aftermath_Device_Status by name.</summary>
+    public static string DeviceStatusName(uint status)
+    {
+        return Name(DeviceStatuses, status);
+    }
+
     private static string Name(string[] names, uint value)
     {
         if (value < names.Length)
