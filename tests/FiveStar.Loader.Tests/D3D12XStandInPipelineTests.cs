@@ -175,6 +175,35 @@ public sealed unsafe class D3D12XStandInPipelineTests
         Assert.Contains("(1 with programs made inline", standIns.Summary, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The UI target's clear pair of boot w115: its programs come from the workers after the small budget, the only build
+    /// thread is busy with a G-buffer pipeline, and still its first use gets the pipeline rather than a skipped clear.
+    /// </summary>
+    [Fact]
+    public void An_essential_clear_is_made_at_its_first_use_behind_a_busy_queue()
+    {
+        const string Clear = "exe_0688cd37_t32_VS_Clear_f05fef9c_Wrapped + exe_0688e86a_t32_PS_Clear_f05fef9c_Wrapped";
+        const string GBuffer = "sgd1_06e95600_t32_PS_DeferredTextured_942fcba4_Wrapped + sgd1_018ec975_t41_MS_VS_TransformD_c5fd36bb_Wrapped";
+        using var memory = new NativeBlocks();
+        using var never = new ManualResetEventSlim();
+        nint pipeline = FakePipeline(memory);
+        var standIns = StandIns(TimeSpan.Zero);
+
+        nint busy = 0;
+        nint clear = 0;
+        standIns.Create(() => Slow(never, pipeline), &busy, GBuffer, null);
+
+        Func<StandInUse?, Task> programs = _ => Task.Delay(StandInPipelines.SmallBudget * 2);
+        Func<PendingBuild?> prepare = () => new PendingBuild(() => new PipelineResult(HResult.Ok, pipeline), Heavy: false, Clear, _ => { });
+        standIns.Waiting(programs, prepare, &clear, () => { }, Clear);
+
+        Assert.Equal(pipeline, standIns.Desktop(clear, out bool pending));
+        Assert.False(pending);
+        Assert.Contains("1 clears, blits and UI pipelines made at first use", standIns.Summary, StringComparison.Ordinal);
+        Assert.Equal((true, true, false), (EssentialPipelines.Matches("sgd2_103ac09a_t32_FVertexEAlpha_a701d3d4_Wrapped"), EssentialPipelines.Matches("sgd2_1034496a_t32_PS_BlitColour_6e5520d1_Wrapped"), EssentialPipelines.Matches(GBuffer)));
+        never.Set();
+    }
+
     private static StandInPipelines StandIns(TimeSpan budget, PipelineWaits? waits = null)
     {
         var builds = new PipelineBuildQueue(1, PipelineBuildQueue.AnyTime);
