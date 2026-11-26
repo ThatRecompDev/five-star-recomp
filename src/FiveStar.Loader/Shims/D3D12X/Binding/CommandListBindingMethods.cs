@@ -430,7 +430,7 @@ internal static unsafe class CommandListBindingMethods
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDispatch))(inner, x, y, z);
             trace?.AfterDispatch(self);
-            IndirectGather.Close(self);
+            IndirectGather.Wrote(self);
 
             if (RtStandIns.Enabled)
             {

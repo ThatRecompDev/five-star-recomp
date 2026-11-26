@@ -14,12 +14,12 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// <summary>
 /// <c>--indirect-gather</c>: an ExecuteIndirect whose records nothing earlier in its desktop list (segment) can have
 /// written gets a slot in its list's gather buffer instead of a clamp pass in front of it; before the segment runs, a
-/// prelude on a queue of the loader's own (<see cref="IndirectGatherPrelude"/>) copies and clamps every gathered record
-/// in passes of up to <see cref="IndirectGatherProgram.RecordsPerPass"/>, with the bounds and the budget of
-/// <see cref="IndirectClamp"/>. Gathering in a segment ends at its first barrier, cache flush, copy, memory write or
-/// wait, dispatch, or draw or ExecuteIndirect of a pipeline whose programs store to memory (<see cref="PipelineStores"/>):
-/// after any of them the arguments may come from the list's own work, and later records are clamped one by one as
-/// before. Only records without a count buffer are gathered. The prelude reads the arguments when the segment is about
+/// prelude on the same queue (<see cref="IndirectGatherPrelude"/>) copies and clamps every gathered record in passes of
+/// up to <see cref="IndirectGatherProgram.RecordsPerPass"/>, with the bounds and the budget of <see cref="IndirectClamp"/>.
+/// Work that may write memory (a dispatch, a copy, a memory write, a draw or ExecuteIndirect of a pipeline whose programs
+/// store, <see cref="PipelineStores"/>) marks the segment; the first barrier or cache flush after it ends gathering, as
+/// arguments that work wrote can only be read after one; a memory wait the list is not split at ends it at once. Later
+/// records are clamped one by one as before. Only records without a count buffer are gathered. The prelude reads the arguments when the segment is about
 /// to run, so a list submitted again clamps them anew.
 /// </summary>
 internal static unsafe class IndirectGather
@@ -71,6 +71,7 @@ internal static unsafe class IndirectGather
 
         var scratch = ListIndirectScratch.Of(self);
         scratch->GatherOpen = 1;
+        scratch->GatherWritten = 0;
         scratch->GatherSegment = 0;
 
         // The buffer is written again by this recording's preludes, which run after the list's last run on its queue.
@@ -89,11 +90,12 @@ internal static unsafe class IndirectGather
         {
             var scratch = ListIndirectScratch.Of(self);
             scratch->GatherOpen = 1;
+            scratch->GatherWritten = 0;
             scratch->GatherSegment = ListSegments.Of(self)->Count;
         }
     }
 
-    /// <summary>Work or a barrier that may make later arguments come from the list itself: gathering ends in this segment.</summary>
+    /// <summary>A memory wait the list was not split at: later arguments may come from the work it waits for, so gathering ends.</summary>
     [HotPath]
     public static void Close(XboxObject* self)
     {
@@ -103,13 +105,36 @@ internal static unsafe class IndirectGather
         }
     }
 
-    /// <summary>After a draw or ExecuteIndirect recorded: a dispatch, or a pipeline that stores, ends gathering.</summary>
+    /// <summary>Work that may write memory (a dispatch, a copy, a memory write): a barrier after it ends gathering.</summary>
+    [HotPath]
+    public static void Wrote(XboxObject* self)
+    {
+        if (Enabled)
+        {
+            ListIndirectScratch.Of(self)->GatherWritten = 1;
+        }
+    }
+
+    /// <summary>
+    /// A barrier or cache flush: after one that follows work that may write, later arguments may be that work's (the
+    /// game must order them so), and gathering ends in this segment; before any such work it changes nothing.
+    /// </summary>
+    [HotPath]
+    public static void Synced(XboxObject* self)
+    {
+        if (Enabled && ListIndirectScratch.Of(self)->GatherWritten != 0)
+        {
+            ListIndirectScratch.Of(self)->GatherOpen = 0;
+        }
+    }
+
+    /// <summary>After a draw or ExecuteIndirect recorded: a dispatch, or a pipeline that stores, may have written.</summary>
     [HotPath]
     public static void AfterWork(XboxObject* self, bool dispatch, nint pipeline)
     {
         if (Enabled && (dispatch || PipelineStores.Stores(pipeline)))
         {
-            ListIndirectScratch.Of(self)->GatherOpen = 0;
+            ListIndirectScratch.Of(self)->GatherWritten = 1;
         }
     }
 

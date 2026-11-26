@@ -63,7 +63,7 @@ public sealed unsafe class IndirectGatherTests
     }
 
     [Fact]
-    public void Gathering_ends_at_work_that_may_write_and_opens_again_in_a_new_segment()
+    public void Gathering_ends_at_a_barrier_after_work_that_may_write_and_opens_again_in_a_new_segment()
     {
         IndirectGather.Enabled = true;
         var list = (XboxObject*)System.Runtime.InteropServices.NativeMemory.AllocZeroed(XboxInterfaces.CommandListObjectSize);
@@ -73,11 +73,17 @@ public sealed unsafe class IndirectGatherTests
             IndirectGather.Reset(list);
             Assert.True(IndirectGather.IsOpen(list));
 
+            // A barrier before any work that may write changes nothing, nor does work of a pipeline that stores nothing.
             PipelineStores.Note(Pipeline, false);
+            IndirectGather.Synced(list);
             IndirectGather.AfterWork(list, false, Pipeline);
+            IndirectGather.Synced(list);
             Assert.True(IndirectGather.IsOpen(list));
 
+            // Work of a pipeline not known to store nothing may write: the barrier after it ends gathering.
             IndirectGather.AfterWork(list, false, Pipeline + 1);
+            Assert.True(IndirectGather.IsOpen(list));
+            IndirectGather.Synced(list);
             Assert.False(IndirectGather.IsOpen(list));
 
             ListSegments.Of(list)->Count = 1;
@@ -85,9 +91,14 @@ public sealed unsafe class IndirectGatherTests
             Assert.True(IndirectGather.IsOpen(list));
 
             IndirectGather.AfterWork(list, true, Pipeline);
+            IndirectGather.Synced(list);
             Assert.False(IndirectGather.IsOpen(list));
 
+            // A new recording (its segments start over first, as in ResetList).
+            ListSegments.Of(list)->Count = 0;
             IndirectGather.Reset(list);
+            IndirectGather.Wrote(list);
+            Assert.True(IndirectGather.IsOpen(list));
             IndirectGather.Close(list);
             Assert.False(IndirectGather.IsOpen(list));
         }
