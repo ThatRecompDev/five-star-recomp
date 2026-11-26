@@ -315,6 +315,11 @@ internal static unsafe class CommandListBindingMethods
             NanScan.Before(self, compute);
         }
 
+        if (ViewTrace.Enabled)
+        {
+            ViewTrace.Before(self, compute);
+        }
+
         if (ViewLiveness.Enabled)
         {
             ViewLiveness.Check(self, compute);

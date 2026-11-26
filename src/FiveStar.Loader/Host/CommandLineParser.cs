@@ -600,6 +600,13 @@ internal sealed class CommandLineParser
             return true;
         }
 
+        if (option == "--trace-views")
+        {
+            _options.TraceViews = Next();
+
+            return true;
+        }
+
         if (option == "--d3d12-nan-scan-dwords")
         {
             _options.NanScanDwords = Shims.D3D12X.DebugLayer.NanScan.ParseDwords(Next());
@@ -646,7 +653,7 @@ internal sealed class CommandLineParser
                 return SetFrameRate();
             case "--check-view-liveness":
                 return SetViewLiveness();
-            case "--d3d12-nan-scan" or "--d3d12-nan-scan-dwords" or "--trace-exposure":
+            case "--d3d12-nan-scan" or "--d3d12-nan-scan-dwords" or "--trace-exposure" or "--trace-views":
                 return SetNanScan(option);
             case "--retire-unmapped-textures":
                 return SetRetireUnmapped();
