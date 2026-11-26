@@ -196,10 +196,8 @@ internal sealed class CommandLineParser
                 _options.WarmUsedOnly = true;
 
                 return true;
-            case "--program-cache":
-                _options.ProgramCache = Path.GetFullPath(Next());
-
-                return true;
+            case "--program-cache" or "--shader-overrides":
+                return SetProgramFolder(option);
             case "--no-on-demand":
                 _options.NoOnDemand = true;
 
@@ -215,6 +213,23 @@ internal sealed class CommandLineParser
             default:
                 return ApplyMemory(option);
         }
+    }
+
+    /// <summary><c>--program-cache</c> or <c>--shader-overrides</c>: a folder of programs.</summary>
+    private bool SetProgramFolder(string option)
+    {
+        var folder = Path.GetFullPath(Next());
+
+        if (option == "--shader-overrides")
+        {
+            _options.ShaderOverrides = folder;
+
+            return true;
+        }
+
+        _options.ProgramCache = folder;
+
+        return true;
     }
 
     private bool SetPipelineCache()

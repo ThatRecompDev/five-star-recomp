@@ -49,6 +49,8 @@ internal static class ShaderCommands
         "  unwrap <in.dxbc> <out.dxbc>            rewrite a container whose XDAT holds bitcode as standard DXBC",
         "  psocache <shaders.rpf | blob>          summarise the driver pipeline cache and match its shaders to programs",
         "        [--programs <fssm folder>] [--out <dir>]   (programs default to FIVESTAR_SHADER_DIR; --out writes code/ and pipelines.json)",
+        "  override-init <program> <dir>          write the program's translation to <dir>/<program>.hlsl, the start of a",
+        "        [--programs <fssm folder>] [--group-wave] [--force]   replacement for fivestar-loader --shader-overrides <dir>",
         "  tool options: --llvm <bin folder> (or FIVESTAR_LLVM; decode-check and --llvm-disassembler), --dxc <dxc path> (or FIVESTAR_DXC)",
     ];
 
@@ -95,6 +97,8 @@ internal static class ShaderCommands
                     return Unwrap(rest);
                 case "psocache":
                     return PipelineCacheCommand.Run(rest);
+                case "override-init":
+                    return OverrideInitCommand.Run(rest);
                 case "help":
                     return Help();
                 default:

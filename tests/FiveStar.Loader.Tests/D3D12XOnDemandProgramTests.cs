@@ -56,7 +56,43 @@ public sealed unsafe class D3D12XOnDemandProgramTests(ITestOutputHelper output)
         }
     }
 
-    private static (bool Waited, bool Built, string Folder, string Summary) Create(nint device, ProgramIndex index, string programs, string cache, byte[] prefix)
+    /// <summary>
+    /// A replacement (--shader-overrides) of the program is compiled in its place under its own stem, never as the
+    /// translation's file, and said once.
+    /// </summary>
+    [OnDemandFact]
+    public void A_replaced_program_is_made_from_its_replacement_under_its_own_stem()
+    {
+        var work = Directory.CreateTempSubdirectory("fivestar-override-");
+
+        try
+        {
+            var (programs, name) = CopyProgram(work.FullName);
+            var index = ProgramIndex.Load(programs);
+            var prefix = Prefix(Path.Combine(programs, name + ".fssm"));
+            var overrides = Path.Combine(work.FullName, "overrides");
+            Directory.CreateDirectory(overrides);
+
+            var translated = CorpusTranslator.TranslateFile(new ProgramLoader(new FiveStar.Shaders.Disassembly.RdnaDecoder()), Path.Combine(programs, name + ".fssm"), null, CorpusOptions.DefaultTranslation);
+            File.WriteAllText(Path.Combine(overrides, name + ".hlsl"), ShaderOverrides.StartFrom(name, translated.Hlsl!));
+            var replacements = ShaderOverrides.Open(overrides);
+
+            using var device = GpuDevice.CreateWarp(debugLayer: false);
+            var made = Create(device.Device.NativePointer, index, programs, Path.Combine(work.FullName, "program-cache"), prefix, replacements);
+            output.WriteLine(made.Summary);
+            Assert.True(made.Built, made.Summary);
+
+            Assert.True(File.Exists(Path.Combine(made.Folder, replacements.Stem(name) + ".dxil")));
+            Assert.False(File.Exists(Path.Combine(made.Folder, name + ".dxil")));
+            Assert.Contains($"[override] {name} replaced", made.Summary, StringComparison.Ordinal);
+        }
+        finally
+        {
+            work.Delete(recursive: true);
+        }
+    }
+
+    private static (bool Waited, bool Built, string Folder, string Summary) Create(nint device, ProgramIndex index, string programs, string cache, byte[] prefix, ShaderOverrides? overrides = null)
     {
         var log = new StringWriter();
         var warnings = new OnceLog(new LoaderLog(log, null, false));
@@ -74,7 +110,7 @@ public sealed unsafe class D3D12XOnDemandProgramTests(ITestOutputHelper output)
         var compiler = new DxilBackendCompiler(dxc.Options, dxc, new InProcessBackend(DxilBackendCompiler.ValidatorBeside(OnDemandFactAttribute.Library), null));
         var picker = new ProgramVariantPicker(new FiveStar.Graphics.Programs.ShaderManifest([]), adapter, warnings);
 
-        var producer = new ProgramProducer(programs, folder, picker, compiler, SlowCompiles.Read([], compiler.Options.CompileTimeout));
+        var producer = new ProgramProducer(programs, folder, picker, compiler, SlowCompiles.Read([], compiler.Options.CompileTimeout)) { Overrides = overrides };
         var workers = new ProgramWorkers(1, PipelineBuildQueue.AnyTime, PipelineBuildQueue.AnyTime);
         workers.Start();
         var onDemand = new OnDemandPrograms(index, null, producer, workers, warnings, () => ", " + compiler.Summary);
