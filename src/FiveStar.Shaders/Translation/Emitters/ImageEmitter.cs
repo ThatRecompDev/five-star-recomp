@@ -194,6 +194,7 @@ internal sealed class ImageEmitter
             HasCompare = operation.Contains("_c", StringComparison.Ordinal) && operation != "get_resinfo",
             HasClamp = hasClamp,
             Derivatives = 0,
+            Unnormalized = modifiers.Has("unorm"),
             Texture = $"_tex{number}",
             Number = number,
         };

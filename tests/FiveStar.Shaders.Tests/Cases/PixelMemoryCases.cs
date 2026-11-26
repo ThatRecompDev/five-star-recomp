@@ -33,6 +33,7 @@ public static class PixelMemoryCases
             .. Formats(),
             ImageLoadSample(),
             LiteralSamplers(),
+            OffsetsAndTexelCoordinates(),
             ImageLoadInteger(),
             ImageSampleLinear(),
             ImageGatherAtLevel(),
@@ -283,6 +284,49 @@ public static class PixelMemoryCases
 
         // The clamped sample reads column 3; the compare of 0.5 passes from texel 8 on (less or equal).
         return new PixelCase("literal_samplers", Program, 5, pixel => [.. Texel(3, pixel.Y & 3), Lit((pixel.X & 3) + (4 * (pixel.Y & 3)))])
+        {
+            Bindings = bindings,
+        };
+    }
+
+    // Texel offsets past D3D's -8..7 (RDNA reaches -32..31) move into the coordinates: +9 on x and -10 on y, clamped to
+    // the edge, read column 3 and row 0. The unorm modifier takes texel coordinates (x + 0.5, y + 0.5).
+    private static PixelCase OffsetsAndTexelCoordinates()
+    {
+        const string Program = """
+            v_cvt_u32_f32_e32 v10, v2
+            v_cvt_u32_f32_e32 v11, v3
+            v_and_b32_e32 v10, 3, v10
+            v_and_b32_e32 v11, 3, v11
+            v_cvt_f32_u32_e32 v12, v10
+            v_cvt_f32_u32_e32 v13, v11
+            v_add_f32_e32 v12, 0.5, v12
+            v_add_f32_e32 v13, 0.5, v13
+            v_mov_b32_e32 v18, v12
+            v_mov_b32_e32 v19, v13
+            v_mul_f32_e32 v12, 0x3e800000, v12
+            v_mul_f32_e32 v13, 0x3e800000, v13
+            s_mov_b32 s8, 0x92
+            s_mov_b32 s9, 0xc00000
+            s_mov_b32 s10, 0x14000000
+            s_mov_b32 s11, 0
+            v_mov_b32_e32 v14, 9
+            v_mov_b32_e32 v15, v12
+            v_mov_b32_e32 v16, v13
+            image_sample_lz_o v[20:23], v[14:16], s[0:7], s[8:11] dmask:0xf dim:SQ_RSRC_IMG_2D
+            v_mov_b32_e32 v14, 0x3600
+            image_sample_lz_o v[24:27], v[14:16], s[0:7], s[8:11] dmask:0xf dim:SQ_RSRC_IMG_2D
+            image_sample_lz v[28:31], v[18:19], s[0:7], s[8:11] dmask:0xf dim:SQ_RSRC_IMG_2D unorm
+            s_waitcnt vmcnt(0)
+            """;
+        var bindings = new Bindings
+        {
+            UserSgprs = [2, 0, 0, 0, 0, 0, 0, 0],
+            Textures = [new TextureResource(2, Format.R32G32B32A32_Float, 4, 4, FloatTexture())],
+            Samplers = [LiteralSampler([0x92, 0xc00000, 0x14000000, 0], comparison: false)],
+        };
+
+        return new PixelCase("image_offsets_texel_coordinates", Program, 12, pixel => [.. Texel(3, pixel.Y & 3), .. Texel(pixel.X & 3, 0), .. Texel(pixel.X & 3, pixel.Y & 3)])
         {
             Bindings = bindings,
         };

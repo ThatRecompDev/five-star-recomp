@@ -12,8 +12,8 @@ internal sealed partial class InstructionTranslator
     private static readonly HashSet<string> Ignored =
     [
         "s_waitcnt", "s_nop", "s_inst_prefetch", "s_endpgm", "s_code_end", "s_waitcnt_vscnt", "s_waitcnt_vmcnt",
-        "s_waitcnt_lgkmcnt", "s_waitcnt_expcnt", "s_clause", "s_dcache_inv", "s_setprio", "s_denorm_mode", "s_round_mode",
-        "v_nop", "s_setreg_b32", "s_setreg_imm32_b32", "s_gl1_inv", "s_dcache_wb", "s_icache_inv", "s_sleep", "s_ttracedata",
+        "s_waitcnt_lgkmcnt", "s_waitcnt_expcnt", "s_clause", "s_dcache_inv", "s_setprio", "s_denorm_mode",
+        "v_nop", "s_gl1_inv", "s_dcache_wb", "s_icache_inv", "s_sleep", "s_ttracedata",
     ];
 
     // Operations that take op_sel on 16-bit halves; anything else must have an all-zero op_sel.
@@ -31,6 +31,26 @@ internal sealed partial class InstructionTranslator
     }
 
     public void Translate(string op, string operands)
+    {
+        // Mode writes: only the f16 rounding has an effect (HalfRoundMode); the rest are no-ops here.
+        if (HalfRoundMode.Writes(op))
+        {
+            _state.HalfRoundToZero = HalfRoundMode.After(op, operands, _state.HalfRoundToZero);
+
+            return;
+        }
+
+        var body = _state.Body;
+        int start = body.Count;
+        TranslateFamily(op, operands);
+
+        if (_state.HalfRoundToZero && op.StartsWith("v_", StringComparison.Ordinal))
+        {
+            HalfRoundMode.ToZero(body, start);
+        }
+    }
+
+    private void TranslateFamily(string op, string operands)
     {
         switch (Family(op))
         {
