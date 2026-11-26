@@ -821,7 +821,10 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   each names (SRVs and UAVs with their resource's size, format, 3D depth or slices and mips), the game's own record and a buffer's first values, and every root CBV, SRV or UAV with its address and
   the first 16 dwords there. After each traced draw the first render target is
   copied inside the game's list (`DrawProbes`) and summarized two presents later (non-black pixels, their box, mean
-  colour). At each captured present a census (`DrawCensus`) logs every draw, dispatch and ExecuteIndirect since the
+  colour). Each traced draw and ExecuteIndirect is also wrapped in a PIPELINE_STATISTICS1 and an OCCLUSION query
+  (`DrawQueries`), reported with the probes: amplification and mesh invocations, mesh primitives, primitives into and
+  out of the clipper, pixel shader invocations and samples through depth and stencil, so a pass whose pixels are lost
+  names the stage (a mesh pass that runs its groups but hands the rasterizer nothing reads MS > 0, MS primitives 0). At each captured present a census (`DrawCensus`) logs every draw, dispatch and ExecuteIndirect since the
   previous one, counted by pipeline and first render target, recorded or skipped (a stand-in's work); for a dispatch
   the target is the list's last one. `--d3d12-dump-targets` adds, in the frame after each captured present, a readback
   of every render and depth target at least 1024 wide the 1st, 2nd, 4th, 8th... time a list leaves it, at most 96, written
