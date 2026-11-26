@@ -649,6 +649,10 @@ internal sealed class CommandLineParser
                 _options.KeepUnmappedTextures = true;
 
                 return true;
+            case "--stale-in-first-page":
+                _options.StaleInFirstPage = true;
+
+                return true;
             case "--min-free-memory":
                 return SetMemoryFloor();
             case "--max-commit":
