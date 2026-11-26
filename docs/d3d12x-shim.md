@@ -547,7 +547,9 @@ flowchart LR
   UAV per 256 MiB of its buffer (each view up to 512 MiB, the raw element limit; no UAV on the upload buffer), from 4
   reserved remap pages (8,192 pairs), and the map in write-combined system memory names, per 64 KiB page, its
   chunk's pair and offset ([shader-translation.md](shader-translation.md#resources) has the layout; 64 spans of
-  4 GiB). Ranges added before the game's view heap exists wait for it. The boot's first clears read a record in the
+  4 GiB). Ranges added before the game's view heap exists wait for it. A range a newer one replaces leaves the map
+  (null views, pages follow their frames) before its buffer is released past the GPU's work
+  ([physical-memory.md](physical-memory.md)). The boot's first clears read a record in the
   slot-133 pool: header 0x8e3 (positions from byte 16, 28 bytes apart), header 0xee4 (colours from byte 28), a
   full-screen triangle and opaque black (0, 0, 0, 1), so their targets stay black (RGB) either way.
 - **Draws and dispatches (12 to 14, 61)** upload the bind point's 128 dwords when they changed (a 64 MiB upload ring

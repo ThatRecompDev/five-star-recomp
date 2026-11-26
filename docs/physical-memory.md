@@ -131,7 +131,16 @@ GPU writes through such a buffer change the memory there: a copy into the buffer
 the buffer's own (RTX 5070 and the loader tests). The loader reports both (`StaleGpuPages`, always on): a remap or
 unmap under a buffer of the address table as `[gpu pages]` with the GPU and CPU addresses and both frames, and the old
 frame mapped again with the address the buffer's writes now land at; the first 16 of each in full, then totals at
-every power of two.
+every power of two. Such writes corrupt the new owner of the frame but cannot fault: the section heap stays open, so
+the frame is still valid memory.
+
+A slot-133 buffer placed over pages another one covers replaces that range in the address table (w170: 33 times).
+The old range leaves the address map first: its views become null views and each of its pages follows its frame
+again (`GameMemoryViews.Remove`). Its desktop buffer retires (`RetiredAddressBuffers`) and is released once
+`RetirePresents` (8) presents have passed and every queue has completed what it had submitted by then. Before this
+it was released at once, while lists in flight could still write through it or through its views (a GPU page fault,
+device removed). Logged as `[d3d12_xs] address map: N replaced ranges left the map ...` and `[d3d12_xs] address
+table: N replaced buffers released once the queues were past them`, at the first and then every power of two.
 
 ## Working set statistics
 
