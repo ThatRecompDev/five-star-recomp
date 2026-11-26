@@ -1,8 +1,9 @@
-﻿// Copyright (c) 2026 Five Star Recomp contributors.
+// Copyright (c) 2026 Five Star Recomp contributors.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
 using FiveStar.Loader.Shims.D3D12X.Resources;
+using FiveStar.Loader.Shims.Xg;
 using Xunit;
 
 namespace FiveStar.Loader.Tests;
@@ -59,6 +60,39 @@ public sealed unsafe class DrawProbeReadbackTests
         Assert.True(views.TryText(Handle, out string text));
         Assert.Equal("SRV of 0x3000 60x34 format 54", text);
         Assert.False(views.TryTexture(Handle, out _));
+    }
+
+    /// <summary>
+    /// A probed record whose texture was released is skipped (w111: a barrier on a freed texture): a game resource after
+    /// its last Release, a registry texture once the registry no longer holds it.
+    /// </summary>
+    [Fact]
+    public void A_probe_skips_a_texture_released_since_its_view_was_written()
+    {
+        const nint GameHandle = 0x1000;
+        const nint RegistryHandle = 0x1040;
+        const nint GameTexture = 0x2000;
+        const nint RegistryTexture = 0x3000;
+        const int ShaderResource = 0xC0;
+
+        var views = new TracedViews();
+        var texture = new GpuTexture(0x4_0000_0000, default, RegistryTexture, 28, ShaderResource, false, new XgSurface { Size = 0x1000 });
+        bool registered = true;
+
+        views.Write(GameHandle, "SRV of 0x2000", GameTexture, ShaderResource);
+        views.Write(RegistryHandle, "slot70 -> texture 0x3000", RegistryTexture, ShaderResource, texture: texture);
+        Assert.True(views.TryTexture(GameHandle, out _));
+        Assert.True(views.TryTexture(RegistryHandle, out _, _ => registered));
+
+        views.Released(GameTexture);
+        registered = false;
+
+        Assert.False(views.TryTexture(GameHandle, out _));
+        Assert.False(views.TryTexture(RegistryHandle, out _, _ => registered));
+
+        // A view of the game resource written again (the pointer names a live resource once more) is read again.
+        views.Write(GameHandle, "SRV of 0x2000", GameTexture, ShaderResource);
+        Assert.True(views.TryTexture(GameHandle, out _));
     }
 
     /// <summary>A stencil plane's copy reads as the material ids TL_PS sees: the commonest values and their share.</summary>
