@@ -123,6 +123,7 @@ internal static unsafe class GpuTimings
         _readback.Map(0, null, &data).CheckError();
 
         _values = (ulong*)data;
+        WorkShapes.Attach(desktop);
 
         if (Interlocked.Exchange(ref _collecting, 1) == 0)
         {
@@ -149,6 +150,7 @@ internal static unsafe class GpuTimings
             Frequencies.Clear();
             PassMilliseconds.Clear();
             QueueBusy.Clear();
+            WorkShapes.Detach();
         }
     }
 
@@ -312,6 +314,7 @@ internal static unsafe class GpuTimings
         long frames = Math.Max(1, presents - Interlocked.Exchange(ref _reportedPresents, presents));
         var text = new StringBuilder();
         text.Append(CultureInfo.InvariantCulture, $"gpu over {frames} frames");
+        var shownPasses = new HashSet<string>(StringComparer.Ordinal);
 
         lock (Gate)
         {
@@ -319,7 +322,8 @@ internal static unsafe class GpuTimings
 
             foreach (var queue in QueueBusy.Keys.Order())
             {
-                var passes = PassMilliseconds.Where(entry => entry.Key.Queue == queue).OrderByDescending(entry => entry.Value).Take(PassesShown);
+                var passes = PassMilliseconds.Where(entry => entry.Key.Queue == queue).OrderByDescending(entry => entry.Value).Take(PassesShown).ToList();
+                shownPasses.UnionWith(passes.Select(entry => entry.Key.Pass));
                 string shown = string.Join(", ", passes.Select(entry => string.Create(CultureInfo.InvariantCulture, $"{entry.Key.Pass} {entry.Value / frames:F2} ms")));
                 text.Append(CultureInfo.InvariantCulture, $"{separator}queue #{queue} busy {QueueBusy[queue] / frames:F2} ms/frame ({shown})");
                 separator = "; ";
@@ -329,6 +333,7 @@ internal static unsafe class GpuTimings
             QueueBusy.Clear();
         }
 
+        text.Append(WorkShapes.Report(frames, shownPasses, Named));
         text.Append(CultureInfo.InvariantCulture, $"; {Interlocked.Exchange(ref _untimed, 0)} recordings without a free block, {Interlocked.Exchange(ref _stale, 0)} read after their block was reused, {Interlocked.Exchange(ref _overflowed, 0)} with more than {QueriesPerBlock - 1} passes (the last named \"{RestSuffix.Trim()}\" holds the rest)");
 
         return text.ToString();
