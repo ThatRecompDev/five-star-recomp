@@ -97,6 +97,7 @@ internal static unsafe class ListSplits
 
         self->Inner = next;
         Restore(self, next, type);
+        IndirectGather.SegmentStarted(self);
         Interlocked.Increment(ref _splits);
 
         return true;
