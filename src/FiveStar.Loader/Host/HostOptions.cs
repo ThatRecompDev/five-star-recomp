@@ -287,6 +287,9 @@ internal sealed record HostOptions
     /// <summary>With <c>--indirect-gather-strict</c>, every memory write, dispatch and memory wait ends gathering as before the narrower rules.</summary>
     public bool IndirectGatherStrict { get; set; }
 
+    /// <summary>With <c>--indirect-batch</c> (and gathering), indirect records not gathered are clamped in one pass per stretch between barriers after writes.</summary>
+    public bool IndirectBatch { get; set; }
+
     /// <summary>Depth textures in a typed depth format made in its typeless family, so shader views read them (<c>--typeless-depth</c>).</summary>
     public bool TypelessDepth { get; set; }
 

@@ -794,17 +794,6 @@ internal sealed class CommandLineParser
                 _options.NoDraws = true;
 
                 return true;
-
-            case "--indirect-gather":
-                _options.IndirectGather = true;
-
-                return true;
-
-            case "--indirect-gather-strict":
-                _options.IndirectGather = true;
-                _options.IndirectGatherStrict = true;
-
-                return true;
             case "--typeless-depth":
                 _options.TypelessDepth = true;
 
@@ -815,6 +804,30 @@ internal sealed class CommandLineParser
                 return true;
             case "--frame-log":
                 _options.FrameLog = Math.Max(1, int.Parse(Next(), CultureInfo.InvariantCulture));
+
+                return true;
+            default:
+                return ApplyIndirect(option);
+        }
+    }
+
+    /// <summary>How indirect arguments are clamped: gathered per segment, batched per stretch.</summary>
+    private bool ApplyIndirect(string option)
+    {
+        switch (option)
+        {
+            case "--indirect-gather":
+                _options.IndirectGather = true;
+
+                return true;
+            case "--indirect-batch":
+                _options.IndirectGather = true;
+                _options.IndirectBatch = true;
+
+                return true;
+            case "--indirect-gather-strict":
+                _options.IndirectGather = true;
+                _options.IndirectGatherStrict = true;
 
                 return true;
             default:

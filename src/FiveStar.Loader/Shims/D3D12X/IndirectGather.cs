@@ -90,7 +90,9 @@ internal static unsafe class IndirectGather
         var scratch = ListIndirectScratch.Of(self);
         scratch->GatherOpen = 1;
         scratch->GatherSegment = 0;
+        scratch->Unsynced = 0;
         Opened(scratch);
+        IndirectBatch.Drop(self);
 
         // The buffer is written again by this recording's preludes, which run after the list's last run on its queue.
         if (Batches.TryGetValue((nint)self, out var batch))
@@ -110,6 +112,7 @@ internal static unsafe class IndirectGather
             scratch->GatherOpen = 1;
             scratch->GatherSegment = ListSegments.Of(self)->Count;
             Opened(scratch);
+            IndirectBatch.Drop(self);
         }
     }
 
@@ -133,6 +136,7 @@ internal static unsafe class IndirectGather
         if (Enabled)
         {
             var scratch = ListIndirectScratch.Of(self);
+            IndirectBatch.End(self);
 
             if (scratch->GatherOpen != 0)
             {
@@ -177,6 +181,7 @@ internal static unsafe class IndirectGather
         }
 
         var scratch = ListIndirectScratch.Of(self);
+        IndirectBatch.WroteMemory(self, address, bytes);
 
         if (Strict || address == 0 || bytes == 0 || scratch->WriteCount >= ListIndirectScratch.MaxWrites)
         {
@@ -222,7 +227,19 @@ internal static unsafe class IndirectGather
     {
         var scratch = ListIndirectScratch.Of(self);
 
-        if (Enabled && scratch->GatherWritten != 0 && scratch->GatherOpen != 0)
+        if (!Enabled)
+        {
+            return;
+        }
+
+        // A clamp batch opened before the barrier may hold records that work since the last barrier wrote.
+        if (scratch->Unsynced != 0)
+        {
+            scratch->Unsynced = 0;
+            IndirectBatch.End(self);
+        }
+
+        if (scratch->GatherWritten != 0 && scratch->GatherOpen != 0)
         {
             scratch->GatherOpen = 0;
             scratch->GatherClosed = scratch->GatherWriter;
@@ -235,7 +252,9 @@ internal static unsafe class IndirectGather
     [HotPath]
     public static void SyncedBy(XboxObject* self, uint count, TransitionBarrier* barriers)
     {
-        if (!Enabled || ListIndirectScratch.Of(self)->GatherWritten == 0)
+        var scratch = ListIndirectScratch.Of(self);
+
+        if (!Enabled || (scratch->GatherWritten == 0 && scratch->Unsynced == 0))
         {
             return;
         }
@@ -299,6 +318,7 @@ internal static unsafe class IndirectGather
         }
 
         scratch->GatherWritten = 1;
+        scratch->Unsynced = 1;
     }
 
     /// <summary>A segment opened for gathering: nothing written in it yet.</summary>
