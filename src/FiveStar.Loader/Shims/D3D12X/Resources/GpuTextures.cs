@@ -503,6 +503,7 @@ internal sealed unsafe class GpuTextures : IDisposable
         }
 
         Registry.Advance(frame);
+        Placed.Trim();
         var textures = new List<GpuTexture>();
         int retired = 0;
 

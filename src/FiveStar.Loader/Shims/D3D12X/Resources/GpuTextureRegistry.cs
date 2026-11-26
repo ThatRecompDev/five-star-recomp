@@ -48,6 +48,13 @@ internal sealed class GpuTextureRegistry : IDisposable
     private readonly Func<ulong[]> _completed;
     private int _keptAliases = KeptAliases;
     private int _aliasCount;
+    private long _aliasBytes;
+
+    /// <summary>The order of kept textures is rebuilt past this many entries per kept texture (plus a base).</summary>
+    private const int OrderSlack = 4;
+    private const int OrderSlackBase = 64;
+
+    private readonly Queue<GpuTexture> _aliasOrder = new();
     private GpuTexture[] _sorted = [];
     private long _frame;
     private long _released;
@@ -377,6 +384,30 @@ internal sealed class GpuTextureRegistry : IDisposable
         return bytes;
     }
 
+    /// <summary>Bytes of the textures over unmapped memory now.</summary>
+    public long UnmappedBytes
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _unmappedBytes;
+            }
+        }
+    }
+
+    /// <summary>Bytes of the retired textures kept over their range now.</summary>
+    public long KeptBytes
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return AliasBytes();
+            }
+        }
+    }
+
     /// <summary>Called with each texture this registry releases, just before (its owner's accounting).</summary>
     public Action<GpuTexture>? Releasing { get; set; }
 
@@ -452,6 +483,9 @@ internal sealed class GpuTextureRegistry : IDisposable
 
             _aliases.Clear();
             _aliasCount = 0;
+            _aliasBytes = 0;
+            _aliasOrder.Clear();
+
             _retired.Clear();
             _agedAliases.Clear();
             _sorted = [];
@@ -493,14 +527,56 @@ internal sealed class GpuTextureRegistry : IDisposable
         }
 
         kept.Enqueue(entry);
+
         _aliasCount++;
+        _aliasBytes += (long)entry.Size;
+        _aliasOrder.Enqueue(entry);
 
         if (kept.Count > _keptAliases)
         {
-            _agedAliases.Enqueue(new RetiredTexture(kept.Dequeue(), _frame, _submitted()));
-            _aliasCount--;
+            Age(kept.Dequeue());
+        }
+
+        // Past KeptAliasBytes the oldest kept textures, of any range, age too (w111b kept 2,691, never released).
+        while (_aliasBytes > KeptAliasBytes && _aliasOrder.TryDequeue(out var oldest))
+        {
+            if (_aliases.TryGetValue((oldest.Address, oldest.Size), out var queue) && queue.Contains(oldest))
+            {
+                _aliases[(oldest.Address, oldest.Size)] = new Queue<GpuTexture>(queue.Where(texture => texture != oldest));
+                Age(oldest);
+            }
+        }
+
+        // Textures aged by their range stay in the order until met: drop them now and then.
+        if (_aliasOrder.Count > (OrderSlack * _aliasCount) + OrderSlackBase)
+        {
+            var stillKept = new HashSet<GpuTexture>(_aliases.Values.SelectMany(queue => queue));
+            var order = _aliasOrder.Where(stillKept.Contains).ToList();
+            _aliasOrder.Clear();
+
+            foreach (var texture in order)
+            {
+                _aliasOrder.Enqueue(texture);
+            }
         }
     }
+
+    /// <summary>A kept texture is no longer kept: it is released <see cref="AliasGraceFrames"/> presents from now. Under the lock.</summary>
+    private void Age(GpuTexture texture)
+    {
+        _agedAliases.Enqueue(new RetiredTexture(texture, _frame, _submitted()));
+        _aliasCount--;
+        _aliasBytes -= (long)texture.Size;
+    }
+
+    /// <summary>
+    /// The bytes of retired textures kept over their range for descriptors the game wrote earlier, at most; the oldest
+    /// go past it (default 512 MiB).
+    /// </summary>
+    public static long KeptAliasBytes { get; set; } = DefaultKeptAliasBytes;
+
+    /// <summary>The default <see cref="KeptAliasBytes"/>: 512 MiB.</summary>
+    public const long DefaultKeptAliasBytes = 512L << 20;
 
     /// <summary>A retired texture: the present it was retired at and the queues' submitted work it waits for.</summary>
     private sealed class RetiredTexture(GpuTexture texture, long frame, ulong[] submitted)
