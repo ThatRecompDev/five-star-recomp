@@ -435,7 +435,7 @@ internal sealed partial class ProgramEmitter
 
         if (_state.Stage != ShaderStage.Pixel)
         {
-            return text;
+            return Coherent(text);
         }
 
         // EXEC starts with live pixels only; wave operations must still see helper lanes (needs ps_6_7).
@@ -589,6 +589,30 @@ internal sealed partial class ProgramEmitter
     [GeneratedRegex(@"\bf32tof16\(")]
     private static partial Regex F32ToF16Pattern();
 
+    /// <summary>
+    /// A compute program that talks across groups (memory atomics, glc loads, cache invalidations) declares its writable
+    /// views globallycoherent, so one group's writes reach another's reads past the L1 (after Kelvaroq 0049 / XCL 83ad6a5,
+    /// facts only): single-pass mip chains whose last group reads the others' writes read stale lines otherwise.
+    /// </summary>
+    private string Coherent(string text)
+    {
+        if (_state.Stage != ShaderStage.Compute || !_state.CrossGroupMemory)
+        {
+            return text;
+        }
+
+        // The runtime header's memory-window views take the same through FIVESTAR_COHERENT.
+        text = text.Replace(PreludeInclude, $"#define FIVESTAR_COHERENT globallycoherent\n{PreludeInclude}", StringComparison.Ordinal);
+
+        return CoherentViewPattern().Replace(text, "globallycoherent $1");
+    }
+
+    private const string PreludeInclude = "#include \"rdna_prelude.hlsli\"";
+
     [GeneratedRegex(@"\bRW(Texture[123]D(?:Array)?|ByteAddressBuffer|Buffer|StructuredBuffer)\b")]
     private static partial Regex WritableViewPattern();
+
+    // A local writable view declared with an initializer: the type, then the name and '='.
+    [GeneratedRegex(@"(?<![\w])(RW(?:Texture[123]D(?:Array)?|ByteAddressBuffer|Buffer|StructuredBuffer)(?:<[^>]*>)?\s+\w+\s*=)")]
+    private static partial Regex CoherentViewPattern();
 }

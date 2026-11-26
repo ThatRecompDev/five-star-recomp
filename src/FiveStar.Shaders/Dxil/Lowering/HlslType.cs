@@ -58,6 +58,9 @@ public sealed class HlslType
 
     public IReadOnlyList<(string Name, HlslType Type)> Fields { get; private init; } = [];
 
+    /// <summary>A resource declared globallycoherent: its writes are seen by the other groups (DXIL resource property bit 14).</summary>
+    public bool GloballyCoherent { get; private init; }
+
     /// <summary>A resource's HLSL type name (Texture2D, RWByteAddressBuffer, SamplerState...).</summary>
     public string ResourceName => Name;
 
@@ -123,6 +126,12 @@ public sealed class HlslType
     public static HlslType Resource(string name, HlslType? element)
     {
         return new HlslType(TypeShape.Resource) { Name = name, Element = element, Count = 1 };
+    }
+
+    /// <summary>The resource type <paramref name="resource"/> declared globallycoherent.</summary>
+    public static HlslType Coherent(HlslType resource)
+    {
+        return new HlslType(TypeShape.Resource) { Name = resource.Name, Element = resource.Element, Count = 1, GloballyCoherent = true };
     }
 
     public static HlslType ScalarOf(ScalarKind kind)

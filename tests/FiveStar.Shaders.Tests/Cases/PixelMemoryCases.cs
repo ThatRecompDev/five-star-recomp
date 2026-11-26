@@ -41,6 +41,8 @@ public static class PixelMemoryCases
             CompressedExport(),
             CompressedUintExport(),
             SharedExponentImplicitSample(),
+            SharedExponentGather(),
+            SharedExponentArraySample(),
             PatchedFloatExport(),
             PatchedRedExport(),
         ];
@@ -573,6 +575,79 @@ public static class PixelMemoryCases
             {
                 UserSgprs = [2, 0, 0, 3],
                 Textures = [new TextureResource(2, Format.R32_UInt, Base, Base, texels) { Levels = 2 }],
+            },
+            FloatTargets = true,
+            TypedViews = true,
+        };
+    }
+
+    // A gather of shared-exponent light (class 3) in a 2x2 R32_UINT texture at its centre: the four texels decoded, the
+    // green channel taken, in gather order (0, 1) (1, 1) (1, 0) (0, 0); before, the float declaration read the bits as red.
+    private static PixelCase SharedExponentGather()
+    {
+        const string Program = """
+            v_mov_b32_e32 v12, 0.5
+            v_mov_b32_e32 v13, 0.5
+            s_mov_b32 s20, 0x92
+            s_mov_b32 s21, 0xc00000
+            s_mov_b32 s22, 0x4000000
+            s_mov_b32 s23, 0
+            image_gather4 v[20:23], v[12:13], s[0:7], s[20:23] dmask:0x2 dim:SQ_RSRC_IMG_2D
+            s_waitcnt vmcnt(0)
+            """;
+        uint[] texels = [.. Enumerable.Range(0, 4).Select(index => (uint)(index + 1) | ((uint)(index * 40 + 3) << 9) | (5u << 18) | (16u << 27))];
+
+        float Green(int x, int y) => (((texels[(y * 2) + x] >> 9) & 511) * MathF.Pow(2, 16 - 24));
+
+        return new PixelCase("image_gather_rgb9e5", Program, 4, _ => [.. new[] { Green(0, 1), Green(1, 1), Green(1, 0), Green(0, 0) }.Select(value => Expected.Exact(BitConverter.SingleToUInt32Bits(value)))])
+        {
+            Bindings = new Bindings
+            {
+                UserSgprs = [2, 0, 0, 3],
+                Textures = [new TextureResource(2, Format.R32_UInt, 2, 2, texels)],
+            },
+            FloatTargets = true,
+            TypedViews = true,
+        };
+    }
+
+    // A point sample of shared-exponent light (class 3) in slice 1 of a 2x2x2 R32_UINT array: the texel decoded (before,
+    // only 2D and 3D samples decoded and an array read the bits as red).
+    private static PixelCase SharedExponentArraySample()
+    {
+        const string Program = """
+            v_cvt_u32_f32_e32 v10, v2
+            v_cvt_u32_f32_e32 v11, v3
+            v_and_b32_e32 v10, 1, v10
+            v_and_b32_e32 v11, 1, v11
+            v_cvt_f32_u32_e32 v12, v10
+            v_cvt_f32_u32_e32 v13, v11
+            v_add_f32_e32 v12, 0.5, v12
+            v_add_f32_e32 v13, 0.5, v13
+            v_mul_f32_e32 v12, 0.5, v12
+            v_mul_f32_e32 v13, 0.5, v13
+            v_mov_b32_e32 v14, 1.0
+            s_mov_b32 s20, 0x92
+            s_mov_b32 s21, 0xc00000
+            s_mov_b32 s22, 0x4000000
+            s_mov_b32 s23, 0
+            image_sample_lz v[20:22], v[12:14], s[0:7], s[20:23] dmask:0x7 dim:SQ_RSRC_IMG_2D_ARRAY
+            s_waitcnt vmcnt(0)
+            """;
+        uint[] texels = [.. Enumerable.Range(0, 8).Select(index => (uint)(index * 3 + 1) | ((uint)(index * 5 + 2) << 9) | ((uint)(index * 7 + 4) << 18) | (18u << 27))];
+
+        return new PixelCase("image_sample_rgb9e5_array", Program, 3, pixel =>
+        {
+            uint bits = texels[4 + ((pixel.Y & 1) * 2) + (pixel.X & 1)];
+            float scale = MathF.Pow(2, (int)(bits >> 27) - 24);
+
+            return [.. Enumerable.Range(0, 3).Select(channel => Expected.Exact(BitConverter.SingleToUInt32Bits(((bits >> (9 * channel)) & 511) * scale)))];
+        })
+        {
+            Bindings = new Bindings
+            {
+                UserSgprs = [2, 0, 0, 3],
+                Textures = [new TextureResource(2, Format.R32_UInt, 2, 2, texels) { Kind = TextureKind.Texture2DArray, Layers = 2 }],
             },
             FloatTargets = true,
             TypedViews = true,
