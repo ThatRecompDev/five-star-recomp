@@ -63,7 +63,7 @@ internal static unsafe class EnhancedBarrierSlots
         try
         {
             ListSegments.Of(self)->Commands++;
-            IndirectGather.Synced(self);
+            IndirectGather.Synced(self, IndirectGatherCloser.EnhancedBarrier);
 
             if (groups == null || count == 0)
             {

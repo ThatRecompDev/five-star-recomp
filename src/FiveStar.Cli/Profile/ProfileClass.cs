@@ -27,6 +27,53 @@ internal sealed class ProfileClass
     /// <summary>Managed samples by every method on the stack, once per sample.</summary>
     public Dictionary<string, int> Inclusive { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>Bytes the allocation ticks stand for (each about 100 KB of a thread's allocations).</summary>
+    public long AllocatedBytes { get; private set; }
+
+    /// <summary>Allocated bytes by the allocated type.</summary>
+    public Dictionary<string, long> AllocatedTypes { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Allocated bytes by the innermost method outside the runtime libraries (the code that asked).</summary>
+    public Dictionary<string, long> AllocatingSites { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Allocated bytes by every method on the stack, once per tick.</summary>
+    public Dictionary<string, long> AllocatingInclusive { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Counts an allocation tick of <paramref name="bytes"/> of <paramref name="type"/> with its <paramref name="frames"/>, innermost first.</summary>
+    public void AddAllocation(int thread, long bytes, string type, IReadOnlyList<string> frames)
+    {
+        Threads.Add(thread);
+        AllocatedBytes += bytes;
+        AllocatedTypes[type] = AllocatedTypes.GetValueOrDefault(type) + bytes;
+
+        var site = Site(frames);
+        AllocatingSites[site] = AllocatingSites.GetValueOrDefault(site) + bytes;
+
+        foreach (var method in frames.Distinct(StringComparer.Ordinal))
+        {
+            AllocatingInclusive[method] = AllocatingInclusive.GetValueOrDefault(method) + bytes;
+        }
+    }
+
+    /// <summary>The innermost frame outside the runtime libraries (modules System.*, Microsoft.*, or none known); the innermost when all are.</summary>
+    private static string Site(IReadOnlyList<string> frames)
+    {
+        foreach (var frame in frames)
+        {
+            if (!frame.StartsWith("System.", StringComparison.Ordinal) && !frame.StartsWith("Microsoft.", StringComparison.Ordinal) && !frame.StartsWith('!'))
+            {
+                return frame;
+            }
+        }
+
+        if (frames.Count > 0)
+        {
+            return frames[0];
+        }
+
+        return "?";
+    }
+
     /// <summary>Counts a sample of <paramref name="thread"/> with its <paramref name="frames"/>, innermost first.</summary>
     public void Add(int thread, bool managed, IReadOnlyList<string> frames)
     {

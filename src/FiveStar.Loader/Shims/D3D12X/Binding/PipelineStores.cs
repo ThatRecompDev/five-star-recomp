@@ -63,6 +63,13 @@ internal static class PipelineStores
         return !Pipelines.TryGetValue(pipeline, out bool stores) || stores;
     }
 
+    /// <summary>Whether <paramref name="pipeline"/> was registered (its programs decoded or found missing), not merely unknown.</summary>
+    [HotPath]
+    public static bool Registered(nint pipeline)
+    {
+        return Pipelines.ContainsKey(pipeline);
+    }
+
     /// <summary>Whether a program's instructions write memory (the mnemonics of <see cref="StorePrefixes"/>).</summary>
     public static bool Writes(IReadOnlyList<Instruction> instructions)
     {

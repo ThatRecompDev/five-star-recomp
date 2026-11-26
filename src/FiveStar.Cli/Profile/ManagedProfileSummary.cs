@@ -4,6 +4,7 @@
 using System.Globalization;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.EventPipe;
+using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 
 namespace FiveStar.Cli.Profile;
 
@@ -25,6 +26,7 @@ internal sealed class ManagedProfileSummary
     private const int CountWidth = 7;
     private const int ShareWidth = 5;
     private const int IdAndClass = 2;
+    private const double BytesPerMegabyte = 1 << 20;
 
     private ManagedProfileSummary(IReadOnlyList<ProfileClass> classes)
     {
@@ -63,6 +65,14 @@ internal sealed class ManagedProfileSummary
                 profileClass.Add(sample.ThreadID, managed, frames);
                 all.Add(sample.ThreadID, managed, frames);
             }
+
+            foreach (var tick in log.Events.ByEventType<GCAllocationTickTraceData>())
+            {
+                var profileClass = ClassOf(classes, threads.GetValueOrDefault(tick.ThreadID, Unlisted));
+                var frames = Frames(tick.CallStack());
+                profileClass.AddAllocation(tick.ThreadID, tick.AllocationAmount64, tick.TypeName, frames);
+                all.AddAllocation(tick.ThreadID, tick.AllocationAmount64, tick.TypeName, frames);
+            }
         }
         finally
         {
@@ -80,6 +90,36 @@ internal sealed class ManagedProfileSummary
             output.WriteLine($"== {profileClass.Name}: {profileClass.Managed} samples in managed code, {profileClass.External} outside it, {profileClass.Threads.Count} threads");
             WriteTop(output, "exclusive", profileClass.Exclusive, profileClass.Managed, top);
             WriteTop(output, "inclusive", profileClass.Inclusive, profileClass.Managed, top);
+
+            if (profileClass.AllocatedBytes > 0)
+            {
+                output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  allocated (sampled): {profileClass.AllocatedBytes / BytesPerMegabyte:F1} MB"));
+                WriteBytes(output, "by type", profileClass.AllocatedTypes, profileClass.AllocatedBytes, top);
+                WriteBytes(output, "by allocating method", profileClass.AllocatingSites, profileClass.AllocatedBytes, top);
+                WriteBytes(output, "by method on the stack", profileClass.AllocatingInclusive, profileClass.AllocatedBytes, top);
+            }
+        }
+    }
+
+    /// <summary>The class of <paramref name="kind"/>, made on first use.</summary>
+    private static ProfileClass ClassOf(Dictionary<string, ProfileClass> classes, string kind)
+    {
+        if (!classes.TryGetValue(kind, out var profileClass))
+        {
+            profileClass = new ProfileClass(kind);
+            classes[kind] = profileClass;
+        }
+
+        return profileClass;
+    }
+
+    private static void WriteBytes(TextWriter output, string title, Dictionary<string, long> bytes, long total, int top)
+    {
+        output.WriteLine($"  {title}:");
+
+        foreach (var (name, amount) in bytes.OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.Ordinal).Take(top))
+        {
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"    {amount / BytesPerMegabyte,CountWidth:F1} MB {Percent * amount / Math.Max(1, total),ShareWidth:F1} %  {name}"));
         }
     }
 
