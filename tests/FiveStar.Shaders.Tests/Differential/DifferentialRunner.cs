@@ -9,6 +9,7 @@ using FiveStar.Shaders.Dxil;
 using FiveStar.Shaders.Tests.Toolchain;
 using FiveStar.Shaders.Tests.Warp;
 using FiveStar.Shaders.Translation;
+using FiveStar.Shaders.Translation.Waves;
 
 namespace FiveStar.Shaders.Tests.Differential;
 
@@ -144,6 +145,69 @@ public sealed class DifferentialRunner
         catch (UnsupportedProgramException exception)
         {
             return new DifferentialOutcome(name, "ms", DifferentialVerdict.Skipped, Cut("unsupported: " + exception.Message));
+        }
+    }
+
+    /// <summary>
+    /// A wave64 compute program's superstep form with and without the uniform wave operations (Waves.UniformWaveOperations):
+    /// skipped when the rewrite leaves the form as it was.
+    /// </summary>
+    public DifferentialOutcome RunUniformSupersteps(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path);
+        var program = new ProgramLoader(new RdnaDecoder()).Load(path, null).Program;
+
+        if (program is null || program.Stage != ShaderStage.Compute || program.Config.WaveSize != 64)
+        {
+            return new DifferentialOutcome(name, "cs", DifferentialVerdict.Skipped, "not a wave64 compute program");
+        }
+
+        try
+        {
+            var rewritten = HlslTranslator.SuperstepVariant(program, Dispatch);
+            string plain;
+            UniformWaveOperations.Disabled = true;
+
+            try
+            {
+                plain = HlslTranslator.SuperstepVariant(program, Dispatch);
+            }
+            finally
+            {
+                UniformWaveOperations.Disabled = false;
+            }
+
+            if (rewritten == plain)
+            {
+                return new DifferentialOutcome(name, "cs", DifferentialVerdict.SameText, "no uniform wave operation");
+            }
+
+            if (plain.Length > MaxBackendSource)
+            {
+                return new DifferentialOutcome(name, "cs", DifferentialVerdict.Skipped, $"large: {plain.Length} characters");
+            }
+
+            var first = Prepare(name + ".plain", ShaderStage.Compute, plain, string.Empty, barriers: true);
+            var second = Prepare(name + ".uniform", ShaderStage.Compute, rewritten, string.Empty, barriers: true);
+
+            if (first.Error is not null || second.Error is not null)
+            {
+                return CompileOutcome(name, "cs", first.Error, second.Error);
+            }
+
+            lock (_gpu)
+            {
+                if (_stalled is not null)
+                {
+                    return new DifferentialOutcome(name, "cs", DifferentialVerdict.Skipped, $"{NotRunNote} {_stalled}");
+                }
+
+                return Execute(name, "cs", first, second, StableSeed(name));
+            }
+        }
+        catch (UnsupportedProgramException exception)
+        {
+            return new DifferentialOutcome(name, "cs", DifferentialVerdict.Skipped, Cut("unsupported: " + exception.Message));
         }
     }
 
@@ -413,14 +477,15 @@ public sealed class DifferentialRunner
         }
     }
 
-    private PreparedForm Prepare(string name, ShaderStage stage, string hlsl, string feeder)
+    // barriers: a compute program's group barriers are its superstep rounds, kept (WARP compiles that form).
+    private PreparedForm Prepare(string name, ShaderStage stage, string hlsl, string feeder, bool barriers = false)
     {
         var rewritten = LoopBudget.Insert(HeapSlots.Rewrite(hlsl));
         var failed = new PreparedForm(name, stage, string.Empty, string.Empty, [], null, 0, 0, null);
 
         try
         {
-            var form = Wrap(name, stage, rewritten);
+            var form = Wrap(name, stage, rewritten, barriers);
             byte[]? feederShader = null;
 
             if (stage == ShaderStage.Pixel)
@@ -441,8 +506,13 @@ public sealed class DifferentialRunner
     }
 
     /// <summary>The program inside its stage harness, not compiled yet.</summary>
-    private static PreparedForm Wrap(string name, ShaderStage stage, string rewritten)
+    private static PreparedForm Wrap(string name, ShaderStage stage, string rewritten, bool barriers)
     {
+        if (stage == ShaderStage.Compute && barriers)
+        {
+            return new PreparedForm(name, stage, rewritten, "cs", [], null, 0, 0, null);
+        }
+
         switch (stage)
         {
             case ShaderStage.Pixel:

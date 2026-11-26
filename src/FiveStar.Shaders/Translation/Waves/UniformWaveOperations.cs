@@ -17,15 +17,34 @@ namespace FiveStar.Shaders.Translation.Waves;
 /// </summary>
 internal static partial class UniformWaveOperations
 {
+    private static readonly AsyncLocal<bool> Off = new();
+
+    /// <summary>Whether translations on this flow leave the operations as they are (the differential tests' other side).</summary>
+    internal static bool Disabled
+    {
+        get => Off.Value;
+        set => Off.Value = value;
+    }
+
     /// <summary>Rewrites <paramref name="blocks"/> in place; how many operations it replaced.</summary>
     public static int Rewrite(List<CodeBlock> blocks, IReadOnlyList<string> prologue, int threads)
     {
+        if (Disabled)
+        {
+            return 0;
+        }
+
         return Uniform(blocks, prologue, threads) + Skips(blocks, prologue, threads);
     }
 
     /// <summary>Only the readfirstlanes and anys of uniform values, branches left as they are; how many it replaced.</summary>
     public static int RewriteValues(List<CodeBlock> blocks, IReadOnlyList<string> prologue, int threads)
     {
+        if (Disabled)
+        {
+            return 0;
+        }
+
         return Uniform(blocks, prologue, threads);
     }
 
