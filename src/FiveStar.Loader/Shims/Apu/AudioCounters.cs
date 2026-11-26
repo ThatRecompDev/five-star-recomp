@@ -56,7 +56,7 @@ internal sealed class AudioCounters
     public void XmaInputEnded() => Interlocked.Increment(ref _xmaEnded);
 
     public string Summary =>
-        $"Opus {Read(ref _opusCreates)} created, {Read(ref _opusDestroys)} destroyed, {Read(ref _opusDecodes)} packets " +
+        $"Opus {Read(ref _opusCreates)} created ({OpusVoice.Implementations}), {Read(ref _opusDestroys)} destroyed, {Read(ref _opusDecodes)} packets " +
         $"({Read(ref _opusFailures)} failed, {Read(ref _opusSamples)} samples), {Read(ref _opusResults)} results taken; " +
         $"XMA {Read(ref _xmaEnables)} enables, {Read(ref _xmaDisables)} disables, {Read(ref _xmaTakes)} takes, " +
         $"{Read(ref _xmaBlocks)} blocks written, {Read(ref _xmaEnded)} passes out of input, {Read(ref _xmaUnmapped)} unmapped";
