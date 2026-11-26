@@ -25,6 +25,20 @@ internal sealed class ValuEmitter
     }
 
     /// <summary>Applies the VOP3 output modifiers to a float expression.</summary>
+    /// <summary>
+    /// The output modifiers of an f16 result: clamp only. In the game's float mode (f16 denormals kept) the hardware
+    /// ignores mul:2, mul:4 and div:2 on f16 destinations (Leonida design.md, measured on RDNA2); f32 results keep them.
+    /// </summary>
+    public static string HalfOutputModifiers(string value, InstructionModifiers modifiers)
+    {
+        if (modifiers.Has("clamp"))
+        {
+            value = $"saturate({value})";
+        }
+
+        return value;
+    }
+
     public static string OutputModifiers(string value, InstructionModifiers modifiers)
     {
         var multiply = modifiers.Value("mul");
@@ -66,6 +80,17 @@ internal sealed class ValuEmitter
         Func<int, string> f = k => _operands.ReadFloat(a[k]);
         Func<int, string> u = k => _operands.Read(a[k]);
         Func<int, string> i = k => _operands.ReadInt(a[k]);
+
+        // An f16 destination (v_cvt_f16_f32, v_cvt_pkrtz_f16_f32) takes only clamp, applied to the f32 inputs (saturate
+        // is monotonic, so clamping before the conversion is clamping its result).
+        if (op is "v_cvt_f16_f32" or "v_cvt_pkrtz_f16_f32")
+        {
+            Func<int, string> clamped = k => HalfOutputModifiers(_operands.ReadFloat(a[k]), modifiers);
+            _operands.Write(a[Destination], ValuExpressions.Integer(op, clamped, u, i)!);
+
+            return;
+        }
+
         var floatValue = ValuExpressions.Float(op, f, u, i);
 
         if (floatValue is not null)

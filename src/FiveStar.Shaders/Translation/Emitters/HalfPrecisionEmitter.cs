@@ -110,23 +110,24 @@ internal sealed partial class HalfPrecisionEmitter
             sources[source] = isHalf ? _operands.ReadHalf(operand, select[source] == 1) : _operands.ReadFloat(operand);
         }
 
-        var value = ValuEmitter.OutputModifiers($"mad({string.Join(", ", sources)})", modifiers);
+        var sum = $"mad({string.Join(", ", sources)})";
 
         if (op.EndsWith("_f32", StringComparison.Ordinal))
         {
-            _operands.Write(a[Destination], $"asuint({value})");
+            _operands.Write(a[Destination], $"asuint({ValuEmitter.OutputModifiers(sum, modifiers)})");
 
             return;
         }
 
-        _operands.WriteHalf(a[Destination], $"f32tof16({value})", op.EndsWith("hi_f16", StringComparison.Ordinal));
+        // An f16 destination: clamp only (ValuEmitter.HalfOutputModifiers).
+        _operands.WriteHalf(a[Destination], $"f32tof16({ValuEmitter.HalfOutputModifiers(sum, modifiers)})", op.EndsWith("hi_f16", StringComparison.Ordinal));
     }
 
     private void Scalar(string op, string kind, IReadOnlyList<Operand> a, InstructionModifiers modifiers)
     {
         var select = Padded(modifiers.Value("op_sel"), 0);
         var value = ScalarValue(kind, a, select) ?? throw new UnsupportedProgramException(op);
-        var result = $"f32tof16({ValuEmitter.OutputModifiers(value, modifiers)})";
+        var result = $"f32tof16({ValuEmitter.HalfOutputModifiers(value, modifiers)})";
         _operands.WriteHalf(a[Destination], result, select[DestinationSelect] == 1);
     }
 
