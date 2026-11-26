@@ -52,6 +52,12 @@ internal static unsafe class RtStandIns
     /// <summary>Whether held passes get stand-in outputs (default on; off with <c>--no-rt-stand-ins</c>).</summary>
     public static bool Enabled { get; set; } = true;
 
+    /// <summary>
+    /// Whether the screen-probe light is overwritten with grey after its resolve runs (default on; off with
+    /// <c>--rt-traversal</c>, whose probes trace their own light). The rules applied at a held pass's skip stay.
+    /// </summary>
+    public static bool ScreenProbeLight { get; set; } = true;
+
     /// <summary>UAVs filled so far.</summary>
     public static long Filled => Interlocked.Read(ref _filled);
 
@@ -90,7 +96,7 @@ internal static unsafe class RtStandIns
     {
         int rule = RuleOf(names);
 
-        if (Enabled && rule >= 0 && Rules[rule].AfterRun)
+        if (Enabled && ScreenProbeLight && rule >= 0 && Rules[rule].AfterRun)
         {
             AfterRunPipelines[pipeline] = rule;
 
