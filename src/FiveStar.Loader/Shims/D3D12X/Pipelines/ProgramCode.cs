@@ -60,10 +60,34 @@ internal sealed unsafe class ProgramCode
         return code;
     }
 
+    /// <summary>
+    /// Opens <paramref name="path"/> for reading, trying again for a short while on a sharing violation: another worker
+    /// may be moving a fresh program over it (a warm-up of 3,715 pipelines ended on a link file being replaced as it was
+    /// opened).
+    /// </summary>
+    private static Microsoft.Win32.SafeHandles.SafeFileHandle OpenShared(string path)
+    {
+        const int SharingViolation = unchecked((int)0x80070020);
+        const int Attempts = 20;
+        const int PauseMilliseconds = 50;
+
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            }
+            catch (IOException exception) when (exception.HResult == SharingViolation && attempt < Attempts)
+            {
+                Thread.Sleep(PauseMilliseconds);
+            }
+        }
+    }
+
     /// <summary>The file at <paramref name="path"/>, read straight into native memory (no managed copy).</summary>
     public static ProgramCode Read(string path)
     {
-        using var file = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        using var file = OpenShared(path);
         long size = RandomAccess.GetLength(file);
 
         if (size > int.MaxValue)
