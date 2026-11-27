@@ -120,6 +120,7 @@ public static class ComputeWaveCases
             .Concat(Variants("cs_dpp", DppCase))
             .Concat(Variants("cs_waterfall", WaterfallCase))
             .Append(VccHighBranchCase())
+            .Append(VccLoopExitCase())
             .Append(ExecLowHalfCase())
             .Append(MaskHighHalfPathCase())
             .Concat(Variants("cs_mask_on_taken_path", MaskOnTakenPathCase))
@@ -330,6 +331,34 @@ public static class ComputeWaveCases
             """;
 
         return new ComputeCase("cs_vcc_hi_branch_w64", Program, 2, _ => [1, 3]) { Wave = 64 };
+    }
+
+    // Wave64: VCC is an integer on one path into the join and a lane mask on the other, so its branches read the integer
+    // halves. The loop's exit must see the compare of its own block: with that ballot dropped the loop ran to the cap.
+    private static ComputeCase VccLoopExitCase()
+    {
+        const string Program = """
+            v_mov_b32 v20, 0
+            s_mov_b32 s20, 0
+            s_cmp_eq_u32 s8, 0
+            s_cbranch_scc1 .Linteger
+            v_cmp_eq_u32_e32 vcc, 1, v20
+            s_branch .Ljoin
+            .Linteger:
+            s_mov_b32 vcc_lo, 0
+            s_mov_b32 vcc_hi, 0
+            .Ljoin:
+            s_cbranch_vccnz .Lend
+            .Lloop:
+            s_add_u32 s20, s20, 1
+            v_mov_b32 v21, s20
+            v_cmp_eq_u32_e32 vcc, 3, v21
+            s_cbranch_vccz .Lloop
+            v_mov_b32 v20, s20
+            .Lend:
+            """;
+
+        return new ComputeCase("cs_vcc_loop_exit_w64", Program, 1, _ => [3u]) { Wave = 64, User = [0] };
     }
 
     // Wave64 s_mov_b32 exec_lo with a constant writes only the low half of EXEC: lanes 0-15 are off, 16-63 stay on.

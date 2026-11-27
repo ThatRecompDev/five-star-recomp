@@ -222,6 +222,12 @@ internal static partial class DeadWaveOperations
             live.UnionWith(names);
         }
 
+        // The structured form branches on the exit's condition, not on the block's pc line: what it reads is live.
+        if (exit.Condition is string condition)
+        {
+            live.UnionWith(NamePattern().Matches(condition).Select(name => name.Value).Where(names.Contains));
+        }
+
         return live;
     }
 
