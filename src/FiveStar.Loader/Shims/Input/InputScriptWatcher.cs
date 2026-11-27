@@ -236,6 +236,7 @@ internal sealed class InputScriptWatcher : IDisposable
             _teaching = false;
             _screens.Learn(waiting.Name, signature);
             Begin(block, waiting.Name, seconds, "taught");
+            WarnAlike(waiting.Name);
 
             return;
         }
@@ -262,6 +263,18 @@ internal sealed class InputScriptWatcher : IDisposable
         _matcher.Began();
         _teaching = false;
         _log.Info($"  [input] {Kind(_script.Blocks[block])} {name} at {seconds:F1} s ({how}): block {block} begins");
+    }
+
+    /// <summary>Warns when the screen just taught is the picture of another screen of the script.</summary>
+    private void WarnAlike(string screen)
+    {
+        foreach (var clash in _screens.Alike(_script.Blocks))
+        {
+            if (clash.Names(screen))
+            {
+                _log.Warn(clash.Describe(_screens.Path));
+            }
+        }
     }
 
     private static string Kind(ScriptBlock block)
