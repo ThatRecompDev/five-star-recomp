@@ -155,7 +155,8 @@ internal sealed unsafe class DrawProbes
         {
             uint depth = description.Dimension == ResourceDimension.Texture3D ? footprints[0].Footprint.Depth : 1;
             bool depthTarget = (description.Flags & ResourceFlags.AllowDepthStencil) != 0 && plane == 0;
-            var conversion = new Conversion(stage, depthTarget, target);
+            // A stencil plane's copy is keyed apart from its depth plane's (resources are aligned; plane 1 is not one).
+            var conversion = new Conversion(stage, depthTarget, target + plane);
             _pending.Add(new Probe(label, buffer, (long)total, footprints[0], rows[0] * depth, (int)footprints[0].Footprint.Width, format, key, generation, png, _submissions.GetValueOrDefault(key), 0, conversion));
         }
 

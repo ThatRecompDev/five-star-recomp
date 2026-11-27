@@ -77,5 +77,11 @@ public sealed class FrameStageDumpTests
         Assert.Equal(0f, StagePixels.DepthGrey(0f, 0.001f, 5f));
         Assert.Equal(0.5f, StagePixels.DepthGrey(0.2f, 0.2f, 0f));
         Assert.Equal(0, StagePixels.TexelBytes(71));
+
+        // A material-class depth shows its few values; the stencil plane goes beside it.
+        var depths = new Dictionary<float, long> { [0f] = 3, [1f] = 1 };
+        Assert.Equal("2 distinct values: 0 75.0%, 1 25.0%", StagePixels.CommonValues(depths, 4));
+        Assert.Equal("075-TL_PS-1280x720-fmt19-stencil.png", Path.GetFileName(FrameStageDump.StencilPath("075-TL_PS-1280x720-fmt19-depth.png")));
+        Assert.True(FrameStageDump.HasStencil(19));
     }
 }
