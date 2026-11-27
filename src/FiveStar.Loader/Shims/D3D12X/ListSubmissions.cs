@@ -135,7 +135,19 @@ internal static unsafe class ListSubmissions
         }
 
         QueueProgress.Executed(queue, lists, count, value, objects);
+
+        if (Diagnostics.KernelGraphicsCalls.GaveUpOnThisThread())
+        {
+            GaveUp(queue->Number, value, lists, count);
+        }
+
         GpuTimings.Executed(queue->Number, inner, queue->Fence, value, new ReadOnlySpan<nint>(lists, (int)count));
+    }
+
+    /// <summary><c>--d3dkmt-watch</c>: the device was marked as in error on this thread during the submission just made.</summary>
+    private static void GaveUp(int queue, ulong value, nint* lists, uint count)
+    {
+        ShimContext.Runtime.Log.Error($"[d3dkmt] the device was given up inside the ExecuteCommandLists of queue #{queue}'s execute #{value} ({count} lists, the first 0x{lists[0]:x}): see it in the queue report");
     }
 
     private static ulong Completed(nint fence)
