@@ -143,8 +143,8 @@ stick, the mouse, is not required); with both checked Confirm is enabled. The fi
 running ([loader.md](loader.md#running-the-executable)) these can be answered from a second shell;
 `-- --input-script docs/first-run.input` answers them unattended with the virtual gamepad's buttons: it taps A until the subtitles screen shows, turns
 subtitles on, taps A until the legal screen shows, then waits for each screen it needs rather than for a time. On
-the terms screen each press (check, move down, check, move down, Confirm) repeats until the left panel shows it took,
-so a dropped press is retried and none is doubled; a step that shows no change in 45 s goes on with a warning. It
+the terms screen it presses A, Down, A, Down, A once each, 4 s apart (a repeated A would clear a box, and the first
+check mark is too small for a screen signature to show). It
 recognises screens it learned from your own frames (`%LOCALAPPDATA%\FiveStar\screens.txt`); the first time, press F8
 when the subtitles screen, the legal screen, the terms screen and the story load show (and the legal screen once Next has the focus), and later runs need no help. Only the first run shows these
 screens (below). B
