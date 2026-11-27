@@ -226,9 +226,13 @@ internal static class HostUsage
           --d3d12-dump-targets   the draw trace, and in the frame after each captured present every render and depth
                                  target read back when a list leaves it, as PNG in the capture folder
           --dump-frame <n>       the draw trace, and in the frame after present n every target and UAV texture at
-                                 least 480 wide read back after each pass that wrote it (64 at most), as
-                                 NN-pass-WxH-fmtF.png (HDR exposed, normals and depth mapped; stats in the log)
+                                 least 480 wide read back after each pass that wrote it, as NNN-pass-WxH-fmtF.png
+                                 (HDR exposed, plus -auto.png at its mean; normals and depth mapped; stats in the log;
+                                 unchanged targets not written; later frames continue when readback memory runs out)
           --dump-frame-dir <dir> where --dump-frame writes (default frame-<n>)
+          --dump-frame-max <n>   PNGs --dump-frame writes at most (160)
+          --dump-frame-filter <text,...>  only passes whose pipeline name holds one of the texts
+          --dump-frame-min-width <n>  narrower targets are not dumped (480; 80 takes the lighting's tile masks)
           --capture-dir <dir>    write read-back planes and render targets there as PNG
           --capture-presents <n,...> present numbers whose plane is read back (default 60,300,900,1500)
           --pix-capture <n,...>  PIX GPU capture of those presents (WinPixGpuCapturer.dll, winget Microsoft.PIX)
@@ -237,6 +241,9 @@ internal static class HostUsage
                                  needs GFSDK_Aftermath_Lib.x64.dll of the Aftermath SDK (developer.nvidia.com/nsight-aftermath)
           --aftermath-dll <path> that DLL (else next to the loader, else %NSIGHT_AFTERMATH_SDK%\lib\x64)
           --aftermath-markers    an Aftermath event marker per draw, dispatch and copy naming its pipeline, and call stacks
+          --aftermath-resources  Aftermath resource tracking: names the resource at a page fault (driver memory per resource)
+          --aftermath-selftest   provoke a GPU page fault on the NVIDIA adapter and check a dump is written (exit 0), then exit
+          --aftermath-shader-info  Aftermath shader debug info (.nvdbg) for every pipeline: many GB with ~84,000 pipelines
           --present-test         present moving color bars instead of the game's frame (checks the swap chain)
           --raytracing          XboxBvhBuilder.dll's CPU paths: console acceleration-structure sizes and BLAS
                                  rehydration into game memory (off: desktop sizes, nothing written)

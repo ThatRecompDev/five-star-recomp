@@ -409,6 +409,15 @@ internal sealed record HostOptions
     /// <summary>Where <c>--dump-frame</c> writes (<c>--dump-frame-dir</c>); null is <c>frame-N</c> in the working directory.</summary>
     public string? DumpFrameDirectory { get; set; }
 
+    /// <summary>PNGs <c>--dump-frame</c> writes at most (<c>--dump-frame-max n</c>).</summary>
+    public int DumpFrameMax { get; set; } = Shims.D3D12X.DebugLayer.FrameStageDump.DefaultMax;
+
+    /// <summary>Only passes whose pipeline name holds one of these comma-separated texts (<c>--dump-frame-filter</c>).</summary>
+    public string? DumpFrameFilter { get; set; }
+
+    /// <summary>Narrower targets are not dumped (<c>--dump-frame-min-width n</c>).</summary>
+    public ulong DumpFrameMinimumWidth { get; set; } = Shims.D3D12X.DebugLayer.FrameStageDump.DefaultMinimumWidth;
+
     /// <summary>Pipelines whose draws the trace also logs after each captured present (<c>--d3d12-trace-pipeline</c>).</summary>
     public string? D3D12TracePipeline { get; set; }
 
@@ -462,6 +471,15 @@ internal sealed record HostOptions
 
     /// <summary>An Aftermath event marker per draw, dispatch and copy, and call stacks (<c>--aftermath-markers</c>).</summary>
     public bool AftermathMarkers { get; set; }
+
+    /// <summary>Aftermath resource tracking, which names the resource at a page fault (<c>--aftermath-resources</c>).</summary>
+    public bool AftermathResources { get; set; }
+
+    /// <summary>Aftermath shader debug info for every pipeline (<c>--aftermath-shader-info</c>): much memory.</summary>
+    public bool AftermathShaderInfo { get; set; }
+
+    /// <summary>Provoke a GPU page fault and check that Aftermath writes its dump, then exit (<c>--aftermath-selftest</c>).</summary>
+    public bool AftermathSelfTest { get; set; }
 
     /// <summary>Present a test pattern instead of the game's frame (<c>--present-test</c>).</summary>
     public bool PresentTest { get; set; }
