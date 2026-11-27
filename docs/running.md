@@ -132,14 +132,17 @@ builds need.
 With an empty save folder the game shows a black screen that waits for a press (with a warm pipeline cache 45 to
 220 s after start), the logos and the intro art, then: a minimap choice, a text-size choice, subtitles
 (Off by default, Left and Right change it), brightness calibration, a controls notice, the legal and photosensitivity
-screens, and a privacy policy and terms of service screen, before it loads story mode (a spinner on dark blue). Keys of the
-keyboard: Space (or the gamepad's A) confirms, a short press too; arrows move the focus (the keyboard-and-mouse gamepad binds no key the game reads from the keyboard itself). The photosensitivity item
+screens, and a privacy policy and terms of service screen, before it loads story mode (a spinner on dark blue). The game
+takes a gamepad here: A confirms, a short press too; the d-pad moves the focus. Scripted keyboard keys did nothing: Space and
+Enter left the black screen standing, Down left the legal screen's focus where it was. The keyboard-and-mouse gamepad has
+no key for A or the d-pad by default, so without a controller bind them with `--input`, for example `a Space` and
+`dpad-down Down` ([loader.md](loader.md#running-the-executable)). The photosensitivity item
 keeps the focus for 4 s. The two terms items are check boxes that A toggles (scrolling their text with the right
 stick, the mouse, is not required); with both checked Confirm is enabled. The first press after Next gets the focus on the legal screen can be dropped. While pipelines compile the game can miss a
 0.2 s press, and an arrow held 0.5 s or longer repeats. With the input script followed while
 running ([loader.md](loader.md#running-the-executable)) these can be answered from a second shell;
-`-- --input-script docs/first-run.input` answers them unattended: it taps Space until the subtitles screen shows, turns
-subtitles on, taps Space until the legal screen shows, then waits for each screen it needs rather than for a time. On
+`-- --input-script docs/first-run.input` answers them unattended with the virtual gamepad's buttons: it taps A until the subtitles screen shows, turns
+subtitles on, taps A until the legal screen shows, then waits for each screen it needs rather than for a time. On
 the terms screen each press (check, move down, check, move down, Confirm) repeats until the left panel shows it took,
 so a dropped press is retried and none is doubled; a step that shows no change in 45 s goes on with a warning. It
 recognises screens it learned from your own frames (`%LOCALAPPDATA%\FiveStar\screens.txt`); the first time, press F8
@@ -151,8 +154,13 @@ the executable's `VS_Clear` + `PS_Clear` ([shader-containers.md](shader-containe
 rectangle and colour through a root SRV: the console address goes to the program as passed and is read through the
 address map (`RealClearRunner` runs the real program so on WARP). The next draw (`PS_BlitColour` with a zero colour) fills the target black, and the UI is drawn over it.
 
-**Later boots skip the screens.** At the terms screen the game writes `Player` and `SettingsProfileSettings`
-(settings and the first-run choices); the next boot goes from the logos straight to the story load. Start-up step 4 queues their loads one after the other on the same
+**Later boots skip the screens.** At Confirm on the terms screen the game writes `Player` and `SettingsProfileSettings`
+(settings and the first-run choices); the next boot goes from the logos straight to the story load. Such a boot logs
+`XGameSaveGetContainerInfo("SettingsProfileSettings") -> exists True`, reads both containers and writes
+`SettingsProfileSettings` no more (`Player` once more as the story load ends). It still shows the black screen that
+waits for A, so it wants a script that taps `PadA`, not `first-run.input`. If its log names the first-run screens
+anyway, within a second of each other, they were taught with F8 on one picture: the loader warns of such screens at
+start; remove their lines from the screens file and teach them again. Start-up step 4 queues their loads one after the other on the same
 save slot. Each starts with an XAsyncRun whose completion routine calls `XAsyncGetStatus(block, true)` on its own
 block before it frees the block and the slot's in-use mark; the loader used to block there until the routine
 returned, so the settings load found the slot in use and failed, and the screens came back.
