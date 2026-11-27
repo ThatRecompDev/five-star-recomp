@@ -1141,12 +1141,18 @@ internal sealed unsafe class DrawTrace
     {
         long work = Interlocked.Exchange(ref _presentWork, 0);
 
-        if (!CaptureWhenWorld || _worldSeen || work <= WorldWork)
+        if (_worldSeen || work <= WorldWork || (!CaptureWhenWorld && FrameStageDump.WorldOffset < 0))
         {
             return;
         }
 
         _worldSeen = true;
+        DumpOnWorld(present, work);
+
+        if (!CaptureWhenWorld)
+        {
+            return;
+        }
 
         foreach (long frame in WorldFrames(present))
         {
@@ -1154,6 +1160,23 @@ internal sealed unsafe class DrawTrace
         }
 
         _log.Info($"  [capture] the world at present {present} ({work} draws and dispatches in it): capturing presents {string.Join(", ", WorldFrames(present))}");
+    }
+
+    /// <summary>
+    /// <c>--dump-frame world+n</c>: the frame dump is set to <paramref name="present"/> + n, the first world present
+    /// (<see cref="WorldWork"/>) plus n, and that present is captured (the trace window and the census cover it).
+    /// </summary>
+    private void DumpOnWorld(long present, long work)
+    {
+        if (FrameStageDump.WorldOffset < 0)
+        {
+            return;
+        }
+
+        long dumped = present + FrameStageDump.WorldOffset;
+        FrameStageDump.Present = dumped;
+        _capture.Add(dumped);
+        _log.Info($"  [dump-frame] the world at present {present} ({work} draws and dispatches in it): dumping the frame after present {dumped}");
     }
 
     /// <summary>The presents the world trigger captures after the first world present <paramref name="present"/>.</summary>

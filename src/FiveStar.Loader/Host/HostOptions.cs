@@ -403,6 +403,9 @@ internal sealed record HostOptions
     /// <summary>The present after which every pass's targets are written as PNGs (<c>--dump-frame n</c>); 0 for none.</summary>
     public long DumpFrame { get; set; }
 
+    /// <summary><c>--dump-frame world+n</c>: n; -1 when a present number was given or none.</summary>
+    public long DumpFrameWorldOffset { get; set; } = -1;
+
     /// <summary>Where <c>--dump-frame</c> writes (<c>--dump-frame-dir</c>); null is <c>frame-N</c> in the working directory.</summary>
     public string? DumpFrameDirectory { get; set; }
 
