@@ -35,6 +35,9 @@ internal sealed unsafe class DrawProbes
     private const int Float16 = 54;
     private const long SkipsLogged = 100;
 
+    /// <summary>The format a buffer probe (<see cref="RecordBuffer"/>) carries: no DXGI format.</summary>
+    private const int BufferFormat = -1;
+
     /// <summary>Reports a probe waits for its list's submission before it is logged as never run.</summary>
     private const int ReportsBeforeGivingUp = 3;
 
@@ -158,6 +161,36 @@ internal sealed unsafe class DrawProbes
             // A stencil plane's copy is keyed apart from its depth plane's (resources are aligned; plane 1 is not one).
             var conversion = new Conversion(stage, depthTarget, target + plane);
             _pending.Add(new Probe(label, buffer, (long)total, footprints[0], rows[0] * depth, (int)footprints[0].Footprint.Width, format, key, generation, png, _submissions.GetValueOrDefault(key), 0, conversion));
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Records a copy of <paramref name="bytes"/> of buffer <paramref name="source"/> from <paramref name="offset"/> into
+    /// the desktop list <paramref name="list"/>, reported as its dwords (the user data a draw read: what the GPU saw at that
+    /// point of the list, whatever the CPU wrote there later). False when the readback cap refused it.
+    /// </summary>
+    public bool RecordBuffer(nint device, nint list, nint source, ulong offset, uint bytes, string label, nint key, long generation)
+    {
+        if (!Admit(bytes, label))
+        {
+            return false;
+        }
+
+        Marshal.AddRef(device);
+        using var desktop = new ID3D12Device(device);
+        var buffer = desktop.CreateCommittedResource(new HeapProperties(HeapType.Readback), HeapFlags.None, Vortice.Direct3D12.ResourceDescription.Buffer(bytes), ResourceStates.CopyDest);
+
+        Marshal.AddRef(list);
+        using var commands = new ID3D12GraphicsCommandList(list);
+        Marshal.AddRef(source);
+        using var from = new ID3D12Resource(source);
+        commands.CopyBufferRegion(buffer, 0, from, offset, bytes);
+
+        lock (_gate)
+        {
+            _pending.Add(new Probe(label, buffer, bytes, default, 1, (int)(bytes / sizeof(uint)), BufferFormat, key, generation, null, _submissions.GetValueOrDefault(key), 0, default));
         }
 
         return true;
@@ -317,6 +350,15 @@ internal sealed unsafe class DrawProbes
     {
         void* data;
         probe.Buffer.Map(0, null, &data).CheckError();
+
+        if (probe.Format == BufferFormat)
+        {
+            string dwords = string.Join(" ", new ReadOnlySpan<uint>(data, probe.Width).ToArray().Select(dword => dword.ToString("x", System.Globalization.CultureInfo.InvariantCulture)));
+            probe.Buffer.Unmap(0);
+
+            return $"dwords {dwords}";
+        }
+
         int imageBytes = probe.Width * (int)probe.Rows * Channels;
         byte[]? image = null;
 

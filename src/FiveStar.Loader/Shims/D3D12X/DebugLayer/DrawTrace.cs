@@ -933,6 +933,7 @@ internal sealed unsafe class DrawTrace
         }
 
         _queries.End(list->Inner, (nint)list);
+        ProbeUserData(list, state);
 
         foreach (nint handle in state.Targets.Take(TargetsReadBack).Append(state.DepthStencil))
         {
@@ -946,6 +947,25 @@ internal sealed unsafe class DrawTrace
             _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, target.Resource, current, label, (nint)list, state.Resets);
             Interlocked.CompareExchange(ref _reportAt, Volatile.Read(ref _lastPresent) + ReportDelay, 0);
         }
+    }
+
+    /// <summary>
+    /// After a traced ExecuteIndirect: the user-data block this thread uploaded last (the draw's root CBV unless the draw
+    /// uploaded none) is copied in the list, so the report shows the dwords its programs read on the GPU next to the
+    /// user SGPRs the trace logged on the CPU.
+    /// </summary>
+    private void ProbeUserData(XboxObject* list, DrawTraceList state)
+    {
+        var ring = _d3d12.Bindings.Ring;
+        ulong address = UserDataRing.LastAddress;
+
+        if (ring is null || address == 0)
+        {
+            return;
+        }
+
+        string label = $"user data of indirect on list 0x{(nint)list:x} (block 0x{address:x})";
+        _probes.RecordBuffer(_d3d12.Objects.DesktopDevice, list->Inner, ring.Buffer, ring.Offset(address), UserDataRing.BlockBytes, label, (nint)list, state.Resets);
     }
 
     private void AppendRecords(StringBuilder text, ulong address, uint records, uint stride)

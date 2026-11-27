@@ -18,14 +18,30 @@ internal sealed unsafe class UserDataRing
     /// <summary>D3D12_RESOURCE_STATE_GENERIC_READ, the state of upload buffers.</summary>
     private const int GenericRead = 0xAC3;
 
+    [ThreadStatic]
+    private static ulong t_lastAddress;
+
     private readonly byte* _data;
     private readonly ulong _gpu;
     private long _next;
 
-    private UserDataRing(byte* data, ulong gpu)
+    private UserDataRing(nint buffer, byte* data, ulong gpu)
     {
+        Buffer = buffer;
         _data = data;
         _gpu = gpu;
+    }
+
+    /// <summary>The ring's upload buffer (a debug readback copies a block from it).</summary>
+    public nint Buffer { get; }
+
+    /// <summary>The GPU address of the block this thread uploaded last: the user data of the draw it recorded last.</summary>
+    public static ulong LastAddress => t_lastAddress;
+
+    /// <summary>The offset of the block at <paramref name="address"/> in <see cref="Buffer"/>.</summary>
+    public ulong Offset(ulong address)
+    {
+        return address - _gpu;
     }
 
     /// <summary>The ring on <paramref name="device"/>; null when the upload buffer cannot be made.</summary>
@@ -41,7 +57,7 @@ internal sealed unsafe class UserDataRing
             return null;
         }
 
-        return new UserDataRing(data, DesktopCalls.GpuAddress(buffer));
+        return new UserDataRing(buffer, data, DesktopCalls.GpuAddress(buffer));
     }
 
     /// <summary>
@@ -61,7 +77,8 @@ internal sealed unsafe class UserDataRing
             bytes = dwords * sizeof(uint);
         }
 
-        Buffer.MemoryCopy(userData, _data + offset, BlockBytes, bytes);
+        System.Buffer.MemoryCopy(userData, _data + offset, BlockBytes, bytes);
+        t_lastAddress = _gpu + offset;
 
         return _gpu + offset;
     }
