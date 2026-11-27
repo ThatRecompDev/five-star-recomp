@@ -11,7 +11,7 @@ namespace FiveStar.Shaders.Tests;
 /// <summary>
 /// The loader's two ways of passing user SGPRs, a root CBV over 128 dwords and 32 root constants
 /// (--user-data-constants), give each stage the reference result: compute, pixel, vertex, geometry, and mesh drawn
-/// natively and through the fallback (whose root descriptors share the root signature with the constants). All but the
+/// natively and through the fallback (whose table shares the root signature with the constants). All but the
 /// geometry program read user SGPRs: the compute output descriptor, the pixel and vertex values, the mesh counts.
 /// FIVESTAR_WARP_USER_DATA runs the whole suite either way.
 /// </summary>
@@ -35,7 +35,6 @@ public sealed class UserDataBindingTests
             ["geometry"] = new GeometryStageRunner(fixture).Run(),
             ["mesh"] = mesh.Run(MeshStageRunner.Native),
             ["mesh fallback, table"] = mesh.Run(MeshStageRunner.FallbackTable),
-            ["mesh fallback, root descriptors"] = mesh.Run(MeshStageRunner.FallbackRoot),
         };
         var failed = runs.Where(run => run.Value.Count != 0).Select(run => $"{run.Key}: {run.Value.Count} mismatches, {string.Join("; ", run.Value.Take(4))}");
 

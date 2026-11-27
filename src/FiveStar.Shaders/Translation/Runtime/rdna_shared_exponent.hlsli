@@ -93,6 +93,44 @@ float4 se_sample3(Texture3D<uint4> t, float3 uvw, float lod, uint s, int3 offset
     return float4(se_level3(t, uvw, level, filtered, s, offset), 1.0);
 }
 
+// The same for a 2D array: the slice is the rounded third address component, clamped to the layers.
+float3 se_texel_a(Texture2DArray<uint4> t, int2 p, int2 size, int slice, uint level, uint s) {
+    int2 q = int2(se_address(p.x, size.x, s & 7u), se_address(p.y, size.y, (s >> 3) & 7u));
+    return se_decode(t.Load(int4(q, slice, (int)level)).x);
+}
+float3 se_level_a(Texture2DArray<uint4> t, float2 uv, int slice, uint level, bool filtered, uint s, int2 offset) {
+    uint w, h, e, n; t.GetDimensions(level, w, h, e, n);
+    int2 size = int2(w, h);
+    float2 p = uv * float2(size);
+    if (!filtered) return se_texel_a(t, int2(floor(p)) + offset, size, slice, level, s);
+    p -= 0.5;
+    int2 i = int2(floor(p)) + offset;
+    float2 f = p - floor(p);
+    float3 top = lerp(se_texel_a(t, i, size, slice, level, s), se_texel_a(t, i + int2(1, 0), size, slice, level, s), f.x);
+    float3 bottom = lerp(se_texel_a(t, i + int2(0, 1), size, slice, level, s), se_texel_a(t, i + int2(1, 1), size, slice, level, s), f.x);
+    return lerp(top, bottom, f.y);
+}
+float4 se_sample_a(Texture2DArray<uint4> t, float3 uvs, float lod, uint s, int2 offset) {
+    s = se_word(s);
+    uint w, h, layers, levels; t.GetDimensions(0u, w, h, layers, levels);
+    int slice = (int)min((uint)max(round(uvs.z), 0.0), layers - 1u);
+    lod = se_clamp_lod(lod, s, levels);
+    bool filtered = se_filtered(lod, s);
+    uint mip = (s >> 8) & 3u;
+    if (mip == 2u) {
+        uint l0 = min((uint)floor(lod), levels - 1u);
+        uint l1 = min(l0 + 1u, levels - 1u);
+        return float4(lerp(se_level_a(t, uvs.xy, slice, l0, filtered, s, offset), se_level_a(t, uvs.xy, slice, l1, filtered, s, offset), lod - floor(lod)), 1.0);
+    }
+    uint level = mip == 0u ? 0u : min((uint)floor(lod + 0.5), levels - 1u);
+    return float4(se_level_a(t, uvs.xy, slice, level, filtered, s, offset), 1.0);
+}
+float se_part(uint b, uint c) { float3 v = se_decode(b); return c == 0u ? v.x : (c == 1u ? v.y : v.z); }
+// One channel of four gathered shared-exponent texels (a gather of a class-3 view): red, green or blue decoded, alpha 1.
+float4 se_gather(uint4 b, uint channel) {
+    if (channel == 3u) return float4(1.0, 1.0, 1.0, 1.0);
+    return float4(se_part(b.x, channel), se_part(b.y, channel), se_part(b.z, channel), se_part(b.w, channel));
+}
 // The level an implicit or gradient sample takes on a texture of <size> texels: log2 of the larger footprint.
 float se_lod(float2 dx, float2 dy, float2 size) { return log2(max(length(dx * size), length(dy * size))); }
 float se_lod3(float3 dx, float3 dy, float3 size) { return log2(max(length(dx * size), length(dy * size))); }

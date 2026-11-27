@@ -9,7 +9,7 @@ namespace FiveStar.Shaders.Tests;
 
 /// <summary>
 /// An NGG program through the two-phase mesh path, drawn natively and through the mesh-to-compute fallback (descriptor
-/// table, root descriptors, and an overflowing dispatch whose extra group must be dropped). A variant whose regions
+/// table, and an overflowing dispatch whose extra group must be dropped). A variant whose regions
 /// WARP's 4-lane waves skip while the 64-lane console wave runs them is classified as right on 4 lanes and draws so.
 /// </summary>
 public sealed class MeshShaderTests : IClassFixture<WarpFixture>

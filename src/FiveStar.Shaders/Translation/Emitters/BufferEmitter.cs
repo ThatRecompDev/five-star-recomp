@@ -128,26 +128,55 @@ internal sealed partial class BufferEmitter
 
         if (op.StartsWith("buffer_load", StringComparison.Ordinal))
         {
-            var writable = resource.Kind == OperandKind.Scalar && WrittenResources().Contains(resource.Low);
-            var view = BufferAddress.View(_operands, resource, writable, address);
-            var function = writable ? "BufLoadRW" : "BufLoad";
-
-            for (var dword = 0; dword < count; dword++)
-            {
-                var inRange = BufferAddress.InRange(range, dword * BytesPerDword);
-                _operands.Write(a[Data], $"select({inRange}, {function}({view}.x, {view}.y + {dword * BytesPerDword}u), 0u)", dword);
-            }
+            LoadDwords(a, count, address, range);
 
             return;
         }
 
         var target = BufferAddress.View(_operands, resource, true, address);
+        var stores = Enumerable.Range(0, count).Select(dword => DwordStore(a, range, address, target, dword)).ToList();
 
-        for (var dword = 0; dword < count; dword++)
+        if (count == 1)
         {
-            var inRange = BufferAddress.InRange(range, dword * BytesPerDword);
-            _state.Emit($"  if (active && {inRange}) {{ vstore_span({_operands.Read(resource, 1)}); TRACE_VSTORE({_operands.Read(resource, 0)}, {_operands.Read(resource, 1)}, {address} + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); BufStore({target}.x, {target}.y + {dword * BytesPerDword}u, {_operands.Read(a[Data], dword)}); }}");
+            stores.ForEach(store => _state.Emit($"  if (active && {store.InRange}) {{ {store.Hooks} {store.Store} }}"));
+
+            return;
         }
+
+        // Every dword in range (one compare, prelude buf_fits_all): one vector store, in compute the prelude's wide
+        // store (BufStoreN); else each dword in range as before (BufStoreEach).
+        var data = string.Join(", ", Enumerable.Range(0, count).Select(dword => _operands.Read(a[Data], dword)).Concat(Enumerable.Repeat("0u", Vec4 - count)));
+        var each = $"BufStoreEach({target}.x, {target}.y, {range.Offset}, {range.Limit}, uint4({data}), {count}u, {_operands.Read(resource, 0)}, {_operands.Read(resource, 1)}, {address});";
+        var wide = _state.Stage == ShaderStage.Compute ? "BufStoreN" : "BufStoreV";
+        _state.Emit($"  if (active && buf_fits_all({range.Offset}, {range.Limit}, {count}u)) {{ {string.Concat(stores.Select(store => store.Hooks))} {wide}({target}.x, {target}.y, uint4({data}), {count}u); }} else if (active) {{ {each} }}");
+    }
+
+    /// <summary>A dword load (select on buf_fits), or one of 2-4 dwords as one vector load (prelude BufLoadV).</summary>
+    private void LoadDwords(IReadOnlyList<Operand> a, int count, string address, (string Offset, string Limit) range)
+    {
+        var resource = a[Resource];
+        var writable = resource.Kind == OperandKind.Scalar && WrittenResources().Contains(resource.Low);
+        var view = BufferAddress.View(_operands, resource, writable, address);
+        var function = writable ? "BufLoadRW" : "BufLoad";
+
+        if (count > 1)
+        {
+            BufferAddress.WriteLoaded(_state, _operands, a[Data], count, $"{function}V({view}.x, {view}.y, {range.Offset}, {range.Limit}, {count}u)");
+
+            return;
+        }
+
+        _operands.Write(a[Data], $"select({BufferAddress.InRange(range, 0)}, {function}({view}.x, {view}.y), 0u)");
+    }
+
+    /// <summary>One dword of a buffer store: its range check, its trace hooks and its BufStore.</summary>
+    private (string InRange, string Hooks, string Store) DwordStore(IReadOnlyList<Operand> a, (string Offset, string Limit) range, string address, string target, int dword)
+    {
+        var resource = a[Resource];
+        var value = _operands.Read(a[Data], dword);
+        var hooks = $"vstore_span({_operands.Read(resource, 1)}); TRACE_VSTORE({_operands.Read(resource, 0)}, {_operands.Read(resource, 1)}, {address} + {dword * BytesPerDword}u, {value});";
+
+        return (BufferAddress.InRange(range, dword * BytesPerDword), hooks, $"BufStore({target}.x, {target}.y + {dword * BytesPerDword}u, {value});");
     }
 
     /// <summary>

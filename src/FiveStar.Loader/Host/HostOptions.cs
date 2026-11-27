@@ -101,6 +101,9 @@ internal sealed record HostOptions
     /// <summary>The program cache folder of programs made on demand (<c>--program-cache</c>); null means the work folder's.</summary>
     public string? ProgramCache { get; set; }
 
+    /// <summary>The folder of hand-written programs that replace translations (<c>--shader-overrides</c>); null for none.</summary>
+    public string? ShaderOverrides { get; set; }
+
     /// <summary><c>--no-on-demand</c>: only the ahead-of-time translation provides programs.</summary>
     public bool NoOnDemand { get; set; }
 
@@ -223,6 +226,9 @@ internal sealed record HostOptions
 
     /// <summary>DRED alone (auto-breadcrumbs, page faults, the removal report), without the slow debug layer (<c>--d3d12-dred</c>).</summary>
     public bool D3D12Dred { get; set; }
+
+    /// <summary>Depth comparisons (and stencil off) for pipelines by program name (<c>--depth-func-override text=Func;...</c>).</summary>
+    public IReadOnlyList<(string Text, int Function)> DepthFuncOverrides { get; set; } = [];
 
     /// <summary>Pipelines whose programs' names hold this text cull no faces (<c>--force-cull-none &lt;text&gt;</c>).</summary>
     public string? ForceCullNone { get; set; }
@@ -414,6 +420,9 @@ internal sealed record HostOptions
     /// <summary>The present after which every pass's targets are written as PNGs (<c>--dump-frame n</c>); 0 for none.</summary>
     public long DumpFrame { get; set; }
 
+    /// <summary><c>--dump-frame world+n</c>: n; -1 when a present number was given or none.</summary>
+    public long DumpFrameWorldOffset { get; set; } = -1;
+
     /// <summary>Where <c>--dump-frame</c> writes (<c>--dump-frame-dir</c>); null is <c>frame-N</c> in the working directory.</summary>
     public string? DumpFrameDirectory { get; set; }
 
@@ -497,6 +506,13 @@ internal sealed record HostOptions
 
     /// <summary>The shipped BVH builder's constructor runs for an inventory of its pipelines, never built (<c>--raytracing-gpu</c>).</summary>
     public bool RayTracingGpuInventory { get; set; }
+
+    /// <summary>
+    /// <c>--rt-traversal</c>: the game's BVH traversal programs run (with <see cref="RayTracing"/>'s paths, which build
+    /// and rehydrate the structures they walk); passes still held by --skip-pipelines keep their stand-in outputs, but the
+    /// screen-probe light is no longer overwritten with grey.
+    /// </summary>
+    public bool RtTraversal { get; set; }
 
     /// <summary><c>--no-rt-stand-ins</c>: held ray-tracing passes leave their outputs as they are (RtStandIns).</summary>
     public bool NoRtStandIns { get; set; }

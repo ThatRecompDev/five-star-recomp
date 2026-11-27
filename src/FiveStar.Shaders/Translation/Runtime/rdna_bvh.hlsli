@@ -14,8 +14,9 @@
 //  * LLVM SIISelLowering.cpp (amdgcn_image_bvh_intersect_ray): address operand layout incl. a16 packing.
 //
 // T# (BVH resource descriptor):
-//   dword0      base_address[39:8]  (byte address = base << 8; dword1[7:0] = address bits 47:40, ignored here:
-//                                     the GPU-memory window model is 32-bit, like MemLoad)
+//   dword0      base_address[39:8]  (byte address = base << 8; dword1[7:0] = address bits 47:40). A base whose
+//                                     address bits 32 and up are 0 is in the loader's 32-bit window (tests); any other
+//                                     is game memory, read through the address map as global loads are (PtrLoad)
 //   dword1[30:23] box_grow_value (ULPs of 2^-24 added to the box interval, GPURT default 6; the game uses 0)
 //   dword1[31]  box_sort_enable (sort hit children by entry distance)
 //   dword2, dword3[9:0]  size - 1 (not checked here; hardware range check behaviour undocumented)
@@ -25,8 +26,14 @@
 //   I/J return) - the same constants as Mesa.
 //
 // Node pointer: bits [2:0] = node type (0..3 triangle, 4 box16, 5 box32, 6 instance, 7 AABB/user),
-// node address = base + ((ptr & ~7) << 3)  (64-byte units). BVH64: the 64-bit pointer is used the same way
-// (address bits >= 32 fall outside the 32-bit window model and are dropped).
+// node address = base + ((ptr & ~7) << 3)  (64-byte units), in 64 bits. BVH64: the 64-bit pointer is used the same way.
+// The nodes used to be read from the loader's window at the low 32 bits of that address (MemLoad), never from game
+// memory: with the traversal programs held that never showed.
+//
+// Resident-node guard (after the resident-box check of Kelvaroq's VIctory fork, facts only): a game-memory node whose page the
+// address map has no memory for (the null view) misses - a box node has no child, a triangle node no hit - instead of
+// reading zeros, which a ray through the origin takes for a box around it with a child at the BVH base. A base of 0
+// (the T# of an instance node read from unmapped memory) misses too.
 //
 // Exactness: every float operation is a single IEEE f32 RNE operation in GPURT's order, written with `precise`
 // so the compiler cannot contract (mad/fma) or reassociate; min/max use explicit IEEE minNum/maxNum (a NaN operand
@@ -41,10 +48,17 @@ float bvh_maxnum(float a, float b) { return isnan(a) ? b : isnan(b) ? a : max(a,
 float bvh_minnum(float a, float b) { return isnan(a) ? b : isnan(b) ? a : min(a, b); }
 float bvh_div(float a, float b) { return (float)((double)a / (double)b); }   // correctly rounded f32 quotient
 
-uint4 bvh_load4(uint addr) {
-    return uint4(MemLoad(addr, 0u), MemLoad(addr, 4u), MemLoad(addr, 8u), MemLoad(addr, 12u));
+// A node address: (low dword, high dword); high 0 is the loader's window.
+uint bvh_ld(uint2 a, uint off) { return PtrLoad(a.x, a.y, off); }
+uint4 bvh_load4(uint2 a, uint off) {
+    return uint4(bvh_ld(a, off), bvh_ld(a, off + 4u), bvh_ld(a, off + 8u), bvh_ld(a, off + 12u));
 }
-float3 bvh_load3f(uint addr) { return asfloat(uint3(MemLoad(addr, 0u), MemLoad(addr, 4u), MemLoad(addr, 8u))); }
+float3 bvh_load3f(uint2 a, uint off) { return asfloat(uint3(bvh_ld(a, off), bvh_ld(a, off + 4u), bvh_ld(a, off + 8u))); }
+// Whether a node's first byte has memory: always in the window; in game memory, a page the address map maps.
+bool bvh_resident(uint2 a) {
+    if (a.y == 0u) return true;
+    return gpu_page(a.x, a.y).x != GPU_MAP_HEAP + 1u;
+}
 
 // GPURT fast_intersect_bbox: returns (min_t, max_t) after clamping to [0, extent]; NaN interval -> (inf, -inf)
 float2 bvh_box(float3 org, float3 inv, float3 bmin, float3 bmax, float extent) {
@@ -72,15 +86,15 @@ void bvh_sort(inout uint ca, inout uint cb, inout float da, inout float db) {
 
 // Children of a box node. Written out per child rather than as [unroll] loops: each loop dxc unrolls costs a pass over
 // the whole function, and a program can inline this thousands of times.
-void bvh_child16(uint a, out float3 bmin, out float3 bmax) {
+void bvh_child16(uint2 a, uint off, out float3 bmin, out float3 bmax) {
     // per child 3 dwords of f16 pairs: (minx|miny<<16, minz|maxx<<16, maxy|maxz<<16)
-    uint d0 = MemLoad(a, 0u), d1 = MemLoad(a, 4u), d2 = MemLoad(a, 8u);
+    uint d0 = bvh_ld(a, off), d1 = bvh_ld(a, off + 4u), d2 = bvh_ld(a, off + 8u);
     bmin = float3(f16tof32(d0), f16tof32(d0 >> 16), f16tof32(d1));
     bmax = float3(f16tof32(d1 >> 16), f16tof32(d2), f16tof32(d2 >> 16));
 }
-void bvh_child32(uint a, out float3 bmin, out float3 bmax) {
-    bmin = bvh_load3f(a);
-    bmax = bvh_load3f(a + 12u);
+void bvh_child32(uint2 a, uint off, out float3 bmin, out float3 bmax) {
+    bmin = bvh_load3f(a, off);
+    bmax = bvh_load3f(a, off + 12u);
 }
 uint bvh_child_hit(float3 org, float3 inv, float3 bmin, float3 bmax, float extent, float gf, uint child, out float key) {
     float2 s = bvh_box(org, inv, bmin, bmax, extent);
@@ -89,21 +103,21 @@ uint bvh_child_hit(float3 org, float3 inv, float3 bmin, float3 bmax, float exten
     return (s.x <= lim) ? child : BVH_INVALID;
 }
 
-uint4 bvh_box_node(uint addr, bool box16, float extent, float3 org, float3 inv, uint grow, bool sort) {
-    uint4 child = bvh_load4(addr);
+uint4 bvh_box_node(uint2 addr, bool box16, float extent, float3 org, float3 inv, uint grow, bool sort) {
+    uint4 child = bvh_load4(addr, 0u);
     float3 bmin[4], bmax[4];
     if (box16) {
         // 64-byte node: 4 child pointers, then 12 bytes per child at 16 + 12*i
-        bvh_child16(addr + 16u, bmin[0], bmax[0]);
-        bvh_child16(addr + 28u, bmin[1], bmax[1]);
-        bvh_child16(addr + 40u, bmin[2], bmax[2]);
-        bvh_child16(addr + 52u, bmin[3], bmax[3]);
+        bvh_child16(addr, 16u, bmin[0], bmax[0]);
+        bvh_child16(addr, 28u, bmin[1], bmax[1]);
+        bvh_child16(addr, 40u, bmin[2], bmax[2]);
+        bvh_child16(addr, 52u, bmin[3], bmax[3]);
     } else {
         // 128-byte node: 4 child pointers, then per child min.xyz, max.xyz (f32) at 16 + 24*i
-        bvh_child32(addr + 16u, bmin[0], bmax[0]);
-        bvh_child32(addr + 40u, bmin[1], bmax[1]);
-        bvh_child32(addr + 64u, bmin[2], bmax[2]);
-        bvh_child32(addr + 88u, bmin[3], bmax[3]);
+        bvh_child32(addr, 16u, bmin[0], bmax[0]);
+        bvh_child32(addr, 40u, bmin[1], bmax[1]);
+        bvh_child32(addr, 64u, bmin[2], bmax[2]);
+        bvh_child32(addr, 88u, bmin[3], bmax[3]);
     }
     // growth factor 1 + grow * 2^-24 (one f32 multiply, one f32 add, as GPURT)
     precise float ge = (float)grow * 5.960464478e-8;
@@ -123,14 +137,14 @@ uint4 bvh_box_node(uint addr, bool box16, float extent, float3 org, float3 inv, 
     return uint4(c[0], c[1], c[2], c[3]);
 }
 
-uint4 bvh_triangle_node(uint addr, uint type, bool return_ij, float3 org, float3 dir) {
+uint4 bvh_triangle_node(uint2 addr, uint type, bool return_ij, float3 org, float3 dir) {
     // 64-byte node: V0 @0, V1 @12, V2 @24, V3 @36, (V4 / sideband @48), triangle_id @60.
     // Vertex triple per node type (GPURT Common.hlsl CalcTriangleCompressionVertexIndices table 0x210/0x231/0x432/0x042)
     uint map = type == 0 ? 0x210u : type == 1 ? 0x231u : type == 2 ? 0x432u : 0x042u;
-    float3 v1 = bvh_load3f(addr + 12u * (map & 0xfu));
-    float3 v2 = bvh_load3f(addr + 12u * ((map >> 4) & 0xfu));
-    float3 v3 = bvh_load3f(addr + 12u * ((map >> 8) & 0xfu));
-    uint tri_id = MemLoad(addr, 60u);
+    float3 v1 = bvh_load3f(addr, 12u * (map & 0xfu));
+    float3 v2 = bvh_load3f(addr, 12u * ((map >> 4) & 0xfu));
+    float3 v3 = bvh_load3f(addr, 12u * ((map >> 8) & 0xfu));
+    uint tri_id = bvh_ld(addr, 60u);
 
     // GPURT fast_intersect_triangle
     precise float3 e1 = v2 - v1;
@@ -162,6 +176,22 @@ uint4 bvh_triangle_node(uint addr, uint type, bool return_ij, float3 org, float3
     return uint4(asuint(r.x), asuint(r.y), asuint(bary[(tri_id >> sh) & 3u]), asuint(bary[(tri_id >> (sh + 2u)) & 3u]));
 }
 
+// The node's byte address: base (T# dword0 << 8, dword1[7:0] as bits 47:40) + (pointer & ~7) << 3, in 64 bits.
+uint2 bvh_node_address(uint4 tdesc, uint node_lo, uint node_hi) {
+    uint base_lo = tdesc.x << 8;
+    uint base_hi = (tdesc.x >> 24) | ((tdesc.y & 0xffu) << 8);
+    uint off_lo = (node_lo & ~7u) << 3;
+    uint off_hi = (node_lo >> 29) | (node_hi << 3);
+    uint lo = base_lo + off_lo;
+    return uint2(lo, base_hi + off_hi + (lo < base_lo ? 1u : 0u));
+}
+
+// What a node that cannot be read gives: a box no child, a triangle no hit.
+uint4 bvh_node_miss(uint type) {
+    if (type < 4u) return uint4(0x7f800000u, 0x3f800000u, 0u, 0u);
+    return uint4(BVH_INVALID, BVH_INVALID, BVH_INVALID, BVH_INVALID);
+}
+
 // tdesc = T# words; node_lo/node_hi = node pointer (node_hi = 0 for the 32-bit form); returns the 4 result dwords.
 // FIVESTAR_BVH_MISS (the loader without --raytracing, which builds no acceleration structure): every node misses, read
 // nothing: a box node has no child to visit (all invalid), a triangle node no hit (t_num inf, t_denom 1), so the
@@ -169,11 +199,11 @@ uint4 bvh_triangle_node(uint addr, uint type, bool return_ij, float3 org, float3
 uint4 bvh_intersect_ray(uint4 tdesc, uint node_lo, uint node_hi, float extent, float3 org, float3 dir, float3 inv_dir) {
     uint type = node_lo & 7u;
 #ifdef FIVESTAR_BVH_MISS
-    if (type < 4u) return uint4(0x7f800000u, 0x3f800000u, 0u, 0u);
-    return uint4(BVH_INVALID, BVH_INVALID, BVH_INVALID, BVH_INVALID);
+    return bvh_node_miss(type);
 #else
-    uint addr = (tdesc.x << 8) + ((node_lo & ~7u) << 3);
+    uint2 addr = bvh_node_address(tdesc, node_lo, node_hi);
     if (type >= 6u) return uint4(BVH_INVALID, BVH_INVALID, BVH_INVALID, BVH_INVALID);   // instance / user node
+    if ((tdesc.x | (tdesc.y & 0xffu)) == 0u || !bvh_resident(addr)) return bvh_node_miss(type);
     if (type >= 4u)
         return bvh_box_node(addr, type == 4u, extent, org, inv_dir, (tdesc.y >> 23) & 0xffu, (tdesc.y >> 31) != 0);
     return bvh_triangle_node(addr, type, ((tdesc.w >> 24) & 1u) != 0, org, dir);

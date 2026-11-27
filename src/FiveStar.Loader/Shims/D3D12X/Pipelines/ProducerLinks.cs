@@ -253,15 +253,18 @@ internal sealed class ProducerLinks
 
         var folder = _producer.Folder;
 
+        // Named by the programs' stems, so a replaced program's linked forms are its replacement's.
+        var (producerStem, pixelStem) = (_producer.Stem(producer.Name), _producer.Stem(pixel.Name));
+
         if (producer.Stage == HardwareStage.Ngg)
         {
             // The trimmed pixel shader's inputs are known once it is compiled; its name keys the link.
-            var trimmed = Path.Combine(folder, pixel.Name + TrimSuffix + DxilExtension);
+            var trimmed = Path.Combine(folder, pixelStem + TrimSuffix + DxilExtension);
 
-            return new Plan(LinkPath(folder, producer.Name, pixel.Name + TrimSuffix), trimmed, []);
+            return new Plan(LinkPath(folder, producerStem, pixelStem + TrimSuffix), trimmed, []);
         }
 
-        return new Plan(LinkPath(folder, producer.Name, StageLinker.InputsKey(inputs.Inputs)), null, inputs.Inputs);
+        return new Plan(LinkPath(folder, producerStem, StageLinker.InputsKey(inputs.Inputs)), null, inputs.Inputs);
     }
 
     private static string LinkPath(string folder, string producer, string key)

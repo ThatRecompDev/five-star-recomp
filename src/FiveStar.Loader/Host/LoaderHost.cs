@@ -546,6 +546,7 @@ internal sealed class LoaderHost
         Shims.D3D12X.DebugLayer.DrawTrace.LogDraws = _options.LogDraws;
 
         Shims.D3D12X.DebugLayer.FrameStageDump.Present = _options.DumpFrame;
+        Shims.D3D12X.DebugLayer.FrameStageDump.WorldOffset = _options.DumpFrameWorldOffset;
         Shims.D3D12X.DebugLayer.FrameStageDump.Max = _options.DumpFrameMax;
         Shims.D3D12X.DebugLayer.FrameStageDump.Filter = _options.DumpFrameFilter;
         Shims.D3D12X.DebugLayer.FrameStageDump.MinimumWidth = _options.DumpFrameMinimumWidth;
@@ -556,6 +557,7 @@ internal sealed class LoaderHost
     private void ApplyBindingOptions()
     {
         Shims.D3D12X.Pipelines.PipelineFactory.CullNoneFor = _options.ForceCullNone;
+        Shims.D3D12X.Pipelines.DepthFuncOverride.Rules = _options.DepthFuncOverrides;
         Shims.D3D12X.Pipelines.SkippedPipelines.Texts = _options.SkipPipelines;
         Shims.D3D12X.Pipelines.SkippedPipelines.All = _options.NoDraws;
         Shims.D3D12X.Binding.DescriptorWindow.MinTableRecords = _options.MirrorTableRecords;

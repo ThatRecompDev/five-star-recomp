@@ -10,6 +10,8 @@ namespace FiveStar.Shaders.Translation.Stages;
 /// <summary>Translates one instruction stream of a program into a complete HLSL program.</summary>
 internal static class ProgramTranslator
 {
+    private const int Wave32 = 32;
+
     /// <summary>Translates <paramref name="instructions"/> as <paramref name="stage"/>; a copy shader is emitted as a function.</summary>
     public static string Translate(
         ShaderProgram program, IReadOnlyList<Instruction> instructions, ShaderStage stage, bool copyShader, TranslationOptions options)
@@ -65,7 +67,7 @@ internal static class ProgramTranslator
                 UniformWaveOperations.Rewrite(state.Blocks, state.Prologue, state.MeshThreads);
             }
 
-            DeadWaveOperations.Remove(state.Blocks, SuperstepWriter.Pinned(state, new MeshDeclarations(state)));
+            DeadWaveOperations.Remove(state.Blocks, SuperstepWriter.Pinned(state, new MeshDeclarations(state)), wave32: state.Config.WaveSize == Wave32);
             var splitter = new SuperstepSplitter();
             var blocks = splitter.Split(state.Blocks);
 
@@ -85,7 +87,8 @@ internal static class ProgramTranslator
 
             // dxc keeps a wave operation whose result is unused (WaveActiveBallot is not dead code to it): the ballots
             // into SGPR halves that nothing reads cost a ballot and the lane-origin arithmetic each.
-            DeadWaveOperations.Remove(state.Blocks, SuperstepWriter.Pinned(state, new MeshDeclarations(state)), ownBits: state.Stage != ShaderStage.Pixel);
+            DeadWaveOperations.Remove(state.Blocks, SuperstepWriter.Pinned(state, new MeshDeclarations(state)), ownBits: state.Stage != ShaderStage.Pixel, wave32: state.Config.WaveSize == Wave32);
+            DropUnseenEmulation(state);
         }
 
         var mesh = new MeshDeclarations(state);
@@ -127,6 +130,16 @@ internal static class ProgramTranslator
         }
 
         return state;
+    }
+
+    /// <summary>A program that cannot tell emulated wave operations from native ones gets the native ones (Waves.NativeWaveCheck).</summary>
+    private static void DropUnseenEmulation(TranslationState state)
+    {
+        if (state.EmulateWaves && NativeWaveCheck.Reason(state) is null)
+        {
+            state.EmulateWaves = false;
+            state.NativeWaves = true;
+        }
     }
 
     private static void Run(TranslationState state)

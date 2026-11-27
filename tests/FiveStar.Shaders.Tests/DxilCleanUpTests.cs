@@ -156,6 +156,122 @@ public sealed class DxilCleanUpTests : IClassFixture<WarpFixture>
         Assert.NotNull(merged);
     }
 
+    /// <summary>
+    /// A memory read is reused in a block its block dominates while nothing with an effect came between, but not past a
+    /// write or into a join (a block more than one block branches to, which a path with a write may reach).
+    /// </summary>
+    [Fact]
+    public void A_read_is_reused_below_until_a_write_or_a_join()
+    {
+        var module = new DxilModule();
+        var types = module.Types;
+        var main = module.Function("main", types.Function(types.Void, []), AttributeSet.None, hasBody: true);
+
+        var entry = module.NewBlock();
+        var taken = module.NewBlock();
+        var other = module.NewBlock();
+        var join = module.NewBlock();
+        main.Blocks.AddRange([entry, taken, other, join]);
+
+        var builder = new IrBuilder(module, entry);
+        var ops = new DxOps(builder);
+        var thread = ops.ThreadIdComponent(DxOpCode.ThreadId, "threadId", 0);
+        var first = Read(ops, module);
+        builder.ConditionalBranch(builder.Compare(Predicate.Equal, first, module.Int32(0)), taken, other);
+
+        // Below the entry and before any write: the entry's read stands for this one.
+        builder.Block = taken;
+        Store(builder, ops, module, thread, Read(ops, module));
+
+        // After the write: read again.
+        Store(builder, ops, module, thread, builder.Binary(BinaryOp.Add, Read(ops, module), thread));
+        builder.Branch(join);
+
+        builder.Block = other;
+        builder.Branch(join);
+
+        // The join may be reached from the write: read again.
+        builder.Block = join;
+        Store(builder, ops, module, thread, builder.Binary(BinaryOp.Xor, Read(ops, module), thread));
+        builder.Return();
+
+        ValueNumbering.Run(main);
+        DeadCode.Remove(main);
+
+        Assert.Equal(1, Reads(entry));
+        Assert.Equal(1, Reads(taken));
+        Assert.Equal(1, Reads(join));
+    }
+
+    /// <summary>
+    /// A read through a UAV is reused only in its own block: another lane, group or queue may write the memory between
+    /// two blocks of one iteration, and reusing an earlier read can keep a loop's condition from ever changing.
+    /// </summary>
+    [Fact]
+    public void A_read_of_writable_memory_is_not_reused_in_another_block()
+    {
+        var module = new DxilModule();
+        var types = module.Types;
+        var main = module.Function("main", types.Function(types.Void, []), AttributeSet.None, hasBody: true);
+
+        var entry = module.NewBlock();
+        var below = module.NewBlock();
+        main.Blocks.AddRange([entry, below]);
+
+        var builder = new IrBuilder(module, entry);
+        var ops = new DxOps(builder);
+        var thread = ops.ThreadIdComponent(DxOpCode.ThreadId, "threadId", 0);
+        var first = Read(ops, module, writable: true);
+        var again = Read(ops, module, writable: true);
+        builder.Branch(below);
+
+        builder.Block = below;
+        Store(builder, ops, module, thread, builder.Binary(BinaryOp.Add, builder.Binary(BinaryOp.Add, first, again), Read(ops, module, writable: true)));
+        builder.Return();
+
+        ValueNumbering.Run(main);
+        DeadCode.Remove(main);
+
+        // In its block the second read is the first one; below it, read again.
+        Assert.Equal(1, Reads(entry));
+        Assert.Equal(1, Reads(below));
+    }
+
+    /// <summary>
+    /// A loop that reads a word, stores it plus one through the same UAV, reads it again in a later block of the same
+    /// iteration and leaves when it reaches the input's bound: optimized and plain, it ends with the same words on WARP.
+    /// </summary>
+    [WarpFact]
+    public void A_loop_over_memory_it_writes_ends_with_the_same_words_optimized()
+    {
+        const string Loop = """
+            [numthreads(64, 1, 1)]
+            void main(uint3 id : SV_DispatchThreadID) {
+              RWByteAddressBuffer output = ResourceDescriptorHeap[1];
+              ByteAddressBuffer input = ResourceDescriptorHeap[2];
+              uint bound = (input.Load(id.x * 4u) & 15u) + 1u;
+              uint steps = 0u;
+              output.Store(id.x * 4u, 0u);
+              [loop] while (true) {
+                uint v = output.Load(id.x * 4u);
+                if (v >= bound) { break; }
+                if ((v & 1u) == 0u) { output.Store(id.x * 4u, v + 1u); }
+                else { output.Store(id.x * 4u, output.Load(id.x * 4u) + 1u); }
+                uint again = output.Load(id.x * 4u);
+                steps += again - v;
+                if (steps > 64u) { break; }
+              }
+              output.Store(id.x * 4u, steps * 100u + output.Load(id.x * 4u));
+            }
+            """;
+
+        var plain = Run(Loop, optimize: false);
+        var cleaned = Run(Loop, optimize: true);
+
+        Assert.Equal(plain, cleaned);
+        Assert.All(plain, word => Assert.True(word % 100u == word / 100u, $"{word}"));
+    }
+
     [Fact]
     public void Casts_there_and_back_and_float_constants_fold()
     {
@@ -174,7 +290,33 @@ public sealed class DxilCleanUpTests : IClassFixture<WarpFixture>
         ops.RawStore(handle, index, [value]);
     }
 
+    /// <summary>The input buffer's first word.</summary>
+    private static Value Read(DxOps ops, DxilModule module)
+    {
+        return Read(ops, module, writable: false);
+    }
+
+    /// <summary>The first word of the input buffer, or of the output buffer through its UAV.</summary>
+    private static Value Read(DxOps ops, DxilModule module, bool writable)
+    {
+        var handle = writable
+            ? ops.HeapHandle(module.Int32(OutputSlot), sampler: false, DxOps.RawBufferKind | DxOps.UavBit, 0)
+            : ops.HeapHandle(module.Int32(InputSlot), sampler: false, DxOps.RawBufferKind, 0);
+
+        return ops.RawLoad(handle, module.Int32(0), 1)[0];
+    }
+
+    private static int Reads(BasicBlock block)
+    {
+        return block.Body.Count(instruction => instruction.Opcode == Opcode.Call && instruction.Callee!.Name.Contains("rawBufferLoad", StringComparison.Ordinal));
+    }
+
     private uint[] Run(bool optimize)
+    {
+        return Run(Program, optimize);
+    }
+
+    private uint[] Run(string program, bool optimize)
     {
         byte[] container;
         var previous = DxilBackend.Optimize;
@@ -182,7 +324,7 @@ public sealed class DxilCleanUpTests : IClassFixture<WarpFixture>
 
         try
         {
-            container = DxilBackend.Compile(Program, "cs");
+            container = DxilBackend.Compile(program, "cs");
         }
         finally
         {
