@@ -543,6 +543,7 @@ internal sealed class LoaderHost
     private void ApplyBindingOptions()
     {
         Shims.D3D12X.Pipelines.PipelineFactory.CullNoneFor = _options.ForceCullNone;
+        Shims.D3D12X.Pipelines.DepthFuncOverride.Rules = _options.DepthFuncOverrides;
         Shims.D3D12X.Pipelines.SkippedPipelines.Texts = _options.SkipPipelines;
         Shims.D3D12X.Pipelines.SkippedPipelines.All = _options.NoDraws;
         Shims.D3D12X.Binding.DescriptorWindow.MinTableRecords = _options.MirrorTableRecords;

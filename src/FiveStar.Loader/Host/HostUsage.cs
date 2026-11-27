@@ -123,6 +123,8 @@ internal static class HostUsage
                                  (needs the Graphics Tools optional feature)
           --d3d12-gpu-validation --d3d12-debug plus GPU-based validation (slow)
           --force-cull-none <text>  pipelines whose programs' names hold <text> cull no faces (a winding check)
+          --depth-func-override <text=Func;...>  pipelines whose programs' names hold <text> get that depth test
+                                 (Never..Always) and no stencil test (a check of what culls a pass's pixels)
           --skip-pipelines <text,...>  pipelines whose programs' names hold a text stay stand-ins: never built or
                                  loaded, their draws skipped (to get past one that hangs the GPU)
           --no-draws             no pipeline is built and every draw and dispatch is skipped (black picture): the frame
