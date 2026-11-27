@@ -83,15 +83,27 @@ internal static class StagePixels
     private const int ElevenMantissa = 6;
     private const int TenMantissa = 5;
 
+    /// <summary>Distinct depth values counted, and the commonest shown with their share.</summary>
+    private const int DepthValuesCounted = 4096;
+    private const int DepthValuesShown = 8;
+    private const double Percent = 100;
+
     /// <summary>The exposure HDR values are multiplied by before the curve.</summary>
     public const float Exposure = 1f;
+
+    /// <summary>The level an auto-exposed image puts the mean at, before the curve (mid grey).</summary>
+    public const float AutoKey = 0.18f;
 
     /// <summary>
     /// Writes the RGBA8 image of a float, SNORM or 16-bit UNORM copy (or of depth, with <paramref name="depth"/>) into
     /// <paramref name="image"/> and returns its channel statistics; null for any other format (the caller converts it).
+    /// <paramref name="autoExposure"/> is, for an unsigned float target, the exposure that puts its mean colour at
+    /// <see cref="AutoKey"/> (<see cref="Expose"/> writes that image); 0 otherwise.
     /// </summary>
-    public static string? Convert(ReadOnlySpan<byte> source, int rowPitch, int width, int rows, int format, bool depth, Span<byte> image)
+    public static string? Convert(ReadOnlySpan<byte> source, int rowPitch, int width, int rows, int format, bool depth, Span<byte> image, out float autoExposure)
     {
+        autoExposure = 0;
+
         if (depth)
         {
             return Depth(source, rowPitch, width, rows, format, image);
@@ -107,20 +119,66 @@ internal static class StagePixels
         var stats = new ChannelStats(layout.Value.Channels);
         Measure(source, rowPitch, width, rows, layout.Value, stats);
         bool signed = layout.Value.Kind == Snorm || (layout.Value.Kind == Float && stats.Signed(SignedSlack));
+        Map(source, rowPitch, width, rows, layout.Value, signed, Exposure, image);
+        string mapping = $"exposure {Exposure.ToString(CultureInfo.InvariantCulture)}";
 
+        if (signed)
+        {
+            mapping = "signed, mapped -1..1 to 0..1";
+        }
+        else if (layout.Value.Kind is Float or Packed)
+        {
+            autoExposure = AutoExposure(stats, layout.Value.Channels);
+        }
+
+        return $"; stage {mapping}; {stats.Describe()}";
+    }
+
+    /// <summary>The image of an unsigned float copy through <paramref name="exposure"/> (the auto-exposed PNG); false for another format.</summary>
+    public static bool Expose(ReadOnlySpan<byte> source, int rowPitch, int width, int rows, int format, float exposure, Span<byte> image)
+    {
+        var layout = LayoutOf(format);
+
+        if (layout is null || layout.Value.Kind is Snorm or Unorm)
+        {
+            return false;
+        }
+
+        Map(source, rowPitch, width, rows, layout.Value, signed: false, exposure, image);
+
+        return true;
+    }
+
+    /// <summary><see cref="AutoKey"/> over the mean of the colour channels' means; 0 when that mean is not above 0.</summary>
+    internal static float AutoExposure(ChannelStats stats, int channels)
+    {
+        int colour = Math.Min(channels, Rgb);
+        double mean = 0;
+
+        for (int channel = 0; channel < colour; channel++)
+        {
+            mean += Math.Max(stats.Mean(channel), 0) / colour;
+        }
+
+        if (!(mean > 0) || double.IsInfinity(mean))
+        {
+            return 0;
+        }
+
+        return (float)(AutoKey / mean);
+    }
+
+    private static void Map(ReadOnlySpan<byte> source, int rowPitch, int width, int rows, (int Channels, int Bytes, int Kind) layout, bool signed, float exposure, Span<byte> image)
+    {
         for (int y = 0; y < rows; y++)
         {
             var row = source.Slice(y * rowPitch);
 
             for (int x = 0; x < width; x++)
             {
-                Texel(row, x, layout.Value, signed, image.Slice(((y * width) + x) * Rgba, Rgba));
+                Texel(row, x, layout, signed, exposure, image.Slice(((y * width) + x) * Rgba, Rgba));
             }
         }
-
-        string mapping = signed ? "signed, mapped -1..1 to 0..1" : $"exposure {Exposure.ToString(CultureInfo.InvariantCulture)}";
-
-        return $"; stage {mapping}; {stats.Describe()}";
     }
 
     /// <summary>The first three bytes of each texel as RGB (integer formats and any other the readers do not convert); false for a block format.</summary>
@@ -220,7 +278,7 @@ internal static class StagePixels
     }
 
     /// <summary>The 8-bit level of one stored value: signed mapped from -1..1, a float through the exposure curve, UNORM as is.</summary>
-    internal static byte Level(float value, bool signed, int kind)
+    internal static byte Level(float value, bool signed, int kind, float exposure = Exposure)
     {
         float level = value;
 
@@ -230,7 +288,7 @@ internal static class StagePixels
         }
         else if (kind != Unorm)
         {
-            float exposed = Math.Max(value, 0f) * Exposure;
+            float exposed = Math.Max(value, 0f) * exposure;
             level = float.IsPositiveInfinity(exposed) ? 1f : MathF.Pow(exposed / (1f + exposed), Gamma);
         }
 
@@ -254,7 +312,7 @@ internal static class StagePixels
     }
 
     /// <summary>One texel as RGBA8: one channel as grey, two as red and green, a NaN in any channel magenta.</summary>
-    private static void Texel(ReadOnlySpan<byte> row, int x, (int Channels, int Bytes, int Kind) layout, bool signed, Span<byte> output)
+    private static void Texel(ReadOnlySpan<byte> row, int x, (int Channels, int Bytes, int Kind) layout, bool signed, float exposure, Span<byte> output)
     {
         output.Clear();
         output[Alpha] = Opaque;
@@ -272,7 +330,7 @@ internal static class StagePixels
                 return;
             }
 
-            output[channel] = Level(value, signed, layout.Kind);
+            output[channel] = Level(value, signed, layout.Kind, exposure);
         }
 
         if (layout.Channels == 1)
@@ -286,12 +344,15 @@ internal static class StagePixels
     private static string Depth(ReadOnlySpan<byte> source, int rowPitch, int width, int rows, int format, Span<byte> image)
     {
         var stats = new ChannelStats(1);
+        var values = new Dictionary<float, long>();
 
         for (int y = 0; y < rows; y++)
         {
             for (int x = 0; x < width; x++)
             {
-                stats.Add(0, DepthValue(source.Slice(y * rowPitch), x, format));
+                float value = DepthValue(source.Slice(y * rowPitch), x, format);
+                stats.Add(0, value);
+                CountValue(values, value);
             }
         }
 
@@ -310,7 +371,33 @@ internal static class StagePixels
             }
         }
 
-        return $"; stage depth, log-scaled; {stats.Describe()}";
+        return $"; stage depth, log-scaled; {stats.Describe()}; {CommonValues(values, (long)width * rows)}";
+    }
+
+    /// <summary>Counts <paramref name="value"/> while fewer than <see cref="DepthValuesCounted"/> distinct values are seen.</summary>
+    private static void CountValue(Dictionary<float, long> values, float value)
+    {
+        if (values.TryGetValue(value, out long count))
+        {
+            values[value] = count + 1;
+        }
+        else if (values.Count < DepthValuesCounted)
+        {
+            values[value] = 1;
+        }
+    }
+
+    /// <summary>
+    /// "N distinct values: v share%, ..." of a depth (a material-class depth holds a few whole steps, a scene depth many);
+    /// "over N" when the count stopped.
+    /// </summary>
+    internal static string CommonValues(Dictionary<float, long> values, long total)
+    {
+        string distinct = values.Count >= DepthValuesCounted ? $"over {DepthValuesCounted}" : values.Count.ToString(CultureInfo.InvariantCulture);
+        var common = values.OrderByDescending(pair => pair.Value).Take(DepthValuesShown);
+        string top = string.Join(", ", common.Select(pair => string.Create(CultureInfo.InvariantCulture, $"{pair.Key:G6} {pair.Value * Percent / Math.Max(total, 1):F1}%")));
+
+        return $"{distinct} distinct values: {top}";
     }
 
     /// <summary>0..1 of a depth between <paramref name="nearest"/> and e^<paramref name="span"/> times it; 0.0 (the sky) is 0, one depth only mid-grey.</summary>

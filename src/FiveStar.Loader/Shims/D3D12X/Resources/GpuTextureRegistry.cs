@@ -179,9 +179,19 @@ internal sealed class GpuTextureRegistry : IDisposable
     /// <summary>The bytes at a texture's start a newer texture must start in to retire it under <see cref="StaleInFirstPage"/>.</summary>
     public const ulong StalePageBytes = 4096;
 
+    /// <summary>Whether descriptors still hold views of a texture (<see cref="TextureViewHandles"/>); null: none counts as held.</summary>
+    public Func<GpuTexture, bool>? Held { get; set; }
+
     /// <summary>Whether <paramref name="texture"/>, registered now, retires <paramref name="older"/>, a registered texture it overlaps.</summary>
     internal bool Retires(GpuTexture texture, GpuTexture older)
     {
+        // Its descriptors still hold views and the new texture starts elsewhere: the game has not given it up, and the
+        // new one's range claims levels that are not in memory (w186: 107,000 small textures so retired, their views nulled).
+        if (!texture.GpuWritten && !older.GpuWritten && texture.Address != older.Address && Held?.Invoke(older) == true)
+        {
+            return false;
+        }
+
         if (OnlyFirstPageStales && !Stales(texture, older))
         {
             return false;
