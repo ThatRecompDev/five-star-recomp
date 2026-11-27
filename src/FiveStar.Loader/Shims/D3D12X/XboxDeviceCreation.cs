@@ -47,7 +47,15 @@ internal static unsafe class XboxDeviceCreation
     {
         try
         {
-            return CreateFromDescription(self, CreateCommandQueueSlot, XboxInterfaceKind.CommandQueue, description, iid, queue);
+            if (description == null || !XboxDeviceMethods.NoGpuTimeout)
+            {
+                return CreateFromDescription(self, CreateCommandQueueSlot, XboxInterfaceKind.CommandQueue, description, iid, queue);
+            }
+
+            var desktop = *(CommandQueueDescription*)description;
+            desktop.Flags = XboxDeviceMethods.QueueFlags(desktop.Flags);
+
+            return CreateFromDescription(self, CreateCommandQueueSlot, XboxInterfaceKind.CommandQueue, &desktop, iid, queue);
         }
         catch (Exception exception)
         {

@@ -302,6 +302,9 @@ internal sealed record HostOptions
     /// <summary>Depth textures in a typed depth format made in its typeless family, so shader views read them (<c>--typeless-depth</c>).</summary>
     public bool TypelessDepth { get; set; }
 
+    /// <summary>The game's command queues are made without the GPU timeout (<c>--no-gpu-timeout</c>): work past Windows' 2 s limit stalls instead of removing the device.</summary>
+    public bool NoGpuTimeout { get; set; }
+
     /// <summary>The descriptor window, the address map and the user-data ring in GPU upload heaps where the device has them (<c>--gpu-upload-heaps</c>).</summary>
     public bool GpuUploadHeaps { get; set; }
 

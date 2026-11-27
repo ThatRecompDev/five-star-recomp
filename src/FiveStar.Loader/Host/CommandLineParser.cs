@@ -823,6 +823,10 @@ internal sealed class CommandLineParser
                 _options.NoDraws = true;
 
                 return true;
+            case "--no-gpu-timeout":
+                _options.NoGpuTimeout = true;
+
+                return true;
             case "--typeless-depth":
                 _options.TypelessDepth = true;
 
