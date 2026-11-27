@@ -130,6 +130,19 @@ public sealed unsafe class ResidentLevelsTests
         Assert.Equal((0, 6), (Word(view, MostDetailedMip), Word(view, MipLevels)));
     }
 
+    /// <summary>w186: a 1024x1024 texture's 0xab000 bytes took in the 64x64 ones 0x4000 and 0xc000 behind it, and their views went null.</summary>
+    [Fact]
+    public void A_texture_whose_views_are_held_is_not_retired_by_one_that_starts_elsewhere()
+    {
+        var held = new GpuTexture(0x289da878000, Resource(64, 64, 5, Bc1), 1, Bc1, 0, false, new XgSurface { Size = 0x1000 });
+        var free = new GpuTexture(0x289da880000, Resource(64, 64, 5, Bc1), 2, Bc1, 0, false, new XgSurface { Size = 0x1000 });
+        var large = new GpuTexture(0x289da874000, Resource(1024, 1024, 9, Bc1), 3, Bc1, 0, false, new XgSurface { Size = 0xab000 });
+        var again = new GpuTexture(0x289da878000, Resource(128, 128, 6, Bc1), 4, Bc1, 0, false, new XgSurface { Size = 0x3000 });
+        var registry = new GpuTextureRegistry(() => [], () => []) { Held = texture => texture == held };
+
+        Assert.Equal((false, true, true), (registry.Retires(large, held), registry.Retires(large, free), registry.Retires(again, held)));
+    }
+
     private static ResourceDescription Resource(uint width, uint height, ushort mips, int format)
     {
         return new ResourceDescription

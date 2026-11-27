@@ -87,6 +87,7 @@ internal sealed unsafe class GpuTextures : IDisposable
         Registry.Referenced = Referenced;
         Registry.Retiring = NullViews;
         Registry.Unviewing = Unviewing;
+        Registry.Held = texture => Views.Of(texture).Count > 0;
     }
 
     /// <summary>The views of textures about to be released, written again first (<see cref="ReleasedTextureViews"/>).</summary>
@@ -391,6 +392,25 @@ internal sealed unsafe class GpuTextures : IDisposable
         {
             Counters.Add(GpuResourceEvent.TextureShrunk);
         }
+    }
+
+    /// <summary>
+    /// The bytes from <paramref name="address"/> to the first read-only texture whose views are held that starts inside
+    /// the range a texture of <paramref name="description"/> would take there; 0 when none does.
+    /// </summary>
+    public ulong RoomAt(ulong address, ResourceDescription* description)
+    {
+        XgLayoutBuilder.Build(ToXg(description), out var layout);
+
+        foreach (var entry in Registry.Overlapping(address, layout.Size))
+        {
+            if (entry.Address > address && !entry.GpuWritten && Views.Of(entry).Count > 0)
+            {
+                return entry.Address - address;
+            }
+        }
+
+        return 0;
     }
 
     /// <summary>The bytes of <paramref name="texture"/>'s memory that are not 0 now, read through the kernel; -1 when it is not all readable.</summary>

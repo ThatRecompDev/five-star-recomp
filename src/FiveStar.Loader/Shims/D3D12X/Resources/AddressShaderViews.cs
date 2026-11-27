@@ -403,6 +403,16 @@ internal sealed unsafe class AddressShaderViews
             _textures.Counters.Add(GpuResourceEvent.ViewResident);
         }
 
+        Fit(&levels, view);
+
+        if (registered is not null && registered.Matches(view->Address, levels))
+        {
+            _textures.Counters.Add(GpuResourceEvent.ViewResolved);
+            _textures.RefreshForView(registered);
+
+            return registered;
+        }
+
         var texture = _textures.CreateForView(device, view->Address, &levels, view->Format);
 
         if (texture is not null)
@@ -411,5 +421,25 @@ internal sealed unsafe class AddressShaderViews
         }
 
         return texture;
+    }
+
+    /// <summary>
+    /// A texture whose views are held starts inside the range <paramref name="levels"/> claims: those bytes are not this
+    /// texture's (the game keeps a streamed texture's small levels and packs the next one behind them, whatever levels
+    /// its view names), so the view reads a texture of the levels before it, its own counted from that one's first.
+    /// </summary>
+    private void Fit(ResourceDescription* levels, AddressViewDescription* view)
+    {
+        ulong room = _textures.RoomAt(view->Address, levels);
+        var fitted = *levels;
+
+        if (room == 0 || !ResidentLevels.Renumbers((int*)view) || !ResidentLevels.Fit(ref fitted, room))
+        {
+            return;
+        }
+
+        ResidentLevels.Renumber((int*)view, levels->MipLevels - fitted.MipLevels, fitted.MipLevels);
+        *levels = fitted;
+        _textures.Counters.Add(GpuResourceEvent.ViewFitted);
     }
 }
