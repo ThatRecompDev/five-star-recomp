@@ -62,8 +62,9 @@ internal sealed class StageReadback
                 return $"format {format} not converted, not written";
             }
 
-            // A stencil plane (TL_PS's material mask) also gets its value histogram.
-            summary += DrawProbes.StencilSummary(source, rowPitch, width, rows, format);
+            // A stencil plane (TL_PS's material mask) gets its value histogram, an R32_UINT target (the per-tile
+            // material class masks) its commonest words.
+            summary += DrawProbes.StencilSummary(source, rowPitch, width, rows, format) + DrawProbes.UintSummary(source, rowPitch, width, rows, format);
             PngWriter.Write(png, width, rows, target);
             Interlocked.Increment(ref _written);
 
