@@ -51,6 +51,11 @@ internal static unsafe class RectangleListSlots
                 return;
             }
 
+            if (DriverShaderTables.Enabled)
+            {
+                DriverShaderTables.NoteUsed(desktop);
+            }
+
             nint inner = self->Inner;
             ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(inner, SetPipelineStateSlot))(inner, desktop);
         }

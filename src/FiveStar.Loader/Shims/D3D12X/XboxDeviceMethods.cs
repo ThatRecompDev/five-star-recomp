@@ -13,6 +13,24 @@ internal static unsafe class XboxDeviceMethods
     /// <summary>D3D12_COMMAND_QUEUE_FLAG_DISABLE_GPU_TIMEOUT, the only desktop queue flag (d3d12.h).</summary>
     private const int DesktopQueueFlags = 1;
 
+    /// <summary>
+    /// <c>--no-gpu-timeout</c>: every queue the game makes gets D3D12_COMMAND_QUEUE_FLAG_DISABLE_GPU_TIMEOUT (the game asks
+    /// for it itself on some compute queues). Boots lost the device with status Timeout at one point of the game; without
+    /// the timeout such work stalls the queue instead, and the queue progress report names it.
+    /// </summary>
+    public static bool NoGpuTimeout { get; set; }
+
+    /// <summary><paramref name="flags"/> with the timeout flag when <see cref="NoGpuTimeout"/> is set.</summary>
+    public static int QueueFlags(int flags)
+    {
+        if (NoGpuTimeout)
+        {
+            return flags | DesktopQueueFlags;
+        }
+
+        return flags;
+    }
+
     /// <summary>ID3D12Device::CreateCommandQueue in the desktop vtable (d3d12.h).</summary>
     private const int DesktopCreateCommandQueueSlot = 8;
 
@@ -31,7 +49,7 @@ internal static unsafe class XboxDeviceMethods
             }
 
             var desktop = *description;
-            desktop.Flags &= DesktopQueueFlags;
+            desktop.Flags = QueueFlags(desktop.Flags & DesktopQueueFlags);
             nint inner = self->Inner;
             var create = (delegate* unmanaged<nint, CommandQueueDescription*, Guid*, nint*, int>)(*(nint**)inner)[DesktopCreateCommandQueueSlot];
             int hr = create(inner, &desktop, iid, queue);

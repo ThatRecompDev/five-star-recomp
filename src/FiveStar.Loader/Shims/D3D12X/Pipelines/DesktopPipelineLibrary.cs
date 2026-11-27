@@ -42,7 +42,14 @@ internal static unsafe class DesktopPipelineLibrary
         {
             var target = (delegate* unmanaged<nint, char*, void*, Guid*, nint*, int>)ComObject.Slot(library, LoadPipelineSlot);
 
-            return target(library, text, streamDesc, iid, result);
+            int hr = target(library, text, streamDesc, iid, result);
+
+            if (hr >= 0)
+            {
+                Diagnostics.DriverShaderTables.NoteCreated(loaded: true);
+            }
+
+            return hr;
         }
     }
 

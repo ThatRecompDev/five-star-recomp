@@ -77,6 +77,12 @@ internal sealed unsafe class StandInPipelines
     private long _skippedAfterChain;
     private long _recorded;
 
+    /// <summary>How a built stand-in's pipeline is made again after it was given up, and the shader bytes of the built ones.</summary>
+    private readonly Dictionary<nint, Func<PendingBuild?>> _again = [];
+    private readonly Dictionary<nint, long> _bytes = [];
+    private long _usedBytes;
+    private long _evicted;
+    private long _madeAgain;
     /// <param name="budget">How long a creation may take before the game gets a stand-in.</param>
     /// <param name="builds">The threads that call the driver (started by the caller).</param>
     /// <param name="heavyBuilds">The same queue, or the thread for pipelines of <see cref="PipelineFactory.HeavyShaderBytes"/> or more, which wait for more memory without holding up the others.</param>
@@ -102,7 +108,7 @@ internal sealed unsafe class StandInPipelines
     /// the budget, or when earlier creations still wait for a thread, writes a stand-in instead and returns S_OK.
     /// <paramref name="built"/> is told the desktop pipeline when there is one; <paramref name="heavy"/> builds on the heavy thread.
     /// </summary>
-    public int Create(Func<PipelineResult> create, nint* result, string what, Action<nint>? built, bool heavy = false, bool small = false)
+    public int Create(Func<PipelineResult> create, nint* result, string what, Action<nint>? built, bool heavy = false, bool small = false, Func<PendingBuild?>? again = null, long bytes = 0)
     {
         var budget = _budget;
         var queue = _builds;
@@ -149,7 +155,8 @@ internal sealed unsafe class StandInPipelines
         queued.Use = Use(standIn);
 
         Track(standIn, new StandInWork { Creation = (queued, queue) });
-        build.ContinueWith(task => Complete(standIn, task.Result, what, started, built), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+        Again(standIn, again);
+        build.ContinueWith(task => Complete(standIn, task.Result, what, started, built, bytes), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
         Interlocked.Increment(ref _created);
         _warnings.Warn("standin", $"[d3d12_xs] pipeline {what} not built in time: the game gets a stand-in, its draws and dispatches are skipped until the driver is done (counted in the sample summary)");
         *result = standIn;
@@ -162,7 +169,7 @@ internal sealed unsafe class StandInPipelines
     /// creates tens of thousands of pipelines while loading and draws with a small part of them. <paramref name="used"/>
     /// runs then, before the build is queued.
     /// </summary>
-    public int Deferred(Func<PipelineResult> create, nint* result, string what, Action<nint>? built, bool heavy, Action used, bool small = false)
+    public int Deferred(Func<PipelineResult> create, nint* result, string what, Action<nint>? built, bool heavy, Action used, bool small = false, Func<PendingBuild?>? again = null, long bytes = 0)
     {
         nint standIn = NewStandIn(what, small, "built at first use");
         ((StandInPipelineObject*)standIn)->Deferred = 1;
@@ -176,10 +183,11 @@ internal sealed unsafe class StandInPipelines
                 long started = Stopwatch.GetTimestamp();
                 var queued = queue.Queue(create, urgent: true, Use(standIn));
                 Track(standIn, new StandInWork { Creation = (queued, queue) });
-                queued.Done.Task.ContinueWith(task => Complete(standIn, task.Result, what, started, built), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+                queued.Done.Task.ContinueWith(task => Complete(standIn, task.Result, what, started, built, bytes), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
             };
         }
 
+        Again(standIn, again);
         Interlocked.Increment(ref _created);
         Interlocked.Increment(ref _deferred);
         *result = standIn;
@@ -198,6 +206,7 @@ internal sealed unsafe class StandInPipelines
     {
         nint standIn = NewStandIn(what, programsNow is not null, "programs on demand", names);
         Track(standIn, new StandInWork { Programs = programs, ProgramsNow = programsNow });
+        Again(standIn, prepare);
         Interlocked.Increment(ref _created);
         Interlocked.Increment(ref _onDemand);
 
@@ -273,7 +282,127 @@ internal sealed unsafe class StandInPipelines
             }
         }
 
-        queued.Done.Task.ContinueWith(task => Complete(standIn, task.Result, build.What, started, build.Built), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+        queued.Done.Task.ContinueWith(task => Complete(standIn, task.Result, build.What, started, build.Built, build.ShaderBytes), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+    }
+
+    /// <summary>The shader bytes of the built stand-ins a list has set (the ones whose shaders the driver holds) that can be made again; the pipelines given up so far and those made again.</summary>
+    public long LiveShaderBytes => Interlocked.Read(ref _usedBytes);
+
+    /// <inheritdoc cref="LiveShaderBytes"/>
+    public (long Evicted, long MadeAgain) Evictions => (Interlocked.Read(ref _evicted), Interlocked.Read(ref _madeAgain));
+
+    /// <summary>Keeps how <paramref name="standIn"/>'s pipeline is made again (<see cref="Evict"/>); none for null.</summary>
+    private void Again(nint standIn, Func<PendingBuild?>? again)
+    {
+        if (again is null)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            _again[standIn] = again;
+        }
+    }
+
+    /// <summary>
+    /// Gives up the built pipelines no command list has set for <paramref name="idle"/> presents (never a clear, blit,
+    /// UI or lighting one, whose missing work shows at once): their stand-ins are pending again and build at their next
+    /// use, their draws skipped meanwhile as before the first build. The desktop pipelines go to
+    /// <paramref name="released"/>: lists recorded with them may still run, so the caller releases them later. Returns
+    /// the shader bytes given up.
+    /// </summary>
+    public long Evict(long idle, List<nint> released)
+    {
+        long now = StandInUse.Frame;
+        long bytes = 0;
+
+        lock (_gate)
+        {
+            foreach (nint standIn in _again.Keys)
+            {
+                var item = (StandInPipelineObject*)standIn;
+                nint desktop = item->Desktop;
+
+                // One no list ever set holds none of the driver's shader memory: nothing to gain.
+                if (desktop == 0 || item->Counted == 0 || now - Volatile.Read(ref item->LastUsed) < idle || _essential.Contains(standIn) || _lighting.Contains(standIn))
+                {
+                    continue;
+                }
+
+                item->Counted = 0;
+                Volatile.Write(ref item->Evicted, 1);
+                Volatile.Write(ref item->Desktop, 0);
+                released.Add(desktop);
+                _evicted++;
+
+                if (_bytes.Remove(standIn, out long size))
+                {
+                    bytes += size;
+                }
+            }
+
+            _usedBytes -= bytes;
+        }
+
+        return bytes;
+    }
+
+    /// <summary>Whether <paramref name="standIn"/> has its pipeline, noting its use; one given up starts its build again.</summary>
+    [HotPath]
+    private bool Built(StandInPipelineObject* standIn)
+    {
+        if (Volatile.Read(ref standIn->Desktop) != 0)
+        {
+            Volatile.Write(ref standIn->LastUsed, StandInUse.Frame);
+
+            if (standIn->Counted == 0)
+            {
+                CountUsed(standIn);
+            }
+
+            return true;
+        }
+
+        if (Volatile.Read(ref standIn->Evicted) == 1 && Interlocked.Exchange(ref standIn->Evicted, 0) == 1)
+        {
+            MakeAgain((nint)standIn);
+        }
+
+        return false;
+    }
+
+    /// <summary>The first time a list sets a built pipeline: its shader bytes count as held by the driver from now on.</summary>
+    private void CountUsed(StandInPipelineObject* standIn)
+    {
+        lock (_gate)
+        {
+            if (standIn->Counted == 0)
+            {
+                standIn->Counted = 1;
+                _usedBytes += _bytes.GetValueOrDefault((nint)standIn);
+            }
+        }
+    }
+
+    /// <summary>A command list set a stand-in whose pipeline was given up: its build is prepared and queued again, off this thread.</summary>
+    private void MakeAgain(nint standIn)
+    {
+        Func<PendingBuild?>? prepare;
+
+        lock (_gate)
+        {
+            _again.TryGetValue(standIn, out prepare);
+        }
+
+        if (prepare is null)
+        {
+            return;
+        }
+
+        Interlocked.Increment(ref _madeAgain);
+        long started = Stopwatch.GetTimestamp();
+        _ = Task.Run(() => Queue(standIn, prepare, started));
     }
 
     private void Track(nint standIn, StandInWork work)
@@ -335,6 +464,11 @@ internal sealed unsafe class StandInPipelines
         var standIn = (StandInPipelineObject*)pipeline;
         nint desktop = Volatile.Read(ref standIn->Desktop);
         pending = desktop == 0;
+
+        if (Built(standIn))
+        {
+            return desktop;
+        }
 
         // Used first, so a deferred stand-in started below queues its creation as urgent.
         bool firstUse = pending && Volatile.Read(ref standIn->Used) == 0 && Interlocked.Exchange(ref standIn->Used, 1) == 0;
@@ -519,6 +653,12 @@ internal sealed unsafe class StandInPipelines
             _live.Remove((nint)standIn);
             _waiting.Remove((nint)standIn);
             _work.Remove((nint)standIn);
+            _again.Remove((nint)standIn);
+
+            if (_bytes.Remove((nint)standIn, out long size) && standIn->Counted == 1 && standIn->Desktop != 0)
+            {
+                _usedBytes -= size;
+            }
 
             _small.Remove((nint)standIn);
             _essential.Remove((nint)standIn);
@@ -813,7 +953,7 @@ internal sealed unsafe class StandInPipelines
         return (nint)standIn;
     }
 
-    private void Complete(nint standIn, PipelineResult built, string what, long started, Action<nint>? notify)
+    private void Complete(nint standIn, PipelineResult built, string what, long started, Action<nint>? notify, long bytes = 0)
     {
         var took = Stopwatch.GetElapsedTime(started);
 
@@ -837,8 +977,15 @@ internal sealed unsafe class StandInPipelines
 
             if (_live.Contains(standIn))
             {
+                Volatile.Write(ref ((StandInPipelineObject*)standIn)->LastUsed, StandInUse.Frame);
                 Volatile.Write(ref ((StandInPipelineObject*)standIn)->Desktop, built.Pipeline);
                 Interlocked.Increment(ref _ready);
+
+                if (_again.ContainsKey(standIn))
+                {
+                    _bytes[standIn] = bytes;
+                    ((StandInPipelineObject*)standIn)->Counted = 0;
+                }
 
                 if (took > SlowBuild)
                 {

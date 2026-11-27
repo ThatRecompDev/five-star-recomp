@@ -148,6 +148,10 @@ internal static class HostUsage
           --clamp-enhanced-barriers  enhanced barriers on the indirect-argument scratch (one per clamp) instead of
                                  three transitions per ExecuteIndirect, where the device has them; not with --mesh-launch
           --typeless-depth       depth textures in a typed depth format made typeless, so the game's shader views read them
+          --no-gpu-timeout       the game's command queues without the GPU timeout: long work stalls instead of removing the device
+          --d3dkmt-watch         log failing graphics kernel calls (D3DKMT), MarkDeviceAsError and device states: who removes the device
+          --driver-background-work  leave the driver's background shader recompiles on (off by default: their results fill its shader tables)
+          --pipeline-shader-budget <MiB>  DXIL the built pipelines may hold before unused ones are given up and rebuilt at their next use (default 0 = never)
           --output WxH           the title renders and presents at one of its modes (1280x720, 1664x936, 1920x1080,
                                  2560x1440, 3840x2160) instead of its settings' 3840x2160; build 1.0.2.1 only
           --gpu-keep-awake       a compute queue of ours runs a small looped dispatch while the game submitted within 250 ms,
