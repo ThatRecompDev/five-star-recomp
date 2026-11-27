@@ -1,4 +1,4 @@
-﻿# Roadmap
+# Roadmap
 
 Goal: the 3D world on screen and looking right, then 30 fps, then 60. Current results: [Status](Status.md).
 
@@ -7,10 +7,11 @@ Goal: the 3D world on screen and looking right, then 30 fps, then 60. Current re
 | Step | State | Next |
 |---|---|---|
 | Boot to the world | done; startup freeze fixed | longer boots past the prologue card |
-| Device loss | two causes fixed; still lost ~10 min in, in hair simulation | boot with hair sim skipped, then fix it |
-| Lighting | world mostly dark; light sources show | PIX capture of the lighting pass |
-| Picture goes white after the intro | exposure suspected | exposure trace in a long boot |
-| Green credits cards | traced to the texture-release fix | fix in testing |
+| Device loss | a GPU timeout ~10 min in, graphics queue in character skinning | faster stores (translator batch) |
+| Surface colour | right for most surfaces; characters draw again | clothing, vehicles, hair |
+| Lighting | the tiled lighting pass draws nothing | trace its no-directional variants and shadow inputs |
+| Exposure | follows the black lighting to its floor | after lighting |
+| Green credits cards | fixed | |
 | Frame rate | ~200-400 ms a frame (2.5-5 fps) | game memory in video memory; faster shaders |
 
 ## Frame rate
