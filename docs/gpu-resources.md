@@ -59,6 +59,10 @@ flowchart LR
   shrunk to the levels before the new one (counted as TextureShrunk) and its views are written over the smaller one,
   where the new one used to retire it (w180: albedo 0) or, with --stale-in-first-page, all were kept whole (w182:
   20 GiB of video memory).
+  A read-only texture whose views descriptors still hold is never retired by one that starts at another address
+  (w186: views of all levels are made at packed addresses too, and 107,000 small textures behind them were retired
+  and nulled); the new one's view reads the levels that lie before the first such texture inside its range (counted
+  as ViewFitted). One with no views held, or replaced at its own address, is retired as before.
   --trace-views also logs a census of the texture views by levels and outcome (ViewCensus) and, per traced draw, the
   views its material names in the bindless table (MaterialViewTrace).
   --stale-in-first-page (off by default) retires an older read-only texture only when the new one starts in its first
