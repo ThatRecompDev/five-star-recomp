@@ -20,18 +20,28 @@ internal static partial class BallotBits
     {
         int replaced = 0;
 
-        foreach (var lines in blocks.Select(block => block.Lines))
+        for (int index = 0; index < blocks.Count; index++)
         {
-            replaced += SubstituteBlock(lines);
+            // SGPR half -> (mask bool, half) it holds.
+            var halves = new Dictionary<string, (string Mask, char Half)>(StringComparer.Ordinal);
+            var block = blocks[index];
+            replaced += SubstituteBlock(block.Lines, halves);
+
+            // The structured form branches on the exit's condition, not on the block's pc line: it reads the same bits
+            // at the block's end. Left as lane_bit, it read halves whose ballots, now unread in the lines, were dropped
+            // (a loop left on VCC then never ended: CS_TransmissionVolumetricsSubmerged_bbfb2953).
+            if (block.Exit.Condition is string condition)
+            {
+                int ignored = 0;
+                blocks[index] = block with { Exit = block.Exit with { Condition = Replace(condition, halves, ref ignored) } };
+            }
         }
 
         return replaced;
     }
 
-    private static int SubstituteBlock(List<string> lines)
+    private static int SubstituteBlock(List<string> lines, Dictionary<string, (string Mask, char Half)> halves)
     {
-        // SGPR half -> (mask bool, half) it holds.
-        var halves = new Dictionary<string, (string Mask, char Half)>(StringComparer.Ordinal);
         int replaced = 0;
 
         for (int i = 0; i < lines.Count; i++)
