@@ -230,6 +230,7 @@ internal static class HostUsage
           --dump-frame-dir <dir> where --dump-frame writes (default frame-<n>)
           --dump-frame-max <n>   PNGs --dump-frame writes at most (160)
           --dump-frame-filter <text,...>  only passes whose pipeline name holds one of the texts
+          --dump-frame-min-width <n>  narrower targets are not dumped (480; 80 takes the lighting's tile masks)
           --capture-dir <dir>    write read-back planes and render targets there as PNG
           --capture-presents <n,...> present numbers whose plane is read back (default 60,300,900,1500)
           --pix-capture <n,...>  PIX GPU capture of those presents (WinPixGpuCapturer.dll, winget Microsoft.PIX)
