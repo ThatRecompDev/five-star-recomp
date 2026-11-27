@@ -859,7 +859,7 @@ internal sealed class CommandLineParser
                 _options.OutputSize = OutputSize(Next());
 
                 return true;
-            case "--aftermath" or "--aftermath-dll" or "--aftermath-markers" or "--aftermath-resources" or "--aftermath-shader-info":
+            case "--aftermath" or "--aftermath-dll" or "--aftermath-markers" or "--aftermath-resources" or "--aftermath-shader-info" or "--aftermath-selftest":
                 return SetAftermath(option);
             default:
                 throw new CommandLineException($"unknown argument {option}");
@@ -1230,6 +1230,10 @@ internal sealed class CommandLineParser
         else if (option == "--aftermath-shader-info")
         {
             _options.AftermathShaderInfo = true;
+        }
+        else if (option == "--aftermath-selftest")
+        {
+            _options.AftermathSelfTest = true;
         }
         else if (_index + 1 < _args.Length && !_args[_index + 1].StartsWith('-'))
         {
