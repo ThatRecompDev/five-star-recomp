@@ -61,6 +61,11 @@ internal static unsafe class KernelGraphicsCalls
 
     private const int StackDepth = 48;
 
+    /// <summary>Stack words below a MarkDeviceAsError call that are kept, and code addresses of them that are logged.</summary>
+    private const int StaleWords = 0x400;
+    private const int StaleShown = 160;
+    private const ulong ModuleHeader = 0x1000;
+
     /// <summary>Calls with one pointer argument (d3dkmthk.h); a name win32u does not export is skipped.</summary>
     private static readonly string[] Watched =
     [
@@ -92,6 +97,16 @@ internal static unsafe class KernelGraphicsCalls
     /// <summary>mov ecx,imm32 (the index). Then: mov edx,eax; mov r8,[rsp+0x30]; lea r9,[rsp+0x28].</summary>
     private static readonly byte[] LoadIndex = [0xB9];
     private static readonly byte[] LoadReportArguments = [0x8B, 0xD0, 0x4C, 0x8B, 0x44, 0x24, 0x30, 0x4C, 0x8D, 0x4C, 0x24, 0x28];
+
+    /// <summary>
+    /// lea r8,[rsp-8], before mov rax,buffer; then mov r9,rax; mov edx,0x400 and the loop mov rax,[r8]; mov [r9],rax;
+    /// sub r8,8; add r9,8; dec edx; jnz: the 0x400 words below the stack pointer, downwards (a guard page is met in order).
+    /// </summary>
+    private static readonly byte[] StaleStart = [0x4C, 0x8D, 0x44, 0x24, 0xF8];
+    private static readonly byte[] StaleCopy = [0x49, 0x89, 0xC1, 0xBA, 0x00, 0x04, 0x00, 0x00, 0x49, 0x8B, 0x00, 0x49, 0x89, 0x01, 0x49, 0x83, 0xE8, 0x08, 0x49, 0x83, 0xC1, 0x08, 0xFF, 0xCA, 0x75, 0xEE];
+
+    /// <summary>The words below the last MarkDeviceAsError call's stack pointer, nearest first. Never freed.</summary>
+    private static readonly ulong* Stale = (ulong*)NativeMemory.AllocZeroed(StaleWords, sizeof(ulong));
 
     /// <summary>mov rax,imm64 and jmp rax, around the address.</summary>
     private static readonly byte[] JumpHead = [0x48, 0xB8];
@@ -236,6 +251,14 @@ internal static unsafe class KernelGraphicsCalls
         var code = new X64Emitter();
         code.SubRsp(FrameSize);
 
+        if (Watched[index] == MarkDeviceAsError)
+        {
+            // What the caller's earlier calls left below the stack: the frames of the call that failed, in part.
+            code.Data(StaleStart);
+            code.MovRax((ulong)Stale);
+            code.Data(StaleCopy);
+        }
+
         code.Data(SaveArgument);
         code.MovEax(number);
         code.Data(SystemCall);
@@ -336,7 +359,7 @@ internal static unsafe class KernelGraphicsCalls
             Volatile.Write(ref _gaveUp, Kernel32.GetCurrentThreadId());
 
             // D3DKMT_MARKDEVICEASERROR: hDevice, Reason.
-            _log?.Error($"[d3dkmt] MarkDeviceAsError(device 0x{*(uint*)argument:x}, reason 0x{*(uint*)(argument + StateTypeOffset):x}) -> 0x{status:x8}: user mode gives the device up{Stack()}");
+            _log?.Error($"[d3dkmt] MarkDeviceAsError(device 0x{*(uint*)argument:x}, reason 0x{*(uint*)(argument + StateTypeOffset):x}) -> 0x{status:x8}: user mode gives the device up{Stack()}{StaleCalls()}");
 
             return;
         }
@@ -407,6 +430,52 @@ internal static unsafe class KernelGraphicsCalls
             PageFaultState => $"page fault state {bytes} (sequence number, stage, bind entry, flags, error code, GPU VA)",
             _ => $"state type {type}: {bytes}",
         };
+    }
+
+    /// <summary>
+    /// The return addresses into the display driver and D3D12 among the words kept from below the MarkDeviceAsError
+    /// call, nearest first: calls that had returned by then, the failed one's among them (and older ones).
+    /// </summary>
+    private static string StaleCalls()
+    {
+        var text = new StringBuilder("\n    returned calls below the stack (offset below the call: return address), nearest first:");
+        int shown = 0;
+
+        for (int i = 0; i < StaleWords && shown < StaleShown; i++)
+        {
+            ulong value = Stale[i];
+            string where = CodeAddress(value);
+
+            if (where.Length != 0)
+            {
+                text.Append(CultureInfo.InvariantCulture, $"\n      -0x{(i + 1) * sizeof(ulong):x}: {where}");
+                shown++;
+            }
+        }
+
+        return text.ToString();
+    }
+
+    /// <summary>"module+0xoffset" when <paramref name="value"/> follows a call instruction in the driver or D3D12; else empty.</summary>
+    private static string CodeAddress(ulong value)
+    {
+        nint module;
+        uint flags = Win32Constants.GetModuleHandleExFlagFromAddress | Win32Constants.GetModuleHandleExFlagUnchangedRefcount;
+
+        if (value < ModuleHeader || Kernel32.GetModuleHandleExW(flags, (char*)value, &module) == 0 || value - (ulong)module < ModuleHeader)
+        {
+            return string.Empty;
+        }
+
+        string name = SystemModules.FileName(module);
+        bool ours = name.StartsWith("nv", StringComparison.OrdinalIgnoreCase) || name.StartsWith("d3d12", StringComparison.OrdinalIgnoreCase);
+
+        if (!ours || !GameHangWatch.IsReadable(value - sizeof(ulong), Win32Constants.PageExecuteRead) || !GameHangWatch.IsReadable(value, Win32Constants.PageExecuteRead) || !ReturnAddresses.AfterCall((byte*)value))
+        {
+            return string.Empty;
+        }
+
+        return $"{name}+0x{value - (ulong)module:x}";
     }
 
     /// <summary>The calling thread's stack as lines, innermost first (this report's own frames come first), then its managed frames.</summary>
