@@ -36,39 +36,18 @@ screen legal-next
 1 PadA hold 0.3 repeat 3 every 8
 
 # Privacy policy and terms of service: two check boxes that A toggles, then Confirm, which is enabled once both are
-# checked. The focus starts on the first box. The policy text on the right scrolls by itself (63 to 132 cells changed in
-# one boot), so the screen allows 160 changed cells; the legal screens are 233 and 256 cells away. Each step below
-# repeats its press until a change block sees it take, so a press the game drops is pressed again and a press that took
-# is not (a second A would clear the box). The changes are watched in the left panel only (cells 0-12 x 5-15, the
-# boxes in column 1, rows 6-7 and 11-12, Confirm in rows 13-15), away from the scrolling text: a check mark changes a
-# cell or two, a focus move about 30. A step that sees no change in 47 s goes on anyway, with a warning in the log.
-#
-# A select step tries A for 15 s, then the keyboard's Space for 15 s, then Enter; the first that takes ends the step.
-#
-# The block begins once the left half of the screen (the boxes, away from the scrolling text) has stayed still for 1 s,
-# so the first press does not land while the screen still fades in.
+# checked. The focus starts on the first box: A, Down, A, Down, A, 4 s apart, each pressed once, because a second A
+# would clear a box and the first check mark is too small to see in a screen signature (one cell, 11 levels of 255).
+# The policy text on the right scrolls by itself (63 to 132 cells changed in one boot), so the screen allows 160
+# changed cells; the legal screens are 233 and 256 cells away. The block begins once the left half of the screen (the
+# boxes, away from the scrolling text) has stayed still for 1 s, so the first press does not land while the screen
+# still fades in.
 screen terms 160 settle 1 settle-region 0 0 23 26
-0.5 PadA hold 0.3 repeat 6 every 2.5
-+15 Space hold 0.3 repeat 6 every 2.5
-+15 Enter hold 0.3 repeat 6 every 2.5
-
-# The privacy box is checked: Down moves the focus to the terms box (the right panel does not count).
-change privacy-checked 1 region 0 5 3 13 timeout 47
-1 PadDown hold 0.3 repeat 18 every 2.5
-
-change terms-focused 6 region 0 5 12 15 timeout 47
-1 PadA hold 0.3 repeat 6 every 2.5
-+15 Space hold 0.3 repeat 6 every 2.5
-+15 Enter hold 0.3 repeat 6 every 2.5
-
-# Both boxes are checked: Down to Confirm, then select it until the story load shows.
-change terms-checked 1 region 0 5 3 13 timeout 47
-1 PadDown hold 0.3 repeat 18 every 2.5
-
-change confirm-focused 6 region 0 5 12 15 timeout 47
-1 PadA hold 0.3 repeat 6 every 2.5
-+15 Space hold 0.3 repeat 6 every 2.5
-+15 Enter hold 0.3 repeat 6 every 2.5
+2 PadA hold 0.3
+6 PadDown hold 0.3
+10 PadA hold 0.3
+14 PadDown hold 0.3
+18 PadA hold 0.3
 
 # The story load (a spinner on dark blue): nothing to press, the log names the time.
 screen story-load
