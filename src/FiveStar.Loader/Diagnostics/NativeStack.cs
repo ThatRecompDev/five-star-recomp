@@ -19,7 +19,11 @@ internal static unsafe class NativeStack
     // CONTEXT (winnt.h, AMD64): size, alignment and the Rsp and Rip fields.
     private const int ContextSize = 1232;
     private const int ContextAlignment = 16;
+    private const int RbxOffset = 0x90;
     private const int RspOffset = 0x98;
+    private const int RbpOffset = 0xA0;
+    private const int RsiOffset = 0xA8;
+    private const int RdiOffset = 0xB0;
     private const int RipOffset = 0xF8;
 
     /// <summary>UNW_FLAG_NHANDLER: unwind without calling handlers.</summary>
@@ -53,7 +57,20 @@ internal static unsafe class NativeStack
         return (byte*)(((ulong)raw + ContextAlignment - 1) & ~(ulong)(ContextAlignment - 1));
     }
 
-    private static List<StackFrame> WalkContext(ImageTable images, byte* context, int depth)
+    /// <summary>
+    /// The calling thread's frames, each with the non-volatile registers rbx, rbp, rsi and rdi as the unwind restored
+    /// them for it: what a frame of a module without symbols held when it made its call (an error code it passes on).
+    /// </summary>
+    public static List<StackFrame> WalkWithRegisters(ImageTable images, int depth, List<string> registers)
+    {
+        byte* raw = stackalloc byte[ContextSize + ContextAlignment];
+        byte* context = Align(raw);
+        Ntdll.RtlCaptureContext(context);
+
+        return WalkContext(images, context, depth, registers);
+    }
+
+    private static List<StackFrame> WalkContext(ImageTable images, byte* context, int depth, List<string>? registers = null)
     {
         var frames = new List<StackFrame>();
 
@@ -69,6 +86,7 @@ internal static unsafe class NativeStack
             ulong imageBase = 0;
             nint function = Ntdll.RtlLookupFunctionEntry(pc, &imageBase, 0);
             frames.Add(new StackFrame(pc, Describe(images, pc), function != 0));
+            registers?.Add($"rbx 0x{*(ulong*)(context + RbxOffset):x} rbp 0x{*(ulong*)(context + RbpOffset):x} rsi 0x{*(ulong*)(context + RsiOffset):x} rdi 0x{*(ulong*)(context + RdiOffset):x}");
             ulong rsp = *(ulong*)(context + RspOffset);
 
             // Only the innermost frame may be a leaf; past it, a frame without unwind data ends the walk, as does a
