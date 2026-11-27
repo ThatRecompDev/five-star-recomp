@@ -29,6 +29,10 @@ uint uav_slot(uint i) { return i < VIEW_SLOTS ? i : GPU_MAP_HEAP + 2u; }
 // A texture's heap slot: a game view, or else (a zero or unwritten T#, a reserved buffer slot, past the heap) the null
 // texture of its dimension at null_slot (NullTextureSlots), never a buffer read as a texture. The loader defines
 // FIVESTAR_FIRST_GAME_VIEW (DescriptorWindow.ReservedViews, NullTextureSlots.End); without it every index below the heap's end is a view.
+// FIVESTAR_COHERENT: globallycoherent in compute programs that talk across groups (ProgramEmitter.Coherent), else empty.
+#ifndef FIVESTAR_COHERENT
+#define FIVESTAR_COHERENT
+#endif
 #ifndef FIVESTAR_FIRST_GAME_VIEW
 #define FIVESTAR_FIRST_GAME_VIEW 0u
 #endif
@@ -40,7 +44,7 @@ uint MemLoad(uint ptr_lo, uint off) {
     return m.Load((ptr_lo + off) & ~3u);
 }
 void MemStore(uint ptr_lo, uint off, uint v) {
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];   // writable view of the GPU-memory window
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];   // writable view of the GPU-memory window
     m.Store((ptr_lo + off) & ~3u, v);
 }
 
@@ -85,7 +89,7 @@ uint2 ptr_add(uint lo, uint hi, uint u, int s) {
 static const uint TRACE_BASE = 0x04018100u;
 static const uint TRACE_ENTRIES = 65536u;
 void trace_entry(uint lo, uint hi, uint v) {
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
     uint i;
     m.InterlockedAdd(TRACE_BASE, 1u, i);
     m.Store4(TRACE_BASE + 256u + (i % TRACE_ENTRIES) * 16u, uint4(FIVESTAR_STORE_TRACE, lo, hi, v));
@@ -133,7 +137,7 @@ void TRACE_VSTORE(uint d0, uint d1, uint off, uint v) {   // a buffer store thro
 #define FIVESTAR_PROGRAM_ID 0u
 #endif
 void window_guard_count() {
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
     uint slot = FIVESTAR_WINDOW_GUARD + (FIVESTAR_PROGRAM_ID & 1023u) * 8u;
     m.Store(slot, FIVESTAR_PROGRAM_ID);
     m.InterlockedAdd(slot + 4u, 1u);
@@ -146,7 +150,7 @@ void window_guard_count() {
 // device alive; the loader names every program that reaches one, so the input or translation behind it gets fixed.
 #ifdef FIVESTAR_CAP_TABLE
 void ss_cap_hit(uint kind) {
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
     uint slot = FIVESTAR_CAP_TABLE + (FIVESTAR_PROGRAM_ID & 1023u) * 16u;
     m.Store(slot, FIVESTAR_PROGRAM_ID);
     m.InterlockedAdd(slot + 4u + kind * 4u, 1u);
@@ -160,7 +164,7 @@ void ss_cap_hit(uint kind) {}
 void span_store(uint hi) {
 #ifdef FIVESTAR_SPAN_GUARD
     if (hi < GPU_MAP_SPANS) return;
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
     uint slot = FIVESTAR_SPAN_GUARD + (FIVESTAR_PROGRAM_ID & 1023u) * 8u;
     m.Store(slot, FIVESTAR_PROGRAM_ID);
     m.InterlockedAdd(slot + 4u, 1u);
@@ -224,7 +228,7 @@ void PtrStore(uint lo, uint hi, uint off, uint v) {
     span_store(a.y);
     TRACE_ADDR(a.x, a.y, v);
     uint2 p = gpu_page(a.x, a.y);
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(p.x + 1u)];
+    FIVESTAR_COHERENT RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(p.x + 1u)];
     b.Store(p.y & ~3u, v);
 }
 uint2 gpu_rw(uint lo, uint hi) {   // (RW heap index, byte address) of a pointer, for atomics
@@ -258,13 +262,19 @@ uint buf_stride(uint d1) { return (d1 >> 16) & 0x3fffu; }
 // below the base (20 bytes below for a 20-byte record), so such an access is out of range in every mode.
 // num_records is dword2; the offset is the VGPR offset plus the instruction offset. Once per access buf_limit gives
 // the end the dwords must fit under and buf_offset the checked offset; each dword then costs one compare (buf_fits).
+// Whether index * stride reaches 4 GiB is tested without a division: NVIDIA's driver refused pipelines whose guarded
+// stores depend on 0xffffffff / stride (E_OUTOFMEMORY in CreateComputePipelineState and CreateGraphicsPipelineState,
+// RTX 3060, driver 32.0.16.1714). The stride has 14 bits, so with index = hi * 2^18 + lo the product is
+// (hi * stride + (lo * stride >> 18)) * 2^18 + a rest below 2^18, and no step passes 32 bits.
+bool buf_index_overflows(uint index, uint stride) {
+    return (index >> 18) * stride + (((index & 0x3ffffu) * stride) >> 18) >= 0x4000u;
+}
 uint buf_limit(uint d1, uint d2, uint d3, uint index) {
     uint sel = (d3 >> 28) & 3u;
     uint structured = select(index < d2, select(sel == 0u, buf_stride(d1), 0xffffffffu), 0u);
     uint unchecked = select(d2 == 0u, 0u, 0xffffffffu);
     uint limit = select(sel == 3u, d2, select(sel == 2u, unchecked, structured));
-    uint stride = buf_stride(d1);
-    return select(stride != 0u && index > 0xffffffffu / max(stride, 1u), 0u, limit);
+    return select(buf_index_overflows(index, buf_stride(d1)), 0u, limit);
 }
 uint buf_offset(uint d3, uint offset, uint soffset) {
     return select(((d3 >> 28) & 3u) == 3u, offset + soffset, offset);
@@ -274,7 +284,7 @@ bool buf_fits(uint start, uint limit) { return limit >= 4u && start <= limit - 4
 // s_buffer_load: the whole offset against num_records, counted in bytes (stride 0) or in strides.
 uint sbuf_limit(uint d1, uint d2) {
     uint stride = max(buf_stride(d1), 1u);
-    return select(d2 > 0xffffffffu / stride, 0xffffffffu, d2 * stride);
+    return select(buf_index_overflows(d2, stride), 0xffffffffu, d2 * stride);
 }
 
 uint BufLoad(uint heap_index, uint off) {
@@ -286,13 +296,124 @@ uint SBufLoad(uint heap_index, uint off) {   // an s_buffer_load: the V# is in S
     return b.Load(off & ~3u);
 }
 uint BufLoadRW(uint heap_index, uint off) {   // load through a UAV slot (buffer also written by this shader)
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
+    FIVESTAR_COHERENT RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
     return b.Load(off & ~3u);
 }
 void BufStore(uint heap_index, uint off, uint v) {
     TRACE_VIEW(heap_index, off, v);
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
+    FIVESTAR_COHERENT RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
     b.Store(off & ~3u, v);
+}
+
+// ---- Accesses of n (2 to 4) dwords a lane (buffer_load/store_dwordxN): one view and one vector Load/Store when every
+// dword is in range, else each dword with its own check as above, in a loop kept rolled so the rare case costs one
+// access in the program, not n. Every dword fits exactly when the last does and its offset does not wrap (a wrapped
+// dword lies past a failing one), so one compare decides. s_buffer_load keeps its dwords: uniform, branch-free loads
+// whose range branch would cost the constant-heavy programs more blocks (and compile time) than it saves.
+bool buf_fits_all(uint start, uint limit, uint n) { uint last = (n - 1u) * 4u; return start <= 0xffffffffu - last && buf_fits(start + last, limit); }
+uint4 BufLoadV(uint heap_index, uint off, uint start, uint limit, uint n) {   // heap_index and off as for BufLoad
+    ByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(view_slot(heap_index))];
+    uint a = off & ~3u;
+    if (buf_fits_all(start, limit, n)) {
+        if (n == 2u) return uint4(b.Load2(a), 0u, 0u);
+        if (n == 3u) return uint4(b.Load3(a), 0u);
+        return b.Load4(a);
+    }
+    uint4 r = uint4(0u, 0u, 0u, 0u);
+    [loop] for (uint k = 0u; k < n; k++) {
+        if (buf_fits(start + k * 4u, limit)) r = select(uint4(0u, 1u, 2u, 3u) == k, b.Load(a + k * 4u), r);
+    }
+    return r;
+}
+uint4 BufLoadRWV(uint heap_index, uint off, uint start, uint limit, uint n) {   // the same through the UAV
+    FIVESTAR_COHERENT RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
+    uint a = off & ~3u;
+    if (buf_fits_all(start, limit, n)) {
+        if (n == 2u) return uint4(b.Load2(a), 0u, 0u);
+        if (n == 3u) return uint4(b.Load3(a), 0u);
+        return b.Load4(a);
+    }
+    uint4 r = uint4(0u, 0u, 0u, 0u);
+    [loop] for (uint k = 0u; k < n; k++) {
+        if (buf_fits(start + k * 4u, limit)) r = select(uint4(0u, 1u, 2u, 3u) == k, b.Load(a + k * 4u), r);
+    }
+    return r;
+}
+// A store of n dwords partly out of range: each dword in range with its hooks (d0, d1 the V#'s, at its offset from the
+// base for TRACE_VSTORE), in a loop kept rolled as for the loads.
+void BufStoreEach(uint heap_index, uint off, uint start, uint limit, uint4 v, uint n, uint d0, uint d1, uint at) {
+    [loop] for (uint k = 0u; k < n; k++) {
+        uint w = k == 0u ? v.x : (k == 1u ? v.y : (k == 2u ? v.z : v.w));
+        if (buf_fits(start + k * 4u, limit)) { vstore_span(d1); TRACE_VSTORE(d0, d1, at + k * 4u, w); BufStore(heap_index, off + k * 4u, w); }
+    }
+}
+// A store of n dwords, every one in range (buf_fits_all).
+void BufStoreV(uint heap_index, uint off, uint4 v, uint n) {
+    TRACE_VIEW(heap_index, off, v.x);
+    TRACE_VIEW(heap_index, off + 4u, v.y);
+    if (n > 2u) TRACE_VIEW(heap_index, off + 8u, v.z);
+    if (n > 3u) TRACE_VIEW(heap_index, off + 12u, v.w);
+    FIVESTAR_COHERENT RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
+    uint a = off & ~3u;
+    if (n == 2u) b.Store2(a, v.xy);
+    else if (n == 3u) b.Store3(a, v.xyz);
+    else b.Store4(a, v);
+}
+
+// ---- Wide stores: a compute program's store of n (2 to 4) dwords a lane (buffer_store_dwordxN, global_store_dwordxN).
+// Game memory is system memory, and a GPU store there is fast only when one store instruction covers whole sectors a
+// dword a lane: on an RTX 4090, 4 MB of 16-byte lane records (four dword stores, or one Store4) took 25-40 ms, 4 MB a
+// dword a lane 0.16 ms (PCIe speed). When every lane of the hardware wave stores into one view and each lane's record
+// follows the one before it, the wave writes the block a dword a lane instead: store k writes dword k * lanes + lane of
+// the block, taken from the lane that holds it. The same bytes reach memory; any other wave stores as before. Off with
+// the store and span traces, which name each dword's own store.
+#if defined(FIVESTAR_STORE_TRACE) || defined(FIVESTAR_SPAN_GUARD) || defined(FIVESTAR_WINDOW_GUARD)
+#define WIDE_STORES 0
+#else
+#define WIDE_STORES 1
+#endif
+bool wide_block(uint view, uint at, uint n) {
+    if (!WIDE_STORES || WaveActiveCountBits(true) != WaveGetLaneCount()) return false;
+    uint first_view = WaveReadLaneFirst(view), first = WaveReadLaneFirst(at);
+    return WaveActiveAllTrue(view == first_view && at == first + WaveGetLaneIndex() * n * 4u);
+}
+uint wide_dword(uint4 v, uint n, uint d) {   // dword d of the wave's block of n-dword records
+    uint lane = d / n, c = d - lane * n;
+    uint x = WaveReadLaneAt(v.x, lane), y = WaveReadLaneAt(v.y, lane), z = WaveReadLaneAt(v.z, lane), w = WaveReadLaneAt(v.w, lane);
+    return c == 0u ? x : (c == 1u ? y : (c == 2u ? z : w));
+}
+void wide_write(uint uav, uint first, uint4 v, uint n) {   // the block from byte first of the UAV at heap index uav
+    RWByteAddressBuffer b = ResourceDescriptorHeap[uav];
+    uint lanes = WaveGetLaneCount(), lane = WaveGetLaneIndex();
+    b.Store(first + lane * 4u, wide_dword(v, n, lane));
+    b.Store(first + (lanes + lane) * 4u, wide_dword(v, n, lanes + lane));
+    if (n > 2u) b.Store(first + (2u * lanes + lane) * 4u, wide_dword(v, n, 2u * lanes + lane));
+    if (n > 3u) b.Store(first + (3u * lanes + lane) * 4u, wide_dword(v, n, 3u * lanes + lane));
+}
+// A buffer store of n dwords through view heap_index at byte off, every dword in range (BufferEmitter).
+void BufStoreN(uint heap_index, uint off, uint4 v, uint n) {
+    uint at = off & ~3u;
+    if (wide_block(heap_index, at, n)) {
+        wide_write(uav_slot(WaveReadLaneFirst(heap_index)), WaveReadLaneFirst(at), v, n);
+        return;
+    }
+    BufStoreV(heap_index, off, v, n);
+}
+// A global store of n dwords at pointer (lo, hi) (GlobalMemoryEmitter): wide when each lane's record is in one page of
+// game memory (the window, high dword 0, keeps PtrStore).
+void PtrStoreN(uint lo, uint hi, uint4 v, uint n) {
+    uint2 a = ptr_add(lo, hi, 0u, 0);
+    bool paged = a.y != 0u && a.y < GPU_MAP_SPANS && (a.x & 3u) == 0u && (a.x >> 16) == ((a.x + n * 4u - 1u) >> 16);
+    uint2 p = uint2(0u, 0u);
+    if (paged) p = gpu_page(a.x, a.y);
+    if (WaveActiveAllTrue(paged) && wide_block(p.x, p.y, n)) {
+        wide_write(WaveReadLaneFirst(p.x) + 1u, WaveReadLaneFirst(p.y), v, n);
+        return;
+    }
+    PtrStore(lo, hi, 0u, v.x);
+    PtrStore(lo, hi, 4u, v.y);
+    if (n > 2u) PtrStore(lo, hi, 8u, v.z);
+    if (n > 3u) PtrStore(lo, hi, 12u, v.w);
 }
 
 // ---- program waves. Translated code numbers lanes as the console does: 0 .. VW_WAVE-1 of a VW_WAVE-lane wave. The vw_*
@@ -451,12 +572,19 @@ uint readfirstlane(uint x, bool active) {   // first lane with EXEC set (not jus
 #endif
     uint l = m.x != 0 ? firstbitlow(m.x) : m.y != 0 ? 32 + firstbitlow(m.y) : 0u;
 #if VW_EMULATE && !VW_GROUP_WAVE && !VW_GROUP_LANES
-    // A wider hardware wave holds at most 4 program waves (128 lanes, or WARP's 4 for test waves): a max per program
-    // wave, one component each.
+    // A wider hardware wave holds WaveGetLaneCount() / VW_WAVE program waves: a max per program wave, one component
+    // each, four program waves per max. Console waves need one (at most 4 in 128 lanes); test-sized waves on a real
+    // GPU need more (16 two-lane waves in a 32-lane wave), where a single max gave every wave past the fourth the same.
     if ((m.x | m.y) == 0u) return vw_read(x, 0u);
-    uint s = vw_origin() / VW_WAVE, v = vw_lane() == l ? x : 0u;
-    uint4 r = WaveActiveMax(uint4(s == 0u ? v : 0u, s == 1u ? v : 0u, s == 2u ? v : 0u, s == 3u ? v : 0u));
-    return s == 0u ? r.x : s == 1u ? r.y : s == 2u ? r.z : r.w;
+    uint s = vw_origin() / VW_WAVE, v = vw_lane() == l ? x : 0u, first = 0u;
+    [unroll] for (uint base = 0u; base < 128u / VW_WAVE; base += 4u) {
+        if (base < WaveGetLaneCount() / VW_WAVE) {
+            uint k = s - base;   // above 3 (wrapped) for the program waves outside these four
+            uint4 r = WaveActiveMax(uint4(k == 0u ? v : 0u, k == 1u ? v : 0u, k == 2u ? v : 0u, k == 3u ? v : 0u));
+            if (k < 4u) first = k == 0u ? r.x : k == 1u ? r.y : k == 2u ? r.z : r.w;
+        }
+    }
+    return first;
 #else
     return vw_read(x, l);
 #endif
@@ -633,7 +761,7 @@ uint enc_num(float f, uint bits, uint num) {
     return 0;
 }
 void FmtStore(uint heap_index, uint addr, uint code, uint4 v, uint n) {
-    RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
+    FIVESTAR_COHERENT RWByteAddressBuffer b = ResourceDescriptorHeap[NonUniformResourceIndex(uav_slot(heap_index))];
     uint layout = code >> 3, num = code & 7;
     bool ints = num == 4 || num == 5;
     uint4 c = v;
@@ -780,7 +908,9 @@ uint probe_PtrLoad(uint site, uint lo, uint hi, uint off) { probe_pointer(site, 
 uint probe_SPtrLoad(uint site, uint lo, uint hi, uint off) { probe_pointer(site, lo, hi, off); return SPtrLoad(lo, hi, off); }
 uint probe_SPtrLoadAt(uint site, uint4 view, uint delta, uint lo, uint hi, uint off) { probe_pointer(site, lo, hi, off); return SPtrLoadAt(view, delta, lo, hi, off); }
 uint probe_SBufLoad(uint site, uint heap_index, uint off) { probe_view(site, heap_index); return SBufLoad(heap_index, off); }
-void probe_value(uint site, uint v) {   // the register a site's line loaded, the first time on thread 0
+// A vector load is one site, marked when any of its dwords is out of range.
+uint4 probe_BufLoadV(uint site, uint h, uint off, uint start, uint limit, uint n) { probe_view(site, h); probe_sbuf_fits(site, buf_fits_all(start, limit, n)); return BufLoadV(h, off, start, limit, n); }
+uint4 probe_BufLoadRWV(uint site, uint h, uint off, uint start, uint limit, uint n) { probe_view(site, h); probe_sbuf_fits(site, buf_fits_all(start, limit, n)); return BufLoadRWV(h, off, start, limit, n); }void probe_value(uint site, uint v) {   // the register a site's line loaded, the first time on thread 0
     if (g_probe_gi != 0u || site >= 32u || (g_probe_g[10] & (1u << site)) != 0u) return;
     g_probe_v[site] = v;
     g_probe_g[10] |= 1u << site;
@@ -793,7 +923,7 @@ void probe_end_stage(uint3 at_id, float4 colour, bool coloured) {
     uint range = WaveActiveBitOr(g_probe_range), unmapped = WaveActiveBitOr(g_probe_unmapped);
     uint record = WaveActiveBitOr(g_probe_record), window = WaveActiveBitOr(g_probe_window);
     if (!WaveIsFirstLane()) return;
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
     uint i;
     m.InterlockedAdd(FIVESTAR_MESH_PROBE_BASE, 1u, i);
     uint at = FIVESTAR_MESH_PROBE_BASE + 16u + (i % PROBE_RECORDS) * PROBE_RECORD_BYTES;
@@ -834,7 +964,7 @@ void probe_end(uint3 gid, uint gi, uint nv, uint np) {   // every thread of the 
     InterlockedOr(g_probe_g[12], g_probe_window);
     GroupMemoryBarrierWithGroupSync();
     if (gi != 0u) return;
-    RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
+    FIVESTAR_COHERENT RWByteAddressBuffer m = ResourceDescriptorHeap[GPU_MEM_HEAP + 1];
     uint i;
     m.InterlockedAdd(FIVESTAR_MESH_PROBE_BASE, 1u, i);
     uint at = FIVESTAR_MESH_PROBE_BASE + 16u + (i % PROBE_RECORDS) * PROBE_RECORD_BYTES;

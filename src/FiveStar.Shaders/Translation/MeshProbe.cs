@@ -9,7 +9,7 @@ namespace FiveStar.Shaders.Translation;
 
 /// <summary>
 /// A translated mesh program, in any of its forms (two-phase, staged or superstep), with probe code (rdna_prelude.hlsli,
-/// FIVESTAR_MESH_PROBE): every load site (a <c>BufLoad</c>, <c>BufLoadRW</c>, <c>FmtLoad</c> or <c>PtrLoad</c> call, with
+/// FIVESTAR_MESH_PROBE): every load site (a <c>BufLoad</c>, <c>BufLoadRW</c>, their vector forms, <c>FmtLoad</c> or <c>PtrLoad</c> call, with
 /// the range check before it: <c>buf_fits</c>, or the compare of an s_buffer_load) calls the probe form with its site
 /// number, which marks the site in a per-thread mask when its range check fails, it reads through an unmapped page of
 /// the address map, or through a record naming no descriptor. The register a site's line loads is noted the first time
@@ -298,7 +298,7 @@ public static partial class MeshProbe
         return text.ToString();
     }
 
-    [GeneratedRegex(@"\b(?<name>sbuf_fits|buf_fits|BufLoadRW|BufLoad|SBufLoad|FmtLoad|PtrLoad|SPtrLoadAt|SPtrLoad)\(")]
+    [GeneratedRegex(@"\b(?<name>sbuf_fits|buf_fits|BufLoadRWV|BufLoadRW|BufLoadV|BufLoad|SBufLoad|FmtLoad|PtrLoad|SPtrLoadAt|SPtrLoad)\(")]
     private static partial Regex LoadPattern();
 
     /// <summary>An s_buffer_load dword: <c>select(offset + k &lt; limit, SBufLoad(...), 0u)</c>.</summary>

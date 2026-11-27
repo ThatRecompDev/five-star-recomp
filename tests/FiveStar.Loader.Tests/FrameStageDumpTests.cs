@@ -45,6 +45,17 @@ public sealed class FrameStageDumpTests
 
         FrameStageDump.Present = 0;
         FrameStageDump.Filter = null;
+
+        // --dump-frame 2100, world (300 presents after the first world frame) or world+n.
+        Assert.True(FrameStageDump.TryParseWhen("2100", out long present, out long offset));
+        Assert.Equal((2100L, -1L), (present, offset));
+        Assert.True(FrameStageDump.TryParseWhen("world", out _, out offset));
+        Assert.Equal(FrameStageDump.DefaultWorldOffset, offset);
+
+        Assert.True(FrameStageDump.TryParseWhen("world+150", out present, out offset));
+        Assert.Equal((0L, 150L), (present, offset));
+        Assert.False(FrameStageDump.TryParseWhen("world-3", out _, out _));
+        Assert.False(FrameStageDump.TryParseWhen("0", out _, out _));
     }
 
     [Fact]

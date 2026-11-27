@@ -29,6 +29,10 @@ internal sealed class FrameStageDump
 
     private const int PassNameLength = 72;
 
+    /// <summary><c>--dump-frame world</c>: presents after the first world present (its first frames still stream textures).</summary>
+    public const long DefaultWorldOffset = 300;
+    private const string WorldWord = "world";
+
     /// <summary>DXGI R32G8X24_TYPELESS, D32_FLOAT_S8X24_UINT, R24G8_TYPELESS and D24_UNORM_S8_UINT.</summary>
     private const int R32G8X24Typeless = 19;
     private const int D32S8 = 20;
@@ -45,6 +49,12 @@ internal sealed class FrameStageDump
 
     /// <summary>The present after which the frame is dumped (<c>--dump-frame n</c>); 0 dumps none.</summary>
     public static long Present { get; set; }
+
+    /// <summary>
+    /// <c>--dump-frame world+n</c>: <see cref="Present"/> is set n presents after the first world present (the draw
+    /// trace's world trigger), so the dump does not depend on how long the load takes; -1 when a present was given.
+    /// </summary>
+    public static long WorldOffset { get; set; } = -1;
 
     /// <summary>Where the PNGs go (<c>--dump-frame-dir</c>).</summary>
     public static string Directory { get; set; } = "frame-dump";
@@ -159,6 +169,31 @@ internal sealed class FrameStageDump
     public static bool Passes(string pass, string? filter)
     {
         return filter is null || DrawTrace.MatchesFilter(pass, filter);
+    }
+
+    /// <summary>
+    /// <c>--dump-frame</c>'s value: a present number, or <c>world</c> / <c>world+n</c> (n presents after the first world
+    /// present, <see cref="DefaultWorldOffset"/> without one). False for anything else.
+    /// </summary>
+    public static bool TryParseWhen(string text, out long present, out long worldOffset)
+    {
+        present = 0;
+        worldOffset = -1;
+
+        if (!text.StartsWith(WorldWord, StringComparison.OrdinalIgnoreCase))
+        {
+            return long.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out present) && present > 0;
+        }
+
+        string rest = text[WorldWord.Length..];
+        worldOffset = DefaultWorldOffset;
+
+        if (rest.Length == 0)
+        {
+            return true;
+        }
+
+        return rest[0] == '+' && long.TryParse(rest[1..], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out worldOffset) && worldOffset > 0;
     }
 
     /// <summary>Whether a depth target of <paramref name="format"/> has a stencil plane (R32G8X24, D32S8, R24G8, D24S8), dumped beside its depth.</summary>

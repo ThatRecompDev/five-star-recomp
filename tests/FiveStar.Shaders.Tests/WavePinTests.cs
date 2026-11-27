@@ -55,6 +55,33 @@ public sealed class WavePinTests : IClassFixture<WarpFixture>
         }
     }
 
+    /// <summary>
+    /// A wave64 program whose group of 33 to 64 threads shares groupshared memory (CS_MaterialTiles: lane 0 zeroes the
+    /// tile mask, every lane ORs its texel's class bits in, lane 0 stores it) is pinned to 64 lanes, so 32-lane hardware
+    /// runs its group-wave variant with barriers instead of two racing waves; 32 threads or no LDS stay unpinned.
+    /// </summary>
+    [Theory]
+    [InlineData(64, 64, true, "[WaveSize(64)]")]
+    [InlineData(64, 32, true, null)]
+    [InlineData(64, 64, false, null)]
+    [InlineData(64, 128, true, null)]
+    public void A_wave64_group_sharing_lds_is_pinned_to_64_lanes(int wave, int threads, bool lds, string? pin)
+    {
+        string groupshared = lds ? "groupshared uint g_lds[2];\n" : string.Empty;
+        string hlsl = $"{groupshared}[numthreads({threads}, 1, 1)]\nvoid main(uint in_gi : SV_GroupIndex) {{\n  if (in_gi == 0u) g_lds[0] = 0u;\n  uint _o = 0; InterlockedOr(g_lds[0], 1u << in_gi, _o);\n}}\n";
+
+        string pinned = HlslTranslator.PinWaveSize(hlsl, wave, threads);
+
+        if (pin is null)
+        {
+            Assert.Equal(hlsl, pinned);
+        }
+        else
+        {
+            Assert.Contains($"{pin}\n[numthreads(", pinned, StringComparison.Ordinal);
+        }
+    }
+
     private string Translate(string name, string code, int wave, int threads)
     {
         var assembled = _fixture.Workbench.Assemble(name, $"s_mov_b32 s3, exec_lo\n{code}\ns_endpgm", wave);

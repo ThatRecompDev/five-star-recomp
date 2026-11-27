@@ -19,17 +19,19 @@ internal static class ReplayCommand
     private const int DefaultRuns = 10;
     private const int DefaultShown = 8;
     private const string DebugLayerFlag = "debug-layer";
+    private const string GroupWaveFlag = "group-wave";
     private const string Warp = "warp";
     private const string Hardware = "hardware";
     private const string CurrentTranslator = "current";
+    private const string SavedExtension = ".bin";
 
     public static int Run(IReadOnlyList<string> args)
     {
-        var arguments = new CommandArguments(args, new HashSet<string> { DebugLayerFlag });
+        var arguments = new CommandArguments(args, new HashSet<string> { DebugLayerFlag, GroupWaveFlag });
 
         if (arguments.Positional.Count != 1)
         {
-            throw new ArgumentException("replay <capture folder> [--adapter hardware|warp|<index>] [--hlsl <file> | --translator current] [--runs N] [--tolerance F] [--shown N] [--backend hlsl|dxil|dxil-only] [--debug-layer]");
+            throw new ArgumentException("replay <capture folder> [--adapter hardware|warp|<index>] [--hlsl <file> | --translator current] [--runs N] [--tolerance F] [--shown N] [--backend hlsl|dxil|dxil-only] [--debug-layer] [--group-wave] [--save-outputs <dir>] [--expected <dir>]");
         }
 
         var folder = new CaptureFolder(arguments.Positional[0]);
@@ -38,8 +40,9 @@ internal static class ReplayCommand
 
         using var device = Device(arguments.Option("adapter") ?? Hardware, arguments.Flag(DebugLayerFlag));
         var tolerance = Tolerance(arguments.Option("tolerance"));
-        var report = Replay(device, folder, capture, candidate, arguments.IntegerOption("runs") ?? DefaultRuns, tolerance, arguments.IntegerOption("shown") ?? DefaultShown);
+        var report = Replay(device, folder, capture, candidate, arguments.IntegerOption("runs") ?? DefaultRuns, tolerance, arguments.IntegerOption("shown") ?? DefaultShown, arguments.Option("expected"));
         Print(capture, candidate, device, report);
+        SaveOutputs(arguments.Option("save-outputs"), report.Outcome);
 
         if (report.Differences.All(difference => difference.Same))
         {
@@ -49,8 +52,11 @@ internal static class ReplayCommand
         return Different;
     }
 
-    /// <summary>Runs <paramref name="candidate"/> over the capture and compares each output with its reference.</summary>
-    internal static ReplayReport Replay(GpuDevice device, CaptureFolder folder, DispatchCapture capture, ReplayCandidate candidate, int runs, float? tolerance, int shown)
+    /// <summary>
+    /// Runs <paramref name="candidate"/> over the capture and compares each output with its reference: the captured
+    /// output, or the <c>&lt;resource&gt;.bin</c> files an earlier replay saved in <paramref name="expected"/>.
+    /// </summary>
+    internal static ReplayReport Replay(GpuDevice device, CaptureFolder folder, DispatchCapture capture, ReplayCandidate candidate, int runs, float? tolerance, int shown, string? expected = null)
     {
         ReplayOutcome outcome;
 
@@ -73,11 +79,27 @@ internal static class ReplayCommand
 
         foreach (var resource in capture.Resources.Where(resource => resource.Output is not null))
         {
-            var expected = folder.ReadFile(resource.Output!);
-            differences.Add(OutputComparison.Compare(resource, expected, outcome.Outputs[resource.Id], tolerance, shown));
+            var reference = expected is null ? folder.ReadFile(resource.Output!) : File.ReadAllBytes(Path.Combine(expected, resource.Id + SavedExtension));
+            differences.Add(OutputComparison.Compare(resource, reference, outcome.Outputs[resource.Id], tolerance, shown));
         }
 
         return new ReplayReport(outcome, differences, device.TakeErrors());
+    }
+
+    /// <summary>The first run's outputs as <c>&lt;resource&gt;.bin</c> in <paramref name="directory"/>, for <c>--expected</c>.</summary>
+    private static void SaveOutputs(string? directory, ReplayOutcome outcome)
+    {
+        if (directory is null)
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(directory);
+
+        foreach (var (id, bytes) in outcome.Outputs)
+        {
+            File.WriteAllBytes(Path.Combine(directory, id + SavedExtension), bytes);
+        }
     }
 
     private static ReplayCandidate Candidate(CommandArguments arguments, CaptureFolder folder, DispatchCapture capture)
@@ -105,7 +127,7 @@ internal static class ReplayCommand
             throw new ArgumentException($"--translator {translator}: only 'current' (this build's translator)");
         }
 
-        return ReplayCandidate.FromTranslator(folder, capture, ShaderTools.Backend(arguments, retry: false));
+        return ReplayCandidate.FromTranslator(folder, capture, ShaderTools.Backend(arguments, retry: false), arguments.Flag(GroupWaveFlag));
     }
 
     /// <summary>WARP, the first hardware adapter, or the adapter of that DXGI index.</summary>
