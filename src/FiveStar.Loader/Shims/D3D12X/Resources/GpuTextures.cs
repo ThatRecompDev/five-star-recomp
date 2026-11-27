@@ -140,6 +140,7 @@ internal sealed unsafe class GpuTextures : IDisposable
     public GpuTexture? CreateForView(nint device, ulong address, ResourceDescription* description, int viewFormat)
     {
         XgLayoutBuilder.Build(ToXg(description), out var layout);
+        Shrink(device, address);
 
         // A view over an XMem reservation gets its texture even before the pages are mapped: the game streams them in
         // later, and a null descriptor made now would stay null (w105/w108: hundreds of null views of 4x4 to 1024x1024
@@ -367,19 +368,44 @@ internal sealed unsafe class GpuTextures : IDisposable
         }
     }
 
-    /// <summary>The first 8 bytes of <paramref name="texture"/>'s memory now (its smallest level), read through the kernel; 0 when not readable.</summary>
-    public ulong FirstBytes(GpuTexture texture)
+    /// <summary>
+    /// A texture made for a view is placed inside a read-only one that starts before <paramref name="address"/> and whose
+    /// views are held: the game gave that one's large levels up (it streams them out and packs the next texture there),
+    /// so it keeps the levels before the address in a smaller texture, which its views are written over when it is
+    /// released (<see cref="ReleasedTextureViews"/>). The new one used to retire it and its views went null: w180's
+    /// albedo read 0 where w182, keeping every overlapped texture whole (--stale-in-first-page), drew the materials
+    /// at 20 GiB of video memory.
+    /// </summary>
+    private void Shrink(nint device, ulong address)
     {
-        byte* source = _source.Find(texture.Address, sizeof(ulong));
-        ulong first = 0;
-        nuint done = 0;
+        var before = Registry.Find(address);
 
-        if (source != null)
+        if (before is null || before.Address >= address || before.GpuWritten || before.Watched || before.Layout.PlaneCount != 1 || Views.Of(before).Count == 0)
         {
-            _ = Kernel32.ReadProcessMemory(Kernel32.GetCurrentProcess(), (nint)source, &first, sizeof(ulong), &done);
+            return;
         }
 
-        return first;
+        var smaller = before.Console;
+
+        if (ResidentLevels.Fit(ref smaller, address - before.Address) && CreateForView(device, before.Address, &smaller, before.DesktopFormat) is not null)
+        {
+            Counters.Add(GpuResourceEvent.TextureShrunk);
+        }
+    }
+
+    /// <summary>The bytes of <paramref name="texture"/>'s memory that are not 0 now, read through the kernel; -1 when it is not all readable.</summary>
+    public long NonZeroBytes(GpuTexture texture)
+    {
+        byte* source = _source.Find(texture.Address, texture.Size);
+
+        if (source == null || (source = ReadThroughKernel(source, texture.Size)) == null)
+        {
+            return -1;
+        }
+
+        var bytes = new ReadOnlySpan<byte>(source, checked((int)texture.Size));
+
+        return bytes.Length - bytes.Count((byte)0);
     }
 
     /// <summary>The bytes of live textures made for views over memory with no page mapped (<see cref="UnmappedViewBudget"/>).</summary>

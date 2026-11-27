@@ -107,10 +107,27 @@ public sealed unsafe class ResidentLevelsTests
         var other = new GpuTexture(0x279aaa60000, Resource(256, 512, 8, Bc1), 3, Bc1, 0, false, new XgSurface { Size = 0x2b000 });
         var view = View(SrvTexture2D, first: 1, levels: 5, clamp: 0);
 
-        Assert.Equal((3, 0, 0), (ReleasedTextureViews.Added(released, larger), ReleasedTextureViews.Added(released, other), ReleasedTextureViews.Added(larger, released)));
+        Assert.Equal((3, 0, -3), (ReleasedTextureViews.Shift(released, larger), ReleasedTextureViews.Shift(released, other), ReleasedTextureViews.Shift(larger, released)));
 
         ResidentLevels.Later((int*)&view, 3);
         Assert.Equal((4, 5), (Word(view, MostDetailedMip), Word(view, MipLevels)));
+    }
+
+    /// <summary>The next texture 0x4000 bytes into a 1024x1024 one leaves it its levels from 128x128; one in its first bytes leaves none.</summary>
+    [Fact]
+    public void A_texture_another_is_placed_inside_keeps_the_levels_before_it()
+    {
+        var resource = Resource(1024, 1024, 9, Bc1);
+        var none = resource;
+
+        Assert.True(ResidentLevels.Fit(ref resource, 0x4000));
+        Assert.Equal((128ul, 128u, (ushort)6, 0x3000ul), (resource.Width, resource.Height, resource.MipLevels, Bytes(resource)));
+        Assert.False(ResidentLevels.Fit(ref none, 0x800));
+        Assert.Equal((ushort)9, none.MipLevels);
+
+        var view = View(SrvTexture2D, first: 0, levels: 9, clamp: 0);
+        ResidentLevels.Renumber((int*)&view, 3, resource.MipLevels);
+        Assert.Equal((0, 6), (Word(view, MostDetailedMip), Word(view, MipLevels)));
     }
 
     private static ResourceDescription Resource(uint width, uint height, ushort mips, int format)
