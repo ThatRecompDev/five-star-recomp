@@ -1,38 +1,32 @@
 # Status
 
-GTA VI does not run yet. Updated 26 November 2026.
+GTA VI does not run yet. Updated 27 November 2026.
 
 ## Where it is
 
-- **Boots to the world.** Logo, intro, first-run screens, story load and the opening cutscene (art, credits, dialogue,
-  sound) run at 30 fps. The 3D world draws from about present 950.
-- **World image:** the city at night is on screen with sane exposure, but only light sources show (lamps, windows, car
-  lights); the ground and buildings they should light stay black. Also wrong: blocky road lights, no bounced light
-  (needs ray tracing).
-- **Device loss:** narrowed, not fixed. Two causes are fixed (descriptors and address-map pages that still named
-  released textures and buffers). Boots now lose the device at the same point, about 10 minutes in, with the GPU
-  stopped in the hair simulation (`smh_sim`); being tested with it skipped. Not the GPU timeout: the GPU was idle most
-  of each frame before the loss (#64).
-- **Startup freeze:** fixed. Boots no longer stand minutes on a black screen before the start screen.
-- **Materials:** fixed. Every texture the G-buffer samples now has data (streamed textures are re-read as their pages
-  change).
-- **Speed:** a world frame takes about 390 ms (about 2.5 fps), down from 1,100 ms.
-  Targets: 30 fps, then 60.
+- **Boots to the world.** Logo, intro, first-run screens, story load and the opening scenes run; the start-up freeze
+  is fixed.
+- **Picture, by stage** (read from one frame's intermediate images, `--dump-frame`):
+  - Geometry, normals, depth: right.
+  - Surface colour: right for most surfaces since textures the game still uses are no longer retired by their
+    neighbours. Characters draw again (skin and faces). Open: clothing and vehicles black, hair, some odd colours.
+  - Lighting: writes almost nothing, so the final frame is dark or blown out. The tiled lighting pass draws no
+    tiles; being traced.
+  - Exposure: follows the black lighting to its floor.
+- **Device loss:** a GPU timeout about 10 minutes in (NVIDIA Aftermath: "Timeout", no page fault), with the graphics
+  queue in the character skinning dispatches. Faster skinning stores are in the next translator batch.
+- **Speed:** a world frame takes about 200-400 ms. Targets: 30 fps, then 60.
 - **AMD:** world geometry draws since #55.
-- **Memory:** a 10-minute boot grows to about 39 GB private, mostly video memory our textures hold; being reduced.
 
 ## Known problems
 
 | Problem | Next step |
 |---|---|
-| Device lost (0x887a0005) about 10 minutes in, in the hair simulation | boot with `smh_` skipped; then fix those shaders |
-| GPU writes to game memory in system RAM (16-byte records: 40 ms per 4 MB) | wide stores as one dword per thread (in testing); video-memory copies |
-| Surfaces get no direct light | the sky passes run again (were skipped); PIX capture of the lighting pass |
-| Blocky road lights | trace the shadow-mask pages and cascade shadow draws |
-| Heaviest GPU passes: depth pre-pass mesh shader 95 ms, deferred G-buffer 77 ms, our indirect clamp 58 ms | `--mesh-launch` (no per-draw clamp), one clamp per list |
-| Texture refresh 84 ms a frame on the submit path | refresh only what the frame reads, off the submit thread |
-| Ray tracing | not built; those passes are skipped |
-
+| Lighting pass draws nothing | find why its "no directional light" variants shade no pixels; shadow-mask inputs |
+| GPU timeout about 10 minutes in | translator batch with faster stores; then game memory in video memory |
+| Clothing, vehicles, hair missing from surface colour | bring back the skipped skinned passes one by one |
+| GPU writes to game memory in system RAM are slow | wide stores (next batch); video-memory copies |
+| Ray tracing | not built; those passes are held and stand-ins fill some outputs |
 ![Progress](progress.svg)
 
 ## Components

@@ -134,4 +134,10 @@ internal enum GpuResourceEvent
 
     /// <summary>A slot-70 view that skips a texture's large levels read a texture of the levels it reads (<see cref="ResidentLevels"/>).</summary>
     ViewResident,
+
+    /// <summary>A texture another one was placed inside kept the levels before it, in a smaller texture its views read (<see cref="GpuTextures.CreateForView"/>).</summary>
+    TextureShrunk,
+
+    /// <summary>A slot-70 view read a texture of the levels that lie before the next texture whose views are held (<see cref="GpuTextures.RoomAt"/>).</summary>
+    ViewFitted,
 }

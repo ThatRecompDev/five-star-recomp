@@ -76,6 +76,73 @@ public sealed unsafe class ResidentLevelsTests
         Assert.Equal((1024ul, (ushort)9, 3), (resource.Width, resource.MipLevels, Word(array, MostDetailedMip)));
     }
 
+    /// <summary>
+    /// The game makes three views of a texture (w180: 1024x1024 with 9 mips, then from levels 3 and 4): each one's
+    /// texture retired the last one's at the same address and its views went null.
+    /// </summary>
+    [Fact]
+    public void Views_of_one_texture_from_several_levels_read_one_texture()
+    {
+        var whole = Resource(1024, 1024, 9, Bc1);
+        var fromThree = whole;
+        var third = View(SrvTexture2D, first: 3, levels: 6, clamp: 0);
+        Assert.True(ResidentLevels.Reduce(ref fromThree, ref third));
+
+        var fourth = View(SrvTexture2D, first: 4, levels: 5, clamp: 0);
+        var main = View(SrvTexture2D, first: 0, levels: 9, clamp: 0);
+
+        Assert.True(ResidentLevels.Onto(whole, fromThree, ref fourth));
+        Assert.Equal((1, 5), (Word(fourth, MostDetailedMip), Word(fourth, MipLevels)));
+        Assert.False(ResidentLevels.Onto(whole, fromThree, ref main));
+        Assert.Equal((3, -1), (ResidentLevels.Dropped(whole, fromThree), ResidentLevels.Dropped(fromThree, whole)));
+    }
+
+    [Fact]
+    public void A_released_texture_s_views_read_the_larger_texture_of_its_levels_from_its_first()
+    {
+        var whole = Resource(1024, 1024, 9, Bc1);
+        var small = Resource(128, 128, 6, Bc1);
+        var released = new GpuTexture(0x279aaa60000, small, 1, Bc1, 0, false, new XgSurface { Size = 0x3000 });
+        var larger = new GpuTexture(0x279aaa60000, whole, 2, Bc1, 0, false, new XgSurface { Size = 0xab000 });
+        var other = new GpuTexture(0x279aaa60000, Resource(256, 512, 8, Bc1), 3, Bc1, 0, false, new XgSurface { Size = 0x2b000 });
+        var view = View(SrvTexture2D, first: 1, levels: 5, clamp: 0);
+
+        Assert.Equal((3, 0, -3), (ReleasedTextureViews.Shift(released, larger), ReleasedTextureViews.Shift(released, other), ReleasedTextureViews.Shift(larger, released)));
+
+        ResidentLevels.Later((int*)&view, 3);
+        Assert.Equal((4, 5), (Word(view, MostDetailedMip), Word(view, MipLevels)));
+    }
+
+    /// <summary>The next texture 0x4000 bytes into a 1024x1024 one leaves it its levels from 128x128; one in its first bytes leaves none.</summary>
+    [Fact]
+    public void A_texture_another_is_placed_inside_keeps_the_levels_before_it()
+    {
+        var resource = Resource(1024, 1024, 9, Bc1);
+        var none = resource;
+
+        Assert.True(ResidentLevels.Fit(ref resource, 0x4000));
+        Assert.Equal((128ul, 128u, (ushort)6, 0x3000ul), (resource.Width, resource.Height, resource.MipLevels, Bytes(resource)));
+        Assert.False(ResidentLevels.Fit(ref none, 0x800));
+        Assert.Equal((ushort)9, none.MipLevels);
+
+        var view = View(SrvTexture2D, first: 0, levels: 9, clamp: 0);
+        ResidentLevels.Renumber((int*)&view, 3, resource.MipLevels);
+        Assert.Equal((0, 6), (Word(view, MostDetailedMip), Word(view, MipLevels)));
+    }
+
+    /// <summary>w186: a 1024x1024 texture's 0xab000 bytes took in the 64x64 ones 0x4000 and 0xc000 behind it, and their views went null.</summary>
+    [Fact]
+    public void A_texture_whose_views_are_held_is_not_retired_by_one_that_starts_elsewhere()
+    {
+        var held = new GpuTexture(0x289da878000, Resource(64, 64, 5, Bc1), 1, Bc1, 0, false, new XgSurface { Size = 0x1000 });
+        var free = new GpuTexture(0x289da880000, Resource(64, 64, 5, Bc1), 2, Bc1, 0, false, new XgSurface { Size = 0x1000 });
+        var large = new GpuTexture(0x289da874000, Resource(1024, 1024, 9, Bc1), 3, Bc1, 0, false, new XgSurface { Size = 0xab000 });
+        var again = new GpuTexture(0x289da878000, Resource(128, 128, 6, Bc1), 4, Bc1, 0, false, new XgSurface { Size = 0x3000 });
+        var registry = new GpuTextureRegistry(() => [], () => []) { Held = texture => texture == held };
+
+        Assert.Equal((false, true, true), (registry.Retires(large, held), registry.Retires(large, free), registry.Retires(again, held)));
+    }
+
     private static ResourceDescription Resource(uint width, uint height, ushort mips, int format)
     {
         return new ResourceDescription
