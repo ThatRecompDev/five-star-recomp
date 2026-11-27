@@ -204,7 +204,7 @@ internal static unsafe class KernelGraphicsCalls
         }
 
         _reporting = false;
-        _log.Error($"[d3dkmt] at {sign}: the graphics kernel's device states:{text}");
+        _log.Error($"[d3dkmt] at {sign}: the graphics kernel's device states:{text}\n    driver shader tables: {DriverShaderTables.DescribeWatched()}");
         LogCounts();
     }
 
