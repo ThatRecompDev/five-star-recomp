@@ -331,7 +331,6 @@ mouse-sensitivity  1.0               # right-stick deflection per 1000 px/s of m
 mouse-curve        1.0               # exponent after clamping to the unit circle
 left-trigger       MouseRight
 right-trigger      MouseLeft
-a Space
 b C
 x R
 y F
@@ -339,15 +338,11 @@ left-shoulder Q
 right-shoulder E
 left-thumb LeftShift
 right-thumb V
-menu Escape
-view Tab
-dpad-up Up
-dpad-down Down
-dpad-left Left
-dpad-right Right
 ```
 
-These are the defaults. Keys are letters, digits, `F1`..`F24`, `Space`, `Tab`, `Enter`, `Escape`, `Backspace`,
+These are the defaults. `a`, `menu`, `view` and `dpad-up`, `dpad-down`, `dpad-left`, `dpad-right` have no key until a
+line gives them one (`a Space`, `dpad-down Down`); the first-run screens want A and the d-pad
+([running.md](running.md#first-run-in-the-game)). Keys are letters, digits, `F1`..`F24`, `Space`, `Tab`, `Enter`, `Escape`, `Backspace`,
 `CapsLock`, `ScrollLock`, `Insert`, `Delete`, `Home`, `End`, `PageUp`, `PageDown`, the arrows `Up` `Down` `Left`
 `Right`, `LeftShift` `RightShift` `LeftCtrl` `RightCtrl` `LeftAlt` `RightAlt`, `MouseLeft` `MouseRight` `MouseMiddle`
 `Mouse4` `Mouse5`, a virtual-key code as `0x..`, or `none`. The right stick follows mouse speed: deflection =
@@ -531,7 +526,7 @@ logged as `[debug]` (first 4096 messages).
 
 **Input script.** `--input-script` lines are `<seconds> <key> [hold <s>] [repeat <n> every <s>]`, times from loader
 start or from the start of their screen block (below; `+<s>`: that long after the previous line), keys named as in the input config, `#` a comment. A scripted key counts as held on the desktop, so the keyboard
-and the keyboard-and-mouse gamepad's bindings never see it (the game read a key bound to both twice: a check box ticked on and off). `PadA`, `PadB`, `PadX`, `PadY`, `PadMenu` and `PadView`
+and the keyboard-and-mouse gamepad's bindings never see it (the game read a key bound to both twice: a check box ticked on and off). `PadA`, `PadB`, `PadX`, `PadY`, `PadMenu`, `PadView` and the d-pad's `PadUp`, `PadDown`, `PadLeft`, `PadRight`
 press that gamepad button alone. Script only, the cursor is parked once in the top right corner, off the menus. The game reads input only through its own GameInput
 calls; a press while it does not poll has no effect. `<seconds> capture` reads back the next present at that time
 (with `--capture-dir`, [d3d12x-shim.md](d3d12x-shim.md#debug-layer)); `<seconds> cursor <dx> <dy> [hold <s>] [repeat â€¦]`
