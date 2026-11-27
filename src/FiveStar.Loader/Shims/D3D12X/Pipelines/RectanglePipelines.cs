@@ -59,6 +59,17 @@ internal sealed unsafe class RectanglePipelines
     /// </summary>
     public Func<string, string, byte[]?>? Compiler { get; init; }
 
+    /// <summary>Drops what is kept of <paramref name="pipeline"/>, which is about to be released, and its variant.</summary>
+    public void Forget(nint pipeline)
+    {
+        _recipes.TryRemove(pipeline, out _);
+
+        if (_variants.TryRemove(pipeline, out var variant) && variant != 0 && variant != Pending)
+        {
+            DesktopDevice.Release(variant);
+        }
+    }
+
     /// <summary>Keeps how <paramref name="pipeline"/> was built; a variant of an earlier pipeline at that address is dropped.</summary>
     public void Remember(nint pipeline, GraphicsPipelineDescription description, IReadOnlyList<TranslatedProgram> programs)
     {

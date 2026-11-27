@@ -483,6 +483,8 @@ internal sealed class LoaderHost
 
         if (_options.D3dkmtWatch)
         {
+            DriverShaderTables.Name = Shims.D3D12X.QueueProgress.PipelineName;
+            DriverShaderTables.More = Shims.D3D12X.Pipelines.PipelineEviction.Describe;
             DriverShaderTables.Start(() => _runtime.D3D12X.Objects.DesktopDevice, _log);
         }
 

@@ -244,6 +244,11 @@ internal sealed unsafe class DesktopStream : IDisposable
     {
         int hr = DesktopDevice.CreatePipelineState(device2, Describe(), iid, result);
 
+        if (hr >= 0)
+        {
+            Diagnostics.DriverShaderTables.NoteCreated(loaded: false);
+        }
+
         if (hr >= 0 && Launches)
         {
             MeshLaunch.Mark(*result);

@@ -159,7 +159,7 @@ public sealed unsafe class D3D12XStandInPipelineTests
         nint result = 0;
 
         Func<StandInUse?, Task> programs = _ => Task.Run(made.Wait);
-        Func<PendingBuild?> prepare = () => new PendingBuild(() => new PipelineResult(HResult.Ok, pipeline), Heavy: false, "small", _ => { });
+        Func<PendingBuild?> prepare = () => new PendingBuild(() => new PipelineResult(HResult.Ok, pipeline), Heavy: false, "small", _ => { }, 0);
         Func<bool> programsNow = () => made.Wait(BuildLimit);
         standIns.Waiting(programs, prepare, &result, () => { }, "small", programsNow);
         nint standIn = result;
@@ -173,6 +173,36 @@ public sealed unsafe class D3D12XStandInPipelineTests
         Assert.True(waited < StandInPipelines.SmallBudget * 4, $"the first use waited {waited.TotalMilliseconds:F0} ms");
         Assert.True(SpinWait.SpinUntil(() => standIns.Desktop(standIn, out _) != 0, BuildLimit));
         Assert.Contains("(1 with programs made inline", standIns.Summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A built pipeline no list has set for a while is given up for the driver's shader memory (boots w186 to w222 lost
+    /// the device with its tables full): its stand-in is pending again, and its next use builds it again.
+    /// </summary>
+    [Fact]
+    public void A_pipeline_given_up_is_built_again_at_its_next_use()
+    {
+        using var memory = new NativeBlocks();
+        nint pipeline = FakePipeline(memory);
+        var standIns = StandIns(TimeSpan.Zero);
+        nint result = 0;
+        int builds = 0;
+
+        Func<PendingBuild?> prepare = () => new PendingBuild(() => new PipelineResult(HResult.Ok, pipeline + (0 * Interlocked.Increment(ref builds))), Heavy: false, "given up", _ => { }, 1000);
+        standIns.Waiting(_ => Task.CompletedTask, prepare, &result, () => { }, "given up");
+        nint standIn = result;
+        standIns.Desktop(standIn, out _);
+        Assert.True(SpinWait.SpinUntil(() => standIns.Desktop(standIn, out _) != 0, BuildLimit));
+        Assert.Equal(1000, standIns.LiveShaderBytes);
+
+        var released = new List<nint>();
+        Assert.Equal(1000, standIns.Evict(0, released));
+        Assert.Equal([pipeline], released);
+        Assert.Equal(0, standIns.LiveShaderBytes);
+
+        Assert.Equal((0, true), (standIns.Desktop(standIn, out bool pending), pending));
+        Assert.True(SpinWait.SpinUntil(() => standIns.Desktop(standIn, out _) == pipeline, BuildLimit));
+        Assert.Equal((2, 1000L, (1L, 1L)), (Volatile.Read(ref builds), standIns.LiveShaderBytes, standIns.Evictions));
     }
 
     /// <summary>
@@ -194,7 +224,7 @@ public sealed unsafe class D3D12XStandInPipelineTests
         standIns.Create(() => Slow(never, pipeline), &busy, GBuffer, null);
 
         Func<StandInUse?, Task> programs = _ => Task.Delay(StandInPipelines.SmallBudget * 2);
-        Func<PendingBuild?> prepare = () => new PendingBuild(() => new PipelineResult(HResult.Ok, pipeline), Heavy: false, Clear, _ => { });
+        Func<PendingBuild?> prepare = () => new PendingBuild(() => new PipelineResult(HResult.Ok, pipeline), Heavy: false, Clear, _ => { }, 0);
         standIns.Waiting(programs, prepare, &clear, () => { }, Clear);
 
         Assert.Equal(pipeline, standIns.Desktop(clear, out bool pending));
