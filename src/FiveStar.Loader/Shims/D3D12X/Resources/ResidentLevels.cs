@@ -108,6 +108,33 @@ internal static unsafe class ResidentLevels
         return -1;
     }
 
+    /// <summary>
+    /// Drops the largest levels of <paramref name="resource"/>, as few as leave a texture of at most <paramref name="bytes"/>
+    /// with its levels at the same bytes; false, with the desc as it was, when none does.
+    /// </summary>
+    public static bool Fit(ref ResourceDescription resource, ulong bytes)
+    {
+        bool plain = resource.Dimension == ResourceTexture2D && resource.DepthOrArraySize <= 1 && resource.SampleCount <= 1;
+
+        for (int dropped = 1; plain && dropped < resource.MipLevels; dropped++)
+        {
+            var smaller = resource;
+            smaller.Width = Math.Max(1UL, resource.Width >> dropped);
+            smaller.Height = Math.Max(1u, resource.Height >> dropped);
+            smaller.MipLevels -= (ushort)dropped;
+            XgLayoutBuilder.Build(GpuTextures.ToXg(&smaller), out var part);
+
+            if (part.Size <= bytes && SameBytes(resource, dropped))
+            {
+                resource = smaller;
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>A Texture2D SRV desc's levels counted from <paramref name="dropped"/> levels later, in a texture of <paramref name="levels"/>.</summary>
     internal static void Renumber(int* view, int dropped, int levels)
     {

@@ -72,17 +72,17 @@ internal sealed unsafe class ReleasedTextureViews
 
             var candidate = find(texture.Address);
             var replacement = Replacing(texture, candidate);
-            int added = 0;
+            int shift = 0;
 
             if (replacement is null)
             {
-                added = Added(texture, candidate);
-                replacement = added > 0 ? candidate : null;
+                shift = Shift(texture, candidate);
+                replacement = shift != 0 ? candidate : null;
             }
 
             foreach (var (handle, view) in held)
             {
-                Rewrite(device, handle, view, replacement, added);
+                Rewrite(device, handle, view, replacement, shift);
             }
 
             rewritten.Add(texture);
@@ -136,9 +136,10 @@ internal sealed unsafe class ReleasedTextureViews
     /// <summary>
     /// The larger levels <paramref name="candidate"/>, registered at the released texture's address, has before the
     /// released one's (<see cref="ResidentLevels"/>: another view of the same texture asked for them, and the texture
-    /// with them replaced this one); 0 when it is not that texture. The released one's views read it from that level.
+    /// with them replaced this one), or, negative, those it lacks (the released one was shrunk to it); 0 when it is
+    /// not that texture. The released one's views read it, their levels counted from its first.
     /// </summary>
-    internal static int Added(GpuTexture released, GpuTexture? candidate)
+    internal static int Shift(GpuTexture released, GpuTexture? candidate)
     {
         if (candidate is null || candidate == released || candidate.Address != released.Address || candidate.GpuWritten || released.GpuWritten
             || candidate.DesktopFormat != released.DesktopFormat)
@@ -146,10 +147,17 @@ internal sealed unsafe class ReleasedTextureViews
             return 0;
         }
 
-        return Math.Max(0, ResidentLevels.Dropped(candidate.Console, released.Console));
+        int added = ResidentLevels.Dropped(candidate.Console, released.Console);
+
+        if (added > 0)
+        {
+            return added;
+        }
+
+        return -Math.Max(0, ResidentLevels.Dropped(released.Console, candidate.Console));
     }
 
-    private void Rewrite(nint device, nint handle, HeldTextureView view, GpuTexture? replacement, int added)
+    private void Rewrite(nint device, nint handle, HeldTextureView view, GpuTexture? replacement, int shift)
     {
         // The game wrote the descriptor anew meanwhile: it is not ours to write.
         if (!_views.Holds(handle, view.Texture))
@@ -160,11 +168,15 @@ internal sealed unsafe class ReleasedTextureViews
         var description = view.Description;
         bool renumbers = !view.Unordered && view.Described && ResidentLevels.Renumbers((int*)&description);
 
-        if (replacement is not null && view.Target == view.Texture.Desktop && (added == 0 || renumbers))
+        if (replacement is not null && view.Target == view.Texture.Desktop && (shift == 0 || renumbers))
         {
-            if (added > 0)
+            if (shift > 0)
             {
-                ResidentLevels.Later((int*)&description, added);
+                ResidentLevels.Later((int*)&description, shift);
+            }
+            else if (shift < 0)
+            {
+                ResidentLevels.Renumber((int*)&description, -shift, replacement.Console.MipLevels);
             }
 
             Create(device, view.Unordered, replacement.Desktop, &description, view.Described, handle);

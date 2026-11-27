@@ -12,7 +12,7 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// (PS_DeferredTextured_c5fd36bb, read in its HLSL) load the V# of the materials' buffer from table 0 + 0xac0, read
 /// view indices in it at the byte offset in user SGPR 14 (+0x4 colour, +0x10 normal, +0x0, +0x14, +0xc) and load each
 /// T# from the window at SGPR 15 + index * 32. Each index is logged with what its record resolves to, its view's
-/// levels, and its texture's address, desc, uploaded hash and first bytes in game memory. CPU only.
+/// levels, and its texture's address, desc, uploaded hash and how many bytes of its memory are not 0. CPU only.
 /// </summary>
 internal static unsafe class MaterialViewTrace
 {
@@ -83,6 +83,6 @@ internal static unsafe class MaterialViewTrace
         int* dwords = (int*)&description;
         string levels = view.Described ? $"{dwords[MostDetailedMipDword]}+{dwords[MipLevelsDword]}" : "all";
 
-        return string.Create(CultureInfo.InvariantCulture, $"; view mips {levels} of the texture at 0x{texture.Address:x} ({texture.Console.Width}x{texture.Console.Height}, {texture.Console.MipLevels} mips, 0x{texture.Size:x} bytes, GPU-written {texture.GpuWritten}, uploaded hash 0x{texture.UploadedHash:x}, first bytes in memory 0x{textures.FirstBytes(texture):x16})");
+        return string.Create(CultureInfo.InvariantCulture, $"; view mips {levels} of the texture at 0x{texture.Address:x} ({texture.Console.Width}x{texture.Console.Height}, {texture.Console.MipLevels} mips, 0x{texture.Size:x} bytes, GPU-written {texture.GpuWritten}, uploaded hash 0x{texture.UploadedHash:x}, {textures.NonZeroBytes(texture)} bytes of its memory not 0)");
     }
 }

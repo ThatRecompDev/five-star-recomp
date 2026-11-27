@@ -54,6 +54,11 @@ flowchart LR
   their views went null and the G-buffer's albedo read 0. The game makes several views of one texture (w180: all its
   levels, then from levels 3 and 4): a view whose levels the texture registered at its address holds reads that one,
   and when a larger one replaces it the held views are written over the larger one from their level, not nulled.
+  A view's MostDetailedMip follows the levels in memory (w182's census: 0 to 3 of 9 mips). When the game streams the
+  large levels out it packs the next texture inside the old range: the texture there, if views of it are held, is
+  shrunk to the levels before the new one (counted as TextureShrunk) and its views are written over the smaller one,
+  where the new one used to retire it (w180: albedo 0) or, with --stale-in-first-page, all were kept whole (w182:
+  20 GiB of video memory).
   --trace-views also logs a census of the texture views by levels and outcome (ViewCensus) and, per traced draw, the
   views its material names in the bindless table (MaterialViewTrace).
   --stale-in-first-page (off by default) retires an older read-only texture only when the new one starts in its first
