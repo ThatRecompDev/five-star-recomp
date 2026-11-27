@@ -76,6 +76,7 @@ internal static unsafe class AftermathSelfTestCommand
             log.Info($"  [aftermath] self-test: after the fault, {exception.GetType().Name}: {exception.Message}");
         }
 
+        KernelGraphicsCalls.LogDeviceStates("the self-test's page fault");
         dumps.Report("the self-test's page fault");
 
         return Verdict(directory, started, log);

@@ -827,6 +827,10 @@ internal sealed class CommandLineParser
                 _options.NoGpuTimeout = true;
 
                 return true;
+            case "--d3dkmt-watch":
+                _options.D3dkmtWatch = true;
+
+                return true;
             case "--typeless-depth":
                 _options.TypelessDepth = true;
 

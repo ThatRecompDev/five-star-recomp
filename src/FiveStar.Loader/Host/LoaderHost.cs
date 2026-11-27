@@ -479,6 +479,7 @@ internal sealed class LoaderHost
         }
 
         DeviceLoss.Log = _log;
+        KernelGraphicsCalls.Images = _runtime.Images;
         DeviceLoss.Armed = true;
         ThreadSnapshot.Stuck = id => _log.Warn($"[sample] stack capture stuck on thread {id}: no answer in {ThreadSnapshot.TimeoutMilliseconds} ms; skipped, its worker abandoned");
     }

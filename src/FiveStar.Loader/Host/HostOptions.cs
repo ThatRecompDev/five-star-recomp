@@ -305,6 +305,9 @@ internal sealed record HostOptions
     /// <summary>The game's command queues are made without the GPU timeout (<c>--no-gpu-timeout</c>): work past Windows' 2 s limit stalls instead of removing the device.</summary>
     public bool NoGpuTimeout { get; set; }
 
+    /// <summary>Failing graphics kernel calls, MarkDeviceAsError and device states in the log (<c>--d3dkmt-watch</c>): who removes the device.</summary>
+    public bool D3dkmtWatch { get; set; }
+
     /// <summary>The descriptor window, the address map and the user-data ring in GPU upload heaps where the device has them (<c>--gpu-upload-heaps</c>).</summary>
     public bool GpuUploadHeaps { get; set; }
 
