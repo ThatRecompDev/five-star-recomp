@@ -51,7 +51,20 @@ flowchart LR
   ResourceMinLODClamp) reads a texture of the levels it reads, when those lie at the same bytes (ResidentLevels;
   counted as ViewResident): the game keeps a streamed texture's small levels and packs the next texture over the large
   ones (w179: 1024x1024 textures of 0xab000 bytes 0x4000 apart), so a texture of the whole desc retired its neighbours,
-  their views went null and the G-buffer's albedo read 0.
+  their views went null and the G-buffer's albedo read 0. The game makes several views of one texture (w180: all its
+  levels, then from levels 3 and 4): a view whose levels the texture registered at its address holds reads that one,
+  and when a larger one replaces it the held views are written over the larger one from their level, not nulled.
+  A view's MostDetailedMip follows the levels in memory (w182's census: 0 to 3 of 9 mips). When the game streams the
+  large levels out it packs the next texture inside the old range: the texture there, if views of it are held, is
+  shrunk to the levels before the new one (counted as TextureShrunk) and its views are written over the smaller one,
+  where the new one used to retire it (w180: albedo 0) or, with --stale-in-first-page, all were kept whole (w182:
+  20 GiB of video memory).
+  A read-only texture whose views descriptors still hold is never retired by one that starts at another address
+  (w186: views of all levels are made at packed addresses too, and 107,000 small textures behind them were retired
+  and nulled); the new one's view reads the levels that lie before the first such texture inside its range (counted
+  as ViewFitted). One with no views held, or replaced at its own address, is retired as before.
+  --trace-views also logs a census of the texture views by levels and outcome (ViewCensus) and, per traced draw, the
+  views its material names in the bindless table (MaterialViewTrace).
   --stale-in-first-page (off by default) retires an older read-only texture only when the new one starts in its first
   4 KiB: the game keeps a streamed texture's small levels, which come first, and places the next texture over the large
   ones. Replaying w126's registrations it cuts them from 264,000 to 133,000 (the same desc made again at the same address

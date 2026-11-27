@@ -238,12 +238,13 @@ internal sealed class LoaderHost
             _log.Warn("[aftermath] the D3D12 debug layer (--d3d12-debug) keeps Aftermath from initializing the device: no markers or shader debug info");
         }
 
-        var dumps = AftermathCrashDumps.Start(_options.AftermathDirectory, _options.AftermathLibrary, _options.AftermathMarkers, AppContext.BaseDirectory, Environment.GetEnvironmentVariable(AftermathLibrary.SdkVariable), _log);
+        var features = new AftermathFeatures(_options.AftermathMarkers, _options.AftermathResources, _options.AftermathShaderInfo);
+        var dumps = AftermathCrashDumps.Start(_options.AftermathDirectory, _options.AftermathLibrary, features, AppContext.BaseDirectory, Environment.GetEnvironmentVariable(AftermathLibrary.SdkVariable), _log);
 
         if (dumps is not null)
         {
             _runtime.D3D12X.Aftermath = dumps;
-            DeviceLoss.BeforeEnd = dumps.WaitForDump;
+            DeviceLoss.BeforeEnd = dumps.Report;
         }
     }
 
@@ -531,6 +532,8 @@ internal sealed class LoaderHost
         Shims.D3D12X.DebugLayer.DrawTrace.LogDraws = _options.LogDraws;
 
         Shims.D3D12X.DebugLayer.FrameStageDump.Present = _options.DumpFrame;
+        Shims.D3D12X.DebugLayer.FrameStageDump.Max = _options.DumpFrameMax;
+        Shims.D3D12X.DebugLayer.FrameStageDump.Filter = _options.DumpFrameFilter;
         Shims.D3D12X.DebugLayer.FrameStageDump.Directory = _options.DumpFrameDirectory ?? Path.GetFullPath($"frame-{_options.DumpFrame}");
     }
 

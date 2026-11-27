@@ -7,16 +7,18 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using FiveStar.Loader.Diagnostics;
+using FiveStar.Loader.Native;
 
 namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 
 /// <summary>
 /// <c>--aftermath [dir]</c>: NVIDIA Nsight Aftermath GPU crash dumps (docs/debugging.md#aftermath). Before the desktop
-/// device exists, GPU crash dumps are enabled with deferred shader debug info; after, the device is initialized with
-/// markers, resource tracking and shader debug info. At a GPU fault the driver hands over <c>crash-*.nv-gpudmp</c> and
-/// the <c>shader-*.nvdbg</c> files of the shaders it ran, which go to the folder with a table of our shader hashes, and
+/// device exists, GPU crash dumps are enabled; after, the device is initialized with only the features asked for
+/// (<see cref="AftermathFeatures"/>: by default none, flags 0). At a GPU fault the driver hands over
+/// <c>crash-*.nv-gpudmp</c> (with <c>--aftermath-shader-info</c> also the <c>shader-*.nvdbg</c> files of the shaders it
+/// ran), which go to the folder with a table of our shader hashes, and
 /// the log gets a summary (<see cref="AftermathDumpSummary"/>). The device-loss end waits for that
-/// (<see cref="WaitForDump"/>). With <c>--aftermath-markers</c> every draw, dispatch, ExecuteIndirect, copy and
+/// (<see cref="Report"/>, from the first sign of the removal on). With <c>--aftermath-markers</c> every draw, dispatch, ExecuteIndirect, copy and
 /// barrier also sets an event marker naming its pipeline, and call stacks are captured: both cost per draw.
 /// </summary>
 internal sealed unsafe class AftermathCrashDumps
@@ -32,6 +34,7 @@ internal sealed unsafe class AftermathCrashDumps
     private const uint CallStackCapturing = 0x40000000;
 
     /// <summary>GFSDK_Aftermath_CrashDump_Status (GFSDK_Aftermath_GpuCrashDump.h): NotStarted 0, CollectingData 1, CollectingDataFailed 2, InvokingCallback 3, Finished 4.</summary>
+    private const uint NotStarted = 0;
     private const uint CollectingDataFailed = 2;
     private const uint Finished = 4;
 
@@ -39,7 +42,19 @@ internal sealed unsafe class AftermathCrashDumps
     private const uint ApplicationNameKey = 0x1;
 
     /// <summary>How long the device-loss end waits for the dump, and how often it asks.</summary>
-    public static readonly TimeSpan DumpWait = TimeSpan.FromSeconds(10);
+    public static readonly TimeSpan DumpWait = TimeSpan.FromSeconds(15);
+
+    /// <summary>GFSDK_Aftermath_CrashDump_Status names, by value.</summary>
+    private static readonly string[] CrashDumpStatuses = ["NotStarted", "CollectingData", "CollectingDataFailed", "InvokingCallback", "Finished", "Unknown"];
+
+    /// <summary>GFSDK_Aftermath_Device_Status_Active (GFSDK_Aftermath_Defines.h).</summary>
+    private const uint DeviceActive = 0;
+
+    /// <summary>ID3D12Device::GetDeviceRemovedReason (d3d12.h).</summary>
+    private const int RemovedReasonSlot = 37;
+
+    /// <summary>Bytes kept for GFSDK_Aftermath_PageFaultInformation, past its size (a u64, a resource descriptor, a u32).</summary>
+    private const int PageFaultRoom = 1024;
     private const int PollMilliseconds = 50;
 
     /// <summary>A list whose context handle could not be made (<see cref="ListActivity.Aftermath"/>).</summary>
@@ -55,25 +70,32 @@ internal sealed unsafe class AftermathCrashDumps
 
     private readonly AftermathLibrary _library;
     private readonly string _directory;
-    private readonly bool _markers;
+    private readonly AftermathFeatures _features;
     private readonly LoaderLog _log;
     private readonly ConcurrentDictionary<(nint Pipeline, MarkedKind Kind), nint> _markerTexts = new();
     private readonly ConcurrentDictionary<nint, nint> _contexts = new();
     private readonly delegate* unmanaged[Cdecl]<nint, nint*, uint> _createContext;
     private readonly delegate* unmanaged[Cdecl]<nint, void*, uint, uint> _setMarker;
     private readonly delegate* unmanaged[Cdecl]<uint, void*, uint, ulong*, uint> _debugInfoIdentifier;
+    private readonly delegate* unmanaged[Cdecl]<uint*, uint> _deviceStatus;
+    private readonly delegate* unmanaged[Cdecl]<byte*, uint> _pageFault;
+    private readonly object _reportGate = new();
+    private nint _device;
+    private bool _reported;
     private int _unnamedShaderFiles;
 
-    public AftermathCrashDumps(AftermathLibrary library, string directory, bool markers, LoaderLog log)
+    public AftermathCrashDumps(AftermathLibrary library, string directory, AftermathFeatures features, LoaderLog log)
     {
         _library = library;
         _directory = directory;
-        _markers = markers;
+        _features = features;
         _log = log;
 
         _createContext = (delegate* unmanaged[Cdecl]<nint, nint*, uint>)library.Export("GFSDK_Aftermath_DX12_CreateContextHandle");
         _setMarker = (delegate* unmanaged[Cdecl]<nint, void*, uint, uint>)library.Export("GFSDK_Aftermath_SetEventMarker");
         _debugInfoIdentifier = (delegate* unmanaged[Cdecl]<uint, void*, uint, ulong*, uint>)library.Export("GFSDK_Aftermath_GetShaderDebugInfoIdentifier");
+        _deviceStatus = (delegate* unmanaged[Cdecl]<uint*, uint>)library.Export("GFSDK_Aftermath_GetDeviceStatus");
+        _pageFault = (delegate* unmanaged[Cdecl]<byte*, uint>)library.Export("GFSDK_Aftermath_GetPageFaultInformation");
         Shaders = new AftermathShaderTable(0, 0);
     }
 
@@ -93,7 +115,7 @@ internal sealed unsafe class AftermathCrashDumps
     /// Finds and loads the DLL (<see cref="AftermathLibrary.Find"/>) and enables GPU crash dumps; must run before
     /// D3D12CreateDevice. Logs one line and returns null when the DLL is missing or refuses.
     /// </summary>
-    public static AftermathCrashDumps? Start(string directory, string? dllPath, bool markers, string loaderFolder, string? sdkRoot, LoaderLog log)
+    public static AftermathCrashDumps? Start(string directory, string? dllPath, AftermathFeatures features, string loaderFolder, string? sdkRoot, LoaderLog log)
     {
         string? path = AftermathLibrary.Find(dllPath, loaderFolder, sdkRoot);
 
@@ -113,7 +135,7 @@ internal sealed unsafe class AftermathCrashDumps
             return null;
         }
 
-        var dumps = new AftermathCrashDumps(library, directory, markers, log);
+        var dumps = new AftermathCrashDumps(library, directory, features, log);
 
         if (!dumps.Enable(path))
         {
@@ -134,13 +156,8 @@ internal sealed unsafe class AftermathCrashDumps
     /// <summary>After D3D12CreateDevice: GFSDK_Aftermath_DX12_Initialize on <paramref name="device"/>.</summary>
     public void AttachDevice(nint device)
     {
-        uint flags = EnableMarkers | EnableResourceTracking | GenerateShaderDebugInfo;
-
-        if (_markers)
-        {
-            flags |= CallStackCapturing;
-        }
-
+        _device = device;
+        uint flags = DeviceFlags(_features);
         uint result = _library.InitializeDevice(flags, device);
         Initialized = AftermathLibrary.Succeeded(result);
 
@@ -151,32 +168,147 @@ internal sealed unsafe class AftermathCrashDumps
             return;
         }
 
-        string markers = "off (--aftermath-markers)";
+        _log.Info($"  [aftermath] device initialized (flags 0x{flags:x}): markers {_features.Markers}, resource tracking {_features.Resources}, shader debug info {_features.ShaderInfo}");
+    }
 
-        if (_markers)
+    /// <summary>The GFSDK_Aftermath_DX12_Initialize flags for <paramref name="features"/>; 0 (Minimum) for none.</summary>
+    public static uint DeviceFlags(AftermathFeatures features)
+    {
+        uint flags = 0;
+
+        if (features.Markers)
         {
-            markers = "on, with call stacks";
+            flags |= EnableMarkers | CallStackCapturing;
         }
 
-        _log.Info($"  [aftermath] device initialized (flags 0x{flags:x}); event markers {markers}");
+        if (features.Resources)
+        {
+            flags |= EnableResourceTracking;
+        }
+
+        if (features.ShaderInfo)
+        {
+            flags |= GenerateShaderDebugInfo;
+        }
+
+        return flags;
     }
 
     /// <summary>
-    /// After a device removal, before the process ends: waits up to <see cref="DumpWait"/> for the driver's dump and
-    /// our callbacks to finish (GFSDK_Aftermath_GetCrashDumpStatus Finished or CollectingDataFailed).
+    /// At the first sign of a device removal (<paramref name="sign"/>), on the thread that saw it: logs the device and
+    /// crash-dump status at once, the page fault the runtime knows of, then waits up to <see cref="DumpWait"/> for the
+    /// driver's dump and our callbacks (GFSDK_Aftermath_GetCrashDumpStatus Finished or CollectingDataFailed) and logs
+    /// the outcome. Once: a later caller (another sign, a fault in the process) waits for the first to finish.
     /// </summary>
-    public void WaitForDump()
+    public void Report(string sign)
     {
-        var started = DateTime.UtcNow;
-        uint status = _library.CrashDumpStatus();
-
-        while (status != Finished && status != CollectingDataFailed && DateTime.UtcNow - started < DumpWait)
+        lock (_reportGate)
         {
-            Thread.Sleep(PollMilliseconds);
-            status = _library.CrashDumpStatus();
+            if (_reported)
+            {
+                return;
+            }
+
+            _reported = true;
+            _log.Error($"[aftermath] at {sign}: device status {DeviceStatusText()}, crash dump status {StatusName(_library.CrashDumpStatus())}");
+            PageFaultInformation();
+            var started = DateTime.UtcNow;
+            uint status = _library.CrashDumpStatus();
+
+            while (status != Finished && status != CollectingDataFailed && DateTime.UtcNow - started < DumpWait)
+            {
+                Thread.Sleep(PollMilliseconds);
+                status = _library.CrashDumpStatus();
+            }
+
+            string outcome = "the dump is written (above)";
+
+            if (status == NotStarted)
+            {
+                outcome = "no GPU fault reported by the driver: it never started a dump";
+            }
+            else if (status != Finished)
+            {
+                outcome = "no dump";
+            }
+
+            _log.Error($"[aftermath] crash dump status {StatusName(status)} after {(DateTime.UtcNow - started).TotalSeconds:F1} s: {outcome}; device status {DeviceStatusText()}");
+        }
+    }
+
+    /// <summary>
+    /// A fault in the process (the game's int3 after it saw the loss, boot w182, ends it before the device-loss end):
+    /// when the device is gone, holds the faulting thread for <see cref="Report"/>; otherwise returns at once.
+    /// </summary>
+    public void BeforeFaultEnds()
+    {
+        if (!DeviceLoss.Lost && DeviceStatus() == DeviceActive && !Removed())
+        {
+            return;
         }
 
-        _log.Info($"  [aftermath] crash dump status {status} after {(DateTime.UtcNow - started).TotalSeconds:F1} s (4 finished, 2 failed, 0 never started: no GPU fault the driver saw)");
+        Report("a fault in the process after the device was lost");
+    }
+
+    /// <summary>Whether ID3D12Device::GetDeviceRemovedReason (desktop slot 37) reports the device removed.</summary>
+    private bool Removed()
+    {
+        if (_device == 0)
+        {
+            return false;
+        }
+
+        return HResult.Failed(((delegate* unmanaged<nint, int>)ComObject.Slot(_device, RemovedReasonSlot))(_device));
+    }
+
+    /// <summary>GFSDK_Aftermath_GetDeviceStatus (GFSDK_Aftermath.h); <see cref="DeviceActive"/> when the DLL lacks it.</summary>
+    private uint DeviceStatus()
+    {
+        uint status = DeviceActive;
+
+        if (_deviceStatus != null)
+        {
+            _ = _deviceStatus(&status);
+        }
+
+        return status;
+    }
+
+    private string DeviceStatusText()
+    {
+        if (_deviceStatus == null)
+        {
+            return "unknown (no GFSDK_Aftermath_GetDeviceStatus)";
+        }
+
+        return AftermathDumpSummary.DeviceStatusName(DeviceStatus());
+    }
+
+    /// <summary>
+    /// GFSDK_Aftermath_GetPageFaultInformation (deprecated, but answers without a dump): its result and the faulting
+    /// GPU VA, the first field of GFSDK_Aftermath_PageFaultInformation.
+    /// </summary>
+    private void PageFaultInformation()
+    {
+        if (_pageFault == null)
+        {
+            return;
+        }
+
+        var information = stackalloc byte[PageFaultRoom];
+        new Span<byte>(information, PageFaultRoom).Clear();
+        uint result = _pageFault(information);
+        _log.Error($"[aftermath] GetPageFaultInformation -> {AftermathLibrary.Describe(result)}: faulting GPU VA 0x{*(ulong*)information:x} (0 for none)");
+    }
+
+    private static string StatusName(uint status)
+    {
+        if (status < CrashDumpStatuses.Length)
+        {
+            return CrashDumpStatuses[status];
+        }
+
+        return status.ToString(CultureInfo.InvariantCulture);
     }
 
     /// <summary>With <c>--aftermath-markers</c>: an event marker naming the operation about to be recorded on <paramref name="list"/>.</summary>
@@ -185,7 +317,7 @@ internal sealed unsafe class AftermathCrashDumps
     {
         var dumps = Active;
 
-        if (dumps is null || !dumps._markers || !dumps.Initialized)
+        if (dumps is null || !dumps._features.Markers || !dumps.Initialized)
         {
             return;
         }
@@ -266,7 +398,15 @@ internal sealed unsafe class AftermathCrashDumps
         delegate* unmanaged[Cdecl]<void*, uint, void*, void> dump = &OnCrashDump;
         delegate* unmanaged[Cdecl]<void*, uint, void*, void> debugInfo = &OnShaderDebugInfo;
         delegate* unmanaged[Cdecl]<nint, void*, void> description = &OnDescription;
-        uint result = _library.EnableGpuCrashDumps(WatchDx, DeferDebugInfoCallbacks, (nint)dump, (nint)debugInfo, (nint)description);
+        uint deferral = 0;
+
+        // Deferred shader debug info is kept in memory until a crash: only with --aftermath-shader-info.
+        if (_features.ShaderInfo)
+        {
+            deferral = DeferDebugInfoCallbacks;
+        }
+
+        uint result = _library.EnableGpuCrashDumps(WatchDx, deferral, (nint)dump, (nint)debugInfo, (nint)description);
 
         if (!AftermathLibrary.Succeeded(result))
         {

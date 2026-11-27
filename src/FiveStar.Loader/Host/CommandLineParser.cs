@@ -134,7 +134,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs" or "--gpu-timings":
                 return SetBreadcrumbs(option);
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--log-draws" or "--capture-when-world" or "--d3d12-dump-targets" or "--dump-frame" or "--dump-frame-dir" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--log-draws" or "--capture-when-world" or "--d3d12-dump-targets" or "--dump-frame" or "--dump-frame-dir" or "--dump-frame-max" or "--dump-frame-filter" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
                 return SetTraceDraws(option);
             case "--capture-dir" or "--capture-presents" or "--pix-capture" or "--pix-capture-dir":
                 return SetCapture(option);
@@ -876,7 +876,7 @@ internal sealed class CommandLineParser
                 _options.OutputSize = OutputSize(Next());
 
                 return true;
-            case "--aftermath" or "--aftermath-dll" or "--aftermath-markers":
+            case "--aftermath" or "--aftermath-dll" or "--aftermath-markers" or "--aftermath-resources" or "--aftermath-shader-info" or "--aftermath-selftest":
                 return SetAftermath(option);
             default:
                 throw new CommandLineException($"unknown argument {option}");
@@ -1129,7 +1129,7 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    /// <summary><c>--d3d12-dump-targets</c>, <c>--dump-frame n</c> and <c>--dump-frame-dir dir</c>.</summary>
+    /// <summary><c>--d3d12-dump-targets</c> and <c>--dump-frame n</c> with <c>-dir</c>, <c>-max</c> and <c>-filter</c>.</summary>
     private void SetDumps(string option)
     {
         if (option == "--d3d12-dump-targets")
@@ -1145,6 +1145,16 @@ internal sealed class CommandLineParser
         if (option == "--dump-frame-dir")
         {
             _options.DumpFrameDirectory = Path.GetFullPath(Next());
+        }
+
+        if (option == "--dump-frame-max")
+        {
+            _options.DumpFrameMax = int.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out int max) && max > 0 ? max : throw new CommandLineException("--dump-frame-max takes a positive count");
+        }
+
+        if (option == "--dump-frame-filter")
+        {
+            _options.DumpFrameFilter = Next();
         }
     }
 
@@ -1226,7 +1236,7 @@ internal sealed class CommandLineParser
 
     /// <summary>
     /// <c>--aftermath [dir]</c> (the folder is optional: the next argument when it is not an option, else
-    /// <c>aftermath</c>), <c>--aftermath-dll &lt;path&gt;</c> and <c>--aftermath-markers</c>; the last two imply the first.
+    /// <c>aftermath</c>), <c>--aftermath-dll &lt;path&gt;</c> and the feature switches, which imply it.
     /// </summary>
     private bool SetAftermath(string option)
     {
@@ -1239,6 +1249,18 @@ internal sealed class CommandLineParser
         else if (option == "--aftermath-markers")
         {
             _options.AftermathMarkers = true;
+        }
+        else if (option == "--aftermath-resources")
+        {
+            _options.AftermathResources = true;
+        }
+        else if (option == "--aftermath-shader-info")
+        {
+            _options.AftermathShaderInfo = true;
+        }
+        else if (option == "--aftermath-selftest")
+        {
+            _options.AftermathSelfTest = true;
         }
         else if (_index + 1 < _args.Length && !_args[_index + 1].StartsWith('-'))
         {
