@@ -61,6 +61,17 @@ internal sealed class ChannelStats
         return _max[channel];
     }
 
+    /// <summary>The mean of the channel's finite values; 0 when it has none.</summary>
+    public double Mean(int channel)
+    {
+        if (_counts[channel] == 0)
+        {
+            return 0;
+        }
+
+        return _sums[channel] / _counts[channel];
+    }
+
     /// <summary>Whether the colour channels hold a value below -<paramref name="slack"/> and none outside -1..1 by more than it.</summary>
     public bool Signed(float slack)
     {

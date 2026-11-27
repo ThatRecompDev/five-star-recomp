@@ -1112,7 +1112,14 @@ internal sealed unsafe class DrawTrace
         }
 
         string label = $"stage {order} {pass} ({how}) target 0x{resource:x} {Describe(resource)} -> {Path.GetFileName(png)}";
-        _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, resource, current, label, (nint)list, state.Resets, png, stage: true);
+
+        if (!_probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, resource, current, label, (nint)list, state.Resets, png, stage: true))
+        {
+            _stages.Refused(resource, pass);
+
+            return;
+        }
+
         Interlocked.CompareExchange(ref _reportAt, Volatile.Read(ref _lastPresent) + ReportDelay, 0);
     }
 
@@ -1172,7 +1179,7 @@ internal sealed unsafe class DrawTrace
         Volatile.Write(ref _dumps, 0);
         long dumping = 0;
 
-        _stages.Begin(present);
+        BeginStages(present);
 
         if ((wanted && DumpTargets) || _stages.IsOpen)
         {
@@ -1183,6 +1190,27 @@ internal sealed unsafe class DrawTrace
         Volatile.Write(ref _lastPresent, present);
 
         return present == Volatile.Read(ref _reportAt);
+    }
+
+    /// <summary>
+    /// <c>--dump-frame</c>: opens the dumped frame's batch after <paramref name="present"/>, if any; a later batch first
+    /// releases the earlier batches' reported readback buffers (<see cref="FrameStageDump"/>).
+    /// </summary>
+    private void BeginStages(long present)
+    {
+        string? text = _stages.Begin(present, Volatile.Read(ref _reportAt) != 0, _probes.StagePngs);
+
+        if (text is null)
+        {
+            return;
+        }
+
+        if (_stages.IsOpen && _stages.Batch > 1)
+        {
+            _probes.Release(Resets);
+        }
+
+        _log.Info(text);
     }
 
     /// <summary>Logs the probes; the GPU finished everything submitted.</summary>

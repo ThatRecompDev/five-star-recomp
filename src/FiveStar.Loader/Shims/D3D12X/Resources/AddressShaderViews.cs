@@ -174,7 +174,7 @@ internal sealed unsafe class AddressShaderViews
 
         if (DebugLayer.ViewLiveness.Noting)
         {
-            DebugLayer.ViewLiveness.Written(handle, target, DebugLayer.ViewLiveness.Shape(target, view, unordered: false));
+            DebugLayer.ViewLiveness.Written(handle, target, DebugLayer.ViewLiveness.Shape(target, view, unordered: false), description: view);
         }
     }
 
