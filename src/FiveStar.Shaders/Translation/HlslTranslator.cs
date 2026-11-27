@@ -22,6 +22,9 @@ public static partial class HlslTranslator
     private const int DefaultComputeThreads = 64;
     private const int GroupAxes = 3;
 
+    /// <summary>The program's own groupshared memory (the prelude's exchange buffers are in rdna_prelude.hlsli).</summary>
+    private const string GroupsharedLds = "groupshared uint g_lds[";
+
     /// <summary>
     /// Translates a program in the dispatch form without wave-size pins, with wave-size emulation; throws
     /// <see cref="UnsupportedProgramException"/> for what it cannot handle.
@@ -119,8 +122,13 @@ public static partial class HlslTranslator
     /// whose group has at most 32 threads never has lanes 32..63, so it gets the wave32 pin every GPU offers. A wave32
     /// program with any wave operation gets it too: a wider hardware wave holds two console waves, whose masks hold 32
     /// lanes, so lanes 32..63 read their bit from the half the console does not have (a loop on such a mask never ends).
+    /// A wave64 program whose group of 33 to 64 threads shares groupshared memory is pinned to 64 as well: the console
+    /// runs the group as one wave, whose LDS stores and reads need no s_barrier, while unpinned 32-lane hardware runs two
+    /// waves that race (CS_MaterialTiles zeroes, ORs and reads its tile mask so: the other wave's class bits were lost
+    /// and the tiled lighting culled nearly every tile). Without 64-lane waves the pinned program runs as its group-wave
+    /// variant, with the barriers <see cref="Waves.GroupLdsBarriers"/> adds.
     /// </summary>
-    private static string PinWaveSize(string hlsl, int? waveSize, int groupThreads)
+    internal static string PinWaveSize(string hlsl, int? waveSize, int groupThreads)
     {
         const string EntryAttribute = "[numthreads(";
 
@@ -139,8 +147,9 @@ public static partial class HlslTranslator
         }
 
         var dependence = WaveUsageAnalyzer.Dependence(hlsl);
+        bool sharesLds = pin == Wave64 && groupThreads is > Wave32 and <= Wave64 && hlsl.Contains(GroupsharedLds, StringComparison.Ordinal);
 
-        if (dependence != WaveDependence.LaneIndexed && (dependence == WaveDependence.Agnostic || pin != Wave32))
+        if (!sharesLds && dependence != WaveDependence.LaneIndexed && (dependence == WaveDependence.Agnostic || pin != Wave32))
         {
             return hlsl;
         }
