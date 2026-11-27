@@ -258,6 +258,9 @@ internal sealed unsafe class FaultReporter
         try
         {
             Report(record, context);
+
+            // The game ends the process at its own int3 after it sees the loss: the crash dump comes first.
+            Shims.D3D12X.DebugLayer.AftermathCrashDumps.Active?.BeforeFaultEnds();
         }
         finally
         {

@@ -47,6 +47,17 @@ internal sealed unsafe class TextureViewHandles
         Held(handle, new HeldTextureView(texture, dimension, unordered, target, description != null, kept));
     }
 
+    /// <summary>The view <paramref name="handle"/> holds; null for none this class knows.</summary>
+    public HeldTextureView? At(nint handle)
+    {
+        if (_byHandle.TryGetValue(handle, out var held))
+        {
+            return held;
+        }
+
+        return null;
+    }
+
     /// <summary><paramref name="handle"/> holds <paramref name="view"/>.</summary>
     public void Held(nint handle, HeldTextureView view)
     {

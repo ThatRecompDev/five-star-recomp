@@ -27,6 +27,12 @@ public sealed class AftermathCrashDumpsTests
         Assert.False(folder.AftermathMarkers);
         Assert.Equal(Path.GetFullPath("aftermath"), implied.AftermathDirectory);
         Assert.Null(new CommandLineParser([]).Parse().AftermathDirectory);
+
+        // Without the switches the device gets flags 0: no markers, resource tracking or shader debug info (boot w181).
+        var light = new AftermathFeatures(false, plain.AftermathResources, plain.AftermathShaderInfo);
+        var full = new CommandLineParser(["--aftermath-resources", "--aftermath-shader-info"]).Parse();
+        Assert.Equal(0u, AftermathCrashDumps.DeviceFlags(light));
+        Assert.Equal(0xAu, AftermathCrashDumps.DeviceFlags(new AftermathFeatures(full.AftermathMarkers, full.AftermathResources, full.AftermathShaderInfo)));
     }
 
     [Fact]
@@ -77,7 +83,7 @@ public sealed class AftermathCrashDumpsTests
 
         try
         {
-            var dumps = AftermathCrashDumps.Start(Path.GetTempPath(), AftermathFactAttribute.Library, false, string.Empty, null, new LoaderLog(console, null, false));
+            var dumps = AftermathCrashDumps.Start(Path.GetTempPath(), AftermathFactAttribute.Library, default, string.Empty, null, new LoaderLog(console, null, false));
             Assert.Contains("[aftermath]", console.ToString(), StringComparison.Ordinal);
 
             // The SDK of 2026.3 is API version 0x21B; any 2.x DLL answers a version it takes, not FAIL_VersionMismatch.
@@ -106,13 +112,13 @@ public sealed class AftermathCrashDumpsTests
 
         try
         {
-            Assert.Null(AftermathCrashDumps.Start(Path.Combine(root, "dumps"), null, false, root, null, log));
+            Assert.Null(AftermathCrashDumps.Start(Path.Combine(root, "dumps"), null, default, root, null, log));
             Assert.Contains(AftermathLibrary.DownloadPage, console.ToString(), StringComparison.Ordinal);
 
             // A file by that name that is no DLL loads nothing and ends nothing either.
             string broken = Path.Combine(root, AftermathLibrary.FileName);
             File.WriteAllText(broken, "not a DLL");
-            Assert.Null(AftermathCrashDumps.Start(Path.Combine(root, "dumps"), broken, false, root, null, log));
+            Assert.Null(AftermathCrashDumps.Start(Path.Combine(root, "dumps"), broken, default, root, null, log));
 
             Assert.Null(AftermathCrashDumps.Active);
             Assert.Equal(2, console.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
