@@ -216,6 +216,13 @@ space rather than keep the fragmented commit.
 | GPU fault | `crash-<time>.nv-gpudmp`, `shader-<id>.nvdbg` per shader the GPU ran (with `--aftermath-shader-info`), `shaders-<time>.tsv` (hash, stage, pipeline, programs); the log gets `[aftermath] crash dump:` with the device status, the faulting GPU VA and the resource there, the active shaders named by our pipelines, and each context's last marker |
 | Device loss | at the first sign (fence, present, debug layer, texture upload), and at a fault in the process once the device is gone (the game's int3 ends the process before the 3 s): `[aftermath] at <sign>: device status, crash dump status`, the `GetPageFaultInformation` result and address, then up to 15 s waiting for the dump, and `[aftermath] crash dump status ...` with the outcome (`NotStarted`: the driver reported no GPU fault) |
 
+`--aftermath-selftest` (with the same `--aftermath*` options, no game) checks the path on the machine: crash dumps on,
+a device on the first NVIDIA adapter, then a compute program writes through a root UAV at the address of a buffer
+released before the dispatch, a page fault that removes only this process's device. It reports as a boot does and
+exits 0 only when a dump was written. On the RTX 4090 (driver of 2026-11, SDK 2026.3) the light mode names the fault
+address and the shader (`selftest:page-fault-writer`); `--aftermath-resources` adds the resource there (the released
+buffer's address and size) and makes `GetPageFaultInformation` answer; `--aftermath-shader-info` adds its `.nvdbg`.
+
 Open the dump in Nsight Graphics (File > Open, `.nv-gpudmp`). Add the dump folder to its shader debug info search
 paths (Tools > Options) so it finds the `.nvdbg` files; the shaders then show at the faulting instruction.
 ## Unknown

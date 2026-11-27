@@ -449,6 +449,9 @@ internal sealed record HostOptions
     /// <summary>Aftermath shader debug info for every pipeline (<c>--aftermath-shader-info</c>): much memory.</summary>
     public bool AftermathShaderInfo { get; set; }
 
+    /// <summary>Provoke a GPU page fault and check that Aftermath writes its dump, then exit (<c>--aftermath-selftest</c>).</summary>
+    public bool AftermathSelfTest { get; set; }
+
     /// <summary>Present a test pattern instead of the game's frame (<c>--present-test</c>).</summary>
     public bool PresentTest { get; set; }
 
