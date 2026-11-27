@@ -479,6 +479,15 @@ internal sealed class LoaderHost
         }
 
         DeviceLoss.Log = _log;
+        KernelGraphicsCalls.Images = _runtime.Images;
+
+        if (_options.D3dkmtWatch)
+        {
+            DriverShaderTables.Name = Shims.D3D12X.QueueProgress.PipelineName;
+            DriverShaderTables.More = Shims.D3D12X.Pipelines.PipelineEviction.Describe;
+            DriverShaderTables.Start(() => _runtime.D3D12X.Objects.DesktopDevice, _log);
+        }
+
         DeviceLoss.Armed = true;
         ThreadSnapshot.Stuck = id => _log.Warn($"[sample] stack capture stuck on thread {id}: no answer in {ThreadSnapshot.TimeoutMilliseconds} ms; skipped, its worker abandoned");
     }

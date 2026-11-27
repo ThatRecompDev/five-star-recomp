@@ -79,6 +79,9 @@ internal static class HostComposition
 
         Shims.D3D12X.Present.GpuKeepAwake.Mode = options.GpuKeepAwake;
         Shims.D3D12X.Pipelines.DepthFormats.TypelessDepth = options.TypelessDepth;
+        Shims.D3D12X.XboxDeviceMethods.NoGpuTimeout = options.NoGpuTimeout;
+        Shims.D3D12X.Pipelines.PipelineEviction.SetBudget(options.PipelineShaderBudget);
+        Shims.D3D12X.BackgroundProcessing.Keep = options.DriverBackgroundWork;
         Shims.D3D12X.Binding.GpuUploadHeaps.Enabled = options.GpuUploadHeaps;
 
         Shims.D3D12X.DebugLayer.DrawCensus.Passes = options.CensusPasses;

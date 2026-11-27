@@ -107,6 +107,11 @@ public static class Program
         using var file = OpenLogFile(options.LogFile);
         var log = new LoaderLog(Console.Out, file, options.Verbose);
 
+        if (options.D3dkmtWatch)
+        {
+            KernelGraphicsCalls.Install(log);
+        }
+
         if (options.AftermathSelfTest)
         {
             return AftermathSelfTestCommand.Run(options, log);

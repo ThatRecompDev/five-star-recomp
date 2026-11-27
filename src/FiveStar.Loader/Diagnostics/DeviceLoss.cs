@@ -82,6 +82,7 @@ internal static class DeviceLoss
     private static void Finish(string sign)
     {
         var started = Stopwatch.StartNew();
+        KernelGraphicsCalls.LogDeviceStates(sign);
         BeforeEnd?.Invoke(sign);
         int left = (int)((GraceSeconds * MillisecondsPerSecond) - started.ElapsedMilliseconds);
 

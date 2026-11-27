@@ -26,4 +26,13 @@ internal unsafe struct StandInPipelineObject
     /// <summary>1 once a command list has set the stand-in: its work goes before speculative work (<see cref="StandInPipelines.Desktop"/>).</summary>
     public int Used;
     public nint Owner;
+
+    /// <summary>The present in which a command list last set the built pipeline, or in which it was built (<see cref="PipelineEviction"/>).</summary>
+    public long LastUsed;
+
+    /// <summary>1 while the built pipeline is given up for the driver's shader memory: the next use builds it again.</summary>
+    public int Evicted;
+
+    /// <summary>1 once the built pipeline's shader bytes count as held by the driver (a list set it since it was built).</summary>
+    public int Counted;
 }

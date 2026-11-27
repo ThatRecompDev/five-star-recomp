@@ -308,6 +308,17 @@ internal sealed record HostOptions
     /// <summary>Depth textures in a typed depth format made in its typeless family, so shader views read them (<c>--typeless-depth</c>).</summary>
     public bool TypelessDepth { get; set; }
 
+    /// <summary>The game's command queues are made without the GPU timeout (<c>--no-gpu-timeout</c>): work past Windows' 2 s limit stalls instead of removing the device.</summary>
+    public bool NoGpuTimeout { get; set; }
+
+    /// <summary>Failing graphics kernel calls, MarkDeviceAsError and device states in the log (<c>--d3dkmt-watch</c>): who removes the device.</summary>
+    public bool D3dkmtWatch { get; set; }
+
+    /// <summary>The driver's background shader work stays on (<c>--driver-background-work</c>); off by default.</summary>
+    public bool DriverBackgroundWork { get; set; }
+
+    /// <summary>MiB of DXIL the built pipelines may hold before unused ones are given up (<c>--pipeline-shader-budget</c>); 0 gives up none.</summary>
+    public int PipelineShaderBudget { get; set; } = Shims.D3D12X.Pipelines.PipelineEviction.DefaultBudgetMiB;
     /// <summary>The descriptor window, the address map and the user-data ring in GPU upload heaps where the device has them (<c>--gpu-upload-heaps</c>).</summary>
     public bool GpuUploadHeaps { get; set; }
 
