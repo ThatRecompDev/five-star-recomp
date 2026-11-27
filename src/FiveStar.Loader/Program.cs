@@ -77,7 +77,7 @@ public static class Program
             return Warm(options);
         }
 
-        if (options.Loads.Count == 0)
+        if (options.Loads.Count == 0 && !options.AftermathSelfTest)
         {
             Console.WriteLine(HostUsage.Text);
 
@@ -106,6 +106,12 @@ public static class Program
     {
         using var file = OpenLogFile(options.LogFile);
         var log = new LoaderLog(Console.Out, file, options.Verbose);
+
+        if (options.AftermathSelfTest)
+        {
+            return AftermathSelfTestCommand.Run(options, log);
+        }
+
         using var runtime = new LoaderRuntime(HostComposition.CreateLoaderOptions(options), HostComposition.CreateGdkOptions(options), HostComposition.CreatePipelineFolders(options), HostComposition.CreateEnvironment(), log);
 
         return new LoaderHost(options, runtime, log, Environment.ProcessId).Run();
