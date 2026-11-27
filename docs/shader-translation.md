@@ -583,7 +583,10 @@ by `MeshComputeFallback`, the mesh fallback.
 is pinned to 32 lanes instead, since lanes 32..63 never exist. A wave32 program is pinned to 32 lanes as soon as it has
 any wave operation, masks alone included: unpinned, AMD may run it in 64-lane waves, where lanes 32..63 read their mask
 bits from the half the console has not (a TAA resolve whose loop ran until its mask was empty never ended there and the
-GPU was removed). For a program pinned to 64 lanes, which GPUs with only 32-lane waves (NVIDIA) reject, `fivestar shader translate` also writes `<name>.w32.hlsl`/`.dxil`
+GPU was removed). A wave64 program whose group of 33 to 64 threads uses groupshared memory is pinned to 64 lanes too:
+the console runs that group as one wave, whose LDS stores and reads need no barrier, while unpinned 32-lane hardware
+runs two waves that race (CS_MaterialTiles lost the other wave's class bits and the tiled lighting culled its tiles).
+For a program pinned to 64 lanes, which GPUs with only 32-lane waves (NVIDIA) reject, `fivestar shader translate` also writes `<name>.w32.hlsl`/`.dxil`
 (`HlslTranslator.GroupWaveVariant`) when the thread group fits in one console wave: the group runs as the wave
 (`VW_GROUP_WAVE`), every wave operation stores to groupshared memory, passes one barrier and reads back (lane masks
 with `InterlockedOr`), so it is right on any hardware wave. A barrier needs every thread of the group, which holds
