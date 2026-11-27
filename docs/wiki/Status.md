@@ -17,8 +17,10 @@ GTA VI does not run yet. Updated 27 November 2026.
   - Exposure: follows the black lighting to its floor.
 - **Device loss:** about 10 minutes in, at the same point of the game. Not a plain GPU timeout as written here
   before: the queues still finish work 0.3 s before the loss, the removal reason is DEVICE_REMOVED, Windows records
-  no timeout for most losses, and turning the queue timeout off (`--no-gpu-timeout`) changes nothing. What removes
-  the device is being traced.
+  no timeout for most losses, and turning the queue timeout off (`--no-gpu-timeout`) changes nothing. Traced in two
+  boots: the NVIDIA user-mode driver fails inside `ExecuteCommandLists` of a game submission and gives the device up
+  itself; no kernel call fails first and no GPU fault is reported. Which list it rejects, or what it runs out of, is
+  the next boot.
 - **Speed:** a world frame takes about 200-400 ms. Targets: 30 fps, then 60.
 - **AMD:** world geometry draws since #55.
 
