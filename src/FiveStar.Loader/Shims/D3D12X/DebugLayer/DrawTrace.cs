@@ -72,6 +72,9 @@ internal sealed unsafe class DrawTrace
     private const int WorldCaptures = 3;
     private const int WorldCaptureSpacing = 100;
 
+    /// <summary>When the loader process started (<c>--dump-frame Ns</c> counts from it).</summary>
+    private static readonly DateTime Started = ProcessStart();
+
     /// <summary>D3D12_RESOURCE_DIMENSION_TEXTURE3D.</summary>
     private const int Texture3D = 4;
     private const int IncrementSlot = 15;
@@ -1199,6 +1202,33 @@ internal sealed unsafe class DrawTrace
         _log.Info($"  [dump-frame] the world at present {present} ({work} draws and dispatches in it): dumping the frame after present {dumped}");
     }
 
+    /// <summary>
+    /// <c>--dump-frame Ns</c>: the first present N seconds after the loader started sets the frame dump to the next
+    /// present, and that present is captured.
+    /// </summary>
+    private void TriggerOnTime(long present)
+    {
+        long seconds = FrameStageDump.AfterSeconds;
+
+        if (seconds < 0 || FrameStageDump.Present != 0 || DateTime.Now - Started < TimeSpan.FromSeconds(seconds))
+        {
+            return;
+        }
+
+        long dumped = present + 1;
+        FrameStageDump.Present = dumped;
+        _capture.Add(dumped);
+        _log.Info($"  [dump-frame] {seconds} s after start at present {present}: dumping the frame after present {dumped}");
+    }
+
+    /// <summary>The loader process's start time.</summary>
+    private static DateTime ProcessStart()
+    {
+        using var process = System.Diagnostics.Process.GetCurrentProcess();
+
+        return process.StartTime;
+    }
+
     /// <summary>The presents the world trigger captures after the first world present <paramref name="present"/>.</summary>
     public static IEnumerable<long> WorldFrames(long present)
     {
@@ -1209,6 +1239,7 @@ internal sealed unsafe class DrawTrace
     public bool ReportDue(long present)
     {
         TriggerOnWorld(present);
+        TriggerOnTime(present);
         bool wanted = _capture.Wants(present);
         Volatile.Write(ref _filterOpen, wanted);
         Interlocked.Exchange(ref _filtered, 0);
