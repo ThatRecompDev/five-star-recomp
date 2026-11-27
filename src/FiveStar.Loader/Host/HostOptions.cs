@@ -227,6 +227,9 @@ internal sealed record HostOptions
     /// <summary>DRED alone (auto-breadcrumbs, page faults, the removal report), without the slow debug layer (<c>--d3d12-dred</c>).</summary>
     public bool D3D12Dred { get; set; }
 
+    /// <summary>Depth comparisons (and stencil off) for pipelines by program name (<c>--depth-func-override text=Func;...</c>).</summary>
+    public IReadOnlyList<(string Text, int Function)> DepthFuncOverrides { get; set; } = [];
+
     /// <summary>Pipelines whose programs' names hold this text cull no faces (<c>--force-cull-none &lt;text&gt;</c>).</summary>
     public string? ForceCullNone { get; set; }
 
