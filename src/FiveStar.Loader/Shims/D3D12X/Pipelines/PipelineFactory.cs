@@ -189,9 +189,15 @@ internal sealed unsafe class PipelineFactory
         InFlight.Describe(recipe.Names);
         Action<nint> built = pipeline => _rectangles?.Remember(pipeline, recipe.Desktop!, recipe.Programs);
         var small = recipe.Stream.ShaderBytes <= SmallGraphicsShaderBytes;
-        var hr = Create(recipe.Stream, iid, result, recipe.Names, built, deferral, small);
+        var hr = Create(recipe.Stream, iid, result, recipe.Names, built, deferral, small, GraphicsAgain(description, *iid));
 
         return Remember(description, hr, result, recipe.Names);
+    }
+
+    /// <summary>The build of <paramref name="description"/> made again, for a pipeline given up (<see cref="PipelineEviction"/>).</summary>
+    private Func<PendingBuild?> GraphicsAgain(GraphicsPipelineDescription description, Guid iid)
+    {
+        return () => Prepared(PrepareGraphics(description), iid);
     }
 
     public int Compute(ComputePipelineDescription description, Guid* iid, nint* result)
@@ -221,7 +227,8 @@ internal sealed unsafe class PipelineFactory
         }
 
         InFlight.Describe(recipe.Names);
-        var hr = Create(recipe.Stream, iid, result, recipe.Names, null, deferral, small);
+        var again = *iid;
+        var hr = Create(recipe.Stream, iid, result, recipe.Names, null, deferral, small, () => Prepared(PrepareCompute(description), again));
         Report(hr, recipe.Names);
 
         return hr;
@@ -406,7 +413,7 @@ internal sealed unsafe class PipelineFactory
     /// build threads (<see cref="StandInPipelines"/>) and stored in the cache. Takes ownership of the stream, whose
     /// native copy is freed while it waits for a build thread.
     /// </summary>
-    private int Create(DesktopStream stream, Guid* iid, nint* result, string names, Action<nint>? built, Action? deferral, bool small = false)
+    private int Create(DesktopStream stream, Guid* iid, nint* result, string names, Action<nint>? built, Action? deferral, bool small = false, Func<PendingBuild?>? again = null)
     {
         Action<nint> named = pipeline =>
         {
@@ -451,12 +458,14 @@ internal sealed unsafe class PipelineFactory
         bool cached = !loadHere && Cache is not null && Cache.Contains(stream.Key);
         Func<PipelineResult> make = cached ? () => Urgently(() => Build(stream, wanted, names)) : () => Build(stream, wanted, names);
 
+        long bytes = stream.ShaderBytes;
+
         if (deferral is not null)
         {
-            return StandIns.Deferred(make, result, names, named, heavy, deferral, small);
+            return StandIns.Deferred(make, result, names, named, heavy, deferral, small, again, bytes);
         }
 
-        return StandIns.Create(make, result, names, named, heavy, small);
+        return StandIns.Create(make, result, names, named, heavy, small, again, bytes);
     }
 
     /// <summary>Runs <paramref name="make"/> with this thread's compiles urgent (<see cref="CompileBudget.Urgent"/>).</summary>
@@ -670,7 +679,7 @@ internal sealed unsafe class PipelineFactory
             }
         };
 
-        return new PendingBuild(() => Build(stream, iid, recipe.Names), stream.ShaderBytes >= HeavyShaderBytes, recipe.Names, built);
+        return new PendingBuild(() => Build(stream, iid, recipe.Names), stream.ShaderBytes >= HeavyShaderBytes, recipe.Names, built, stream.ShaderBytes);
     }
 
     /// <summary>

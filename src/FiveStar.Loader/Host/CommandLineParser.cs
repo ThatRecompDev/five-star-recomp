@@ -704,6 +704,14 @@ internal sealed class CommandLineParser
                 return true;
             case "--max-driver-compiles" or "--compile-ceiling":
                 return SetCompileLimit(option);
+            case "--driver-background-work":
+                _options.DriverBackgroundWork = true;
+
+                return true;
+            case "--pipeline-shader-budget":
+                _options.PipelineShaderBudget = int.Parse(Next(), System.Globalization.CultureInfo.InvariantCulture);
+
+                return true;
             default:
                 return ApplyResources(option);
         }
@@ -831,6 +839,7 @@ internal sealed class CommandLineParser
                 _options.D3dkmtWatch = true;
 
                 return true;
+
             case "--typeless-depth":
                 _options.TypelessDepth = true;
 

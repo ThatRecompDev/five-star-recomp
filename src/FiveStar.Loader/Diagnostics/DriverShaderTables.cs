@@ -40,13 +40,52 @@ internal static unsafe class DriverShaderTables
     private const int PollMilliseconds = 5000;
     private const double MiB = 1024.0 * 1024.0;
 
+    /// <summary>Names of pipelines first used that one log line carries.</summary>
+    private const int NamesShown = 8;
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<nint, byte> Used = new();
+    private static readonly System.Collections.Concurrent.ConcurrentQueue<nint> NewlyUsed = new();
     private static string _last = string.Empty;
     private static Func<nint>? _device;
+    private static long _created;
+    private static long _loaded;
+
+    /// <summary>Whether pipelines are followed (<see cref="NoteUsed"/>): set by <see cref="Start"/>.</summary>
+    public static bool Enabled { get; private set; }
+
+    /// <summary>More for each logged line (the pipelines' own accounting); unset, nothing.</summary>
+    public static Func<string>? More { get; set; }
+
+    /// <summary>Names a desktop pipeline for the log; unset, its address.</summary>
+    public static Func<nint, string>? Name { get; set; }
+
+    /// <summary>A desktop pipeline was made by CreatePipelineState, or loaded from a pipeline library.</summary>
+    public static void NoteCreated(bool loaded)
+    {
+        if (loaded)
+        {
+            Interlocked.Increment(ref _loaded);
+        }
+        else
+        {
+            Interlocked.Increment(ref _created);
+        }
+    }
+
+    /// <summary>A desktop pipeline is set on a list: the driver adds a pipeline's shaders to its tables when it is first used.</summary>
+    public static void NoteUsed(nint pipeline)
+    {
+        if (pipeline != 0 && !Used.ContainsKey(pipeline) && Used.TryAdd(pipeline, 0))
+        {
+            NewlyUsed.Enqueue(pipeline);
+        }
+    }
 
     /// <summary>Starts the watch thread; <paramref name="device"/> gives the desktop device, 0 until it is made.</summary>
     public static void Start(Func<nint> device, LoaderLog log)
     {
         _device = device;
+        Enabled = true;
         var thread = new Thread(() => Watch(device, log)) { IsBackground = true, Name = "fivestar driver shader tables" };
         thread.Start();
     }
@@ -88,6 +127,24 @@ internal static unsafe class DriverShaderTables
         return text.ToString();
     }
 
+    /// <summary>The address of table <paramref name="index"/> of <paramref name="device"/>; 0 when it is not found.</summary>
+    public static ulong Table(nint device, int index)
+    {
+        nint module;
+
+        fixed (char* name = Driver)
+        {
+            module = Kernel32.GetModuleHandleW(name);
+        }
+
+        if (device == 0 || module == 0 || !Find(device, (ulong)module + DeviceVtable, out ulong holder) || !Read(holder + FirstTableOffset + ((ulong)index * sizeof(ulong)), out ulong table))
+        {
+            return 0;
+        }
+
+        return table;
+    }
+
     /// <summary>The watched device's tables now, for a removal report; empty when not watched or not found.</summary>
     public static string DescribeWatched()
     {
@@ -107,12 +164,25 @@ internal static unsafe class DriverShaderTables
         {
             Thread.Sleep(PollMilliseconds);
             string now = Describe(device());
+            int added = NewlyUsed.Count;
 
-            if (now.Length != 0 && now != _last)
+            if (now.Length == 0 || (now == _last && added == 0))
             {
-                _last = now;
-                log.Info($"  [d3dkmt] driver shader tables: {now}");
+                continue;
             }
+
+            _last = now;
+            var names = new StringBuilder();
+
+            for (int i = 0; i < added && NewlyUsed.TryDequeue(out nint pipeline); i++)
+            {
+                if (i < NamesShown)
+                {
+                    names.Append(", ").Append(Name?.Invoke(pipeline) ?? $"0x{pipeline:x}");
+                }
+            }
+
+            log.Info($"  [d3dkmt] driver shader tables: {now}; pipelines made {Interlocked.Read(ref _created)}, loaded from a library {Interlocked.Read(ref _loaded)}, set on a list {Used.Count} (+{added}{names}){More?.Invoke()}");
         }
     }
 

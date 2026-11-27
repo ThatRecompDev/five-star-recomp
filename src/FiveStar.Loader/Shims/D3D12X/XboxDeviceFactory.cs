@@ -207,6 +207,8 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
 
         Debugging.AttachDevice(inner);
         Aftermath?.AttachDevice(inner);
+        BackgroundProcessing.Apply(inner, _log);
+
         Presenter.Pix?.AfterPresent(0);
         SectionHeaps.Budget = GpuMemoryBudget.Open(inner, _log);
         SystemMemoryReserve.Take(inner, SectionHeaps.Budget, _log);
@@ -348,6 +350,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         var rectangles = new RectanglePipelines(device2, root, RectangleFolder(translated), library, warnings, builds) { Compiler = _pipelineFolders.OnDemand?.RectangleCompiler };
         Rectangles.Attach(rectangles);
         var standIns = new StandInPipelines(PipelineSlots.CreationBudget, builds, heavyBuilds, warnings);
+        PipelineEviction.Attach(standIns, rectangles, _log);
 
         var cache = OpenCache(device2);
         var factory = new PipelineFactory(device2, root, library, new ProgramSignatures(programs!), warnings, rectangles, standIns, cache) { Journal = OpenJournal(), Lazy = !_pipelineFolders.EagerBuilds, OnDemand = onDemand };
