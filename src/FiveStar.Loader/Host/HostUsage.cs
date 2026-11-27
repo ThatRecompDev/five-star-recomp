@@ -125,6 +125,7 @@ internal static class HostUsage
           --force-cull-none <text>  pipelines whose programs' names hold <text> cull no faces (a winding check)
           --depth-func-override <text=Func;...>  pipelines whose programs' names hold <text> get that depth test
                                  (Never..Always) and no stencil test (a check of what culls a pass's pixels)
+          --no-class-depth-bounds  the tiled lighting keeps its depth EQUAL class test (by default a depth-bounds test)
           --skip-pipelines <text,...>  pipelines whose programs' names hold a text stay stand-ins: never built or
                                  loaded, their draws skipped (to get past one that hangs the GPU)
           --no-draws             no pipeline is built and every draw and dispatch is skipped (black picture): the frame

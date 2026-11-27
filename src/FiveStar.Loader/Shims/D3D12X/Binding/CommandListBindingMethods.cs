@@ -363,7 +363,10 @@ internal static unsafe class CommandListBindingMethods
             ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
             ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, vertices, instances);
             nint inner = self->Inner;
+
+            bool bounds = Pipelines.ClassDepthBounds.Before(self, RectangleListState.Of(self)->Pipeline);
             ((delegate* unmanaged<nint, uint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDrawInstanced))(inner, vertices, instances, firstVertex, firstInstance);
+            AfterBounds(self, bounds);
             ShimContext.Runtime.D3D12X.DrawTrace?.AfterDraw(self);
             IndirectGather.AfterWork(self, false, RectangleListState.Of(self)->Pipeline);
         }
@@ -403,7 +406,10 @@ internal static unsafe class CommandListBindingMethods
             ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
             ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, indices, instances);
             nint inner = self->Inner;
+
+            bool bounds = Pipelines.ClassDepthBounds.Before(self, RectangleListState.Of(self)->Pipeline);
             ((delegate* unmanaged<nint, uint, uint, uint, int, uint, void>)ComObject.Slot(inner, DesktopDrawIndexedInstanced))(inner, indices, instances, firstIndex, baseVertex, firstInstance);
+            AfterBounds(self, bounds);
             ShimContext.Runtime.D3D12X.DrawTrace?.AfterDraw(self);
             IndirectGather.AfterWork(self, false, RectangleListState.Of(self)->Pipeline);
         }
@@ -497,7 +503,9 @@ internal static unsafe class CommandListBindingMethods
                 DispatchCaptures.BeforeIndirect(self, arguments, argumentOffset, stride, maxCount, count, countOffset);
             }
 
+            bool bounds = !dispatch && Pipelines.ClassDepthBounds.Before(self, RectangleListState.Of(self)->Pipeline);
             RunIndirect(self, indirect, BufferCopies.Desktop(arguments, ref argumentOffset), argumentOffset, BufferCopies.Desktop(count, ref countOffset), countOffset);
+            AfterBounds(self, bounds);
             ShimContext.Runtime.D3D12X.DrawTrace?.AfterIndirect(self);
 
             if (dispatch && DispatchCaptures.Enabled)
@@ -510,6 +518,16 @@ internal static unsafe class CommandListBindingMethods
         catch (Exception exception)
         {
             UnmanagedGuard.Caught(exception, "CommandListBindingMethods.ExecuteIndirect");
+        }
+    }
+
+    /// <summary>After a draw that <see cref="Pipelines.ClassDepthBounds"/> set depth bounds for: the game's bounds again.</summary>
+    [HotPath]
+    private static void AfterBounds(XboxObject* self, bool bounds)
+    {
+        if (bounds)
+        {
+            Pipelines.ClassDepthBounds.After(self);
         }
     }
 

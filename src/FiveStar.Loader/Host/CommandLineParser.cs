@@ -138,8 +138,8 @@ internal sealed class CommandLineParser
                 return SetTraceDraws(option);
             case "--capture-dir" or "--capture-presents" or "--pix-capture" or "--pix-capture-dir":
                 return SetCapture(option);
-            case "--depth-func-override":
-                return SetDepthFuncOverride();
+            case "--depth-func-override" or "--no-class-depth-bounds":
+                return SetDepthFuncOverride(option);
             case "--present-test":
                 return SetPresentTest();
             case "--raytracing" or "--raytracing-gpu" or "--no-rt-stand-ins":
@@ -1283,9 +1283,16 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    /// <summary><c>--depth-func-override text=Func[;text=Func...]</c> (Never, Less, Equal, LessEqual, Greater, NotEqual, GreaterEqual, Always).</summary>
-    private bool SetDepthFuncOverride()
+    /// <summary><c>--depth-func-override text=Func[;text=Func...]</c> (Never, Less, Equal, LessEqual, Greater, NotEqual, GreaterEqual, Always), or <c>--no-class-depth-bounds</c>.</summary>
+    private bool SetDepthFuncOverride(string option)
     {
+        if (option == "--no-class-depth-bounds")
+        {
+            _options.NoClassDepthBounds = true;
+
+            return true;
+        }
+
         _options.DepthFuncOverrides = Shims.D3D12X.Pipelines.DepthFuncOverride.Parse(Next()) ?? throw new CommandLineException("--depth-func-override takes text=Func[;text=Func...], e.g. TL_PS_NoDir=Always");
 
         return true;

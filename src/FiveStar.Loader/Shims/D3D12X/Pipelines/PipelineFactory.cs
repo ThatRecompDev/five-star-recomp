@@ -276,11 +276,14 @@ internal sealed unsafe class PipelineFactory
         var names = string.Join(" + ", programs.Select(program => program.Name));
         desktop = CullNone(desktop, names);
 
-        // --depth-func-override: the description (so its key) carries the comparison, rectangle variants included.
+        // --depth-func-override, then the tiled lighting's class test as depth bounds: the description (so its key)
+        // carries them, rectangle variants included.
         if (DepthFuncOverride.Rules.Count > 0)
         {
             desktop = desktop with { DepthStencil = DepthFuncOverride.Apply(desktop.DepthStencil, names) };
         }
+
+        desktop = desktop with { DepthStencil = ClassDepthBounds.Apply(desktop.DepthStencil, names) };
 
         return new PipelineRecipe(DesktopPipelineBuilder.GraphicsStream(_device2, _rootSignature, desktop, programs), desktop, programs, names);
     }
@@ -673,6 +676,7 @@ internal sealed unsafe class PipelineFactory
             if (recipe.Desktop is not null)
             {
                 _rectangles?.Remember(pipeline, recipe.Desktop, recipe.Programs);
+                ClassDepthBounds.Built(pipeline, recipe.Desktop.DepthStencil);
             }
         };
 
