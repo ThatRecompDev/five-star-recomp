@@ -21,6 +21,9 @@ GTA VI does not run yet. Updated 27 November 2026.
   the table stays at about 350 MiB. Open: the mode may need Windows developer mode; new areas add shaders; an
   RTX 5090 report (#64) loses the device earlier in another way.
 - **Speed:** a world frame takes about 200-400 ms. Targets: 30 fps, then 60.
+- **Translator batch merged (27 November):** translation output changed, so shaders are translated and compiled
+  again on the next run (hours on a first run). It holds wide stores, reused buffer reads, the water-loop and
+  tile-class fixes and #61, #62, #66, #67.
 - **AMD:** world geometry draws since #55.
 
 ## Known problems
@@ -31,7 +34,7 @@ GTA VI does not run yet. Updated 27 November 2026.
 | Final frame banded, holed, half black, blurred | dump the lit frame stage by stage; fix in order |
 | Driver shader table has about 160 MiB of headroom | smaller translated shaders |
 | Hair and vehicle bodies missing from surface colour | bring back the remaining skipped skinned passes one by one |
-| GPU writes to game memory in system RAM are slow | wide stores (next batch); video-memory copies |
+| GPU writes to game memory in system RAM are slow | video-memory copies; a finer address map |
 | Ray tracing | not built; those passes are held and stand-ins fill some outputs |
 ![Progress](progress.svg)
 
