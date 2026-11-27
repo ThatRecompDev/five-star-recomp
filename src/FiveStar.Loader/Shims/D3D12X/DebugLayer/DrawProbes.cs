@@ -470,8 +470,9 @@ internal sealed unsafe class DrawProbes
         var max = new double[channels];
         var min = new double[channels];
         var zeros = new long[channels];
-        var nans = new long[channels];
+        var negativeZeros = new long[channels];
 
+        var nans = new long[channels];
         Array.Fill(max, double.MinValue);
         Array.Fill(min, double.MaxValue);
 
@@ -483,10 +484,15 @@ internal sealed unsafe class DrawProbes
             {
                 double value = bytes == sizeof(float) ? BitConverter.ToSingle(row.Slice(i * bytes, bytes)) : (double)BitConverter.ToHalf(row.Slice(i * bytes, bytes));
 
-                // Exactly 0.0 counts both signs: a reverse-Z depth's sky is +0.0.
+                // Exactly 0.0 counts both signs (a reverse-Z sky is +0.0); -0.0 apart, which a bitwise depth test tells apart.
                 if (value == 0)
                 {
                     zeros[i % channels]++;
+
+                    if (double.IsNegative(value))
+                    {
+                        negativeZeros[i % channels]++;
+                    }
                 }
 
                 if (double.IsNaN(value))
@@ -500,12 +506,23 @@ internal sealed unsafe class DrawProbes
             }
         }
 
-        double count = (double)width * rows;
-        string mean = string.Join(", ", sum.Select(value => (value / count).ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
-        string largest = string.Join(", ", max.Select(value => value.ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
-        string smallest = string.Join(", ", min.Select(value => value.ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
+        return $"; float mean ({Values(sum.Select(value => value / ((double)width * rows)))}), max ({Values(max)}), min ({Values(min)}); exactly 0.0 ({string.Join(", ", zeros)}){NegativeZeros(negativeZeros)} and NaN ({string.Join(", ", nans)}) of {width * (long)rows} pixels";
+    }
 
-        return $"; float mean ({mean}), max ({largest}), min ({smallest}); exactly 0.0 ({string.Join(", ", zeros)}) and NaN ({string.Join(", ", nans)}) of {width * (long)rows} pixels";
+    /// <summary>", -0.0 (n, ...)" when a channel holds -0.0; empty otherwise.</summary>
+    private static string NegativeZeros(long[] counts)
+    {
+        if (!counts.Any(count => count > 0))
+        {
+            return string.Empty;
+        }
+
+        return $", -0.0 ({string.Join(", ", counts)})";
+    }
+
+    private static string Values(IEnumerable<double> values)
+    {
+        return string.Join(", ", values.Select(value => value.ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
     }
 
     /// <summary>
