@@ -157,9 +157,27 @@ internal sealed class TranslatedProgramLibrary : IProgramLibrary
         }
     }
 
+    /// <summary>
+    /// The DXIL file of a program, in place of <c>&lt;folder&gt;/&lt;name&gt;.dxil</c> (<see cref="ProgramProducer.DxilPath"/>
+    /// with replacements); null for that.
+    /// </summary>
+    public Func<string, string>? DxilPathOf { get; init; }
+
     /// <summary>The file of the program's form for this adapter, or null when there is none.</summary>
     private string? PathOf(string name)
     {
+        if (DxilPathOf is not null)
+        {
+            string? own = DxilPathOf(name);
+
+            if (!File.Exists(own))
+            {
+                own = null;
+            }
+
+            return own;
+        }
+
         var file = name + DxilExtension;
 
         if (_picker is not null)

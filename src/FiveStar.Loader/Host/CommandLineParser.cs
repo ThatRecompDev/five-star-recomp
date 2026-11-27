@@ -138,9 +138,11 @@ internal sealed class CommandLineParser
                 return SetTraceDraws(option);
             case "--capture-dir" or "--capture-presents" or "--pix-capture" or "--pix-capture-dir":
                 return SetCapture(option);
+            case "--depth-func-override":
+                return SetDepthFuncOverride();
             case "--present-test":
                 return SetPresentTest();
-            case "--raytracing" or "--raytracing-gpu" or "--no-rt-stand-ins":
+            case "--raytracing" or "--raytracing-gpu" or "--rt-traversal" or "--no-rt-stand-ins":
                 return SetRayTracing(option);
             case "--xdsp-convolution":
                 return SetXDspConvolution();
@@ -196,10 +198,8 @@ internal sealed class CommandLineParser
                 _options.WarmUsedOnly = true;
 
                 return true;
-            case "--program-cache":
-                _options.ProgramCache = Path.GetFullPath(Next());
-
-                return true;
+            case "--program-cache" or "--shader-overrides":
+                return SetProgramFolder(option);
             case "--no-on-demand":
                 _options.NoOnDemand = true;
 
@@ -215,6 +215,23 @@ internal sealed class CommandLineParser
             default:
                 return ApplyMemory(option);
         }
+    }
+
+    /// <summary><c>--program-cache</c> or <c>--shader-overrides</c>: a folder of programs.</summary>
+    private bool SetProgramFolder(string option)
+    {
+        var folder = Path.GetFullPath(Next());
+
+        if (option == "--shader-overrides")
+        {
+            _options.ShaderOverrides = folder;
+
+            return true;
+        }
+
+        _options.ProgramCache = folder;
+
+        return true;
     }
 
     private bool SetPipelineCache()
@@ -1156,7 +1173,13 @@ internal sealed class CommandLineParser
 
         if (option == "--dump-frame")
         {
-            _options.DumpFrame = long.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out long present) && present > 0 ? present : throw new CommandLineException("--dump-frame takes a present number, e.g. 2100");
+            if (!Shims.D3D12X.DebugLayer.FrameStageDump.TryParseWhen(Next(), out long present, out long worldOffset))
+            {
+                throw new CommandLineException("--dump-frame takes a present number (2100), world or world+n (n presents after the first world frame)");
+            }
+
+            _options.DumpFrame = present;
+            _options.DumpFrameWorldOffset = worldOffset;
         }
 
         if (option == "--dump-frame-dir")
@@ -1292,6 +1315,14 @@ internal sealed class CommandLineParser
         return true;
     }
 
+    /// <summary><c>--depth-func-override text=Func[;text=Func...]</c> (Never, Less, Equal, LessEqual, Greater, NotEqual, GreaterEqual, Always).</summary>
+    private bool SetDepthFuncOverride()
+    {
+        _options.DepthFuncOverrides = Shims.D3D12X.Pipelines.DepthFuncOverride.Parse(Next()) ?? throw new CommandLineException("--depth-func-override takes text=Func[;text=Func...], e.g. TL_PS_NoDir=Always");
+
+        return true;
+    }
+
     private bool SetPresentTest()
     {
         _options.PresentTest = true;
@@ -1299,7 +1330,10 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    /// <summary>--raytracing (the DLL's CPU paths), --raytracing-gpu (the inventory of its GPU builder) or --no-rt-stand-ins.</summary>
+    /// <summary>
+    /// --raytracing (the DLL's CPU paths), --raytracing-gpu (the inventory of its GPU builder), --rt-traversal (the
+    /// game's traversal programs run, with --raytracing's paths) or --no-rt-stand-ins.
+    /// </summary>
     private bool SetRayTracing(string option)
     {
         if (option == "--no-rt-stand-ins")
@@ -1307,6 +1341,11 @@ internal sealed class CommandLineParser
             _options.NoRtStandIns = true;
 
             return true;
+        }
+
+        if (option == "--rt-traversal")
+        {
+            _options.RtTraversal = true;
         }
 
         if (option == "--raytracing-gpu")

@@ -11,7 +11,4 @@ public enum RootLayout
 
     /// <summary>Mesh fallback: u0..u2 and t0 (space 9) through a descriptor table.</summary>
     FallbackTable,
-
-    /// <summary>Mesh fallback: u0..u2 and t0 (space 9) as root descriptors.</summary>
-    FallbackRoot,
 }

@@ -40,7 +40,39 @@ public static class ComputeBufferRuleCases
 
     public static IEnumerable<ComputeCase> All()
     {
-        return [Structured(), Unchecked(), FormatElements(), FormatSelects(), HalfData(), AtomicPastEnd()];
+        return [Structured(), Unchecked(), FormatElements(), FormatSelects(), HalfData(), AtomicPastEnd(), VectorPastEnd()];
+    }
+
+    // A dwordx4 load and a dwordx3 store across a raw buffer's end (24 and 20 bytes): the dwords inside move, the others
+    // read 0 or are dropped, as one dword at a time (BufLoadV, BufStoreEach).
+    private static ComputeCase VectorPastEnd()
+    {
+        const string Program = """
+            v_lshlrev_b32_e32 v1, 2, v41
+            buffer_load_dwordx4 v[20:23], v1, s[4:7], 0 offen
+            s_waitcnt vmcnt(0)
+            v_mul_u32_u24_e32 v2, 12, v41
+            buffer_store_dwordx3 v[20:22], v2, s[8:11], 0 offen
+            """;
+        const int LoadEnd = 5;
+        const int StoreEnd = 4;
+        uint[] initial = [.. Enumerable.Range(0, 3 * Threads).Select(index => 0xD0000000 + (uint)index)];
+        var after = initial.ToArray();
+
+        for (var index = 0; index <= StoreEnd; index++)
+        {
+            var (thread, dword) = (index / 3, index % 3);
+            after[index] = Inside(thread + dword <= LoadEnd, Input[thread + dword]);
+        }
+
+        return new ComputeCase("cs_buffer_rule_vector", Program, 4, thread =>
+            [.. Enumerable.Range(0, 4).Select(dword => Expected.Exact(Inside(thread.Id + dword <= LoadEnd, Input[thread.Id + dword])))])
+        {
+            SecondDescriptor = Descriptor(DataHeap, 0, 24, 3),
+            User = Descriptor(WrittenHeap, 0, 20, 3),
+            Buffers = [new BufferResource(DataHeap, Input, Writable: false), new BufferResource(WrittenHeap, initial, Writable: true)],
+            Check = buffers => Differences($"heap{WrittenHeap}", after, buffers[WrittenHeap]),
+        };
     }
 
     /// <summary>A V# of heap slot <paramref name="heap"/> as the hardware reads it.</summary>

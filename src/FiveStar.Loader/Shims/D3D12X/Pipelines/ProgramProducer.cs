@@ -30,6 +30,7 @@ internal sealed class ProgramProducer
     private const string NoForm = "no form: none loads on this adapter";
     private const string NoProgram = "missing: no extracted program file";
     private const string NoProbe = "probe: not a mesh program the probe can take";
+    private const string DxilReplacement = "override: a DXIL replacement has no source to link or trim";
 
     // A compile failure with a source or validation diagnostic repeats; a crash or exhausted memory may not.
     private const string SourceError = ": error: ";
@@ -136,7 +137,7 @@ internal sealed class ProgramProducer
     /// <summary>The failure kept for the program, or null.</summary>
     public string? KeptFailure(string name)
     {
-        var path = Path.Combine(_folder, name + FailExtension);
+        var path = Path.Combine(_folder, Stem(name) + FailExtension);
 
         if (!File.Exists(path))
         {
@@ -146,7 +147,19 @@ internal sealed class ProgramProducer
         return File.ReadAllText(path);
     }
 
-    /// <summary>Translates the program and picks its form; a refusal is kept.</summary>
+    /// <summary>
+    /// The hand-written programs that replace translations (<c>--shader-overrides</c>); null for none. A replaced
+    /// program's files are named by <see cref="Stem"/>.
+    /// </summary>
+    public ShaderOverrides? Overrides { get; init; }
+
+    /// <summary>The program's file stem here: its name, or for a replaced one the name with the replacement's hash.</summary>
+    public string Stem(string name)
+    {
+        return Overrides?.Stem(name) ?? name;
+    }
+
+    /// <summary>Translates the program and picks its form (its replacement's, for a replaced one); a refusal is kept.</summary>
     public ProgramForm Prepare(string name)
     {
         var path = Path.Combine(_programs, DebugLayer.MeshProbes.Source(name) + ProgramExtension);
@@ -154,6 +167,11 @@ internal sealed class ProgramProducer
         if (!File.Exists(path))
         {
             return new ProgramForm(name, null, NoProgram);
+        }
+
+        if (Overrides?.DxilFile(name) is not null)
+        {
+            return new ProgramForm(name, null, DxilReplacement);
         }
 
         var program = CorpusTranslator.TranslateFile(_loader, path, null, OnDemandStart.Translation);
@@ -164,28 +182,15 @@ internal sealed class ProgramProducer
         }
 
         var profile = ShaderStages.ProfileName(program.Stage.Value);
-        var facts = WaveFacts.Read(program.Hlsl);
-        string? variant = null;
+        var replacement = Overrides?.Hlsl(name);
+        var picked = replacement is null ? Picked(name, profile, program) : Replacement(name, profile, replacement);
 
-        if (program.GroupWave?.Hlsl is not null)
-        {
-            variant = name + VariantDxilSuffix;
-        }
-
-        var forms = new ProgramVariants(name, profile, name + DxilExtension, facts.ProgramWave, facts.Floor, facts.WavePin, variant, null);
-        var file = _picker.Pick(forms);
-
-        if (file is null)
+        if (picked is null)
         {
             return Refused(name, NoForm);
         }
 
-        var (hlsl, source) = (program.Hlsl, name + HlslExtension);
-
-        if (file == variant)
-        {
-            (hlsl, source) = (program.GroupWave!.Hlsl!, name + CorpusTranslator.GroupWaveSuffix);
-        }
+        var (hlsl, source) = picked.Value;
 
         if (DebugLayer.PoolStoreTrace.Enabled)
         {
@@ -208,6 +213,47 @@ internal sealed class ProgramProducer
         return new ProgramForm(name, new CompileRequest(Path.Combine(_folder, source), hlsl, profile, slow), null);
     }
 
+    /// <summary>The translation's form the adapter runs (native or wave32 variant) and its source file; null when none loads.</summary>
+    private (string Hlsl, string Source)? Picked(string name, string profile, FiveStar.Shaders.Compilation.TranslatedProgram program)
+    {
+        var facts = WaveFacts.Read(program.Hlsl!);
+        string? variant = null;
+
+        if (program.GroupWave?.Hlsl is not null)
+        {
+            variant = name + VariantDxilSuffix;
+        }
+
+        var forms = new ProgramVariants(name, profile, name + DxilExtension, facts.ProgramWave, facts.Floor, facts.WavePin, variant, null);
+        var file = _picker.Pick(forms);
+
+        if (file is null)
+        {
+            return null;
+        }
+
+        if (file == variant)
+        {
+            return (program.GroupWave!.Hlsl!, name + CorpusTranslator.GroupWaveSuffix);
+        }
+
+        return (program.Hlsl!, name + HlslExtension);
+    }
+
+    /// <summary>A replacement as the one form, when the adapter runs its waves, its source named by <see cref="Stem"/>; null when it does not.</summary>
+    private (string Hlsl, string Source)? Replacement(string name, string profile, string hlsl)
+    {
+        var facts = WaveFacts.Read(hlsl);
+        var forms = new ProgramVariants(name, profile, name + DxilExtension, facts.ProgramWave, facts.Floor, facts.WavePin, null, null);
+
+        if (_picker.Pick(forms) is null)
+        {
+            return null;
+        }
+
+        return (hlsl, Stem(name) + HlslExtension);
+    }
+
     /// <summary>
     /// The compile host that makes programs whole, translation included (<see cref="MakeInHost"/>), the backend compiler
     /// whose counts it keeps and the adapter; null makes them in this process.
@@ -220,7 +266,8 @@ internal sealed class ProgramProducer
     /// </summary>
     public HostedMake MakeInHost(string name)
     {
-        if (Hosting is null || DebugLayer.PoolStoreTrace.Enabled || DebugLayer.MeshProbes.IsProbed(name))
+        // A replaced program is compiled here: the compile host reads no replacements.
+        if (Hosting is null || DebugLayer.PoolStoreTrace.Enabled || DebugLayer.MeshProbes.IsProbed(name) || (Overrides?.Has(name) ?? false))
         {
             return HostedMake.Here;
         }
@@ -472,9 +519,10 @@ internal sealed class ProgramProducer
         }
     }
 
-    private string DxilPath(string name)
+    /// <summary>The program's DXIL: a DXIL replacement's own file, else <c>&lt;folder&gt;/&lt;stem&gt;.dxil</c>.</summary>
+    public string DxilPath(string name)
     {
-        return FiveStar.Shaders.Cache.PlainFileName.Inside(_folder, name + DxilExtension);
+        return Overrides?.DxilFile(name) ?? FiveStar.Shaders.Cache.PlainFileName.Inside(_folder, Stem(name) + DxilExtension);
     }
 
     private ProgramForm Refused(string name, string failure)
@@ -486,7 +534,7 @@ internal sealed class ProgramProducer
 
     private void Keep(string name, string failure)
     {
-        var path = FiveStar.Shaders.Cache.PlainFileName.Inside(_folder, name + FailExtension);
+        var path = FiveStar.Shaders.Cache.PlainFileName.Inside(_folder, Stem(name) + FailExtension);
         File.WriteAllText(path + ".tmp", failure, Encoding.UTF8);
         File.Move(path + ".tmp", path, overwrite: true);
     }

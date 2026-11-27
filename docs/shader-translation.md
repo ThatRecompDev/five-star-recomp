@@ -179,7 +179,10 @@ epilogue's, is kept.
 The superstep form first drops the wave operations whose result nothing reads (`DeadWaveOperations`: a ballot into an
 SGPR half or an scc write that is dead after it, by liveness over the block graph), after reading a lane's own bit of a
 ballot from the mask bool it took (`BallotBits`: `lane_bit(lo, hi)` of `vw_ballot(m).x` and `.y` is `m` while
-neither half nor `m` is written, since every thread of the console wave deposits its bit). Over the 8,765 mesh
+neither half nor `m` is written, since every thread of the console wave deposits its bit; a wave32 program needs only
+`.x`, so its `lane_bit(lo, 0u)` of a 32-bit mask such as `s_cselect_b32 s8, exec, 0` counts too, which took
+`CS_PedStandardSkinning` from 57 ballots and 115 `lane_bit`s to 20 and 50; the block's exit condition, which the
+structured form branches on, is rewritten with its lines, case `cs_vcc_loop_exit_w64`). Over the 8,765 mesh
 programs the stops fell from 1,340,858 to 406,824; none has more than 500 left (207 had before), and
 `MSNC_VS_LinearDepthSkin_f1f2249c` went from 611 to 180. The other forms drop them too (pixel programs without the
 own-bit rewrite, since helper lanes take no part in an HLSL ballot): dxc keeps an unused `WaveActiveBallot`. In every
@@ -296,6 +299,8 @@ The D3D12.X layer creates the views and samplers, so it decides what descriptor 
 | `s_getpc_b64` pointers | high dword `CODE_TAG`; loads read the program's own code, emitted as `g_code[]`; a per-lane (vector) load indexes only the code words from the earliest table the program's s_getpc pointers are moved to (each s_getpc followed by `s_add_u32`/`s_sub_u32` of its low half; `g_data[]`, `CodeData`): indexed per lane, the whole code array cost the AMD driver 26 s and 1.9 GB for one tiled-lighting pixel program, its 53 table words 14 s and 0.5 GB. Lanes read at or after the table they point to (an address before it reads its first word). When one s_getpc is used otherwise, or there is no table, the loads keep `CodeLoad` and the program is unchanged |
 | BVH T# | dword0 = BVH base address >> 8 in the memory window (see [ray-intersection.md](ray-intersection.md)) |
 
+**Wide stores.** A compute program's store of 2 to 4 dwords a lane (`buffer_store_dwordxN`, `global_store_dwordxN`) goes through `BufStoreN` / `PtrStoreN`: when the whole hardware wave stores into one view and each lane's record follows the one before, the wave writes the block a dword a lane (store k writes dword k * lanes + lane, read from the lane holding it), else each lane its own dwords. Game memory is system memory, where the GPU stores whole sectors fast only a dword a lane: on an RTX 4090, 4 MB of 16-byte lane records took 25-40 ms, 0.6 ms written this way, 0.16 ms a dword a lane. Off with the store and span traces.
+
 The **address map** (`ResourceDescriptorHeap[GPU_MAP_HEAP]`, slot 7; `AddressMap` writes it) holds a dword per 4 GiB
 span of the address space (the address's high dword) naming the span's page table, and per 64 KiB page the heap index
 of a raw SRV over the page (its UAV follows) and the page's byte offset in that view. Every access is looked up at its
@@ -331,6 +336,12 @@ read 0; the mesh probe of `MS_VS_Transform_PositionOnly` found one format load o
 
 Per access, `buf_limit` gives the end the dwords must fit under and `buf_offset` the checked offset (soffset counts
 for raw V#s). Each dword then costs one compare (`buf_fits`); formatted accesses check the element's first dword.
+A `buffer_load/store_dwordx2-x4` makes one compare when all its dwords are in range (`buf_fits_all`: the last fits and
+its offset does not wrap) and then one `Load2-4` / `Store2-4` through one descriptor (`BufLoadV`, `BufLoadRWV`,
+`BufStoreV`, and `BufStoreN` in compute); partly in range, a rolled loop checks and moves each dword as before
+(`BufStoreEach` for stores). On `CS_PedStandardSkinning` that took the DXIL backend's output from 281,224 to 267,040
+bytes (1,395 to 1,135 raw loads, 481 to 283 raw stores, 793 to 333 heap handles) with the same replay outputs. `s_buffer_load` keeps a select
+per dword: those loads are uniform and branch-free, and a range branch per site grew the constant-heavy programs.
 The shim's records carry the OOB_SELECT of their view's kind (raw 3, structured 0, typed and constant buffers 1).
 
 Audit against the GFX10 rules, per access kind (the corpus's 25,885 programs as a census; `ComputeBufferRuleCases` has
@@ -471,7 +482,8 @@ strip. The record size `GS_VTX_DW` is derived from the LDS write offsets between
 | FMA | `mad` (the prelude's exact `fma32` exists but is slow): fused on AMD and NVIDIA, unfused on WARP. `v_mad_f32`, `v_mac_f32`, `v_madak_f32` and `v_madmk_f32`, unfused on AMD, are `mad_unfused`: a `precise` product and sum, which dxc does not mark fast, so no driver contracts them (NVIDIA did) |
 | `v_fract_f32` | `fract_f32`: `frac`, clamped to 0x3F7FFFFF as AMD does (`frac` of a small negative value rounds to 1.0 on NVIDIA) |
 
-**Mesh fallback contract** (register space 9, bound through a descriptor table):
+**Mesh fallback contract** (register space 9, bound through a descriptor table; not as root descriptors, since the
+compute shader reads the capacities of `u0` and `u1` with GetDimensions, which root descriptors leave undefined):
 
 | Binding | Content |
 |---|---|
@@ -504,7 +516,7 @@ AMD pixel wave of 64) holds at most four program waves: the lane at the ballot's
 WaveActiveMax of a uint4, one component per program wave, since the same read crashed the same compiler there (a tiled
 lighting pixel program, every boot after about 2 minutes); only the group forms still read it with `vw_read`. With
 `TranslationOptions.EmulateWaveSize` (the default; `--native-waves` turns it off) a pixel, vertex or mesh program
-starts with `#define VW_WAVE <32|64>` and `VW_EMULATE 1`, and each hardware wave of H lanes holds a window of the
+that can tell (see below) starts with `#define VW_WAVE <32|64>` and `VW_EMULATE 1`, and each hardware wave of H lanes holds a window of the
 program wave of W lanes:
 
 | Hardware wave | Mapping | Result |
@@ -523,6 +535,17 @@ Each emulated program's first line names its floor, the narrowest hardware wave 
 ```
 // program wave 64; console results on hardware waves >= 16 lanes
 ```
+
+**No emulation where nothing sees it** (`Translation/Waves/NativeWaveCheck`). The emulated operations differ from the
+native ones only in lane reads by number, ballots, counts and lane numbers, and on hardware waves wider than the
+program wave. A program whose wave operations are only quad operations, "any lane" as a branch (`if ([!]vw_any(m))`,
+`scc = vw_any(m)` with SCC only branched on or picking a mask) and lane bits of masks that only ever hold literals, in
+a 64-lane program (a 32-lane one meets AMD's 64-lane pixel waves, so only quad operations), and for mesh programs also
+the window analysis below, is written without `VW_EMULATE`; its header names floor 4 and says
+`// no wave emulation: ...`. Anything else (readlane, DPP rows, permlane, swizzle, bpermute, readfirstlane, ballots,
+mbcnt, a shape the check does not know) keeps the emulation. On every hardware wave of at most 64 lanes the native form
+computes what the emulated one does, with 22 % less DXIL on `ps_light_proxy_conservative` (401 branches). `fivestar
+shader translate` prints how many programs need none.
 
 The floor is the widest aligned lane group a cross-lane read reaches: quads 4, `row_half_mirror` and DPP8 8, DPP rows and
 `v_permlane16` 16, `v_permlanex16` and `BITMASK_PERM` 32, `SWAP`/`REVERSE`/`BROADCAST` their group, `v_readlane` of a
@@ -583,7 +606,10 @@ by `MeshComputeFallback`, the mesh fallback.
 is pinned to 32 lanes instead, since lanes 32..63 never exist. A wave32 program is pinned to 32 lanes as soon as it has
 any wave operation, masks alone included: unpinned, AMD may run it in 64-lane waves, where lanes 32..63 read their mask
 bits from the half the console has not (a TAA resolve whose loop ran until its mask was empty never ended there and the
-GPU was removed). For a program pinned to 64 lanes, which GPUs with only 32-lane waves (NVIDIA) reject, `fivestar shader translate` also writes `<name>.w32.hlsl`/`.dxil`
+GPU was removed). A wave64 program whose group of 33 to 64 threads uses groupshared memory is pinned to 64 lanes too:
+the console runs that group as one wave, whose LDS stores and reads need no barrier, while unpinned 32-lane hardware
+runs two waves that race (CS_MaterialTiles lost the other wave's class bits and the tiled lighting culled its tiles).
+For a program pinned to 64 lanes, which GPUs with only 32-lane waves (NVIDIA) reject, `fivestar shader translate` also writes `<name>.w32.hlsl`/`.dxil`
 (`HlslTranslator.GroupWaveVariant`) when the thread group fits in one console wave: the group runs as the wave
 (`VW_GROUP_WAVE`), every wave operation stores to groupshared memory, passes one barrier and reads back (lane masks
 with `InterlockedOr`), so it is right on any hardware wave. A barrier needs every thread of the group, which holds
@@ -696,6 +722,33 @@ dxc inlines every helper at every call, so a helper that one instruction calls h
 picks its fields from a table with `select` (after one branch, uniform as the V# is: an element of 32-bit UINT, SINT or FLOAT components in memory order, dword-aligned, is its own dwords, one dword for a one-component format instead of five), and the BVH box node handles its four children one call each. dxc unrolls
 an `[unroll]` loop by rebuilding analyses of the whole function, so a few thousand inlined loops in a large program
 cost tens of minutes.
+
+## Replacing a translation
+
+`fivestar-loader --shader-overrides <dir>` runs hand-written programs in place of translations: `<dir>/<name>.hlsl` or
+`<dir>/<name>.dxil`, by the extracted program's name (`sgd1_0c5c2b06_t32_ped_skinning_cs~CS_PedStandardSkinning_0_15f19d85_Wrapped`).
+`fivestar shader override-init <name> <dir> [--programs <fssm>] [--group-wave]` writes the translation (default choices;
+`--group-wave` the wave32 group form) as a start, headed by the translation's hash so a later translator change shows.
+The files are read once at start; the log says `[override] <name> replaced` when a pipeline first takes one.
+
+An HLSL replacement is compiled as the translation is (DXIL backend, dxc as its fallback, or dxc alone), in this
+process, behind the same mode header (`--user-data-constants`, `--evict-windows`, the window guard). Its DXIL goes to
+`<program cache>/<identity>/<adapter>/<name>.override-<hash>.dxil`, the hash of the file's content, as do its `.fail`
+and its linked or trimmed forms, so the translation and every edit keep their own files and pipeline-cache keys (the
+pipeline key hashes the DXIL). A DXIL replacement is used as it is and cannot be linked or trimmed. Replacements need
+programs made on demand.
+
+A replacement keeps the translation's interface, since its pipeline is built with the same bindless root signature:
+
+- the entry `main`, its `[numthreads]` and `[WaveSize]` (the adapter must run its waves, as for the translation), and its
+  stage signature (for a pixel shader's producer: the same outputs, which the linker matches);
+- user SGPRs read through `user_sgpr(i)` (root constants `g_user4`, or the user-data CBV), never a new root parameter;
+- memory through the prelude: `sptr_views`/`SPtrLoadAt` (scalar loads from a game address), `buf_view`, `buf_offset`,
+  `buf_limit`, `buf_fits`, `BufLoad`, `SBufLoad`, `BufStore`, `FmtLoad` (buffer descriptors in game memory, resolved to
+  the descriptor window), `vstore_span` and the `TRACE_*` hooks (window feedback and store tracing; keep them on stores);
+- `#include "rdna_prelude.hlsli"` (and `rdna_bvh.hlsli` when the translation has it); the cross-lane helpers
+  (`vw_ballot`, `vw_any`, `lane_bit`, `vw_begin` in group forms) may be replaced by native wave operations where the
+  program's wave is the hardware's.
 
 ## Commands
 
@@ -895,6 +948,7 @@ file per distinct output signature ([d3d12x-shim.md](d3d12x-shim.md#rectangle-li
 ```
 fivestar shader replay <capture> [--adapter hardware|warp|<index>] [--hlsl <file> | --translator current] [--runs N]
                        [--tolerance F] [--shown N] [--backend hlsl|dxil|dxil-only] [--dxc <path>] [--debug-layer]
+                       [--group-wave] [--save-outputs <dir>] [--expected <dir>]
 ```
 
 Runs a compute dispatch the loader captured (`--capture-dispatch`, [loader.md](loader.md)) on a fresh device: the
@@ -904,6 +958,9 @@ copies the inputs back, binds the bindless root as the loader does and dispatche
 prints the DXIL size, the compile time, every run's GPU time and the median, and for each resource the program can
 write whether the first run's bytes equal the captured output (bit for bit, or within `--tolerance` on dwords read as
 float32; the count of differing dwords and the first `--shown` offsets). Exit code 1 when one differs.
+`--save-outputs` writes the first run's outputs as `<resource>.bin`, and `--expected` compares with such a folder
+instead of the capture, so two translator builds can be checked against each other. `--group-wave` runs the
+translator's wave32 variant of a wave64-pinned program, as the loader does on GPUs without 64-lane waves.
 
 | Capture file | Holds |
 |---|---|

@@ -164,6 +164,40 @@ runs a batched desc as the game fills it through `BvhBatchBuilder`.
 
 The DLL's own GPU builder (52 compute programs) and the plan to run it: [bvh-builder.md](bvh-builder.md).
 
+## Traversal (`--rt-traversal`)
+
+The game walks its structures in software: 64 compute programs (716 `image_bvh_intersect_ray` instructions, all with
+T# dword1 = 0x80000000, dword3 = 0x890003FF), each node test emulated by `rdna_bvh.hlsli`
+([ray-intersection.md](ray-intersection.md)):
+
+| Group | Programs | Feeds |
+|---|---|---|
+| indirect_diffuse_lighting | 8 `CS_ScreenProbes_TraceRays_*BVH*`, 4 `CS_DeferredGather_*`, `CS_PPR_Raytrace` | screen-probe rays, then (no BVH) ResolveRays, RadianceSpatialFilter, TemporalResolve, FinalGather: the bounced diffuse light |
+| indirect_light_probes | `CS_Primary_GatherVBuffer`, `CS_IrradianceCache_GatherVBuffer`, `CS_IrradianceCache_ShadowTrace`, `CS_GatherAlphaVBuffer` (each plain and WithFar) | the irradiance cache, shaded by CS_IrradianceCache_Shade and ShadeSecondary (no BVH) |
+| sr_tracing | 6 `CS_RaytraceVBuffer_*`, 2 `CS_RaytraceShadows_*` | specular reflections, denoised by sr_denoising (no BVH) |
+| rtdirectionalshadows | 25 `CS_RTShadowTrace*`, `CS_RTDistant*` | ray-traced sun shadows |
+| shadowmask | 7 `CS_TraceShadowRays_*` | ray-traced shadow masks |
+| deferred_tiled | `CS_LaserLightShadowRaytracing`, `CS_ComputeClosestDepth` | |
+| GpuParticleCollision | `CS_CollisionRaytraced` | particle collisions |
+
+Without `--raytracing` these 64 stay stand-ins (`RayTracingPrograms`), every node misses (`BvhMiss`), and `RtStandIns`
+fills the outputs of the held passes (the screen-probe light a grey 0.6), so the picture has no bounced light. The
+VIctory fork keeps the traversal running and gets indirect light from the static structures in game memory.
+
+`--rt-traversal` turns on `--raytracing`'s paths (BLAS rehydration and the CPU BLAS and TLAS builds write the
+structures the programs walk) and lets the 64 programs run; passes still held by `--skip-pipelines` keep their
+stand-in outputs, and the screen-probe light is no longer overwritten. For the bounced light a boot drops `Raytrac`,
+`sr_denoising` and `ScreenProbes_EvaluateRayRequests_RayBinning` from `--skip-pipelines` (they are held only there); the
+`bvh_` groups skin geometry for the GPU builder, which the CPU paths stand in for, and can stay held. Nodes are read at their 64-bit address through
+the address map, and a node in unmapped memory misses (ray-intersection.md): before, the emulation read the loader's
+window at the low 32 bits of the address. That change is in the runtime include, so it changes every program's cache
+identity (a translation-output change).
+
+Open: every T# the programs build has dword1[7:0] = 0, so the structures they walk sit below 1 TiB (address bits 47..40
+zero), while the game's texture and buffer addresses seen so far are above it (0x2E8_xxxx_xxxx). Whether the BVH
+memory is mapped at such an address in the address map, and so whether the traversal reads anything but misses, is
+for a boot with `--rt-traversal` and `--d3d12-trace-records` to show.
+
 ## Unknown
 
 - The instance-node fields the shadow shader does not read (0x00, 0x70 and bit 30 of 0x38) and the TLAS header past

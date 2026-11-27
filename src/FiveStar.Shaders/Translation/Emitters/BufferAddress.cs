@@ -97,6 +97,22 @@ internal static class BufferAddress
         return $"buf_fits({range.Offset} + {extraBytes}u, {range.Limit})";
     }
 
+    /// <summary>
+    /// The <paramref name="count"/> (at most 4) dwords of a destination from one vector load (a uint4 temporary of
+    /// <paramref name="load"/>, loaded on active lanes only, as the per-dword writes did).
+    /// </summary>
+    public static void WriteLoaded(TranslationState state, OperandAccess operands, Operand data, int count, string load)
+    {
+        var name = "_w" + state.NextTemporary().ToString(System.Globalization.CultureInfo.InvariantCulture);
+        state.Emit($"  uint4 {name} = uint4(0u, 0u, 0u, 0u);");
+        state.Emit($"  if (active) {name} = {load};");
+
+        for (var dword = 0; dword < count; dword++)
+        {
+            operands.Write(data, $"{name}.{"xyzw"[dword]}", dword);
+        }
+    }
+
     private static string Stride(OperandAccess operands, Operand resource)
     {
         return $"buf_stride({operands.Read(resource, StrideDword)})";
