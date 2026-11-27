@@ -1139,7 +1139,13 @@ internal sealed class CommandLineParser
 
         if (option == "--dump-frame")
         {
-            _options.DumpFrame = long.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out long present) && present > 0 ? present : throw new CommandLineException("--dump-frame takes a present number, e.g. 2100");
+            if (!Shims.D3D12X.DebugLayer.FrameStageDump.TryParseWhen(Next(), out long present, out long worldOffset))
+            {
+                throw new CommandLineException("--dump-frame takes a present number (2100), world or world+n (n presents after the first world frame)");
+            }
+
+            _options.DumpFrame = present;
+            _options.DumpFrameWorldOffset = worldOffset;
         }
 
         if (option == "--dump-frame-dir")
