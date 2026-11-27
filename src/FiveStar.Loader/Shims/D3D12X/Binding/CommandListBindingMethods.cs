@@ -773,11 +773,16 @@ internal static unsafe class CommandListBindingMethods
             return false;
         }
 
-        if (twin.ViewHandle == 0 || (ListReplayState.Of(self)->Set & ListReplayState.HeapsBit) == 0)
+        if ((ListReplayState.Of(self)->Set & ListReplayState.HeapsBit) == 0)
         {
             DepthTwinSides.PlaneLeftBehind((nint)self, twin);
 
             return false;
+        }
+
+        if (twin.ViewHandle == 0)
+        {
+            return CopyThroughOwnView(self, twin, format);
         }
 
         var d3d12x = ShimContext.Runtime.D3D12X;
@@ -795,6 +800,41 @@ internal static unsafe class CommandListBindingMethods
         DepthTwinSides.PlaneLeftBehind((nint)self, twin);
 
         return false;
+    }
+
+    /// <summary>
+    /// The in-list copy of a twin whose UAV the game wrote over in its heap since: through a view of the loader's own
+    /// heap (<see cref="DepthTwinPrelude.InList"/>), then the list's heaps again; both root signatures are bound anew
+    /// before their next work, their tables having named the other heap.
+    /// </summary>
+    private static bool CopyThroughOwnView(XboxObject* self, DepthTwin twin, int format)
+    {
+        var d3d12x = ShimContext.Runtime.D3D12X;
+        int state = d3d12x.ListStates.For(self).Current(twin.Depth, twin.Home);
+        nint inner = self->Inner;
+        bool copied = DepthTwinPrelude.InList(d3d12x.Objects.DesktopDevice, inner, twin, format, state);
+
+        var replay = ListReplayState.Of(self);
+        ((delegate* unmanaged<nint, uint, long*, void>)ComObject.Slot(inner, DesktopSetDescriptorHeaps))(inner, replay->HeapCount, replay->Heaps);
+        var bindings = CommandListBindings.Of(self);
+        bindings->GraphicsDesktopRoot = CommandListBindings.NoRoot;
+        bindings->ComputeDesktopRoot = CommandListBindings.NoRoot;
+
+        if (!copied)
+        {
+            DepthTwinSides.PlaneLeftBehind((nint)self, twin);
+
+            if (bindings->GraphicsRoot != 0)
+            {
+                SetBindlessRoot(self, false);
+            }
+
+            return false;
+        }
+
+        DepthTwinLog.InList(true, twin);
+
+        return true;
     }
 
     /// <summary>After the argument clamp's dispatch: the list's compute root signature, user data and pipeline again.</summary>
