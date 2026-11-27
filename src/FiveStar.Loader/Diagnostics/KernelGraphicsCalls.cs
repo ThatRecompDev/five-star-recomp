@@ -415,9 +415,14 @@ internal static unsafe class KernelGraphicsCalls
         var text = new StringBuilder();
         text.Append(CultureInfo.InvariantCulture, $"\n    thread {Environment.CurrentManagedThreadId} (OS {Kernel32.GetCurrentThreadId()}) \"{Thread.CurrentThread.Name}\":");
 
-        foreach (var frame in NativeStack.Walk(Images, StackDepth))
+        // With each frame's non-volatile registers: the driver's frame that gives the device up still holds its own
+        // error code in one (nvwgf2umx 32.0.16.2124: ebp at +0x271848, rdi the code it hands the runtime).
+        var registers = new List<string>();
+        var frames = NativeStack.WalkWithRegisters(Images, StackDepth, registers);
+
+        for (int i = 0; i < frames.Count; i++)
         {
-            text.Append(CultureInfo.InvariantCulture, $"\n      0x{frame.Pc:x} {frame.Where}");
+            text.Append(CultureInfo.InvariantCulture, $"\n      0x{frames[i].Pc:x} {frames[i].Where}; {registers[i]}");
         }
 
         // The managed frames among them by name: the walk above names none of the JIT's code.
