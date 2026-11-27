@@ -14,7 +14,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// <summary>
 /// Writes a depth twin's values into its depth texture (<see cref="DepthTwins"/>): a full-screen triangle whose pixel
 /// program reads the twin's UAV at its pixel and outputs it as SV_Depth, depth test ALWAYS with writes, no colour
-/// targets. A stencil twin goes into the stencil plane without SV_StencilRef (which not every desktop GPU has): the
+/// targets; each value goes in with its sign cleared, so a -0.0 lands as +0.0 (a depth in 0..1 has no other sign, and a
+/// desktop depth test may tell the two zeros apart where the tiled lighting draws class 0 at +0.0 with EQUAL). A stencil twin goes into the stencil plane without SV_StencilRef (which not every desktop GPU has): the
 /// stencil is cleared to 0, then one triangle per bit inverts that bit (write mask 1 &lt;&lt; bit) where the twin has it set
 /// and discards elsewhere. Recording either replaces the list's graphics root signature, pipeline, targets, viewport and
 /// topology: the caller sets the game's again.
@@ -29,7 +30,7 @@ internal static unsafe class DepthTwinCopy
         }
         [RootSignature("DescriptorTable(UAV(u0), visibility=SHADER_VISIBILITY_PIXEL)")]
         float ps(float4 position : SV_Position) : SV_Depth {
-            return twin[uint2(position.xy)];
+            return abs(twin[uint2(position.xy)]);
         }
         """;
 
@@ -43,7 +44,7 @@ internal static unsafe class DepthTwinCopy
         RWTexture2D<float> twin : register(u0);
         [RootSignature("DescriptorTable(UAV(u0), visibility=SHADER_VISIBILITY_PIXEL)")]
         float ps(float4 position : SV_Position) : SV_Depth {
-            return round(twin[uint2(position.xy)] * 65535.0) * asfloat(0x37800080);
+            return abs(round(twin[uint2(position.xy)] * 65535.0) * asfloat(0x37800080));
         }
         """;
 
@@ -51,7 +52,7 @@ internal static unsafe class DepthTwinCopy
         RWTexture2D<uint> twin : register(u0);
         [RootSignature("DescriptorTable(UAV(u0), visibility=SHADER_VISIBILITY_PIXEL)")]
         float ps(float4 position : SV_Position) : SV_Depth {
-            return float(twin[uint2(position.xy)]) * asfloat(0x37800080);
+            return abs(float(twin[uint2(position.xy)]) * asfloat(0x37800080));
         }
         """;
 
