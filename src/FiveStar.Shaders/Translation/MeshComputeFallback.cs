@@ -18,7 +18,13 @@ public static partial class MeshComputeFallback
     private const int BytesPerComponent = 4;
 
     /// <summary>The compute shader and the vertex shader that replace a translated mesh shader.</summary>
-    public static (string Compute, string Vertex) Rewrite(string meshHlsl)
+    /// <param name="meshHlsl">The translated mesh shader's HLSL source.</param>
+    /// <param name="explicitCaps">
+    /// When true the generated shader reads buffer capacities from a root constant buffer (cbuffer MsfbCaps, b1 space 9)
+    /// instead of RWByteAddressBuffer.GetDimensions. Root-descriptor-bound buffers return 0 from GetDimensions on NVIDIA
+    /// hardware; callers that bind the fallback through root descriptors must pass true and supply the constants.
+    /// </param>
+    public static (string Compute, string Vertex) Rewrite(string meshHlsl, bool explicitCaps = false)
     {
         var layout = OutLayout(meshHlsl);
         var entry = EntryPattern().Match(meshHlsl);
@@ -45,13 +51,13 @@ public static partial class MeshComputeFallback
 
         var head = meshHlsl[..entry.Index];
         var structIndex = head.IndexOf(layout.StructText, StringComparison.Ordinal);
-        head = head[..structIndex] + layout.StructText + "\n" + Declarations(layout, maxVertices, maxPrimitives)
+        head = head[..structIndex] + layout.StructText + "\n" + Declarations(layout, maxVertices, maxPrimitives, explicitCaps)
             + head[(structIndex + layout.StructText.Length)..];
         head += $"[numthreads({threads}, 1, 1)]\nvoid main(uint3 in_gid : SV_GroupID, uint in_gi : SV_GroupIndex) {{\n"
             + "  Out vo = (Out)0; uint3 to = uint3(0, 0, 0); bool tc = true;\n";
 
         var body = meshHlsl[bodyStart..].TrimEnd()[..^1];
-        var compute = head + RewriteBody(body, maxVertices, maxPrimitives) + StoreTail;
+        var compute = head + RewriteBody(body, maxVertices, maxPrimitives, explicitCaps) + StoreTail;
 
         return (compute, VertexShader(layout));
     }
@@ -85,7 +91,7 @@ public static partial class MeshComputeFallback
         return new OutLayout(match.Value, members, offset);
     }
 
-    private static string Declarations(OutLayout layout, int maxVertices, int maxPrimitives)
+    private static string Declarations(OutLayout layout, int maxVertices, int maxPrimitives, bool explicitCaps)
     {
         var lines = new List<string>
         {
@@ -93,23 +99,35 @@ public static partial class MeshComputeFallback
             "RWByteAddressBuffer g_msfb_vtx : register(u0, space9);",
             "RWByteAddressBuffer g_msfb_idx : register(u1, space9);",
             "RWByteAddressBuffer g_msfb_cnt : register(u2, space9);",
+        };
+
+        if (explicitCaps)
+        {
+            lines.Add("cbuffer MsfbCaps : register(b1, space9) { uint g_msfb_cap_v, g_msfb_cap_i; };");
+        }
+
+        lines.AddRange(new[]
+        {
             "groupshared uint g_ms_bv, g_ms_bp, g_ms_npr;",
             $"#define MSFB_STRIDE {layout.Stride}u",
             "void msfb_store(uint a, Out o) {",
-        };
+        });
         lines.AddRange(layout.Members.Select(member => $"  g_msfb_vtx.Store{Suffix(member.Width)}(a + {member.Offset}u, asuint(o.{member.Name}));"));
         lines.Add("}");
 
         return string.Join("\n", lines);
     }
 
-    private static string RewriteBody(string body, int maxVertices, int maxPrimitives)
+    private static string RewriteBody(string body, int maxVertices, int maxPrimitives, bool explicitCaps)
     {
         // Lane 0 allocates the group's vertices and indices where SetMeshOutputCounts was; a group that does not fit is
         // dropped, but the triangles it counted stay in the draw arguments.
+        var capsLine = explicitCaps
+            ? "    uint cap_v = g_msfb_cap_v, cap_i = g_msfb_cap_i;\n"
+            : "    uint cap_v, cap_i; g_msfb_vtx.GetDimensions(cap_v); g_msfb_idx.GetDimensions(cap_i);\n";
         var allocation = "  if (in_gi == 0) {\n"
-            + $"    uint nv = min(g_ms_nv, {maxVertices}u), np = min(g_ms_np, {maxPrimitives}u), bv, bp, cap_v, cap_i;\n"
-            + "    g_msfb_vtx.GetDimensions(cap_v); g_msfb_idx.GetDimensions(cap_i);\n"
+            + $"    uint nv = min(g_ms_nv, {maxVertices}u), np = min(g_ms_np, {maxPrimitives}u), bv, bp;\n"
+            + capsLine
             + "    g_msfb_cnt.InterlockedAdd(20, nv, bv); g_msfb_cnt.InterlockedAdd(0, np * 3u, bp);\n"
             + "    g_ms_npr = np;   // triangles counted in the draw arguments, even if the group is dropped\n"
             + "    if ((bv + nv) * MSFB_STRIDE > cap_v || (bp + np * 3u) * 4u > cap_i) { nv = 0; np = 0; }\n"

@@ -160,6 +160,7 @@ public sealed class WarpRunner
         if (!job.RootDescriptors && compute)
         {
             list.SetComputeRootDescriptorTable(1, recording.ResourceTable(FallbackSlot));
+            list.SetComputeRoot32BitConstants(2, [unchecked((uint)job.VertexBytes), unchecked((uint)job.IndexBytes)], 0);
         }
         else if (!job.RootDescriptors)
         {
@@ -170,6 +171,7 @@ public sealed class WarpRunner
             list.SetComputeRootUnorderedAccessView(1, buffers.Vertices.GPUVirtualAddress);
             list.SetComputeRootUnorderedAccessView(2, buffers.Indices.GPUVirtualAddress);
             list.SetComputeRootUnorderedAccessView(3, buffers.Counter.GPUVirtualAddress);
+            list.SetComputeRoot32BitConstants(5, [unchecked((uint)job.VertexBytes), unchecked((uint)job.IndexBytes)], 0);
         }
         else
         {

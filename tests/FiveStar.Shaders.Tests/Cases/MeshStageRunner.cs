@@ -233,7 +233,7 @@ public sealed partial class MeshStageRunner
 
     private List<string> RunFallback(string variant, string mesh, byte[] pixel, Framebuffer framebuffer, Bindings bindings, Expected[]?[,] image)
     {
-        var (compute, vertex) = MeshComputeFallback.Rewrite(mesh);
+        var (compute, vertex) = MeshComputeFallback.Rewrite(mesh, explicitCaps: variant == FallbackRoot);
         var stride = int.Parse(StridePattern().Match(compute).Groups[1].Value, CultureInfo.InvariantCulture);
         var groups = variant == FallbackOverflow ? 3 : 1;
         var rootConstants = variant == FallbackRoot ? 16 : 60;

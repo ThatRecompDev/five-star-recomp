@@ -11,6 +11,7 @@ public static class PipelineFactory
 {
     private const int FallbackSpace = 9;
     private const int FallbackUavs = 3;
+    private const int FallbackCapsDwords = 2;
 
     /// <summary>The root signature with the user data at b0 bound as <paramref name="binding"/> says, then <paramref name="layout"/>'s parameters.</summary>
     public static ID3D12RootSignature RootSignature(ID3D12Device device, int rootConstants, RootLayout layout, UserDataBinding binding)
@@ -27,6 +28,7 @@ public static class PipelineFactory
             }
 
             parameters.Add(new RootParameter1(RootParameterType.ShaderResourceView, new RootDescriptor1(0, FallbackSpace), ShaderVisibility.All));
+            parameters.Add(new RootParameter1(new RootConstants(1, FallbackSpace, FallbackCapsDwords), ShaderVisibility.All));
         }
         else if (layout == RootLayout.FallbackTable)
         {
@@ -37,6 +39,7 @@ public static class PipelineFactory
                 new(DescriptorRangeType.ShaderResourceView, 1, 0, FallbackSpace, FallbackUavs, volatileFlags),
             ];
             parameters.Add(new RootParameter1(new RootDescriptorTable1(ranges), ShaderVisibility.All));
+            parameters.Add(new RootParameter1(new RootConstants(1, FallbackSpace, FallbackCapsDwords), ShaderVisibility.All));
         }
 
         return device.CreateRootSignature(new RootSignatureDescription1(flags, [.. parameters]));
