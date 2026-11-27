@@ -1,4 +1,4 @@
-﻿# Status
+# Status
 
 GTA VI does not run yet. Updated 27 November 2026.
 
