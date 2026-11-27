@@ -32,6 +32,10 @@ public sealed class DepthTwinStepTests
             Assert.True(seen.Add(BitConverter.SingleToUInt32Bits(copied)));
         }
 
+        // A depth readback tells -0.0 apart from +0.0 (a bitwise depth test does), both counted as exactly 0.0.
+        byte[] zeros = [.. BitConverter.GetBytes(0f), .. BitConverter.GetBytes(-0f)];
+        Assert.Contains("exactly 0.0 (2), -0.0 (1)", FiveStar.Loader.Shims.D3D12X.DebugLayer.DrawProbes.FloatSummary(zeros, zeros.Length, 2, 1, 41));
+
         // The classes the w187 dump found in TL_PS's depth: 5 and 6 steps.
         Assert.Equal(9.15541E-05f, step * 6, 9);
     }

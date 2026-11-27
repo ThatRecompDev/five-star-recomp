@@ -35,6 +35,9 @@ internal sealed unsafe class DrawProbes
     private const int Float16 = 54;
     private const long SkipsLogged = 100;
 
+    /// <summary>The format a buffer probe (<see cref="RecordBuffer"/>) carries: no DXGI format.</summary>
+    private const int BufferFormat = -1;
+
     /// <summary>Reports a probe waits for its list's submission before it is logged as never run.</summary>
     private const int ReportsBeforeGivingUp = 3;
 
@@ -158,6 +161,36 @@ internal sealed unsafe class DrawProbes
             // A stencil plane's copy is keyed apart from its depth plane's (resources are aligned; plane 1 is not one).
             var conversion = new Conversion(stage, depthTarget, target + plane);
             _pending.Add(new Probe(label, buffer, (long)total, footprints[0], rows[0] * depth, (int)footprints[0].Footprint.Width, format, key, generation, png, _submissions.GetValueOrDefault(key), 0, conversion));
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Records a copy of <paramref name="bytes"/> of buffer <paramref name="source"/> from <paramref name="offset"/> into
+    /// the desktop list <paramref name="list"/>, reported as its dwords (the user data a draw read: what the GPU saw at that
+    /// point of the list, whatever the CPU wrote there later). False when the readback cap refused it.
+    /// </summary>
+    public bool RecordBuffer(nint device, nint list, nint source, ulong offset, uint bytes, string label, nint key, long generation)
+    {
+        if (!Admit(bytes, label))
+        {
+            return false;
+        }
+
+        Marshal.AddRef(device);
+        using var desktop = new ID3D12Device(device);
+        var buffer = desktop.CreateCommittedResource(new HeapProperties(HeapType.Readback), HeapFlags.None, Vortice.Direct3D12.ResourceDescription.Buffer(bytes), ResourceStates.CopyDest);
+
+        Marshal.AddRef(list);
+        using var commands = new ID3D12GraphicsCommandList(list);
+        Marshal.AddRef(source);
+        using var from = new ID3D12Resource(source);
+        commands.CopyBufferRegion(buffer, 0, from, offset, bytes);
+
+        lock (_gate)
+        {
+            _pending.Add(new Probe(label, buffer, bytes, default, 1, (int)(bytes / sizeof(uint)), BufferFormat, key, generation, null, _submissions.GetValueOrDefault(key), 0, default));
         }
 
         return true;
@@ -317,6 +350,15 @@ internal sealed unsafe class DrawProbes
     {
         void* data;
         probe.Buffer.Map(0, null, &data).CheckError();
+
+        if (probe.Format == BufferFormat)
+        {
+            string dwords = string.Join(" ", new ReadOnlySpan<uint>(data, probe.Width).ToArray().Select(dword => dword.ToString("x", System.Globalization.CultureInfo.InvariantCulture)));
+            probe.Buffer.Unmap(0);
+
+            return $"dwords {dwords}";
+        }
+
         int imageBytes = probe.Width * (int)probe.Rows * Channels;
         byte[]? image = null;
 
@@ -470,8 +512,9 @@ internal sealed unsafe class DrawProbes
         var max = new double[channels];
         var min = new double[channels];
         var zeros = new long[channels];
-        var nans = new long[channels];
+        var negativeZeros = new long[channels];
 
+        var nans = new long[channels];
         Array.Fill(max, double.MinValue);
         Array.Fill(min, double.MaxValue);
 
@@ -483,10 +526,15 @@ internal sealed unsafe class DrawProbes
             {
                 double value = bytes == sizeof(float) ? BitConverter.ToSingle(row.Slice(i * bytes, bytes)) : (double)BitConverter.ToHalf(row.Slice(i * bytes, bytes));
 
-                // Exactly 0.0 counts both signs: a reverse-Z depth's sky is +0.0.
+                // Exactly 0.0 counts both signs (a reverse-Z sky is +0.0); -0.0 apart, which a bitwise depth test tells apart.
                 if (value == 0)
                 {
                     zeros[i % channels]++;
+
+                    if (double.IsNegative(value))
+                    {
+                        negativeZeros[i % channels]++;
+                    }
                 }
 
                 if (double.IsNaN(value))
@@ -500,12 +548,23 @@ internal sealed unsafe class DrawProbes
             }
         }
 
-        double count = (double)width * rows;
-        string mean = string.Join(", ", sum.Select(value => (value / count).ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
-        string largest = string.Join(", ", max.Select(value => value.ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
-        string smallest = string.Join(", ", min.Select(value => value.ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
+        return $"; float mean ({Values(sum.Select(value => value / ((double)width * rows)))}), max ({Values(max)}), min ({Values(min)}); exactly 0.0 ({string.Join(", ", zeros)}){NegativeZeros(negativeZeros)} and NaN ({string.Join(", ", nans)}) of {width * (long)rows} pixels";
+    }
 
-        return $"; float mean ({mean}), max ({largest}), min ({smallest}); exactly 0.0 ({string.Join(", ", zeros)}) and NaN ({string.Join(", ", nans)}) of {width * (long)rows} pixels";
+    /// <summary>", -0.0 (n, ...)" when a channel holds -0.0; empty otherwise.</summary>
+    private static string NegativeZeros(long[] counts)
+    {
+        if (!counts.Any(count => count > 0))
+        {
+            return string.Empty;
+        }
+
+        return $", -0.0 ({string.Join(", ", counts)})";
+    }
+
+    private static string Values(IEnumerable<double> values)
+    {
+        return string.Join(", ", values.Select(value => value.ToString("G4", System.Globalization.CultureInfo.InvariantCulture)));
     }
 
     /// <summary>

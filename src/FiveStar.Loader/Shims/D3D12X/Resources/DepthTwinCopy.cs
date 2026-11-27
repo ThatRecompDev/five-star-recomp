@@ -14,7 +14,8 @@ namespace FiveStar.Loader.Shims.D3D12X.Resources;
 /// <summary>
 /// Writes a depth twin's values into its depth texture (<see cref="DepthTwins"/>): a full-screen triangle whose pixel
 /// program reads the twin's UAV at its pixel and outputs it as SV_Depth, depth test ALWAYS with writes, no colour
-/// targets. A stencil twin goes into the stencil plane without SV_StencilRef (which not every desktop GPU has): the
+/// targets; each value goes in with its sign cleared, so a -0.0 lands as +0.0 (a depth in 0..1 has no other sign, and a
+/// desktop depth test may tell the two zeros apart where the tiled lighting draws class 0 at +0.0 with EQUAL). A stencil twin goes into the stencil plane without SV_StencilRef (which not every desktop GPU has): the
 /// stencil is cleared to 0, then one triangle per bit inverts that bit (write mask 1 &lt;&lt; bit) where the twin has it set
 /// and discards elsewhere. Recording either replaces the list's graphics root signature, pipeline, targets, viewport and
 /// topology: the caller sets the game's again.
@@ -29,7 +30,7 @@ internal static unsafe class DepthTwinCopy
         }
         [RootSignature("DescriptorTable(UAV(u0), visibility=SHADER_VISIBILITY_PIXEL)")]
         float ps(float4 position : SV_Position) : SV_Depth {
-            return twin[uint2(position.xy)];
+            return abs(twin[uint2(position.xy)]);
         }
         """;
 
@@ -43,7 +44,7 @@ internal static unsafe class DepthTwinCopy
         RWTexture2D<float> twin : register(u0);
         [RootSignature("DescriptorTable(UAV(u0), visibility=SHADER_VISIBILITY_PIXEL)")]
         float ps(float4 position : SV_Position) : SV_Depth {
-            return round(twin[uint2(position.xy)] * 65535.0) * asfloat(0x37800080);
+            return abs(round(twin[uint2(position.xy)] * 65535.0) * asfloat(0x37800080));
         }
         """;
 
@@ -51,7 +52,7 @@ internal static unsafe class DepthTwinCopy
         RWTexture2D<uint> twin : register(u0);
         [RootSignature("DescriptorTable(UAV(u0), visibility=SHADER_VISIBILITY_PIXEL)")]
         float ps(float4 position : SV_Position) : SV_Depth {
-            return float(twin[uint2(position.xy)]) * asfloat(0x37800080);
+            return abs(float(twin[uint2(position.xy)]) * asfloat(0x37800080));
         }
         """;
 
@@ -85,6 +86,9 @@ internal static unsafe class DepthTwinCopy
 
     /// <summary>D3D12_RESOURCE_STATE_DEPTH_WRITE.</summary>
     private const int DepthWrite = 0x10;
+
+    /// <summary>D3D12_RESOURCE_STATE_COPY_SOURCE, which the depth passes through after a copy (<see cref="Settle"/>).</summary>
+    private const int CopySource = 0x800;
 
     private const int FullScreenVertices = 3;
     private const int SampleMaskAll = -1;
@@ -146,7 +150,7 @@ internal static unsafe class DepthTwinCopy
         Begin(list, twin, view, state, table, ProgramsFor(twin.Format, DepthPlane).Root);
         ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetPipelineSlot))(list, pipeline);
         Draw(list);
-        Move(list, twin.Depth, DepthWrite, state);
+        Settle(list, twin.Depth, state);
 
         return true;
     }
@@ -202,7 +206,7 @@ internal static unsafe class DepthTwinCopy
             Draw(list);
         }
 
-        Move(list, twin.Depth, DepthWrite, state);
+        Settle(list, twin.Depth, state);
 
         return true;
     }
@@ -268,6 +272,19 @@ internal static unsafe class DepthTwinCopy
 
             return handle;
         }
+    }
+
+    /// <summary>
+    /// After a copy: the depth goes through COPY_SOURCE before it returns to <paramref name="state"/>. The transition
+    /// out of DEPTH_WRITE makes the driver decompress the depth and rebuild what its depth test reads besides the texels:
+    /// without it, the tiled lighting's draws tested their class against the depth from before the copy, though a
+    /// readback (which makes the same transition) showed the copied values (w233: its class-0 draw shaded 132,352 of
+    /// the 367,071 pixels whose depth read 0.0, with the depth-bounds class test as with EQUAL).
+    /// </summary>
+    private static void Settle(nint list, nint depth, int state)
+    {
+        Move(list, depth, DepthWrite, CopySource);
+        Move(list, depth, CopySource, state);
     }
 
     private static void Move(nint list, nint resource, int before, int after)

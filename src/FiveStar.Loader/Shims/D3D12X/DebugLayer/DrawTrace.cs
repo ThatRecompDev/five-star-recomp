@@ -72,6 +72,9 @@ internal sealed unsafe class DrawTrace
     private const int WorldCaptures = 3;
     private const int WorldCaptureSpacing = 100;
 
+    /// <summary>When the loader process started (<c>--dump-frame Ns</c> counts from it).</summary>
+    private static readonly DateTime Started = ProcessStart();
+
     /// <summary>D3D12_RESOURCE_DIMENSION_TEXTURE3D.</summary>
     private const int Texture3D = 4;
     private const int IncrementSlot = 15;
@@ -933,6 +936,7 @@ internal sealed unsafe class DrawTrace
         }
 
         _queries.End(list->Inner, (nint)list);
+        ProbeUserData(list, state);
 
         foreach (nint handle in state.Targets.Take(TargetsReadBack).Append(state.DepthStencil))
         {
@@ -946,6 +950,25 @@ internal sealed unsafe class DrawTrace
             _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, target.Resource, current, label, (nint)list, state.Resets);
             Interlocked.CompareExchange(ref _reportAt, Volatile.Read(ref _lastPresent) + ReportDelay, 0);
         }
+    }
+
+    /// <summary>
+    /// After a traced ExecuteIndirect: the user-data block this thread uploaded last (the draw's root CBV unless the draw
+    /// uploaded none) is copied in the list, so the report shows the dwords its programs read on the GPU next to the
+    /// user SGPRs the trace logged on the CPU.
+    /// </summary>
+    private void ProbeUserData(XboxObject* list, DrawTraceList state)
+    {
+        var ring = _d3d12.Bindings.Ring;
+        ulong address = UserDataRing.LastAddress;
+
+        if (ring is null || address == 0)
+        {
+            return;
+        }
+
+        string label = $"user data of indirect on list 0x{(nint)list:x} (block 0x{address:x})";
+        _probes.RecordBuffer(_d3d12.Objects.DesktopDevice, list->Inner, ring.Buffer, ring.Offset(address), UserDataRing.BlockBytes, label, (nint)list, state.Resets);
     }
 
     private void AppendRecords(StringBuilder text, ulong address, uint records, uint stride)
@@ -1179,6 +1202,33 @@ internal sealed unsafe class DrawTrace
         _log.Info($"  [dump-frame] the world at present {present} ({work} draws and dispatches in it): dumping the frame after present {dumped}");
     }
 
+    /// <summary>
+    /// <c>--dump-frame Ns</c>: the first present N seconds after the loader started sets the frame dump to the next
+    /// present, and that present is captured.
+    /// </summary>
+    private void TriggerOnTime(long present)
+    {
+        long seconds = FrameStageDump.AfterSeconds;
+
+        if (seconds < 0 || FrameStageDump.Present != 0 || DateTime.Now - Started < TimeSpan.FromSeconds(seconds))
+        {
+            return;
+        }
+
+        long dumped = present + 1;
+        FrameStageDump.Present = dumped;
+        _capture.Add(dumped);
+        _log.Info($"  [dump-frame] {seconds} s after start at present {present}: dumping the frame after present {dumped}");
+    }
+
+    /// <summary>The loader process's start time.</summary>
+    private static DateTime ProcessStart()
+    {
+        using var process = System.Diagnostics.Process.GetCurrentProcess();
+
+        return process.StartTime;
+    }
+
     /// <summary>The presents the world trigger captures after the first world present <paramref name="present"/>.</summary>
     public static IEnumerable<long> WorldFrames(long present)
     {
@@ -1189,6 +1239,7 @@ internal sealed unsafe class DrawTrace
     public bool ReportDue(long present)
     {
         TriggerOnWorld(present);
+        TriggerOnTime(present);
         bool wanted = _capture.Wants(present);
         Volatile.Write(ref _filterOpen, wanted);
         Interlocked.Exchange(ref _filtered, 0);

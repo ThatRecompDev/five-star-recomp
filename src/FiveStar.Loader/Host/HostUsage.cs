@@ -127,6 +127,7 @@ internal static class HostUsage
           --force-cull-none <text>  pipelines whose programs' names hold <text> cull no faces (a winding check)
           --depth-func-override <text=Func;...>  pipelines whose programs' names hold <text> get that depth test
                                  (Never..Always) and no stencil test (a check of what culls a pass's pixels)
+          --no-class-depth-bounds  the tiled lighting keeps its depth EQUAL class test (by default a depth-bounds test)
           --skip-pipelines <text,...>  pipelines whose programs' names hold a text stay stand-ins: never built or
                                  loaded, their draws skipped (to get past one that hangs the GPU)
           --no-draws             no pipeline is built and every draw and dispatch is skipped (black picture): the frame
@@ -231,8 +232,8 @@ internal static class HostUsage
                                  pixel and compute programs per wave, with the first float site whose value is NaN or Inf
           --d3d12-dump-targets   the draw trace, and in the frame after each captured present every render and depth
                                  target read back when a list leaves it, as PNG in the capture folder
-          --dump-frame <n|world[+n]>  the draw trace, and in the frame after present n (world+n: n presents after the
-                                 first world frame, 300 for world) every target and UAV texture at
+          --dump-frame <n|world[+n]|Ns>  the draw trace, and in the frame after present n (world+n: n presents after the
+                                 first world frame, 300 for world; Ns: N seconds after start) every target and UAV texture at
                                  least 480 wide read back after each pass that wrote it, as NNN-pass-WxH-fmtF.png
                                  (HDR exposed, plus -auto.png at its mean; normals and depth mapped; stats in the log;
                                  unchanged targets not written; later frames continue when readback memory runs out)

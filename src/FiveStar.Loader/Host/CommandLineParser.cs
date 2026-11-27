@@ -138,8 +138,8 @@ internal sealed class CommandLineParser
                 return SetTraceDraws(option);
             case "--capture-dir" or "--capture-presents" or "--pix-capture" or "--pix-capture-dir":
                 return SetCapture(option);
-            case "--depth-func-override":
-                return SetDepthFuncOverride();
+            case "--depth-func-override" or "--no-class-depth-bounds":
+                return SetDepthFuncOverride(option);
             case "--present-test":
                 return SetPresentTest();
             case "--raytracing" or "--raytracing-gpu" or "--rt-traversal" or "--no-rt-stand-ins":
@@ -1163,6 +1163,25 @@ internal sealed class CommandLineParser
         return true;
     }
 
+    /// <summary><c>--dump-frame</c>: a present number, <c>world[+n]</c> or <c>Ns</c> (seconds after the loader started).</summary>
+    private void SetDumpFrame(string text)
+    {
+        if (Shims.D3D12X.DebugLayer.FrameStageDump.TryParseSeconds(text, out long seconds))
+        {
+            _options.DumpFrameSeconds = seconds;
+
+            return;
+        }
+
+        if (!Shims.D3D12X.DebugLayer.FrameStageDump.TryParseWhen(text, out long present, out long worldOffset))
+        {
+            throw new CommandLineException("--dump-frame takes a present number (2100), world or world+n (n presents after the first world frame), or Ns (N seconds after start)");
+        }
+
+        _options.DumpFrame = present;
+        _options.DumpFrameWorldOffset = worldOffset;
+    }
+
     /// <summary><c>--d3d12-dump-targets</c> and <c>--dump-frame n</c> with <c>-dir</c>, <c>-max</c> and <c>-filter</c>.</summary>
     private void SetDumps(string option)
     {
@@ -1173,13 +1192,7 @@ internal sealed class CommandLineParser
 
         if (option == "--dump-frame")
         {
-            if (!Shims.D3D12X.DebugLayer.FrameStageDump.TryParseWhen(Next(), out long present, out long worldOffset))
-            {
-                throw new CommandLineException("--dump-frame takes a present number (2100), world or world+n (n presents after the first world frame)");
-            }
-
-            _options.DumpFrame = present;
-            _options.DumpFrameWorldOffset = worldOffset;
+            SetDumpFrame(Next());
         }
 
         if (option == "--dump-frame-dir")
@@ -1315,9 +1328,16 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    /// <summary><c>--depth-func-override text=Func[;text=Func...]</c> (Never, Less, Equal, LessEqual, Greater, NotEqual, GreaterEqual, Always).</summary>
-    private bool SetDepthFuncOverride()
+    /// <summary><c>--depth-func-override text=Func[;text=Func...]</c> (Never, Less, Equal, LessEqual, Greater, NotEqual, GreaterEqual, Always), or <c>--no-class-depth-bounds</c>.</summary>
+    private bool SetDepthFuncOverride(string option)
     {
+        if (option == "--no-class-depth-bounds")
+        {
+            _options.NoClassDepthBounds = true;
+
+            return true;
+        }
+
         _options.DepthFuncOverrides = Shims.D3D12X.Pipelines.DepthFuncOverride.Parse(Next()) ?? throw new CommandLineException("--depth-func-override takes text=Func[;text=Func...], e.g. TL_PS_NoDir=Always");
 
         return true;
