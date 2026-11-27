@@ -356,6 +356,9 @@ public static class TypedViewCases
         {
             User = [TextureHeap, 0, 0, viewClass],
             Textures = [new TextureResource(TextureHeap, format, Width, Height, texels)],
+
+            // The gather reads its literal S#'s desktop sampler: unbound, WARP clamps the edge lanes and NVIDIA wraps them.
+            Samplers = [PixelMemoryCases.LiteralSampler([0x92, 0xc00000, 0x4000000, 0], comparison: false)],
         };
     }
 }

@@ -63,6 +63,12 @@ public sealed class ComputeCaseRunner
         return Run(testCase, program => defines + ShaderWorkbench.Translate(program));
     }
 
+    /// <summary>Runs a case with the source <paramref name="replace"/> makes of its translation, as a replacement (--shader-overrides) runs.</summary>
+    public IReadOnlyList<string> RunReplaced(ComputeCase testCase, Func<string, string> replace)
+    {
+        return Run(testCase, program => replace(ShaderWorkbench.Translate(program)));
+    }
+
     /// <summary>Runs a case translated with typed image views (TranslationOptions.TypedImageViews), by dxc or (<paramref name="direct"/>) the DXIL backend.</summary>
     public IReadOnlyList<string> RunTypedViews(ComputeCase testCase, bool direct)
     {
@@ -103,7 +109,7 @@ public sealed class ComputeCaseRunner
         var output = new BufferResource(ComputeCase.OutputHeap, [.. Enumerable.Repeat(testCase.Fill, testCase.TotalThreads * testCase.Outputs)], Writable: true);
 
         var ring = new BufferResource(ProbeRingSlot, new uint[(MeshProbe.RecordsOffset / sizeof(uint)) + (ProbeRecords * MeshProbeRecord.Dwords)], Writable: true);
-        var bindings = new Bindings { UserSgprs = user[..ComputeCase.UserSgprCount], Buffers = [output, ring, .. testCase.Buffers], Textures = testCase.Textures };
+        var bindings = new Bindings { UserSgprs = user[..ComputeCase.UserSgprCount], Buffers = [output, ring, .. testCase.Buffers], Textures = testCase.Textures, Samplers = testCase.Samplers };
         var (x, y, z) = testCase.Groups;
         var result = _fixture.Runner.Compute(new ComputeJob(shader, x, y, z, bindings));
 
@@ -130,7 +136,7 @@ public sealed class ComputeCaseRunner
         uint[] user = [.. ComputeCase.Descriptor(ComputeCase.OutputHeap), .. testCase.SecondDescriptor, .. testCase.User, .. new uint[ComputeCase.UserSgprCount]];
         var output = new BufferResource(ComputeCase.OutputHeap, [.. Enumerable.Repeat(testCase.Fill, testCase.TotalThreads * testCase.Outputs)], Writable: true);
         var table = new BufferResource(ProbeRingSlot, new uint[Slots * SlotDwords], Writable: true);
-        var bindings = new Bindings { UserSgprs = user[..ComputeCase.UserSgprCount], Buffers = [output, table, .. testCase.Buffers], Textures = testCase.Textures };
+        var bindings = new Bindings { UserSgprs = user[..ComputeCase.UserSgprCount], Buffers = [output, table, .. testCase.Buffers], Textures = testCase.Textures, Samplers = testCase.Samplers };
 
         var (x, y, z) = testCase.Groups;
         var result = _fixture.Runner.Compute(new ComputeJob(shader, x, y, z, bindings));
@@ -158,7 +164,7 @@ public sealed class ComputeCaseRunner
         var shader = Build(testCase, variant, direct);
         uint[] user = [.. ComputeCase.Descriptor(ComputeCase.OutputHeap), .. testCase.SecondDescriptor, .. testCase.User, .. new uint[ComputeCase.UserSgprCount]];
         var output = new BufferResource(ComputeCase.OutputHeap, [.. Enumerable.Repeat(testCase.Fill, testCase.TotalThreads * testCase.Outputs)], Writable: true);
-        var bindings = new Bindings { UserSgprs = user[..ComputeCase.UserSgprCount], Buffers = [output, .. testCase.Buffers], Textures = testCase.Textures };
+        var bindings = new Bindings { UserSgprs = user[..ComputeCase.UserSgprCount], Buffers = [output, .. testCase.Buffers], Textures = testCase.Textures, Samplers = testCase.Samplers };
         var (x, y, z) = testCase.Groups;
         var result = _fixture.Runner.Compute(new ComputeJob(shader, x, y, z, bindings));
 

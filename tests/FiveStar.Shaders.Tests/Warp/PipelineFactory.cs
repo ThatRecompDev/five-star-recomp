@@ -19,16 +19,7 @@ public static class PipelineFactory
             | RootSignatureFlags.SamplerHeapDirectlyIndexed | RootSignatureFlags.AllowInputAssemblerInputLayout;
         var parameters = new List<RootParameter1> { UserData(rootConstants, binding) };
 
-        if (layout == RootLayout.FallbackRoot)
-        {
-            for (uint register = 0; register < FallbackUavs; register++)
-            {
-                parameters.Add(new RootParameter1(RootParameterType.UnorderedAccessView, new RootDescriptor1(register, FallbackSpace), ShaderVisibility.All));
-            }
-
-            parameters.Add(new RootParameter1(RootParameterType.ShaderResourceView, new RootDescriptor1(0, FallbackSpace), ShaderVisibility.All));
-        }
-        else if (layout == RootLayout.FallbackTable)
+        if (layout == RootLayout.FallbackTable)
         {
             var volatileFlags = DescriptorRangeFlags.DataVolatile | DescriptorRangeFlags.DescriptorsVolatile;
             DescriptorRange1[] ranges =

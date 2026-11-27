@@ -55,6 +55,8 @@ internal static class HostUsage
                                  and compiled on first use unless --translated-dir has them
           --translated-dir <dir> translated DXIL programs (fivestar shader translate), optional
           --program-cache <dir>  programs made on first use (default: <work-dir>\program-cache)
+          --shader-overrides <dir> hand-written <program>.hlsl or .dxil replacing those programs' translations
+                                 (fivestar shader override-init starts one); needs programs made on first use
           --no-on-demand         only --translated-dir provides programs
           --dxc <path>           dxcompiler.dll (or dxc.exe, or their folder) for programs made on first use;
                                  default: FIVESTAR_DXC, beside the loader, then the Windows SDK
@@ -123,6 +125,8 @@ internal static class HostUsage
                                  (needs the Graphics Tools optional feature)
           --d3d12-gpu-validation --d3d12-debug plus GPU-based validation (slow)
           --force-cull-none <text>  pipelines whose programs' names hold <text> cull no faces (a winding check)
+          --depth-func-override <text=Func;...>  pipelines whose programs' names hold <text> get that depth test
+                                 (Never..Always) and no stencil test (a check of what culls a pass's pixels)
           --skip-pipelines <text,...>  pipelines whose programs' names hold a text stay stand-ins: never built or
                                  loaded, their draws skipped (to get past one that hangs the GPU)
           --no-draws             no pipeline is built and every draw and dispatch is skipped (black picture): the frame
@@ -227,7 +231,8 @@ internal static class HostUsage
                                  pixel and compute programs per wave, with the first float site whose value is NaN or Inf
           --d3d12-dump-targets   the draw trace, and in the frame after each captured present every render and depth
                                  target read back when a list leaves it, as PNG in the capture folder
-          --dump-frame <n>       the draw trace, and in the frame after present n every target and UAV texture at
+          --dump-frame <n|world[+n]>  the draw trace, and in the frame after present n (world+n: n presents after the
+                                 first world frame, 300 for world) every target and UAV texture at
                                  least 480 wide read back after each pass that wrote it, as NNN-pass-WxH-fmtF.png
                                  (HDR exposed, plus -auto.png at its mean; normals and depth mapped; stats in the log;
                                  unchanged targets not written; later frames continue when readback memory runs out)
@@ -251,6 +256,9 @@ internal static class HostUsage
                                  rehydration into game memory (off: desktop sizes, nothing written)
           --raytracing-gpu       run XboxBvhBuilder.dll's constructor for an inventory of its 52 GPU builder pipelines:
                                  stand-ins never built, no builder program runs (docs/bvh-builder.md)
+          --rt-traversal         run the game's BVH traversal programs (screen probes, irradiance cache, reflections,
+                                 shadows) with --raytracing's paths; a node in unmapped memory misses; passes still
+                                 held by --skip-pipelines keep their stand-ins, the screen-probe light is not greyed
           --no-rt-stand-ins      held ray-tracing passes leave their outputs as they are (default without --raytracing:
                                  shadow masks fully lit, reflections black, the screen-probe light a grey)
           --no-lighting-waits    the lighting pipelines (cascade shadows, shadow masks, tiled lighting, TL_PS, exposure,

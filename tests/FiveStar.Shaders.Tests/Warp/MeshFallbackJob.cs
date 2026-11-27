@@ -20,7 +20,4 @@ public sealed record MeshFallbackJob(
     int IndexBytes)
 {
     public IReadOnlyList<uint> StaleIndices { get; init; } = [];
-
-    /// <summary>Bind u0..u2 / t0 as root descriptors instead of a descriptor table.</summary>
-    public bool RootDescriptors { get; init; }
 }

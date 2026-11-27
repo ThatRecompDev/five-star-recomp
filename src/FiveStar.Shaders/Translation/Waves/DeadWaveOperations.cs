@@ -28,12 +28,13 @@ internal static partial class DeadWaveOperations
     /// Removes dead wave operations from <paramref name="blocks"/> in place; <paramref name="pinned"/> are read after the
     /// program. <paramref name="ownBits"/> first reads a lane's own ballot bit from its mask bool (<see cref="BallotBits"/>);
     /// pixel programs keep the ballot, since helper lanes, in EXEC on the console, take no part in an HLSL ballot.
+    /// <paramref name="wave32"/>: the program's waves have 32 lanes (<see cref="BallotBits"/> reads the low half only).
     /// </summary>
-    public static int Remove(List<CodeBlock> blocks, IReadOnlySet<string> pinned, bool ownBits = true)
+    public static int Remove(List<CodeBlock> blocks, IReadOnlySet<string> pinned, bool ownBits = true, bool wave32 = false)
     {
         if (ownBits)
         {
-            BallotBits.Substitute(blocks);
+            BallotBits.Substitute(blocks, wave32);
         }
 
         int removed = 0;
@@ -219,6 +220,12 @@ internal static partial class DeadWaveOperations
         if (graph.Successors[block].Count == 0)
         {
             live.UnionWith(names);
+        }
+
+        // The structured form branches on the exit's condition, not on the block's pc line: what it reads is live.
+        if (exit.Condition is string condition)
+        {
+            live.UnionWith(NamePattern().Matches(condition).Select(name => name.Value).Where(names.Contains));
         }
 
         return live;

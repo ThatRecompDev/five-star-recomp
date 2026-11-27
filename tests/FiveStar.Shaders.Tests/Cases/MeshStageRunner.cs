@@ -25,7 +25,6 @@ public sealed partial class MeshStageRunner
 {
     public const string Native = "ms_ngg_strips";
     public const string FallbackTable = "msfb_ngg_strips";
-    public const string FallbackRoot = "msfb_ngg_strips_rootdesc";
     public const string FallbackOverflow = "msfb_overflow_dropped";
 
     /// <summary>The program with the mesh launch payload (TranslationOptions.MeshPayload): drawn without the stage, and through the fallback.</summary>
@@ -207,7 +206,7 @@ public sealed partial class MeshStageRunner
         _fixture = fixture;
     }
 
-    public static IReadOnlyList<string> Variants => [Native, FallbackTable, FallbackRoot, FallbackOverflow, Supersteps, SuperstepFallback, SuperstepCarry, Payload, PayloadFallback];
+    public static IReadOnlyList<string> Variants => [Native, FallbackTable, FallbackOverflow, Supersteps, SuperstepFallback, SuperstepCarry, Payload, PayloadFallback];
 
     /// <summary>Draws a variant; <paramref name="direct"/> compiles a native mesh shader with the DXIL backend.</summary>
     public IReadOnlyList<string> Run(string variant, bool direct = false)
@@ -236,19 +235,15 @@ public sealed partial class MeshStageRunner
         var (compute, vertex) = MeshComputeFallback.Rewrite(mesh);
         var stride = int.Parse(StridePattern().Match(compute).Groups[1].Value, CultureInfo.InvariantCulture);
         var groups = variant == FallbackOverflow ? 3 : 1;
-        var rootConstants = variant == FallbackRoot ? 16 : 60;
         var job = new MeshFallbackJob(
             _fixture.Workbench.Compile(variant + "_cs", compute, "cs"),
             _fixture.Workbench.Compile(variant + "_vs", vertex, "vs"),
             pixel,
             framebuffer,
-            bindings with { RootConstantCount = rootConstants },
+            bindings with { RootConstantCount = 60 },
             groups,
             MaxOutputs * stride,
-            MaxOutputs * 12)
-        {
-            RootDescriptors = variant == FallbackRoot,
-        };
+            MaxOutputs * 12);
 
         if (variant == FallbackOverflow)
         {

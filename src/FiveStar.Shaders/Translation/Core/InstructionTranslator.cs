@@ -114,6 +114,11 @@ internal sealed partial class InstructionTranslator
 
     private void TranslateWithModifiers(string op, string operands)
     {
+        if (CrossGroup(op, operands))
+        {
+            _state.CrossGroupMemory = true;
+        }
+
         if (Ignored.Contains(op))
         {
             return;
@@ -141,6 +146,24 @@ internal sealed partial class InstructionTranslator
         }
 
         TranslateMemoryOrAlu(op, operandText, modifiers);
+    }
+
+    /// <summary>A memory atomic, a glc (coherent) memory load or a cache invalidation: work that sees other groups' writes.</summary>
+    private static bool CrossGroup(string op, string operands)
+    {
+        if (op is "s_gl1_inv" or "s_dcache_inv" or "buffer_gl0_inv" or "buffer_gl1_inv")
+        {
+            return true;
+        }
+
+        if (op.StartsWith("buffer_atomic_", StringComparison.Ordinal) || op.StartsWith("global_atomic_", StringComparison.Ordinal) || op.StartsWith("image_atomic_", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        bool load = op.StartsWith("buffer_load", StringComparison.Ordinal) || op.StartsWith("global_load", StringComparison.Ordinal) || op.StartsWith("image_load", StringComparison.Ordinal);
+
+        return load && GlcPattern().IsMatch(operands);
     }
 
     private static void CheckModifiers(string op, InstructionModifiers modifiers)
@@ -276,6 +299,9 @@ internal sealed partial class InstructionTranslator
             _state.DppKeep = null;
         }
     }
+
+    [GeneratedRegex(@"\sglc\b")]
+    private static partial Regex GlcPattern();
 
     [GeneratedRegex(@"^sext\((.*)\)$")]
     private static partial Regex SignExtendPattern();
