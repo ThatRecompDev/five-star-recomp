@@ -11,9 +11,12 @@ GTA VI does not run yet. Updated 27 November 2026.
   - Surface colour: right for most surfaces since textures the game still uses are no longer retired by their
     neighbours. Characters and clothing draw when the skinned passes are not skipped. Open: hair, vehicle bodies,
     some odd colours.
-  - Lighting: the tiled lighting pass shades its pixels on a branch (its depth-equal test cannot work on the GPU
-    after our depth copy; a depth-bounds rule replaces it), not on main yet. The final frame is still wrong: the
-    lit half is banded with black holes, the upper half black, all blurred.
+  - Lighting: the tiled lighting pass shades its pixels (its depth-equal test cannot work on the GPU after our
+    depth copy; a depth-bounds rule replaces it). With the held scattering passes let through, the sky fills too.
+    Before post-processing a frame is now a recognisable lit scene, with brightness bands 256 pixels wide and 16
+    high and some black blocks.
+  - Post-processing: makes it worse. The final frame has a black sky, flat banded colour and blur; one
+    intermediate target is full of NaN and the depth-of-field passes output zero.
   - Exposure: not re-checked since lighting shades.
 - **Device loss (NVIDIA):** fixed in one 14-minute boot. The driver gave the device up inside `ExecuteCommandLists`
   when an internal shader table passed its 512 MiB maximum (no timeout, no GPU fault). A third of the table was the
@@ -31,10 +34,11 @@ GTA VI does not run yet. Updated 27 November 2026.
 | Problem | Next step |
 |---|---|
 | Lighting pass shades almost no pixels | find why its depth-equal test fails; then directional light and ambient inputs |
-| Final frame banded, holed, half black, blurred | dump the lit frame stage by stage; fix in order |
+| Brightness bands in the lighting; post chain ruins the frame | find the per-tile input that bands; the NaN target; the pass after TAA that loses the sky |
 | Driver shader table has about 160 MiB of headroom | smaller translated shaders |
 | Hair and vehicle bodies missing from surface colour | bring back the remaining skipped skinned passes one by one |
 | GPU writes to game memory in system RAM are slow | video-memory copies; a finer address map |
+| Game stalls on the white PROLOGUE card after the intro | loading stops there; being traced |
 | Ray tracing | not built; those passes are held and stand-ins fill some outputs |
 ![Progress](progress.svg)
 
