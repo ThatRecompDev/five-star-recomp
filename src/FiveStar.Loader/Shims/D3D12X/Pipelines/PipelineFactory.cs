@@ -276,6 +276,12 @@ internal sealed unsafe class PipelineFactory
         var names = string.Join(" + ", programs.Select(program => program.Name));
         desktop = CullNone(desktop, names);
 
+        // --depth-func-override: the description (so its key) carries the comparison, rectangle variants included.
+        if (DepthFuncOverride.Rules.Count > 0)
+        {
+            desktop = desktop with { DepthStencil = DepthFuncOverride.Apply(desktop.DepthStencil, names) };
+        }
+
         return new PipelineRecipe(DesktopPipelineBuilder.GraphicsStream(_device2, _rootSignature, desktop, programs), desktop, programs, names);
     }
 
