@@ -79,6 +79,11 @@ internal static unsafe class ViewTrace
             }
         }
 
+        if (!compute)
+        {
+            MaterialViewTrace.Append(text, views, data);
+        }
+
         string work = compute ? "dispatch" : "draw";
         ShimContext.Runtime.Log.Info($"  [view trace] {QueueProgress.PipelineName(pipeline)} ({work}, present {ShimContext.Runtime.D3D12X.Presenter.Presents}):{text}");
     }
@@ -122,7 +127,7 @@ internal static unsafe class ViewTrace
     }
 
     /// <summary>What a record resolves to: a buffer record's console range, or the noted desktop view.</summary>
-    private static string Resolve(ShaderVisibleHeap views, uint index)
+    internal static string Resolve(ShaderVisibleHeap views, uint index)
     {
         uint high = views.RecordDword(index, StrideDword) & HighMask;
 
