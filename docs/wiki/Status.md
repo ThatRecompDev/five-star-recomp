@@ -1,4 +1,4 @@
-# Status
+﻿# Status
 
 GTA VI does not run yet. Updated 27 November 2026.
 
@@ -19,8 +19,9 @@ GTA VI does not run yet. Updated 27 November 2026.
   before: the queues still finish work 0.3 s before the loss, the removal reason is DEVICE_REMOVED, Windows records
   no timeout for most losses, and turning the queue timeout off (`--no-gpu-timeout`) changes nothing. Traced in two
   boots: the NVIDIA user-mode driver fails inside `ExecuteCommandLists` of a game submission and gives the device up
-  itself; no kernel call fails first and no GPU fault is reported. Which list it rejects, or what it runs out of, is
-  the next boot.
+  itself; no kernel call fails first and no GPU fault is reported. Measured in three more boots: an internal shader
+  table of the driver grows by about 1 MiB a second and the device goes when it passes its 512 MiB maximum. What we
+  do that fills it is being traced.
 - **Speed:** a world frame takes about 200-400 ms. Targets: 30 fps, then 60.
 - **AMD:** world geometry draws since #55.
 
@@ -29,7 +30,7 @@ GTA VI does not run yet. Updated 27 November 2026.
 | Problem | Next step |
 |---|---|
 | Lighting pass shades almost no pixels | find why its depth-equal test fails; then directional light and ambient inputs |
-| Device removed about 10 minutes in | find which component removes it (Windows, driver or a failed call of ours) |
+| Device removed about 10 minutes in | find what fills the driver's shader table (512 MiB maximum) |
 | Hair and vehicle bodies missing from surface colour | bring back the remaining skipped skinned passes one by one |
 | GPU writes to game memory in system RAM are slow | wide stores (next batch); video-memory copies |
 | Ray tracing | not built; those passes are held and stand-ins fill some outputs |
