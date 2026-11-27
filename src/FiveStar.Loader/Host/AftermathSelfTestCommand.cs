@@ -65,6 +65,7 @@ internal static unsafe class AftermathSelfTestCommand
         }
 
         dumps.AttachDevice(device.NativePointer);
+        log.Info($"  [d3dkmt] driver shader tables: {DriverShaderTables.Describe(device.NativePointer)}");
 
         try
         {
