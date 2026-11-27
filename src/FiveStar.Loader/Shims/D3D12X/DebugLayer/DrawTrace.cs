@@ -1120,6 +1120,12 @@ internal sealed unsafe class DrawTrace
             return;
         }
 
+        // The stencil plane beside its depth: TL_PS's material mask (a refused one is only missing).
+        if (depth && FrameStageDump.HasStencil((int)description.Format))
+        {
+            _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, resource, current, label + " stencil", (nint)list, state.Resets, FrameStageDump.StencilPath(png), plane: 1, stage: true);
+        }
+
         Interlocked.CompareExchange(ref _reportAt, Volatile.Read(ref _lastPresent) + ReportDelay, 0);
     }
 

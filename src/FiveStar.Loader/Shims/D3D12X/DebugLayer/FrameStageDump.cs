@@ -29,6 +29,12 @@ internal sealed class FrameStageDump
 
     private const int PassNameLength = 72;
 
+    /// <summary>DXGI R32G8X24_TYPELESS, D32_FLOAT_S8X24_UINT, R24G8_TYPELESS and D24_UNORM_S8_UINT.</summary>
+    private const int R32G8X24Typeless = 19;
+    private const int D32S8 = 20;
+    private const int R24G8Typeless = 44;
+    private const int D24S8 = 45;
+
     private readonly ConcurrentDictionary<(nint Resource, string Pass), byte> _taken = new();
     private readonly ConcurrentDictionary<nint, nint> _lists = new();
     private int _count;
@@ -152,7 +158,19 @@ internal sealed class FrameStageDump
         return filter is null || DrawTrace.MatchesFilter(pass, filter);
     }
 
-    /// <summary>"NN-pass-WxH-fmtF[-depth].png", the pass with every character but letters, digits, '.' and '-' as '_'.</summary>
+    /// <summary>Whether a depth target of <paramref name="format"/> has a stencil plane (R32G8X24, D32S8, R24G8, D24S8), dumped beside its depth.</summary>
+    public static bool HasStencil(int format)
+    {
+        return format is R32G8X24Typeless or D32S8 or R24G8Typeless or D24S8;
+    }
+
+    /// <summary>"x-depth.png" as "x-stencil.png".</summary>
+    public static string StencilPath(string png)
+    {
+        return Path.ChangeExtension(png, null).Replace("-depth", string.Empty, StringComparison.Ordinal) + "-stencil.png";
+    }
+
+    /// <summary>"NNN-pass-WxH-fmtF[-depth].png", the pass with every character but letters, digits, '.' and '-' as '_'.</summary>
     public static string FileName(int order, string pass, ulong width, uint height, int format, bool depth)
     {
         var name = new StringBuilder(pass.Length);

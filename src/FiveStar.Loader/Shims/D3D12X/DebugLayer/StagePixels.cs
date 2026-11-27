@@ -83,6 +83,11 @@ internal static class StagePixels
     private const int ElevenMantissa = 6;
     private const int TenMantissa = 5;
 
+    /// <summary>Distinct depth values counted, and the commonest shown with their share.</summary>
+    private const int DepthValuesCounted = 4096;
+    private const int DepthValuesShown = 8;
+    private const double Percent = 100;
+
     /// <summary>The exposure HDR values are multiplied by before the curve.</summary>
     public const float Exposure = 1f;
 
@@ -339,12 +344,15 @@ internal static class StagePixels
     private static string Depth(ReadOnlySpan<byte> source, int rowPitch, int width, int rows, int format, Span<byte> image)
     {
         var stats = new ChannelStats(1);
+        var values = new Dictionary<float, long>();
 
         for (int y = 0; y < rows; y++)
         {
             for (int x = 0; x < width; x++)
             {
-                stats.Add(0, DepthValue(source.Slice(y * rowPitch), x, format));
+                float value = DepthValue(source.Slice(y * rowPitch), x, format);
+                stats.Add(0, value);
+                CountValue(values, value);
             }
         }
 
@@ -363,7 +371,33 @@ internal static class StagePixels
             }
         }
 
-        return $"; stage depth, log-scaled; {stats.Describe()}";
+        return $"; stage depth, log-scaled; {stats.Describe()}; {CommonValues(values, (long)width * rows)}";
+    }
+
+    /// <summary>Counts <paramref name="value"/> while fewer than <see cref="DepthValuesCounted"/> distinct values are seen.</summary>
+    private static void CountValue(Dictionary<float, long> values, float value)
+    {
+        if (values.TryGetValue(value, out long count))
+        {
+            values[value] = count + 1;
+        }
+        else if (values.Count < DepthValuesCounted)
+        {
+            values[value] = 1;
+        }
+    }
+
+    /// <summary>
+    /// "N distinct values: v share%, ..." of a depth (a material-class depth holds a few whole steps, a scene depth many);
+    /// "over N" when the count stopped.
+    /// </summary>
+    internal static string CommonValues(Dictionary<float, long> values, long total)
+    {
+        string distinct = values.Count >= DepthValuesCounted ? $"over {DepthValuesCounted}" : values.Count.ToString(CultureInfo.InvariantCulture);
+        var common = values.OrderByDescending(pair => pair.Value).Take(DepthValuesShown);
+        string top = string.Join(", ", common.Select(pair => string.Create(CultureInfo.InvariantCulture, $"{pair.Key:G6} {pair.Value * Percent / Math.Max(total, 1):F1}%")));
+
+        return $"{distinct} distinct values: {top}";
     }
 
     /// <summary>0..1 of a depth between <paramref name="nearest"/> and e^<paramref name="span"/> times it; 0.0 (the sky) is 0, one depth only mid-grey.</summary>
