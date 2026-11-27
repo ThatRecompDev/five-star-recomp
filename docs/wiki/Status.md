@@ -9,12 +9,16 @@ GTA VI does not run yet. Updated 27 November 2026.
 - **Picture, by stage** (read from one frame's intermediate images, `--dump-frame`):
   - Geometry, normals, depth: right.
   - Surface colour: right for most surfaces since textures the game still uses are no longer retired by their
-    neighbours. Characters draw again (skin and faces). Open: clothing and vehicles black, hair, some odd colours.
-  - Lighting: writes almost nothing, so the final frame is dark or blown out. The tiled lighting pass draws no
-    tiles; being traced.
+    neighbours. Characters and clothing draw when the skinned passes are not skipped. Open: hair, vehicle bodies,
+    some odd colours.
+  - Lighting: writes almost nothing, so the final frame is dark or blown out. The tiled lighting pass draws every
+    tile, but its depth-equal test rejects almost all pixels (with the test forced to "always" the whole frame is
+    shaded). Why the test fails is open.
   - Exposure: follows the black lighting to its floor.
-- **Device loss:** a GPU timeout about 10 minutes in (NVIDIA Aftermath: "Timeout", no page fault), with the graphics
-  queue in the character skinning dispatches. Faster skinning stores are in the next translator batch.
+- **Device loss:** about 10 minutes in, at the same point of the game. Not a plain GPU timeout as written here
+  before: the queues still finish work 0.3 s before the loss, the removal reason is DEVICE_REMOVED, Windows records
+  no timeout for most losses, and turning the queue timeout off (`--no-gpu-timeout`) changes nothing. What removes
+  the device is being traced.
 - **Speed:** a world frame takes about 200-400 ms. Targets: 30 fps, then 60.
 - **AMD:** world geometry draws since #55.
 
@@ -22,9 +26,9 @@ GTA VI does not run yet. Updated 27 November 2026.
 
 | Problem | Next step |
 |---|---|
-| Lighting pass draws nothing | find why its "no directional light" variants shade no pixels; shadow-mask inputs |
-| GPU timeout about 10 minutes in | translator batch with faster stores; then game memory in video memory |
-| Clothing, vehicles, hair missing from surface colour | bring back the skipped skinned passes one by one |
+| Lighting pass shades almost no pixels | find why its depth-equal test fails; then directional light and ambient inputs |
+| Device removed about 10 minutes in | find which component removes it (Windows, driver or a failed call of ours) |
+| Hair and vehicle bodies missing from surface colour | bring back the remaining skipped skinned passes one by one |
 | GPU writes to game memory in system RAM are slow | wide stores (next batch); video-memory copies |
 | Ray tracing | not built; those passes are held and stand-ins fill some outputs |
 ![Progress](progress.svg)
