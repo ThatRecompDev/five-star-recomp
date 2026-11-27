@@ -23,12 +23,14 @@ internal static class KeyNames
     private const int Alt = 0x12;
 
     /// <summary>
-    /// Unassigned virtual keys (0x88-0x8F in WinUser.h) that stand for virtual gamepad buttons in an input script:
-    /// PadA, PadB, PadX, PadY, PadMenu, PadView. They press the button alone, without a keyboard key, and no keyboard
-    /// reading carries them.
+    /// Unassigned virtual keys (0x88-0x8F and 0x97-0x9A in WinUser.h) that stand for virtual gamepad buttons in an
+    /// input script: PadA, PadB, PadX, PadY, PadMenu, PadView, and the d-pad as PadUp, PadDown, PadLeft, PadRight. They
+    /// press the button alone, without a keyboard key, and no keyboard reading carries them.
     /// </summary>
     public const int FirstPadKey = 0x88;
     public const int LastPadKey = 0x8F;
+    public const int FirstPadArrow = 0x97;
+    public const int LastPadArrow = 0x9A;
 
     private const int FirstFunctionKey = 0x70;
     private const int FunctionKeyCount = 24;
@@ -44,6 +46,7 @@ internal static class KeyNames
         ("LeftAlt", 0xA4), ("RightAlt", 0xA5),
         ("PadA", FirstPadKey), ("PadB", FirstPadKey + 1), ("PadX", FirstPadKey + 2), ("PadY", FirstPadKey + 3),
         ("PadMenu", FirstPadKey + 4), ("PadView", FirstPadKey + 5),
+        ("PadUp", FirstPadArrow), ("PadDown", FirstPadArrow + 1), ("PadLeft", FirstPadArrow + 2), ("PadRight", LastPadArrow),
     ];
 
     /// <summary>The virtual gamepad button each pad key presses, from <see cref="FirstPadKey"/> on.</summary>
@@ -51,6 +54,12 @@ internal static class KeyNames
     [
         GameInputLayout.GamepadA, GameInputLayout.GamepadB, GameInputLayout.GamepadX, GameInputLayout.GamepadY,
         GameInputLayout.GamepadMenu, GameInputLayout.GamepadView,
+    ];
+
+    /// <summary>The d-pad button each pad arrow presses, from <see cref="FirstPadArrow"/> on.</summary>
+    public static readonly uint[] PadArrows =
+    [
+        GameInputLayout.GamepadDPadUp, GameInputLayout.GamepadDPadDown, GameInputLayout.GamepadDPadLeft, GameInputLayout.GamepadDPadRight,
     ];
 
     private static readonly FrozenDictionary<string, int> Names = BuildNames();
@@ -78,10 +87,15 @@ internal static class KeyNames
         throw new FormatException($"unknown key name '{name}'");
     }
 
-    /// <summary>Whether a virtual key is an input script's pad key (<see cref="FirstPadKey"/>).</summary>
+    /// <summary>Whether a virtual key is an input script's pad key (<see cref="FirstPadKey"/>, <see cref="FirstPadArrow"/>).</summary>
     [HotPath]
     public static bool IsPadKey(int virtualKey)
     {
+        if (virtualKey >= FirstPadArrow && virtualKey <= LastPadArrow)
+        {
+            return true;
+        }
+
         return virtualKey >= FirstPadKey && virtualKey <= LastPadKey;
     }
 

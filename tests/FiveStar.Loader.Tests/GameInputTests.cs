@@ -48,6 +48,14 @@ public sealed unsafe class GameInputTests
 
         Assert.Equal(0x4u, state.Buttons);
         Assert.False(KeyNames.IsKeyboardKey(padA));
+
+        // The d-pad too: the default mapping gives it no key.
+        int padDown = KeyNames.Parse("PadDown")!.Value;
+        keys.Set(padA, false);
+        keys.Set(padDown, true);
+
+        Assert.Equal(GameInputLayout.GamepadDPadDown, VirtualGamepad.Map(config, keys, 0, 0, 0.016f).Buttons);
+        Assert.True(KeyNames.IsPadKey(padDown) && !KeyNames.IsKeyboardKey(padDown));
     }
 
     [Fact]

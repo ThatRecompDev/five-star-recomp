@@ -8,65 +8,46 @@
 # know yet: press F8 when that screen shows, and the loader learns it and goes on. Presses are held 0.3 s: while
 # pipelines compile the game can miss 0.2 s presses, and from about 0.5 s a held arrow repeats.
 #
-# Black "press a button" screen, logos, intro art and the first option screens (minimap, text size): a Space tap
-# every 1.5 s until the subtitles screen shows.
-0 Space hold 0.3 repeat 800 every 1.5
+# Every press is a button of the virtual gamepad (PadA, PadDown, PadRight): the game took no scripted keyboard key.
+# In boots from an empty folder 100 Space taps in 150 s and 16 Enter taps left the black screen standing, and 20
+# Down taps left the focus of the legal screen on its first item; A passed the black screen and the option screens.
+#
+# Black "press a button" screen, logos, intro art and the first option screens (minimap, text size): an A tap every
+# 1.5 s until the subtitles screen shows.
+0 PadA hold 0.3 repeat 800 every 1.5
 
-# Subtitles, Off by default: Right turns them on. Then the remaining option screens (brightness, controls notice): a
-# Space tap every 1.5 s until the legal screen shows. A tap does nothing on the legal screen while its Copyright item
+# Subtitles, Off by default: Right turns them on. Then the remaining option screens (brightness, controls notice): an
+# A tap every 1.5 s until the legal screen shows. A tap does nothing on the legal screen while its Copyright item
 # has the focus.
 screen subtitles
-1 Right hold 0.3
-+1 Space hold 0.3 repeat 800 every 1.5
+1 PadRight hold 0.3
++1 PadA hold 0.3 repeat 800 every 1.5
 
 # Legal notices, focus on Copyright: Down to the photosensitivity warning, which keeps the focus for 4 s, then
 # Down every 1.5 s until Next has the focus.
 screen legal
-1 Down hold 0.3
-+4.5 Down hold 0.3 repeat 20 every 1.5
+1 PadDown hold 0.3
++4.5 PadDown hold 0.3 repeat 20 every 1.5
 
-# Legal notices, focus on Next: Space until the terms screen shows (the first press after the focus moved can be
+# Legal notices, focus on Next: A until the terms screen shows (the first press after the focus moved can be
 # dropped). The presses are 8 s apart: a press that lands on the terms screen before its block begins toggles a check
 # box there, and the screen then no longer matches.
 screen legal-next
-1 Space hold 0.3 repeat 3 every 8
+1 PadA hold 0.3 repeat 3 every 8
 
-# Privacy policy and terms of service: two check boxes that Space toggles, then Confirm, which is enabled once both are
-# checked. The focus starts on the first box. The policy text on the right scrolls by itself (63 to 132 cells changed in
-# one boot), so the screen allows 160 changed cells; the legal screens are 233 and 256 cells away. Each step below
-# repeats its press until a change block sees it take, so a press the game drops is pressed again and a press that took
-# is not (a second Space would clear the box). The changes are watched in the left panel only (cells 0-12 x 5-15, the
-# boxes in column 1, rows 6-7 and 11-12, Confirm in rows 13-15), away from the scrolling text: a check mark changes a
-# cell or two, a focus move about 30. A step that sees no change in 47 s goes on anyway, with a warning in the log.
-#
-# Some boots Space toggled nothing: it was the keyboard key and the virtual gamepad's A at once, and the game took both
-# and ticked the box on and off (fixed: a scripted key now reaches the game once). A select step still tries Space for
-# 15 s, then the gamepad's A alone (PadA) for 15 s, then Enter; the first that takes ends the step.
-#
-# The block begins once the left half of the screen (the boxes, away from the scrolling text) has stayed still for 1 s,
-# so the first press does not land while the screen still fades in.
+# Privacy policy and terms of service: two check boxes that A toggles, then Confirm, which is enabled once both are
+# checked. The focus starts on the first box: A, Down, A, Down, A, 4 s apart, each pressed once, because a second A
+# would clear a box and the first check mark is too small to see in a screen signature (one cell, 11 levels of 255).
+# The policy text on the right scrolls by itself (63 to 132 cells changed in one boot), so the screen allows 160
+# changed cells; the legal screens are 233 and 256 cells away. The block begins once the left half of the screen (the
+# boxes, away from the scrolling text) has stayed still for 1 s, so the first press does not land while the screen
+# still fades in.
 screen terms 160 settle 1 settle-region 0 0 23 26
-0.5 Space hold 0.3 repeat 6 every 2.5
-+15 PadA hold 0.3 repeat 6 every 2.5
-+15 Enter hold 0.3 repeat 6 every 2.5
-
-# The privacy box is checked: Down moves the focus to the terms box (the right panel does not count).
-change privacy-checked 1 region 0 5 3 13 timeout 47
-1 Down hold 0.3 repeat 18 every 2.5
-
-change terms-focused 6 region 0 5 12 15 timeout 47
-1 Space hold 0.3 repeat 6 every 2.5
-+15 PadA hold 0.3 repeat 6 every 2.5
-+15 Enter hold 0.3 repeat 6 every 2.5
-
-# Both boxes are checked: Down to Confirm, then select it until the story load shows.
-change terms-checked 1 region 0 5 3 13 timeout 47
-1 Down hold 0.3 repeat 18 every 2.5
-
-change confirm-focused 6 region 0 5 12 15 timeout 47
-1 Space hold 0.3 repeat 6 every 2.5
-+15 PadA hold 0.3 repeat 6 every 2.5
-+15 Enter hold 0.3 repeat 6 every 2.5
+2 PadA hold 0.3
+6 PadDown hold 0.3
+10 PadA hold 0.3
+14 PadDown hold 0.3
+18 PadA hold 0.3
 
 # The story load (a spinner on dark blue): nothing to press, the log names the time.
 screen story-load

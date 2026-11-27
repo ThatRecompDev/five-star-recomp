@@ -90,6 +90,60 @@ internal sealed class ScreenStore
         }
     }
 
+    /// <summary>
+    /// The pairs of screens <paramref name="blocks"/> wait for that were learned so alike that the picture of one is
+    /// within the other's limit: taught on the same frame, they begin one after the other on any frame near it.
+    /// </summary>
+    public IReadOnlyList<ScreenClash> Alike(IReadOnlyList<ScriptBlock> blocks)
+    {
+        var clashes = new List<ScreenClash>();
+        var seen = new HashSet<(string, string)>();
+
+        lock (_gate)
+        {
+            for (int i = 0; i < blocks.Count; i++)
+            {
+                for (int j = i + 1; j < blocks.Count; j++)
+                {
+                    var clash = Clash(blocks[i], blocks[j]);
+
+                    if (clash.HasValue && seen.Add((clash.Value.First.ToUpperInvariant(), clash.Value.Second.ToUpperInvariant())))
+                    {
+                        clashes.Add(clash.Value);
+                    }
+                }
+            }
+        }
+
+        return clashes;
+    }
+
+    private ScreenClash? Clash(ScriptBlock first, ScriptBlock second)
+    {
+        if (first.Change || second.Change || string.Equals(first.Name, second.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (!_screens.TryGetValue(first.Name, out var one) || !_screens.TryGetValue(second.Name, out var other))
+        {
+            return null;
+        }
+
+        foreach (var (block, limit) in new[] { (first, one.MaxChanged), (second, other.MaxChanged) })
+        {
+            int allowed = block.Limit > 0 ? block.Limit : limit;
+            int distance = one.Signature.Distance(other.Signature, block.Region);
+
+            if (distance <= allowed)
+            {
+                return new ScreenClash(first.Name, second.Name, distance, allowed);
+            }
+        }
+
+        return null;
+    }
+
     private void Read(IEnumerable<string> lines)
     {
         foreach (string raw in lines)

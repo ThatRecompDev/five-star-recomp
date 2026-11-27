@@ -77,6 +77,14 @@ internal static class VirtualGamepad
             }
         }
 
+        for (int i = 0; i < KeyNames.PadArrows.Length; i++)
+        {
+            if (keys.IsDown(KeyNames.FirstPadArrow + i))
+            {
+                buttons |= KeyNames.PadArrows[i];
+            }
+        }
+
         return buttons;
     }
 
