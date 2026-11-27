@@ -87,6 +87,9 @@ internal static unsafe class DepthTwinCopy
     /// <summary>D3D12_RESOURCE_STATE_DEPTH_WRITE.</summary>
     private const int DepthWrite = 0x10;
 
+    /// <summary>D3D12_RESOURCE_STATE_COPY_SOURCE, which the depth passes through after a copy (<see cref="Settle"/>).</summary>
+    private const int CopySource = 0x800;
+
     private const int FullScreenVertices = 3;
     private const int SampleMaskAll = -1;
 
@@ -147,7 +150,7 @@ internal static unsafe class DepthTwinCopy
         Begin(list, twin, view, state, table, ProgramsFor(twin.Format, DepthPlane).Root);
         ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetPipelineSlot))(list, pipeline);
         Draw(list);
-        Move(list, twin.Depth, DepthWrite, state);
+        Settle(list, twin.Depth, state);
 
         return true;
     }
@@ -203,7 +206,7 @@ internal static unsafe class DepthTwinCopy
             Draw(list);
         }
 
-        Move(list, twin.Depth, DepthWrite, state);
+        Settle(list, twin.Depth, state);
 
         return true;
     }
@@ -269,6 +272,19 @@ internal static unsafe class DepthTwinCopy
 
             return handle;
         }
+    }
+
+    /// <summary>
+    /// After a copy: the depth goes through COPY_SOURCE before it returns to <paramref name="state"/>. The transition
+    /// out of DEPTH_WRITE makes the driver decompress the depth and rebuild what its depth test reads besides the texels:
+    /// without it, the tiled lighting's draws tested their class against the depth from before the copy, though a
+    /// readback (which makes the same transition) showed the copied values (w233: its class-0 draw shaded 132,352 of
+    /// the 367,071 pixels whose depth read 0.0, with the depth-bounds class test as with EQUAL).
+    /// </summary>
+    private static void Settle(nint list, nint depth, int state)
+    {
+        Move(list, depth, DepthWrite, CopySource);
+        Move(list, depth, CopySource, state);
     }
 
     private static void Move(nint list, nint resource, int before, int after)
