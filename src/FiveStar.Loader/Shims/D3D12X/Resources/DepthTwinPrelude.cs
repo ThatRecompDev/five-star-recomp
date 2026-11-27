@@ -82,6 +82,30 @@ internal static unsafe class DepthTwinPrelude
         }
     }
 
+    /// <summary>
+    /// Records the copy of <paramref name="twin"/> into its plane on the game's desktop list <paramref name="list"/>,
+    /// reading the twin through the view of this class's own heap, which it binds on the list: for a list whose twin UAV
+    /// the game wrote over in its heap since it wrote the twin. Left to the next prelude, that copy came after the list's
+    /// own tiled lighting, which tested its classes against the depth's clear (1.0 at 88.8% of the pixels, w270). The
+    /// caller binds the list's heaps again. False when nothing was recorded.
+    /// </summary>
+    public static bool InList(nint device, nint list, DepthTwin twin, int format, int state)
+    {
+        lock (Gate)
+        {
+            if (!Ready(device) || !Slot(twin))
+            {
+                return false;
+            }
+
+            nint heap = _views!.NativePointer;
+            ((delegate* unmanaged<nint, uint, nint*, void>)ComObject.Slot(list, DepthTwinCopy.SetDescriptorHeapsSlot))(list, 1, &heap);
+            ulong table = _views.GetGPUDescriptorHandleForHeapStart().Ptr + ((ulong)twin.PreludeSlot * _increment);
+
+            return DepthTwinCopy.Record(device, list, twin, 0, format, state, table);
+        }
+    }
+
     /// <summary>Drops the queue, fences and lists, which belong to the device they were made on: for tests, which make a device each.</summary>
     internal static void Detach()
     {

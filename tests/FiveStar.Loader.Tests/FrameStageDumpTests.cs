@@ -56,6 +56,11 @@ public sealed class FrameStageDumpTests
         Assert.Equal((0L, 150L), (present, offset));
         Assert.False(FrameStageDump.TryParseWhen("world-3", out _, out _));
         Assert.False(FrameStageDump.TryParseWhen("0", out _, out _));
+
+        // --dump-frame 350s: seconds after start (the intro runs on the clock).
+        Assert.True(FrameStageDump.TryParseSeconds("350s", out long seconds));
+        Assert.Equal(350L, seconds);
+        Assert.False(FrameStageDump.TryParseSeconds("2100", out _));
     }
 
     [Fact]

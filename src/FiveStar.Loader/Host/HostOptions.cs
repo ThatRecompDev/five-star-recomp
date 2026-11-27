@@ -227,6 +227,9 @@ internal sealed record HostOptions
     /// <summary>DRED alone (auto-breadcrumbs, page faults, the removal report), without the slow debug layer (<c>--d3d12-dred</c>).</summary>
     public bool D3D12Dred { get; set; }
 
+    /// <summary>The tiled lighting keeps its depth EQUAL instead of the class depth-bounds test (<c>--no-class-depth-bounds</c>).</summary>
+    public bool NoClassDepthBounds { get; set; }
+
     /// <summary>Depth comparisons (and stencil off) for pipelines by program name (<c>--depth-func-override text=Func;...</c>).</summary>
     public IReadOnlyList<(string Text, int Function)> DepthFuncOverrides { get; set; } = [];
 
@@ -422,6 +425,9 @@ internal sealed record HostOptions
 
     /// <summary><c>--dump-frame world+n</c>: n; -1 when a present number was given or none.</summary>
     public long DumpFrameWorldOffset { get; set; } = -1;
+
+    /// <summary><c>--dump-frame Ns</c>: N; -1 for none.</summary>
+    public long DumpFrameSeconds { get; set; } = -1;
 
     /// <summary>Where <c>--dump-frame</c> writes (<c>--dump-frame-dir</c>); null is <c>frame-N</c> in the working directory.</summary>
     public string? DumpFrameDirectory { get; set; }

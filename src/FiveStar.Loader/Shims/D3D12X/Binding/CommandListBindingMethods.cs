@@ -363,7 +363,10 @@ internal static unsafe class CommandListBindingMethods
             ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
             ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, vertices, instances);
             nint inner = self->Inner;
+
+            bool bounds = Pipelines.ClassDepthBounds.Before(self, RectangleListState.Of(self)->Pipeline);
             ((delegate* unmanaged<nint, uint, uint, uint, uint, void>)ComObject.Slot(inner, DesktopDrawInstanced))(inner, vertices, instances, firstVertex, firstInstance);
+            AfterBounds(self, bounds);
             ShimContext.Runtime.D3D12X.DrawTrace?.AfterDraw(self);
             IndirectGather.AfterWork(self, false, RectangleListState.Of(self)->Pipeline);
         }
@@ -403,7 +406,10 @@ internal static unsafe class CommandListBindingMethods
             ShimContext.Runtime.D3D12X.Rectangles.BeforeDraw(self);
             ShimContext.Runtime.D3D12X.DrawTrace?.Draw(self, indices, instances);
             nint inner = self->Inner;
+
+            bool bounds = Pipelines.ClassDepthBounds.Before(self, RectangleListState.Of(self)->Pipeline);
             ((delegate* unmanaged<nint, uint, uint, uint, int, uint, void>)ComObject.Slot(inner, DesktopDrawIndexedInstanced))(inner, indices, instances, firstIndex, baseVertex, firstInstance);
+            AfterBounds(self, bounds);
             ShimContext.Runtime.D3D12X.DrawTrace?.AfterDraw(self);
             IndirectGather.AfterWork(self, false, RectangleListState.Of(self)->Pipeline);
         }
@@ -497,7 +503,9 @@ internal static unsafe class CommandListBindingMethods
                 DispatchCaptures.BeforeIndirect(self, arguments, argumentOffset, stride, maxCount, count, countOffset);
             }
 
+            bool bounds = !dispatch && Pipelines.ClassDepthBounds.Before(self, RectangleListState.Of(self)->Pipeline);
             RunIndirect(self, indirect, BufferCopies.Desktop(arguments, ref argumentOffset), argumentOffset, BufferCopies.Desktop(count, ref countOffset), countOffset);
+            AfterBounds(self, bounds);
             ShimContext.Runtime.D3D12X.DrawTrace?.AfterIndirect(self);
 
             if (dispatch && DispatchCaptures.Enabled)
@@ -510,6 +518,16 @@ internal static unsafe class CommandListBindingMethods
         catch (Exception exception)
         {
             UnmanagedGuard.Caught(exception, "CommandListBindingMethods.ExecuteIndirect");
+        }
+    }
+
+    /// <summary>After a draw that <see cref="Pipelines.ClassDepthBounds"/> set depth bounds for: the game's bounds again.</summary>
+    [HotPath]
+    private static void AfterBounds(XboxObject* self, bool bounds)
+    {
+        if (bounds)
+        {
+            Pipelines.ClassDepthBounds.After(self);
         }
     }
 
@@ -755,11 +773,16 @@ internal static unsafe class CommandListBindingMethods
             return false;
         }
 
-        if (twin.ViewHandle == 0 || (ListReplayState.Of(self)->Set & ListReplayState.HeapsBit) == 0)
+        if ((ListReplayState.Of(self)->Set & ListReplayState.HeapsBit) == 0)
         {
             DepthTwinSides.PlaneLeftBehind((nint)self, twin);
 
             return false;
+        }
+
+        if (twin.ViewHandle == 0)
+        {
+            return CopyThroughOwnView(self, twin, format);
         }
 
         var d3d12x = ShimContext.Runtime.D3D12X;
@@ -777,6 +800,41 @@ internal static unsafe class CommandListBindingMethods
         DepthTwinSides.PlaneLeftBehind((nint)self, twin);
 
         return false;
+    }
+
+    /// <summary>
+    /// The in-list copy of a twin whose UAV the game wrote over in its heap since: through a view of the loader's own
+    /// heap (<see cref="DepthTwinPrelude.InList"/>), then the list's heaps again; both root signatures are bound anew
+    /// before their next work, their tables having named the other heap.
+    /// </summary>
+    private static bool CopyThroughOwnView(XboxObject* self, DepthTwin twin, int format)
+    {
+        var d3d12x = ShimContext.Runtime.D3D12X;
+        int state = d3d12x.ListStates.For(self).Current(twin.Depth, twin.Home);
+        nint inner = self->Inner;
+        bool copied = DepthTwinPrelude.InList(d3d12x.Objects.DesktopDevice, inner, twin, format, state);
+
+        var replay = ListReplayState.Of(self);
+        ((delegate* unmanaged<nint, uint, long*, void>)ComObject.Slot(inner, DesktopSetDescriptorHeaps))(inner, replay->HeapCount, replay->Heaps);
+        var bindings = CommandListBindings.Of(self);
+        bindings->GraphicsDesktopRoot = CommandListBindings.NoRoot;
+        bindings->ComputeDesktopRoot = CommandListBindings.NoRoot;
+
+        if (!copied)
+        {
+            DepthTwinSides.PlaneLeftBehind((nint)self, twin);
+
+            if (bindings->GraphicsRoot != 0)
+            {
+                SetBindlessRoot(self, false);
+            }
+
+            return false;
+        }
+
+        DepthTwinLog.InList(true, twin);
+
+        return true;
     }
 
     /// <summary>After the argument clamp's dispatch: the list's compute root signature, user data and pipeline again.</summary>
