@@ -150,6 +150,13 @@ internal static unsafe class GpuKeepAwake
         catch (Exception exception) when (exception is SharpGen.Runtime.SharpGenException or InvalidOperationException)
         {
             ShimContext.Runtime.Log.Warn($"[gpu awake] the GPU is not kept awake: {exception.Message}");
+            int reason = device.DeviceRemovedReason.Code;
+
+            // This thread may be the first to see a removal: the queue report must not depend on who notices.
+            if (HResult.Failed(reason))
+            {
+                QueueProgress.ReportRemoval(reason);
+            }
         }
         finally
         {
