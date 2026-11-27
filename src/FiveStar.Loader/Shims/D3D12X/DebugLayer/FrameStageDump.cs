@@ -8,7 +8,7 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 
 /// <summary>
 /// <c>--dump-frame n --dump-frame-dir dir</c>: in the frame after present <c>n</c>, every render target, depth target and
-/// UAV texture at least <see cref="MinimumWidth"/> wide is read back where a pass stops writing it (the list binds other
+/// UAV texture at least <see cref="MinimumWidth"/> wide (480, <c>--dump-frame-min-width</c>) is read back where a pass stops writing it (the list binds other
 /// targets, moves it out of RENDER_TARGET, UNORDERED_ACCESS or DEPTH_WRITE, or closes), once per target and pass (the
 /// last pipeline the list ran; with <see cref="Filter"/> only passes whose name holds one of its texts), and written as
 /// <c>NN-pass-WxH-fmtF.png</c> through <see cref="StagePixels"/>, at most <see cref="Max"/> PNGs. When the readback
@@ -21,8 +21,8 @@ internal sealed class FrameStageDump
     /// <summary>PNGs written by default (<c>--dump-frame-max</c>).</summary>
     public const int DefaultMax = 160;
 
-    /// <summary>Narrower targets (mip chains, probes, tiles) are not read.</summary>
-    public const ulong MinimumWidth = 480;
+    /// <summary>Narrower targets (mip chains, probes, tiles) are not read by default.</summary>
+    public const ulong DefaultMinimumWidth = 480;
 
     /// <summary>D3D12_RESOURCE_STATE_RENDER_TARGET, UNORDERED_ACCESS and DEPTH_WRITE: a pass writes a texture in these.</summary>
     public const int WriteStates = 0x4 | 0x8 | 0x10;
@@ -51,6 +51,9 @@ internal sealed class FrameStageDump
 
     /// <summary>PNGs written at most (<c>--dump-frame-max n</c>).</summary>
     public static int Max { get; set; } = DefaultMax;
+
+    /// <summary>Narrower targets are not read (<c>--dump-frame-min-width n</c>; 80 takes the tiled lighting's tile masks).</summary>
+    public static ulong MinimumWidth { get; set; } = DefaultMinimumWidth;
 
     /// <summary>Comma-separated texts one of which a pass name must hold (<c>--dump-frame-filter</c>); null takes every pass.</summary>
     public static string? Filter { get; set; }
