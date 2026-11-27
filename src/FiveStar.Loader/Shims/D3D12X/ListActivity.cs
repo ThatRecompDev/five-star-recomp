@@ -60,5 +60,10 @@ internal unsafe struct ListActivity
         activity->Serial = DebugLayer.GpuBreadcrumbs.Begin(list);
         DebugLayer.GpuTimings.Reset((nint)list);
         DebugLayer.NanScan.Reset((nint)list);
+
+        if (DebugLayer.DispatchCaptures.Enabled)
+        {
+            DebugLayer.DispatchCaptures.Reset((nint)list);
+        }
     }
 }

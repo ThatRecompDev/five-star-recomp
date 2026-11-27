@@ -121,7 +121,10 @@ contributors). Commit `5f86fa3` (`crates/victory-gpu/src/host/awake.rs`, `VICTOR
 compute queue of ours while the title submitted within 250 ms, at most two dispatches in flight, and the 20 s turns.
 Commits `e151e71` and `45cad4c` (`resolution.rs`) gave the facts of `--output` (`Mods/OutputSizePatches.cs`): where the title
 applies its output size and its back-buffer pool check; the bytes and the stub are read from our build and written anew.
-Its measurements are cited in the source and docs.
+Its measurements are cited in the source and docs. The design of its frame replay (`docs/replay.md`,
+`crates/victory-gpu/src/replay`, revision `a9400a6`) is adapted, written anew for one dispatch, in
+`src/FiveStar.Graphics/Replay` (`fivestar shader replay`, `--capture-dispatch`): the inputs put back before every
+loop, the time taken from GPU timestamps around the work, the median of several runs, every written byte compared.
 
 ## Kelvaroq
 

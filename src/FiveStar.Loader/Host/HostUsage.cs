@@ -162,6 +162,9 @@ internal static class HostUsage
           --d3d12-nan-scan-dwords <offset>:<n>  also show n floats of every scanned buffer and CBV from that byte offset
           --trace-exposure <n>   every n presents log the values the game reads from the exposure targets it maps
           --trace-views <t>      log what each table record of draws whose pipeline contains t resolves to (CPU only)
+          --capture-dispatch <t>[@n],...  capture the n-th dispatch (1st by default) of a compute pipeline whose name
+                                 contains t, with what it reads and writes, for fivestar shader replay
+          --capture-dispatch-dir <dir>  where the captures go (default: captures)
           --retire-unmapped-textures  release textures over memory the game unmaps (default: only counted)
           --keep-unmapped-textures  keep textures over memory the game unmapped that no view record names (default:
                                  retired after 120 presents unmapped and 60 unnamed, their views nulled)
@@ -221,9 +224,12 @@ internal static class HostUsage
           --d3d12-dump-targets   the draw trace, and in the frame after each captured present every render and depth
                                  target read back when a list leaves it, as PNG in the capture folder
           --dump-frame <n>       the draw trace, and in the frame after present n every target and UAV texture at
-                                 least 480 wide read back after each pass that wrote it (64 at most), as
-                                 NN-pass-WxH-fmtF.png (HDR exposed, normals and depth mapped; stats in the log)
+                                 least 480 wide read back after each pass that wrote it, as NNN-pass-WxH-fmtF.png
+                                 (HDR exposed, plus -auto.png at its mean; normals and depth mapped; stats in the log;
+                                 unchanged targets not written; later frames continue when readback memory runs out)
           --dump-frame-dir <dir> where --dump-frame writes (default frame-<n>)
+          --dump-frame-max <n>   PNGs --dump-frame writes at most (160)
+          --dump-frame-filter <text,...>  only passes whose pipeline name holds one of the texts
           --capture-dir <dir>    write read-back planes and render targets there as PNG
           --capture-presents <n,...> present numbers whose plane is read back (default 60,300,900,1500)
           --pix-capture <n,...>  PIX GPU capture of those presents (WinPixGpuCapturer.dll, winget Microsoft.PIX)
