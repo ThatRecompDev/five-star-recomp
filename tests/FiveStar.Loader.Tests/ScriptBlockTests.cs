@@ -126,13 +126,27 @@ public sealed class ScriptBlockTests
     }
 
     [Fact]
+    public void Screens_taught_on_the_same_picture_are_named()
+    {
+        var script = InputScript.Parse(["screen subtitles", "screen legal", "screen terms 160"]);
+        var screens = new ScreenStore(null);
+
+        // F8 pressed twice on one screen (a focus mark apart), then on another screen: 300 cells away, past terms' 160.
+        screens.Learn("subtitles", ScreenSignature.Of(Frame(checkedBox: false, scrolled: 0), Width, Height));
+        screens.Learn("legal", ScreenSignature.Of(Frame(checkedBox: true, scrolled: 0), Width, Height));
+        screens.Learn("terms", ScreenSignature.Of(Frame(checkedBox: false, scrolled: 300), Width, Height));
+
+        Assert.Equal([new ScreenClash("subtitles", "legal", 2, ScreenStore.DefaultMaxChanged)], screens.Alike(script.Blocks));
+    }
+
+    [Fact]
     public void The_first_run_script_parses_with_its_terms_steps()
     {
         string path = Path.Combine(AppContext.BaseDirectory, "first-run.input");
         var script = InputScript.Load(path);
 
-        Assert.Equal(["", "subtitles", "legal", "legal-next", "terms", "privacy-checked", "terms-focused", "terms-checked", "confirm-focused", "story-load"], script.Screens);
-        Assert.All(script.Blocks.Skip(5).Take(4), block => Assert.True(block.Change && block.Timeout > 0));
+        Assert.Equal(["", "subtitles", "legal", "legal-next", "terms", "story-load"], script.Screens);
+        Assert.All(script.Presses, press => Assert.True(KeyNames.IsPadKey(press.Key)));
     }
 
     private static string? Seen(InputScript script, BlockMatcher matcher, byte[] frame, double seconds)
