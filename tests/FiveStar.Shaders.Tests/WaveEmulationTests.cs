@@ -96,6 +96,9 @@ public sealed class WaveEmulationTests : IClassFixture<WarpFixture>
     [InlineData("v_mov_b32 v3, v2", 4, 4)]
     [InlineData("v_mov_b32 v3, s40", 64, 4)]
     [InlineData("v_readfirstlane_b32 s41, v1\nv_mov_b32 v3, s41", 64, 4)]
+    [InlineData("v_mad_u64_u32 v[4:5], s[10:11], s2, s3, 0\nv_readfirstlane_b32 s41, v4\nv_mov_b32 v3, s41", 4, 4)]
+    [InlineData("v_mad_u64_u32 v[4:5], s[10:11], v1, s3, 0\nv_readfirstlane_b32 s41, v4\nv_mov_b32 v3, s41", 64, 4)]
+    [InlineData("v_lshlrev_b64 v[4:5], 2, s[2:3]\nv_readfirstlane_b32 s41, v5\nv_mov_b32 v3, s41", 4, 4)]
     public void A_mesh_program_states_whether_narrower_waves_give_console_results(string tail, int floor, int fastFloor)
     {
         var code = $"{SkippedRegion}\n{tail}\nexp pos0 v2, v3, v2, v2 done\ns_endpgm";
@@ -111,6 +114,34 @@ public sealed class WaveEmulationTests : IClassFixture<WarpFixture>
         Assert.StartsWith($"// program wave 64; console results on hardware waves >= {fastFloor} lanes\n", fast, StringComparison.Ordinal);
         Assert.Equal(fastFloor != floor, fast.Contains(TranslationOptions.FastWavesComment, StringComparison.Ordinal));
         Assert.Equal(!tail.Contains("s40", StringComparison.Ordinal), fast.Contains("pc = (!vw_any(active))", StringComparison.Ordinal));
+    }
+
+    // A region whose EXEC a narrower hardware wave does not share with the console: the lanes below the window's
+    // first lane's id (the console's: lanes below lane 0, none), and nothing skips it. v5 is the mesh thread id, whose
+    // bits from the group size (128) up are the group's on every lane.
+    private const string WindowRegion = """
+        v_mbcnt_lo_u32_b32 v1, -1, 0
+        v_mbcnt_hi_u32_b32 v1, -1, v1
+        v_mov_b32 v2, 0
+        v_readfirstlane_b32 s41, v1
+        v_cmp_gt_u32_e32 vcc, s41, v1
+        s_and_saveexec_b64 s[22:23], vcc
+        """;
+
+    [WarpTheory]
+    [InlineData("v_readfirstlane_b32 s42, v5\ns_and_b32 s42, s42, 0xffffff80", 4)]
+    [InlineData("v_readfirstlane_b32 s42, v5\ns_and_b32 s42, s42, 0xffffffc0", 64)]
+    [InlineData("v_readfirstlane_b32 s42, v5", 64)]
+    [InlineData("v_readfirstlane_b32 s42, v1", 64)]
+    public void A_first_lane_read_of_bits_equal_on_all_lanes_is_the_consoles_whatever_lanes_the_wave_holds(string inside, int floor)
+    {
+        var code = $"{WindowRegion}\n{inside}\ns_mov_b64 exec, s[22:23]\nv_mov_b32 v3, s42\nexp pos0 v2, v3, v2, v2 done\ns_endpgm";
+        var assembled = _fixture.Workbench.Assemble($"mesh_window_{floor}_{inside.Length}", code, 64);
+        var config = new ShaderConfig { Stage = HardwareStage.Ngg, WaveSize = 64, UserSgprs = 4, Ngg = new NggConfig(8, 0, 0) };
+        var pipeline = new PipelineStateInfo { Stage = "ms", NumThreads = new ThreadGroupSize(128, 1, 1), MaxVertices = 128, MaxPrimitives = 128 };
+        var program = new ShaderProgram(ShaderStage.Mesh, assembled.Instructions, assembled.Code, ShaderSignatures.None, config, pipeline);
+
+        Assert.StartsWith($"// program wave 64; console results on hardware waves >= {floor} lanes\n", ShaderWorkbench.Translate(program), StringComparison.Ordinal);
     }
 
     private static string Program(int wave, bool groupLanes)
