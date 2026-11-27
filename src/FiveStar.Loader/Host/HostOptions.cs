@@ -412,6 +412,9 @@ internal sealed record HostOptions
     /// <summary>Only passes whose pipeline name holds one of these comma-separated texts (<c>--dump-frame-filter</c>).</summary>
     public string? DumpFrameFilter { get; set; }
 
+    /// <summary>Narrower targets are not dumped (<c>--dump-frame-min-width n</c>).</summary>
+    public ulong DumpFrameMinimumWidth { get; set; } = Shims.D3D12X.DebugLayer.FrameStageDump.DefaultMinimumWidth;
+
     /// <summary>Pipelines whose draws the trace also logs after each captured present (<c>--d3d12-trace-pipeline</c>).</summary>
     public string? D3D12TracePipeline { get; set; }
 

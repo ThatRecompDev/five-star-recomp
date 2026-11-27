@@ -534,6 +534,7 @@ internal sealed class LoaderHost
         Shims.D3D12X.DebugLayer.FrameStageDump.Present = _options.DumpFrame;
         Shims.D3D12X.DebugLayer.FrameStageDump.Max = _options.DumpFrameMax;
         Shims.D3D12X.DebugLayer.FrameStageDump.Filter = _options.DumpFrameFilter;
+        Shims.D3D12X.DebugLayer.FrameStageDump.MinimumWidth = _options.DumpFrameMinimumWidth;
         Shims.D3D12X.DebugLayer.FrameStageDump.Directory = _options.DumpFrameDirectory ?? Path.GetFullPath($"frame-{_options.DumpFrame}");
     }
 
