@@ -1148,6 +1148,25 @@ internal sealed class CommandLineParser
         return true;
     }
 
+    /// <summary><c>--dump-frame</c>: a present number, <c>world[+n]</c> or <c>Ns</c> (seconds after the loader started).</summary>
+    private void SetDumpFrame(string text)
+    {
+        if (Shims.D3D12X.DebugLayer.FrameStageDump.TryParseSeconds(text, out long seconds))
+        {
+            _options.DumpFrameSeconds = seconds;
+
+            return;
+        }
+
+        if (!Shims.D3D12X.DebugLayer.FrameStageDump.TryParseWhen(text, out long present, out long worldOffset))
+        {
+            throw new CommandLineException("--dump-frame takes a present number (2100), world or world+n (n presents after the first world frame), or Ns (N seconds after start)");
+        }
+
+        _options.DumpFrame = present;
+        _options.DumpFrameWorldOffset = worldOffset;
+    }
+
     /// <summary><c>--d3d12-dump-targets</c> and <c>--dump-frame n</c> with <c>-dir</c>, <c>-max</c> and <c>-filter</c>.</summary>
     private void SetDumps(string option)
     {
@@ -1158,13 +1177,7 @@ internal sealed class CommandLineParser
 
         if (option == "--dump-frame")
         {
-            if (!Shims.D3D12X.DebugLayer.FrameStageDump.TryParseWhen(Next(), out long present, out long worldOffset))
-            {
-                throw new CommandLineException("--dump-frame takes a present number (2100), world or world+n (n presents after the first world frame)");
-            }
-
-            _options.DumpFrame = present;
-            _options.DumpFrameWorldOffset = worldOffset;
+            SetDumpFrame(Next());
         }
 
         if (option == "--dump-frame-dir")

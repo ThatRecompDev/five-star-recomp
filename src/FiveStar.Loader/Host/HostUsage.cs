@@ -230,8 +230,8 @@ internal static class HostUsage
                                  pixel and compute programs per wave, with the first float site whose value is NaN or Inf
           --d3d12-dump-targets   the draw trace, and in the frame after each captured present every render and depth
                                  target read back when a list leaves it, as PNG in the capture folder
-          --dump-frame <n|world[+n]>  the draw trace, and in the frame after present n (world+n: n presents after the
-                                 first world frame, 300 for world) every target and UAV texture at
+          --dump-frame <n|world[+n]|Ns>  the draw trace, and in the frame after present n (world+n: n presents after the
+                                 first world frame, 300 for world; Ns: N seconds after start) every target and UAV texture at
                                  least 480 wide read back after each pass that wrote it, as NNN-pass-WxH-fmtF.png
                                  (HDR exposed, plus -auto.png at its mean; normals and depth mapped; stats in the log;
                                  unchanged targets not written; later frames continue when readback memory runs out)
