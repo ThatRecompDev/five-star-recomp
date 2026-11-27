@@ -56,6 +56,45 @@ internal static unsafe class DepthTwinCopy
         }
         """;
 
+    /// <summary>
+    /// After the 16-bit copy, the low steps are written again by the rasterizer: one full-screen triangle per step k at
+    /// z = k * asfloat(0x37800080), as the tiled lighting's vertex program places class k, whose pixel program keeps the
+    /// pixels whose twin holds k. The depth unit then compares the lighting's z against a z it rasterized the same way:
+    /// against the SV_Depth copy of the same float, the class-0 draw failed EQUAL (boots w210, w211: its z tests as
+    /// above 0.0 and below step 4 although its program outputs 0.0).
+    /// </summary>
+    private const string RasterUnormSource = """
+        RWTexture2D<float> twin : register(u0);
+        struct Step { float4 position : SV_Position; nointerpolation uint step : STEP; };
+        Step vs(uint id : SV_VertexID, uint instance : SV_InstanceID) {
+            float2 corner = float2((id << 1) & 2, id & 2);
+            Step o;
+            o.position = float4(corner * float2(2, -2) + float2(-1, 1), float(instance) * asfloat(0x37800080), 1);
+            o.step = instance;
+            return o;
+        }
+        [RootSignature("DescriptorTable(UAV(u0), visibility=SHADER_VISIBILITY_PIXEL)")]
+        void ps(Step input) {
+            if ((uint)round(twin[uint2(input.position.xy)] * 65535.0) != input.step) discard;
+        }
+        """;
+
+    private const string RasterUintSource = """
+        RWTexture2D<uint> twin : register(u0);
+        struct Step { float4 position : SV_Position; nointerpolation uint step : STEP; };
+        Step vs(uint id : SV_VertexID, uint instance : SV_InstanceID) {
+            float2 corner = float2((id << 1) & 2, id & 2);
+            Step o;
+            o.position = float4(corner * float2(2, -2) + float2(-1, 1), float(instance) * asfloat(0x37800080), 1);
+            o.step = instance;
+            return o;
+        }
+        [RootSignature("DescriptorTable(UAV(u0), visibility=SHADER_VISIBILITY_PIXEL)")]
+        void ps(Step input) {
+            if (twin[uint2(input.position.xy)] != input.step) discard;
+        }
+        """;
+
     private const string StencilSource = """
         RWTexture2D<uint> twin : register(u0);
         cbuffer Plane : register(b0) { uint bit; };
@@ -102,6 +141,10 @@ internal static unsafe class DepthTwinCopy
     private const int StencilBits = 8;
     private const int DepthPlane = -1;
 
+    /// <summary>The pipeline key of the rasterized steps (<see cref="RasterUnormSource"/>), and the steps drawn: three words of 30 classes and some.</summary>
+    private const int RasterPlane = -2;
+    private const uint RasterSteps = 96;
+
     /// <summary>ID3D12Device: CreateDescriptorHeap, GetDescriptorHandleIncrementSize, CreateDepthStencilView (d3d12.h).</summary>
     private const int CreateDescriptorHeapSlot = 14;
     private const int IncrementSlot = 15;
@@ -122,6 +165,8 @@ internal static unsafe class DepthTwinCopy
     private static readonly CopyPrograms UnormSteps = new(UnormStepsSource, "unorm_steps_twin_copy");
     private static readonly CopyPrograms UintSteps = new(UintStepsSource, "uint_steps_twin_copy");
     private static readonly CopyPrograms Stencil = new(StencilSource, "stencil_twin_copy");
+    private static readonly CopyPrograms RasterUnorm = new(RasterUnormSource, "raster_unorm_steps_twin_copy");
+    private static readonly CopyPrograms RasterUint = new(RasterUintSource, "raster_uint_steps_twin_copy");
 
     /// <summary>
     /// Records the copy of <paramref name="twin"/> into its plane of the depth through a writable depth-stencil view in
@@ -147,6 +192,7 @@ internal static unsafe class DepthTwinCopy
         Begin(list, twin, view, state, table, ProgramsFor(twin.Format, DepthPlane).Root);
         ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetPipelineSlot))(list, pipeline);
         Draw(list);
+        RasterizeSteps(device, list, twin, format, table);
         Move(list, twin.Depth, DepthWrite, state);
 
         return true;
@@ -165,6 +211,8 @@ internal static unsafe class DepthTwinCopy
             _used = 0;
 
             Depth.Reset();
+            RasterUnorm.Reset();
+            RasterUint.Reset();
             UnormSteps.Reset();
             UintSteps.Reset();
             Stencil.Reset();
@@ -206,6 +254,27 @@ internal static unsafe class DepthTwinCopy
         Move(list, twin.Depth, DepthWrite, state);
 
         return true;
+    }
+
+    /// <summary>A 16-bit twin's low steps written again through the rasterizer (<see cref="RasterUnormSource"/>); nothing for other twins.</summary>
+    private static void RasterizeSteps(nint device, nint list, DepthTwin twin, int format, ulong table)
+    {
+        if (twin.Format is not (DepthTwins.Unorm16 or DepthTwins.Uint16))
+        {
+            return;
+        }
+
+        nint pipeline = Pipeline(device, format, twin.Format, RasterPlane);
+
+        if (pipeline == 0)
+        {
+            return;
+        }
+
+        ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetGraphicsRootSignatureSlot))(list, ProgramsFor(twin.Format, RasterPlane).Root);
+        ((delegate* unmanaged<nint, uint, ulong, void>)ComObject.Slot(list, SetGraphicsTableSlot))(list, TableParameter, table);
+        ((delegate* unmanaged<nint, nint, void>)ComObject.Slot(list, SetPipelineSlot))(list, pipeline);
+        ((delegate* unmanaged<nint, uint, uint, uint, uint, void>)ComObject.Slot(list, DrawInstancedSlot))(list, FullScreenVertices, RasterSteps, 0, 0);
     }
 
     /// <summary>The twin's writes made visible, the depth in DEPTH_WRITE, and the copy's root, table, target, viewport and topology.</summary>
@@ -304,6 +373,16 @@ internal static unsafe class DepthTwinCopy
     /// <summary>The copy's programs for a twin in <paramref name="twinFormat"/>: floats, 16-bit steps (unorm or uint), or stencil bits.</summary>
     private static CopyPrograms ProgramsFor(int twinFormat, int bit)
     {
+        if (bit == RasterPlane && twinFormat == DepthTwins.Uint16)
+        {
+            return RasterUint;
+        }
+
+        if (bit == RasterPlane)
+        {
+            return RasterUnorm;
+        }
+
         if (bit != DepthPlane)
         {
             return Stencil;
@@ -319,7 +398,9 @@ internal static unsafe class DepthTwinCopy
 
     private static nint Make(nint device, int format, CopyPrograms programs, int bit)
     {
-        if (!Depth.Ready(device, withVertex: true) || !programs.Ready(device, withVertex: false))
+        bool raster = programs == RasterUnorm || programs == RasterUint;
+
+        if (!Depth.Ready(device, withVertex: true) || !programs.Ready(device, withVertex: raster))
         {
             return 0;
         }
@@ -346,7 +427,7 @@ internal static unsafe class DepthTwinCopy
     {
         using var stream = new DesktopStream();
         stream.AddPointer(PipelineStateSubObjectType.RootSignature, programs.Root);
-        stream.AddShader(PipelineStateSubObjectType.VertexShader, Depth.Vertex!);
+        stream.AddShader(PipelineStateSubObjectType.VertexShader, programs.Vertex ?? Depth.Vertex!);
         stream.AddShader(PipelineStateSubObjectType.PixelShader, programs.Pixel!);
 
         stream.AddBytes(PipelineStateSubObjectType.Blend, StatePadding.Blend(DesktopStateBytes.DefaultBlend()));
@@ -393,7 +474,7 @@ internal static unsafe class DepthTwinCopy
         var depth = DesktopStateBytes.DefaultDepthStencil();
         BitConverter.TryWriteBytes(depth.AsSpan(DesktopStateBytes.DepthFuncField), DesktopStateBytes.ComparisonAlways);
 
-        if (bit == DepthPlane)
+        if (bit is DepthPlane or RasterPlane)
         {
             return depth;
         }
