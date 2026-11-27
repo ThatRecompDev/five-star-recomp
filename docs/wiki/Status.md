@@ -11,17 +11,15 @@ GTA VI does not run yet. Updated 27 November 2026.
   - Surface colour: right for most surfaces since textures the game still uses are no longer retired by their
     neighbours. Characters and clothing draw when the skinned passes are not skipped. Open: hair, vehicle bodies,
     some odd colours.
-  - Lighting: writes almost nothing, so the final frame is dark or blown out. The tiled lighting pass draws every
-    tile, but its depth-equal test rejects almost all pixels (with the test forced to "always" the whole frame is
-    shaded). Why the test fails is open.
-  - Exposure: follows the black lighting to its floor.
-- **Device loss:** about 10 minutes in, at the same point of the game. Not a plain GPU timeout as written here
-  before: the queues still finish work 0.3 s before the loss, the removal reason is DEVICE_REMOVED, Windows records
-  no timeout for most losses, and turning the queue timeout off (`--no-gpu-timeout`) changes nothing. Traced in two
-  boots: the NVIDIA user-mode driver fails inside `ExecuteCommandLists` of a game submission and gives the device up
-  itself; no kernel call fails first and no GPU fault is reported. Measured in three more boots: an internal shader
-  table of the driver grows by about 1 MiB a second and the device goes when it passes its 512 MiB maximum. What we
-  do that fills it is being traced.
+  - Lighting: the tiled lighting pass shades its pixels on a branch (its depth-equal test cannot work on the GPU
+    after our depth copy; a depth-bounds rule replaces it), not on main yet. The final frame is still wrong: the
+    lit half is banded with black holes, the upper half black, all blurred.
+  - Exposure: not re-checked since lighting shades.
+- **Device loss (NVIDIA):** fixed in one 14-minute boot. The driver gave the device up inside `ExecuteCommandLists`
+  when an internal shader table passed its 512 MiB maximum (no timeout, no GPU fault). A third of the table was the
+  driver's background recompiles; the loader now turns those off (`--driver-background-work` turns them on), and
+  the table stays at about 350 MiB. Open: the mode may need Windows developer mode; new areas add shaders; an
+  RTX 5090 report (#64) loses the device earlier in another way.
 - **Speed:** a world frame takes about 200-400 ms. Targets: 30 fps, then 60.
 - **AMD:** world geometry draws since #55.
 
@@ -30,7 +28,8 @@ GTA VI does not run yet. Updated 27 November 2026.
 | Problem | Next step |
 |---|---|
 | Lighting pass shades almost no pixels | find why its depth-equal test fails; then directional light and ambient inputs |
-| Device removed about 10 minutes in | find what fills the driver's shader table (512 MiB maximum) |
+| Final frame banded, holed, half black, blurred | dump the lit frame stage by stage; fix in order |
+| Driver shader table has about 160 MiB of headroom | smaller translated shaders |
 | Hair and vehicle bodies missing from surface colour | bring back the remaining skipped skinned passes one by one |
 | GPU writes to game memory in system RAM are slow | wide stores (next batch); video-memory copies |
 | Ray tracing | not built; those passes are held and stand-ins fill some outputs |
