@@ -134,7 +134,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs" or "--gpu-timings":
                 return SetBreadcrumbs(option);
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-describe-views" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--log-draws" or "--capture-when-world" or "--d3d12-dump-targets" or "--dump-frame" or "--dump-frame-dir" or "--dump-frame-max" or "--dump-frame-filter" or "--dump-frame-min-width" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes" or "--watch-address":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-describe-views" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--log-draws" or "--capture-when-world" or "--d3d12-dump-targets" or "--dump-frame" or "--dump-frame-dir" or "--dump-frame-max" or "--dump-frame-filter" or "--dump-frame-min-width" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes" or "--watch-address" or "--log-skips":
                 return SetTraceDraws(option);
             case "--capture-dir" or "--capture-presents" or "--pix-capture" or "--pix-capture-dir":
                 return SetCapture(option);
@@ -1213,11 +1213,9 @@ internal sealed class CommandLineParser
             return true;
         }
 
-        if (option == "--watch-address")
+        if (option is "--watch-address" or "--log-skips")
         {
-            _options.WatchAddress = Next();
-
-            return true;
+            return SetAddressWatch(option);
         }
 
         if (option is "--hold-passes" or "--stub-passes")
@@ -1388,6 +1386,21 @@ internal sealed class CommandLineParser
         {
             _options.CapturePresents.Add(long.Parse(present, CultureInfo.InvariantCulture));
         }
+
+        return true;
+    }
+
+    /// <summary><c>--watch-address</c> and <c>--log-skips</c>: what reaches a console range, which stand-ins skip work.</summary>
+    private bool SetAddressWatch(string option)
+    {
+        if (option == "--log-skips")
+        {
+            _options.LogSkips = Next();
+
+            return true;
+        }
+
+        _options.WatchAddress = Next();
 
         return true;
     }

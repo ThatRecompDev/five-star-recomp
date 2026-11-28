@@ -243,8 +243,10 @@ internal static class HostUsage
                                  offset@sgprN+byte: at that byte past user SGPR N, e.g. 0xac0@sgpr14+0xc; a trailing
                                  >sgprM follows the dword as a record number in the table SGPR M points to and shows
                                  the view there, read back with --d3d12-probe-traced, e.g. 0xac0@sgpr14+0xc>sgpr15)
-          --watch-address <hex>[:bytes] | texture:WxH:format  log what reaches this console range (or that of the
-                                 first texture made in that shape): DirectStorage writes and pages mapped
+          --log-skips <name,...>  log each first use while unbuilt and each skipped draw or dispatch (the first 20,
+                                 then every 500th) of the stand-ins whose name holds one of these, with the present
+          --watch-address <hex>[:bytes] | texture:WxH:format  log what reaches this console range (or those of the
+                                 textures made in that shape, up to 8): DirectStorage writes and pages mapped
                                  (and whether the texture there takes them), GPU copies into it with what they
                                  read (a buffer's footprint and bytes, a texture and its state), and every 300
                                  presents its bytes as BC1 magenta, zero and other blocks
