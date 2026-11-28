@@ -71,11 +71,11 @@ internal sealed unsafe class SpareAllocators
 
     /// <summary>
     /// A new desktop list of <paramref name="list"/>'s type, recording on a new spare of desktop
-    /// <paramref name="allocator"/>, for a list whose Close failed: the desktop refuses every later Reset of such a list
-    /// with E_INVALIDARG, on any allocator. The old list is kept, not released, as the GPU may still run it. 0 when the
-    /// desktop refuses.
+    /// <paramref name="allocator"/>, for a list whose Close failed (the desktop refuses every later Reset of such a list
+    /// with E_INVALIDARG, on any allocator) or that cannot record on (<paramref name="reason"/>, for the log). The old
+    /// list is kept, not released, as the GPU may still run it. 0 when the desktop refuses.
     /// </summary>
-    public nint Replace(nint list, nint allocator, nint pipeline)
+    public nint Replace(nint list, nint allocator, nint pipeline, string reason)
     {
         lock (_gate)
         {
@@ -103,7 +103,7 @@ internal sealed unsafe class SpareAllocators
             ComObject.Release(device);
 
             Replaced++;
-            ShimContext.Runtime.D3D12X.Warnings.Warn("list-replaced", $"[d3d12_xs] command list of type {type} refused every Reset after a failed Close: replaced by a new list ({HResult.Format(hr)})");
+            ShimContext.Runtime.D3D12X.Warnings.Warn($"list-replaced-{reason}", $"[d3d12_xs] command list of type {type} replaced by a new list, as {reason} ({HResult.Format(hr)})");
 
             if (HResult.Failed(hr))
             {

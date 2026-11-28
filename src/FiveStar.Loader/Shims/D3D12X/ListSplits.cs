@@ -82,31 +82,53 @@ internal static unsafe class ListSplits
         int closed = ((delegate* unmanaged<nint, int>)ComObject.Slot(inner, CloseSlot))(inner);
         nint pipeline = Pipeline(self);
 
-        if (HResult.Failed(Reset(next, segments->Allocator, pipeline)))
+        next = RecordOn(inner, next, segments->Allocator, pipeline);
+
+        if (next == 0)
         {
-            // Nothing to record on: the closed list goes on as the only one, and the wait is not kept.
-            ShimContext.Runtime.D3D12X.Warnings.Warn("split-reset", "[memory wait] a list split at a wait could not record on: its later commands are lost");
+            // Nothing to record on (no list or allocator can be made): the closed list is left out at submission with
+            // everything recorded since the last split, as after a failed Close.
+            ShimContext.Runtime.D3D12X.Warnings.Warn("split-reset", "[memory wait] a list split at a wait could not record on: its commands since the last split are lost");
+            LostListWrites.CloseFailed(self, last: true);
 
             return false;
         }
 
-        if (!HResult.Failed(closed))
-        {
-            segments->Closed[segments->Count++] = inner;
-        }
-        else
-        {
-            // The segment never runs: its bottom-of-pipe writes land from the CPU at the list's submission.
-            States.ResourceBarrierSlots.WarnCloseFailed(closed);
-            LostListWrites.CloseFailed(self, last: false);
-        }
-
+        Keep(self, segments, inner, closed);
         self->Inner = next;
         Restore(self, next, type);
         IndirectGather.SegmentStarted(self);
         Interlocked.Increment(ref _splits);
 
         return true;
+    }
+
+    /// <summary>The closed <paramref name="inner"/> as a segment; one whose Close failed never runs, and its bottom-of-pipe writes land from the CPU.</summary>
+    private static void Keep(XboxObject* self, ListSegments* segments, nint inner, int closed)
+    {
+        if (!HResult.Failed(closed))
+        {
+            segments->Closed[segments->Count++] = inner;
+
+            return;
+        }
+
+        States.ResourceBarrierSlots.WarnCloseFailed(closed);
+        LostListWrites.CloseFailed(self, last: false);
+    }
+
+    /// <summary>
+    /// <paramref name="next"/> reset to record the rest after <paramref name="inner"/> closed; when it cannot be, a new
+    /// list on a spare of the allocator (the closed list takes no more commands); 0 when none can be made.
+    /// </summary>
+    private static nint RecordOn(nint inner, nint next, nint allocator, nint pipeline)
+    {
+        if (!HResult.Failed(Reset(next, allocator, pipeline)))
+        {
+            return next;
+        }
+
+        return ShimContext.Runtime.D3D12X.SpareAllocators.Replace(inner, allocator, pipeline, "a split at a wait could not record on");
     }
 
     private static nint TakeSpare(ListSegments* segments)

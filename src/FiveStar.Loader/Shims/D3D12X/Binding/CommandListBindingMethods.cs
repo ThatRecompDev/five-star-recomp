@@ -1004,6 +1004,8 @@ internal static unsafe class CommandListBindingMethods
     [HotPath]
     private static int ResetList(XboxObject* self, nint allocator, nint pipelineState)
     {
+        // A desktop list whose Close failed is not touched again: the desktop refuses its Reset on any allocator.
+        bool dead = ListMemoryWaits.Of(self)->LastCloseFailed != 0;
         *CommandListBindings.Of(self) = default;
         ListMemoryWaits.Of(self)->Reset();
 
@@ -1036,19 +1038,34 @@ internal static unsafe class CommandListBindingMethods
 
         ShimContext.Runtime.D3D12X.Rectangles.Reset(self, pipeline);
         ListActivity.Of(self)->Launches = MeshLaunch.Enabled && MeshLaunch.Has(pipeline) ? 1 : 0;
-        nint desktop = objects.Unwrap(allocator);
-        int hr = reset(inner, desktop, pipeline);
-
-        // The allocator backs another recording list, which the console allows: record on a spare (SpareAllocators).
-        if (hr == HResult.InvalidArgument && desktop != 0)
-        {
-            hr = ResetOnSpare(self, desktop, pipeline, reset);
-        }
+        int hr = ResetDesktop(self, objects.Unwrap(allocator), pipeline, reset, dead);
 
         // A new recording: its submission need not wait on the CPU for the last run (ListSubmissions).
         if (!HResult.Failed(hr))
         {
             ListSubmission.Of((nint)self)->ResetSince = 1;
+        }
+
+        return hr;
+    }
+
+    /// <summary>
+    /// The desktop Reset on the game's allocator <paramref name="desktop"/>, or on a spare of it when that backs another
+    /// recording list, which the console allows (SpareAllocators); a <paramref name="dead"/> list (its Close failed) gets
+    /// a new desktop list at once.
+    /// </summary>
+    private static int ResetDesktop(XboxObject* self, nint desktop, nint pipeline, delegate* unmanaged<nint, nint, nint, int> reset, bool dead)
+    {
+        if (dead && desktop != 0)
+        {
+            return Replace(self, desktop, pipeline);
+        }
+
+        int hr = reset(self->Inner, desktop, pipeline);
+
+        if (hr == HResult.InvalidArgument && desktop != 0)
+        {
+            hr = ResetOnSpare(self, desktop, pipeline, reset);
         }
 
         return hr;
@@ -1064,16 +1081,25 @@ internal static unsafe class CommandListBindingMethods
         // Refused on a fresh allocator too: the list's last Close failed, and the desktop list is dead.
         if (hr == HResult.InvalidArgument)
         {
-            nint replacement = spares.Replace(inner, desktop, pipeline);
-
-            if (replacement != 0)
-            {
-                self->Inner = replacement;
-                hr = HResult.Ok;
-            }
+            hr = Replace(self, desktop, pipeline);
         }
 
         return hr;
+    }
+
+    /// <summary>A new desktop list behind the wrapper, recording on a spare of <paramref name="desktop"/>; E_INVALIDARG when none can be made.</summary>
+    private static int Replace(XboxObject* self, nint desktop, nint pipeline)
+    {
+        nint replacement = ShimContext.Runtime.D3D12X.SpareAllocators.Replace(self->Inner, desktop, pipeline, "it failed Close");
+
+        if (replacement == 0)
+        {
+            return HResult.InvalidArgument;
+        }
+
+        self->Inner = replacement;
+
+        return HResult.Ok;
     }
 
     [HotPath]
