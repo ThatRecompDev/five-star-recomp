@@ -13,9 +13,9 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// stream the game's creation would make, is skipped when the cache has it (so a new run resumes) or when an earlier
 /// run saw the driver refuse it, and is otherwise built with no time limit on up to <c>jobs</c> threads. With
 /// <see cref="LoadsCached"/> a cached one is loaded instead of skipped: the driver keeps the machine code of what it
-/// compiled in a shader cache of its own per executable, and recompiles a cached pipeline on load for an executable it
-/// has not seen (the first loads of a run ran at 7 to 14 a second per process, the same pipelines loaded again by the
-/// same executable at 190 a second).
+/// compiled in a shader cache of its own (shared by every executable, keyed on the shaders as far as measured) and
+/// compiles a cached pipeline again on load when that cache lacks it (the first loads of a run ran at 7 to 14 a second
+/// per process, the same pipelines loaded again at 190 a second).
 /// </summary>
 internal sealed unsafe class PipelineWarmup
 {
@@ -200,8 +200,8 @@ internal sealed unsafe class PipelineWarmup
     }
 
     /// <summary>
-    /// Loads a pipeline from the cache and lets it go: the driver compiles its machine code into the shader cache of this
-    /// executable, which boots of the same build then read (<see cref="LoadsCached"/>).
+    /// Loads a pipeline from the cache and lets it go: the driver compiles its machine code into its own shader cache,
+    /// which the next boots then read (<see cref="LoadsCached"/>).
     /// </summary>
     private void Load(PipelineRecipe recipe)
     {

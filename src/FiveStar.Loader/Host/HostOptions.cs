@@ -97,7 +97,7 @@ internal sealed record HostOptions
 
     /// <summary>
     /// The warm-up loads each pipeline the disk cache already holds instead of skipping it, so the driver's own shader
-    /// cache of this executable holds its machine code (<c>--warm-load-cached</c>).
+    /// cache holds its machine code (<c>--warm-load-cached</c>).
     /// </summary>
     public bool WarmLoadCached { get; set; }
 

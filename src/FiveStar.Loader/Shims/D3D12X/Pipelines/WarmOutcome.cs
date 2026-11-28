@@ -21,6 +21,6 @@ internal enum WarmOutcome
     /// <summary>A heavy pipeline left out for lack of memory; the next run tries again.</summary>
     Deferred,
 
-    /// <summary>The cache had it and it was loaded (<c>--warm-load-cached</c>): the driver compiled it into this executable's shader cache.</summary>
+    /// <summary>The cache had it and it was loaded (<c>--warm-load-cached</c>): the driver compiled it into its own shader cache.</summary>
     Loaded,
 }
