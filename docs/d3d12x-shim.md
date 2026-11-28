@@ -872,7 +872,11 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   each target in that frame, up to `--d3d12-watch-limit` (16) readbacks, labelled `watch draw N <pipeline>`. The first writer after which a channel jumps or turns NaN names the pass that breaks it.
   Each target is also read back once where the frame first binds it (set as a render target, cleared, or before a traced
   dispatch or ExecuteIndirect), before any writer and outside the limit (`first bind (...) of watched target`), and its
-  ClearRenderTargetViews (slot 52) are logged with their colour: a NaN there came over from earlier frames.
+  ClearRenderTargetViews (slot 52) are logged with their colour: a NaN there came over from earlier frames. When the
+  first bind is a clear, that readback is taken before the clear runs (`read before its clear`: what the clear replaces),
+  and the frame's first clear is read back once more after it (`first clear of watched target ..., as the clear left it`).
+  A float readback reads R16 channels as halves; "at least 65504 in size" counts 65504 and infinity of either sign, NaN
+  apart; "not converted" only means no RGBA8 summary or PNG for that format.
   `--d3d12-watch-rendered` keeps only the targets the game binds as render targets (the lit HDR, not the
   LightMixOutputCS outputs of its shape), so the readbacks reach the later passes. Each captured frame first releases
   the reported readback buffers of lists reset since (the startup capture's window readbacks held 487 MB into w94b's

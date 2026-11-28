@@ -65,6 +65,34 @@ public sealed unsafe class NanScanTests
     }
 
     /// <summary>
+    /// A buffer record's dword 3 names its data: a typed view of a uint format is not scanned (#64's 640 KiB TAA2 input
+    /// of 0xffffffff counted 163840 NaN), a typed half view is read as halves, raw and structured ones as float32.
+    /// </summary>
+    [Fact]
+    public void A_buffer_view_is_scanned_in_its_own_format_and_an_integer_view_not_at_all()
+    {
+        const uint Xyzw = 0xFAC;
+        const uint ResourceLevel = 1u << 24;
+        const uint IndexBounds = 1u << 28;
+        const uint RawBounds = 3u << 28;
+        const uint U32Uint = 20;
+        const uint U16x2Float = 29;
+
+        Assert.Equal((BufferViewFormats.Form.NotFloat, U32Uint, 0), BufferViewFormats.Of(Xyzw | (U32Uint << 12) | ResourceLevel | IndexBounds));
+        Assert.Equal((BufferViewFormats.Form.Float, U16x2Float, 34), BufferViewFormats.Of(Xyzw | (U16x2Float << 12) | ResourceLevel | IndexBounds));
+        Assert.Equal(BufferViewFormats.Form.Raw, BufferViewFormats.Of(Xyzw | (U32Uint << 12) | ResourceLevel | RawBounds).Form);
+        Assert.Equal(BufferViewFormats.Form.Structured, BufferViewFormats.Of(Xyzw | (U32Uint << 12) | ResourceLevel).Form);
+
+        // Two halves, the second -inf (0xfc00): one non-finite element as R16G16_FLOAT; the same dword is finite as float32.
+        var bytes = new byte[8];
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(4), 0x3c00);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(6), 0xfc00);
+
+        Assert.Equal(1, NanScan.ScanBytes(bytes, 34).Count);
+        Assert.Equal(0, NanScan.ScanBytes(bytes, 41).Count);
+    }
+
+    /// <summary>
     /// --d3d12-nan-scan-dwords shows the rows a program reads of every buffer input, finite or not: PS_VelocityFill's
     /// previous view-projection (+0x1a0) with w's row all zero overflows the velocity target to Inf.
     /// </summary>

@@ -59,6 +59,7 @@ internal static unsafe class ListStateSlots
             nint inner = self->Inner;
             ShimContext.Runtime.D3D12X.RenderTargets.Ensure(self, inner, 1, &view, false);
             ((delegate* unmanaged<nint, nint, float*, uint, int*, void>)ComObject.Slot(inner, DesktopClearRenderTarget))(inner, view, colour, rects, boxes);
+            ShimContext.Runtime.D3D12X.DrawTrace?.Cleared(self, view);
 
             if (DebugLayer.TargetClears.Any)
             {

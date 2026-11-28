@@ -85,6 +85,7 @@ internal sealed unsafe class DrawTrace
     private readonly ConcurrentDictionary<nint, int> _watched = new();
     private readonly ConcurrentDictionary<(nint Target, nint Pipeline), byte> _watchedWriters = new();
     private readonly ConcurrentDictionary<nint, byte> _firstBinds = new();
+    private readonly ConcurrentDictionary<nint, byte> _firstClears = new();
     private readonly ConcurrentDictionary<nint, byte> _rendered = new();
     private int _watchReads;
     private long _presentWork;
@@ -471,7 +472,8 @@ internal sealed unsafe class DrawTrace
 
     /// <summary>
     /// List slot 52 (ClearRenderTargetView), before it runs: in a watched frame a clear of a watched target is logged with
-    /// its colour and rectangle count, after the target's first-bind readback (taken here when the clear comes first).
+    /// its colour and rectangle count, after the target's first-bind readback (taken here when the clear comes first, so
+    /// it shows what the clear is about to replace: the frame before's contents).
     /// </summary>
     public void ClearTarget(XboxObject* list, nint view, float* colour, uint rects)
     {
@@ -481,10 +483,27 @@ internal sealed unsafe class DrawTrace
         }
 
         var state = List(list);
-        FirstBind(list, state, [(target.Resource, target.Home)], "cleared");
+        FirstBind(list, state, [(target.Resource, target.Home)], "read before its clear");
         string rgba = colour == null ? "none" : $"({string.Join(", ", new ReadOnlySpan<float>(colour, ClearColourChannels).ToArray().Select(channel => channel.ToString("G6", System.Globalization.CultureInfo.InvariantCulture)))})";
         string area = rects == 0 ? "whole target" : $"{rects} rects";
         _log.Info($"  [draws] clear of watched target 0x{target.Resource:x} on list 0x{(nint)list:x} (draw {Interlocked.Read(ref _draws)}): colour {rgba}, {area}");
+    }
+
+    /// <summary>
+    /// After list slot 52 ran: the frame's first clear of a watched target is read back once more, as the clear left it
+    /// (outside <see cref="WatchLimit"/>), so a clear the desktop converts wrongly shows apart from what a writer does.
+    /// </summary>
+    public void Cleared(XboxObject* list, nint view)
+    {
+        if (WatchShape is null || !Volatile.Read(ref _filterOpen) || !_targetViews.TryGetValue(view, out var target) || !_watched.ContainsKey(target.Resource) || !_firstClears.TryAdd(target.Resource, 0))
+        {
+            return;
+        }
+
+        var state = List(list);
+        int current = _d3d12.ListStates.Find(list)?.Current(target.Resource, target.Home) ?? target.Home;
+        string label = $"first clear of watched target 0x{target.Resource:x} on list 0x{(nint)list:x}, as the clear left it";
+        _probes.Record(_d3d12.Objects.DesktopDevice, list->Inner, target.Resource, current, label, (nint)list, state.Resets);
     }
 
     /// <summary>A clear colour's channels (RGBA).</summary>
@@ -1309,6 +1328,8 @@ internal sealed unsafe class DrawTrace
             Volatile.Write(ref _watchReads, 0);
             _watchedWriters.Clear();
             _firstBinds.Clear();
+            _firstClears.Clear();
+
             _probes.Release(Resets);
             Volatile.Write(ref _windowEnd, Interlocked.Read(ref _draws) + WindowDraws);
             _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"), standIn => _d3d12.Pipelines?.StandIns.State(standIn) ?? "unknown");

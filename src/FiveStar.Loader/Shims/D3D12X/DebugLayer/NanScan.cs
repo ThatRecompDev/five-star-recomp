@@ -41,6 +41,10 @@ internal static unsafe class NanScan
     private const long LiveBytesCap = DrawProbes.LiveBytesCap;
 
     private const int RecordsDword = 2;
+    private const int FormatDword = 3;
+
+    /// <summary>DXGI_FORMAT_R32_FLOAT: a raw or structured range, and a CBV, read dword by dword as float32.</summary>
+    private const int Float32 = 41;
     private const int StrideDword = 1;
     private const int StrideShift = 16;
     private const uint StrideMask = 0x3FFF;
@@ -194,7 +198,7 @@ internal static unsafe class NanScan
             else if (kind == RootParameterKind.ConstantBuffer)
             {
                 ulong address = data[sgpr] | ((ulong)data[sgpr + 1] << HighShift);
-                scan.Memory.Add(new MemoryInput($"root CBV {parameter}", address, RootConstantBytes));
+                scan.Memory.Add(new MemoryInput($"root CBV {parameter}", address, RootConstantBytes, Float32));
             }
         }
     }
@@ -217,7 +221,7 @@ internal static unsafe class NanScan
             if (high != 0 && views.RecordDword(index + i, RecordsDword) != 0)
             {
                 ulong address = views.RecordDword(index + i, 0) | ((ulong)high << HighShift);
-                scan.Memory.Add(new MemoryInput(label, address, RangeBytes(views, index + i)));
+                AddBuffer(scan, label, address, RangeBytes(views, index + i), views.RecordDword(index + i, FormatDword));
 
                 continue;
             }
@@ -233,6 +237,56 @@ internal static unsafe class NanScan
                 NoteView(scan, label, view.Value.View, view.Value.Live);
             }
         }
+    }
+
+    /// <summary>
+    /// A buffer record's range, read in its view's float format; a typed view of an integer or normalized format is noted
+    /// and not read (its integers would count as NaN), a raw or structured one is read as float32 and says so.
+    /// </summary>
+    private static void AddBuffer(Scan scan, string label, ulong address, int bytes, uint dword3)
+    {
+        var (form, unified, format) = BufferViewFormats.Of(dword3);
+
+        switch (form)
+        {
+            case BufferViewFormats.Form.NotFloat:
+                scan.Notes.Add(string.Create(CultureInfo.InvariantCulture, $"{label}: memory 0x{address:x}, typed view of buffer format {unified}, not a float format: not scanned"));
+
+                return;
+            case BufferViewFormats.Form.Raw:
+                label += " (raw view, its dwords read as float32)";
+                break;
+            case BufferViewFormats.Form.Structured:
+                label += " (structured view, its dwords read as float32)";
+                break;
+        }
+
+        scan.Memory.Add(new MemoryInput(label, address, bytes, format));
+    }
+
+    /// <summary>The non-finite values of a memory input's bytes in its format: float32 dwords, or the elements of a typed float view.</summary>
+    public static FloatScanResult ScanBytes(ReadOnlySpan<byte> bytes, int format)
+    {
+        if (format == Float32)
+        {
+            return FloatScan.Dwords(bytes);
+        }
+
+        var (channels, size) = FloatScan.Layout(format);
+        int element = size == 0 ? sizeof(uint) : channels * size;
+
+        return FloatScan.Texture(bytes, bytes.Length, bytes.Length / element, 1, format) ?? default;
+    }
+
+    /// <summary>"float32" or the DXGI format a memory input is read in.</summary>
+    private static string Shape(int format)
+    {
+        if (format == Float32)
+        {
+            return "float32";
+        }
+
+        return string.Create(CultureInfo.InvariantCulture, $"DXGI format {format}");
     }
 
     /// <summary>A null view (the game's, or one a texture release nulled) or a view of a released texture.</summary>
@@ -405,7 +459,7 @@ internal static unsafe class NanScan
         foreach (var input in scan.Memory)
         {
             var bytes = ReadMemory(input);
-            var result = FloatScan.Dwords(bytes);
+            var result = ScanBytes(bytes, input.Format);
             string values = Values(bytes);
 
             if (result.Count == 0)
@@ -420,7 +474,7 @@ internal static unsafe class NanScan
                 continue;
             }
 
-            findings.Append(CultureInfo.InvariantCulture, $"\n      {input.Label}: memory 0x{input.Address:x}, {input.Bytes} bytes as float32: {result} (X = byte offset){values}");
+            findings.Append(CultureInfo.InvariantCulture, $"\n      {input.Label}: memory 0x{input.Address:x}, {input.Bytes} bytes as {Shape(input.Format)}: {result} (X = {Offset(input.Format)}){values}");
         }
 
         lock (Gate)
@@ -428,7 +482,7 @@ internal static unsafe class NanScan
             Reported.Add(scan);
         }
 
-        log.Info($"  [nan scan] {scan.Pipeline}: {clean} inputs scanned clean, {scan.Textures.Count + scan.Memory.Count} in all (block-compressed and non-float textures are not scanned){findings}");
+        log.Info($"  [nan scan] {scan.Pipeline}: {clean} inputs scanned clean, {scan.Textures.Count + scan.Memory.Count} in all (block-compressed and non-float textures, and typed buffers of other formats, are not scanned){findings}");
     }
 
     /// <summary>The textures holding NaN or Inf (and small ones' values) appended; the count of clean ones.</summary>
@@ -525,7 +579,18 @@ internal static unsafe class NanScan
     public sealed record TextureCopy(string Label, nint Resource, ID3D12Resource Buffer, long Bytes, int RowPitch, int Width, int Rows, int Format);
 
     /// <summary>A range of game memory to read once the work ran.</summary>
-    private sealed record MemoryInput(string Label, ulong Address, int Bytes);
+    private sealed record MemoryInput(string Label, ulong Address, int Bytes, int Format);
+
+    /// <summary>What a finding's X is: the byte offset of a float32 dword, else the element index.</summary>
+    private static string Offset(int format)
+    {
+        if (format == Float32)
+        {
+            return "byte offset";
+        }
+
+        return "element";
+    }
 
     /// <summary>One scanned draw: its list, pipeline, the list's last submission value and reset count then, and its inputs.</summary>
     private sealed record Scan(nint List, string Pipeline, ulong Submitted, long Resets, long At)
