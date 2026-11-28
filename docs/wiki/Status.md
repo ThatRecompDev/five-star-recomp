@@ -1,6 +1,6 @@
 # Status
 
-GTA VI does not run yet. Updated 27 November 2026.
+GTA VI does not run yet. Updated 28 November 2026.
 
 ## Where it is
 
@@ -33,8 +33,14 @@ GTA VI does not run yet. Updated 27 November 2026.
 - **Frozen PROLOGUE card: fixed (27 November).** A translator bug made one cascade-shadow compute program write its
   lists over the start of a graphics heap, which holds the quad the final composite draws. With the fix the game
   shows the prologue yard as live 3D past the card, still wrongly lit.
-- **Translation output changed again (27 November):** the translator batch and this fix are on main, so shaders are
-  translated and compiled again on the next run (hours on a first run).
+- **Translation output changed again (28 November):** the prologue now loads every user register some path reads
+  before writing (129 programs change, 48 of them cascade shadows), so shaders are translated and compiled again on
+  the next run (hours on a first run). The build also no longer embeds the checkout path, so one shader cache serves
+  every checkout; before, a new checkout started cold, stalled at first-use compiles and tripped the game's own 30 s
+  hang watchdog.
+- **`--clamp-enhanced-barriers` fixed (28 November):** on compute lists it named a vertex scope the runtime refuses,
+  so those lists failed Close and their work was lost (and the NVIDIA driver could crash after it). Clamp barriers
+  now cost 1-2 ms a frame here with the flag.
 - **AMD:** world geometry draws since #55.
 
 ## Known problems
