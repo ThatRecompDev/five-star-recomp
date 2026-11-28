@@ -95,6 +95,9 @@ internal sealed unsafe class GpuTextures : IDisposable
 
     public GpuTextureRegistry Registry { get; } = GpuTextureRegistry.OfQueues();
 
+    /// <summary>The game's memory the textures are filled from.</summary>
+    internal GameMemorySource Source => _source;
+
     public GpuResourceCounters Counters { get; } = new();
 
     public GpuTextureUploader Uploader { get; } = new();
@@ -624,6 +627,11 @@ internal sealed unsafe class GpuTextures : IDisposable
     /// </summary>
     public void MarkWritten(ulong address, ulong bytes)
     {
+        if (AddressWatch.Touches(address, bytes))
+        {
+            NoteWritten(address, bytes);
+        }
+
         foreach (var texture in Registry.Overlapping(address, bytes))
         {
             // Memory under it is mapped or written now: it no longer stands for memory the game never mapped.
@@ -639,6 +647,29 @@ internal sealed unsafe class GpuTextures : IDisposable
             texture.MarkPages(start, end);
             Writes.Add(texture);
         }
+    }
+
+    /// <summary><c>--watch-address</c>: a write over the watched range, with what each texture there makes of it.</summary>
+    private void NoteWritten(ulong address, ulong bytes)
+    {
+        var textures = Registry.Overlapping(address, bytes).Select(WatchedState);
+        AddressWatch.Note($"memory written (DirectStorage or a page mapped); {string.Join(", ", textures)}", address, bytes);
+    }
+
+    /// <summary>A texture and whether a write refreshes it, for <see cref="NoteWritten"/>.</summary>
+    private static string WatchedState(GpuTexture texture)
+    {
+        if (texture.GpuWritten)
+        {
+            return $"texture 0x{texture.Address:x} GPU-written: not refreshed";
+        }
+
+        if (texture.CopiedInto)
+        {
+            return $"texture 0x{texture.Address:x} copied into: not refreshed";
+        }
+
+        return $"texture 0x{texture.Address:x} refreshed";
     }
 
     /// <summary>
@@ -722,6 +753,7 @@ internal sealed unsafe class GpuTextures : IDisposable
         }
 
         Volatile.Write(ref _device, device);
+        AddressWatch.Sample(_source, _log, frame);
         Registry.Advance(frame);
         Placed.Trim();
         var textures = new List<GpuTexture>();
@@ -783,6 +815,7 @@ internal sealed unsafe class GpuTextures : IDisposable
         var texture = new GpuTexture(address, *description, desktop, format, state, gpuWritten, layout);
         ((delegate* unmanaged<nint, uint>)ComObject.Slot(desktop, AddRefSlot))(desktop);
         Registry.Register(texture);
+        AddressWatch.Made(address, texture.Size, description->Width, description->Height, description->Format);
 
         if (_log.DetailEnabled)
         {

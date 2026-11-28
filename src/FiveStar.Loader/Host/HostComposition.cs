@@ -234,6 +234,11 @@ internal static class HostComposition
         Shims.D3D12X.Resources.GpuTextureRegistry.KeptAliases = options.KeptAliases;
         Shims.D3D12X.Resources.GpuTextures.UnmappedViewBudget = options.UnmappedViewBudgetBytes;
         Shims.D3D12X.Resources.TextureRefreshWorker.WaitAtSubmit = options.TextureRefreshWait;
+
+        if (options.WatchAddress is not null)
+        {
+            Shims.D3D12X.Resources.AddressWatch.Configure(options.WatchAddress);
+        }
     }
 
     /// <summary>
