@@ -349,7 +349,9 @@ an allocator that may back another recording list, which the console allows; the
 game breaks at 0x142474ce1. The list then records on a spare allocator kept for that game allocator and reset with it
 (allocator slot 8; SpareAllocators). A list whose Close failed (an invalid call was recorded) is refused by every
 later Reset, on any allocator, with E_INVALIDARG; such a list gets a new desktop list behind the same wrapper (the old
-one is kept, as the GPU may still run it), and the failed Close is warned once. Barriers leave out write states the
+one is kept, as the GPU may still run it), and the failed Close is warned once. A submission of such a list leaves the
+failed desktop list out, and its bottom-of-pipe writes land from the CPU once the queue's fence passes it
+(LostListWrites): the memory waits on them held until their timeout (#64). Barriers leave out write states the
 desktop resource has no flag for (ResourceStates.Allowed; error #523 on a depth texture moved to UNORDERED_ACCESS).
 **Bottom-of-pipe writes (list slots 71, 72; `BottomOfPipeWrites`).** Each is a desktop WriteBufferImmediate in
 MARKER_OUT mode (after the list's earlier work) at the desktop address of the game address: 71 one dword, 72 a

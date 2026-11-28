@@ -7,7 +7,10 @@ using Xunit;
 
 namespace FiveStar.Loader.Tests;
 
-/// <summary>List slots 71 and 72 write their values to game memory when the list runs, and slot 74 holds the queue until memory holds its value, on the default adapter.</summary>
+/// <summary>
+/// List slots 71 and 72 write their values to game memory when the list runs (from the CPU when its Close failed), and
+/// slot 74 holds the queue until memory holds its value, on the default adapter.
+/// </summary>
 public sealed unsafe class D3D12XBottomOfPipeTests
 {
     private const int CloseSlot = 9;
@@ -111,6 +114,45 @@ public sealed unsafe class D3D12XBottomOfPipeTests
         Volatile.Write(ref cells[1], Frame);
         Wait(fence, 1);
         Assert.Equal(After, cells[2]);
+    }
+
+    [Fact]
+    public void A_list_whose_close_failed_still_lands_its_writes_once_submitted()
+    {
+        const ulong Counter = 0x4c7;
+        const uint Marker = 0xC0FFEE;
+        const int DesktopCloseSlot = 9;
+
+        using var test = TestRuntime.Create();
+        var virtualAlloc = (delegate* unmanaged<nint, nuint, uint, ulong, uint, nint>)test.Shim("xmem.dll", "XMemVirtualAlloc");
+        byte* memory = (byte*)virtualAlloc(0, Bytes, ReserveCommitLargePages, Flags, GpuReadWrite);
+
+        var device = new XboxDevice(test);
+        nint queue = device.Queue();
+        nint fence = device.Fence();
+        nint list = device.DirectList();
+
+        var write64 = (delegate* unmanaged<nint, ulong, ulong, ulong, uint, int>)XboxDevice.Vtable(list)[BottomOfPipeWrites.Write64Slot];
+        var marker = (delegate* unmanaged<nint, ulong, uint, ulong, uint, int>)XboxDevice.Vtable(list)[BottomOfPipeWrites.MarkerSlot];
+        Assert.Equal(0, write64(list, (ulong)(memory + 0x100), Counter, 0, 0));
+        Assert.Equal(0, marker(list, (ulong)(memory + 0x200), Marker, 0, 0));
+
+        // The desktop list closed behind the shim: the game's Close then fails, as after an invalid call.
+        nint inner = ((XboxObject*)list)->Inner;
+        Assert.Equal(0, ((delegate* unmanaged<nint, int>)XboxDevice.Vtable(inner)[DesktopCloseSlot])(inner));
+        Assert.NotEqual(0, ((delegate* unmanaged<nint, int>)XboxDevice.Vtable(list)[CloseSlot])(list));
+        Assert.True(LostListWrites.Has(list));
+
+        // The desktop list is left out, so the values come from the CPU (counted), not from the GPU.
+        long landed = LostListWrites.Landed;
+        nint* lists = stackalloc nint[] { list };
+        Assert.Equal(0, ((delegate* unmanaged<nint, uint, nint*, nint, uint, int>)XboxDevice.Vtable(queue)[ExecuteSlot])(queue, 1, lists, 0, 0));
+        Assert.Equal(0, ((delegate* unmanaged<nint, nint, ulong, int>)XboxDevice.Vtable(queue)[SignalSlot])(queue, fence, 1));
+        Wait(fence, 1);
+
+        Assert.True(SpinWait.SpinUntil(() => LostListWrites.Landed >= landed + 2, RunLimit));
+        Assert.Equal(Counter, Volatile.Read(ref *(ulong*)(memory + 0x100)));
+        Assert.Equal(Marker, Volatile.Read(ref *(uint*)(memory + 0x200)));
     }
 
     private static void Run(nint queue, nint list, nint fence, ulong value)

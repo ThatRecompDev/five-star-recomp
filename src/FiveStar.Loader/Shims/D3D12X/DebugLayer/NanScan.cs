@@ -506,7 +506,16 @@ internal static unsafe class NanScan
 
         for (int at = dwords.Value.Offset; at + sizeof(float) <= bytes.Length && shown.Count < dwords.Value.Count; at += sizeof(float))
         {
-            shown.Add(BitConverter.ToSingle(bytes.Slice(at, sizeof(float))).ToString("G6", CultureInfo.InvariantCulture));
+            float value = BitConverter.ToSingle(bytes.Slice(at, sizeof(float)));
+            string text = value.ToString("G6", CultureInfo.InvariantCulture);
+
+            // A buffer read as float32 that holds integers: 0xffffffff (a cleared or "none" marker) reads as NaN too.
+            if (!float.IsFinite(value))
+            {
+                text = string.Create(CultureInfo.InvariantCulture, $"{text} (0x{BitConverter.ToUInt32(bytes.Slice(at, sizeof(uint))):x8})");
+            }
+
+            shown.Add(text);
         }
 
         return string.Create(CultureInfo.InvariantCulture, $"; floats at +0x{dwords.Value.Offset:x}: {string.Join(", ", shown)}");

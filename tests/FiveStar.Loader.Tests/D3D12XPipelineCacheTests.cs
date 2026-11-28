@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Diagnostics;
+using System.IO.MemoryMappedFiles;
 using FiveStar.Graphics;
 using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Shims.D3D12X.Pipelines;
@@ -309,6 +310,36 @@ public sealed unsafe class D3D12XPipelineCacheTests
         finally
         {
             folder.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_segments_blob_stays_mapped_until_the_last_load_on_it_is_done()
+    {
+        // The cache's disposal at the end of a boot unmapped a segment under a build thread's load (issue #64).
+        string file = Path.GetTempFileName();
+
+        try
+        {
+            File.WriteAllBytes(file, [1, 2, 3, 4]);
+            var map = MemoryMappedFile.CreateFromFile(file, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
+            var accessor = map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
+            byte* blob = null;
+            accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref blob);
+            var view = new PipelineLibraryView(map, accessor, [], (nint)blob, 4);
+
+            Assert.True(view.Enter());
+            view.Dispose();
+            Assert.True(view.Mapped);
+            Assert.Equal(3, ((byte*)view.Blob)[2]);
+            Assert.False(view.Enter());
+
+            view.Exit();
+            Assert.False(view.Mapped);
+        }
+        finally
+        {
+            File.Delete(file);
         }
     }
 

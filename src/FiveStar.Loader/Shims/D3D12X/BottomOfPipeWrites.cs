@@ -55,7 +55,7 @@ internal static unsafe class BottomOfPipeWrites
         try
         {
             IndirectGather.WroteMemory(self, IndirectGatherMiss.AfterMemoryWrite, address, sizeof(uint));
-            MemoryWaitWriters.Wrote(self, address, value);
+            MemoryWaitWriters.Wrote(self, address, value, sizeof(uint));
             Write(self, address, &value, 1);
 
             return HResult.Ok;
@@ -80,7 +80,7 @@ internal static unsafe class BottomOfPipeWrites
             }
 
             IndirectGather.WroteMemory(self, IndirectGatherMiss.AfterMemoryWrite, address, sizeof(ulong));
-            MemoryWaitWriters.Wrote(self, address, value);
+            MemoryWaitWriters.Wrote(self, address, value, sizeof(ulong));
             Write64(self, address, value);
 
             return HResult.Ok;

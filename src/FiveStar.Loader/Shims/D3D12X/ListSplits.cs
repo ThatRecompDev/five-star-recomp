@@ -94,6 +94,12 @@ internal static unsafe class ListSplits
         {
             segments->Closed[segments->Count++] = inner;
         }
+        else
+        {
+            // The segment never runs: its bottom-of-pipe writes land from the CPU at the list's submission.
+            States.ResourceBarrierSlots.WarnCloseFailed(closed);
+            LostListWrites.CloseFailed(self, last: false);
+        }
 
         self->Inner = next;
         Restore(self, next, type);

@@ -181,9 +181,10 @@ internal static unsafe class XboxQueueMethods
     }
 
     /// <summary>
-    /// Runs the lists in order. A list with memory waits or segments (<see cref="MemoryWaits"/>, <see cref="ListSplits"/>)
-    /// or gathered indirect records (<see cref="IndirectGather"/>) goes alone after the lists before it: each of its
-    /// segments runs after the waits that precede it and the prelude that clamps its records.
+    /// Runs the lists in order. A list with memory waits or segments (<see cref="MemoryWaits"/>, <see cref="ListSplits"/>),
+    /// gathered indirect records (<see cref="IndirectGather"/>) or a failed Close (<see cref="LostListWrites"/>) goes alone
+    /// after the lists before it: each of its segments runs after the waits that precede it and the prelude that clamps
+    /// its records, and a failed segment's writes land from the CPU after the submission.
     /// </summary>
     [HotPath]
     private static void Submit(XboxObject* self, nint* lists, nint* desktop, uint count, delegate* unmanaged<nint, uint, nint*, void> execute)
@@ -195,7 +196,7 @@ internal static unsafe class XboxQueueMethods
 
         for (uint i = 0; i <= count; i++)
         {
-            bool waits = i < count && desktop[i] != lists[i] && (MemoryWaits.HasWaits(lists[i]) || IndirectGather.Has(lists[i]));
+            bool waits = i < count && desktop[i] != lists[i] && (MemoryWaits.HasWaits(lists[i]) || IndirectGather.Has(lists[i]) || LostListWrites.Has(lists[i]));
 
             if (i < count && !waits)
             {
@@ -212,22 +213,37 @@ internal static unsafe class XboxQueueMethods
             {
                 SubmitSegments(queue, lists[i], desktop[i], execute);
                 ListSubmissions.Submitted(queue, lists + i, 1, objects);
+
+                if (LostListWrites.Has(lists[i]))
+                {
+                    LostListWrites.Submitted(queue, lists[i]);
+                }
             }
 
             start = i + 1;
         }
     }
 
-    /// <summary>The segments of <paramref name="list"/> (a wrapper whose desktop list is <paramref name="last"/>), each after its waits.</summary>
+    /// <summary>
+    /// The segments of <paramref name="list"/> (a wrapper whose desktop list is <paramref name="last"/>), each after its
+    /// waits; a last segment that failed Close is left out (the desktop must not run it), its waits kept.
+    /// </summary>
     [HotPath]
     private static void SubmitSegments(XboxQueueObject* queue, nint list, nint last, delegate* unmanaged<nint, uint, nint*, void> execute)
     {
         var segments = ListSegments.Of((XboxObject*)list);
+        bool lastFailed = ListMemoryWaits.Of((XboxObject*)list)->LastCloseFailed != 0;
         nint inner = queue->Header.Inner;
 
         for (int s = 0; s <= segments->Count; s++)
         {
             MemoryWaits.Before(queue, list, s);
+
+            if (lastFailed && s == segments->Count)
+            {
+                break;
+            }
+
             IndirectGather.Before(queue, list, s);
             nint segment = segments->Segment(s, last);
             execute(inner, 1, &segment);

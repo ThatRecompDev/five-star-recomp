@@ -29,6 +29,12 @@ internal unsafe struct ListMemoryWaits
     /// <summary>Work (draws, dispatches, indirect executions and writes) recorded when the list was last split.</summary>
     public int WorkAtSplit;
 
+    /// <summary>1 when the desktop list of the recording's last segment failed Close: it never runs (<see cref="LostListWrites"/>).</summary>
+    public int LastCloseFailed;
+
+    /// <summary>1 when a desktop list of the recording failed Close: its bottom-of-pipe writes land from the CPU.</summary>
+    public int WritesLost;
+
     /// <summary>When the list was last submitted (Environment.TickCount64) and to which queue (<see cref="MemoryWaitWriters"/>).</summary>
     public long SubmittedAt;
     public int Queue;
@@ -53,6 +59,8 @@ internal unsafe struct ListMemoryWaits
         Dropped = 0;
         Writes = 0;
         WorkAtSplit = 0;
+        LastCloseFailed = 0;
+        WritesLost = 0;
     }
 
     /// <summary>A bottom-of-pipe write to <paramref name="address"/> was recorded.</summary>
