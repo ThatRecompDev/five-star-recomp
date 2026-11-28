@@ -66,8 +66,9 @@ Prints the program, code block and instruction counts and the first difference o
   also a `s_getpc`/`s_setpc` address), and its HLSL goes from 32,393 `vw_ballot` and 20,976 `lane_bit` to
   17,411 and 2,167.
 - SCC is the bool `scc`, set by compares, logic, carries and shifts as the hardware does.
-- Registers read before any write are hardware inputs, assigned in a prologue (rules in [fssm.md](fssm.md)); a read
-  outside the input layout is 0.
+- Registers some path from the entry reads before writing are hardware inputs, assigned in a prologue (rules in
+  [fssm.md](fssm.md)); a read outside the input layout is 0. The paths count, not the translation order
+  (`RegisterAccesses`): a user SGPR one path overwrites keeps its value on the other, where the join reads it.
 
 ## Control flow
 

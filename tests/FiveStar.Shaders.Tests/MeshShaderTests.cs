@@ -74,6 +74,18 @@ public sealed class MeshShaderTests : IClassFixture<WarpFixture>
         Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
     }
 
+    [WarpFact]
+    public void A_user_sgpr_written_on_one_path_keeps_its_value_on_the_other()
+    {
+        var runner = new MeshStageRunner(_fixture);
+
+        Assert.Contains("s8 = user_sgpr(0);", runner.Translate(MeshStageRunner.UserSgprJoin), StringComparison.Ordinal);
+
+        var mismatches = runner.Run(MeshStageRunner.UserSgprJoin);
+
+        Assert.True(mismatches.Count == 0, $"{mismatches.Count} mismatches:\n{string.Join("\n", mismatches.Take(16))}");
+    }
+
     [WarpTheory]
     [InlineData(false)]
     [InlineData(true)]

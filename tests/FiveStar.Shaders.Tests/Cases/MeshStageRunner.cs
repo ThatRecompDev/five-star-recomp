@@ -73,6 +73,21 @@ public sealed partial class MeshStageRunner
         s_mov_b32 m0, s50
         """;
 
+    /// <summary>
+    /// The program with its counts zeroed on a path it does not take (s11 = 0 branches past the write): the join reads s8,
+    /// written on one path and the user SGPR on the other, so the prologue must load it although the write comes first in
+    /// translation order (Core.RegisterAccesses).
+    /// </summary>
+    public const string UserSgprJoin = "ms_ngg_user_sgpr_join";
+
+    private const string UserSgprJoinCounts = """
+        s_cmp_eq_u32 s11, 0
+        s_cbranch_scc1 .Lkeep
+        s_mov_b32 s8, 0
+        .Lkeep:
+        s_mov_b32 m0, s8
+        """;
+
     /// <summary>The program in the superstep form (HlslTranslator.SuperstepVariant): its barrier and both phases as steps.</summary>
     public const string Supersteps = "ms_ngg_supersteps";
 
@@ -220,7 +235,7 @@ public sealed partial class MeshStageRunner
         var bindings = new Bindings { UserSgprs = [(Primitives << 12) | Vertices, Culled, FloatBits.Of(AttributeBase), lanes] };
         var image = Reference();
 
-        if (variant is Native or Windows or Supersteps or SuperstepCarry or FirstLane or FirstLaneSplit or Payload or UniformFirstLane)
+        if (variant is Native or Windows or Supersteps or SuperstepCarry or FirstLane or FirstLaneSplit or Payload or UniformFirstLane or UserSgprJoin)
         {
             var result = _fixture.Runner.Mesh(new MeshJob(_fixture.Workbench.Compile(variant, mesh, "ms", direct), pixel, framebuffer, bindings, 1));
 
@@ -344,6 +359,11 @@ public sealed partial class MeshStageRunner
             source = Program.Replace(RoundTrip, string.Empty, StringComparison.Ordinal).Replace("s_mov_b32 m0, s8", UniformFirstLaneCounts, StringComparison.Ordinal)
                 .Replace("s_and_b32 s21, s8, 0xfff", "s_and_b32 s21, s50, 0xfff", StringComparison.Ordinal)
                 .Replace("s_lshr_b32 s21, s8, 12", "s_lshr_b32 s21, s50, 12", StringComparison.Ordinal);
+        }
+
+        if (variant == UserSgprJoin)
+        {
+            source = Program.Replace("s_mov_b32 m0, s8", UserSgprJoinCounts, StringComparison.Ordinal);
         }
 
         var userSgprs = 4;

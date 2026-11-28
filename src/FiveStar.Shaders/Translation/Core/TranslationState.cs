@@ -150,6 +150,9 @@ internal sealed class TranslationState
     /// <summary>Registers written before the current point; reading any other register reads a hardware input.</summary>
     public HashSet<RegisterKey> Written { get; } = [];
 
+    /// <summary>What each block reads before writing and writes (the hardware inputs some path reads, ControlFlowTranslator).</summary>
+    public RegisterAccesses Accesses { get; } = new();
+
     /// <summary>Registers currently holding a lane mask (a per-lane bool); EXEC starts as one.</summary>
     public HashSet<RegisterKey> Masks { get; } = [];
 
@@ -264,6 +267,7 @@ internal sealed class TranslationState
     public void Touch(RegisterKey key)
     {
         Written.Add(key);
+        Accesses.Write(key);
         Variables.Add(key);
     }
 
