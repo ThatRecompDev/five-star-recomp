@@ -511,7 +511,7 @@ internal sealed unsafe class XboxDeviceFactory : IDisposable
         }
 
         var waits = MemoryWaits.Counts;
-        _log.Info($"  [memory wait] {waits.Recorded} recorded: {waits.Held} met at submission, {waits.Deferred} waited for on the GPU, {waits.TimedOut} released by the timeout, {waits.ReleasedForCpu} released for a CPU wait, {waits.Dropped} not kept; {ListSplits.Splits} lists split");
+        _log.Info($"  [memory wait] {waits.Recorded} recorded: {waits.Held} met at submission, {waits.Deferred} waited for on the GPU, {waits.TimedOut} released by the timeout, {waits.ReleasedForCpu} released for a CPU wait, {waits.Dropped} not kept; {ListSplits.Splits} lists split; {LostListWrites.Landed} writes of lists that failed Close landed from the CPU");
         Pipelines?.Cache?.Dispose();
 
         Presenter.Dispose();

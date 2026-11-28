@@ -16,14 +16,31 @@ internal static unsafe class MemoryWaitWriters
     /// <summary>ID3D12Fence::GetCompletedValue (d3d12.h).</summary>
     private const int GetCompletedValueSlot = 8;
 
-    private static readonly ConcurrentDictionary<ulong, (nint List, long At, ulong Value)> Writers = new();
+    private static readonly ConcurrentDictionary<ulong, (nint List, long At, ulong Value, int Bytes)> Writers = new();
 
-    /// <summary>A bottom-of-pipe write of <paramref name="value"/> to <paramref name="address"/> recorded in <paramref name="list"/>.</summary>
+    /// <summary>A bottom-of-pipe write of <paramref name="bytes"/> (4 or 8) of <paramref name="value"/> to <paramref name="address"/> recorded in <paramref name="list"/>.</summary>
     [HotPath]
-    public static void Wrote(XboxObject* list, ulong address, ulong value)
+    public static void Wrote(XboxObject* list, ulong address, ulong value, int bytes)
     {
         ListMemoryWaits.Of(list)->Wrote(address);
-        Writers[address] = ((nint)list, Environment.TickCount64, value);
+        Writers[address] = ((nint)list, Environment.TickCount64, value, bytes);
+    }
+
+    /// <summary>The value <paramref name="list"/> wrote to <paramref name="address"/> when it is still the last list that recorded a write there.</summary>
+    public static bool LastWrite(nint list, ulong address, out ulong value, out int bytes)
+    {
+        value = 0;
+        bytes = 0;
+
+        if (!Writers.TryGetValue(address, out var writer) || writer.List != list)
+        {
+            return false;
+        }
+
+        value = writer.Value;
+        bytes = writer.Bytes;
+
+        return true;
     }
 
     /// <summary><paramref name="list"/> (a wrapper) was submitted to <paramref name="queue"/>.</summary>

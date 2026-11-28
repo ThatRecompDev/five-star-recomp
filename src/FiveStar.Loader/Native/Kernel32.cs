@@ -151,6 +151,9 @@ internal static unsafe class Kernel32
     [DllImport(Library)]
     public static extern int ReadProcessMemory(nint process, nint address, void* buffer, nuint size, nuint* read);
 
+    [DllImport(Library)]
+    public static extern int WriteProcessMemory(nint process, nint address, void* buffer, nuint size, nuint* written);
+
     /// <summary>GetProcessHeaps: the number of heaps; fills at most <paramref name="count"/> handles.</summary>
     [DllImport(Library)]
     public static extern uint GetProcessHeaps(uint count, nint* heaps);

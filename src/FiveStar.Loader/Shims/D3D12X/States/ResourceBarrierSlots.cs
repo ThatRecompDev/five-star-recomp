@@ -88,10 +88,13 @@ internal static unsafe class ResourceBarrierSlots
 
             int hr = ((delegate* unmanaged<nint, int>)ComObject.Slot(inner, CloseSlot))(inner);
 
-            // An invalid call recorded on the list: its next Reset fails on any allocator (SpareAllocators replaces it).
+            // An invalid call recorded on the list. The game does not break on a failed Close (no fault in issue #64's
+            // boots), so it may submit the list: its desktop list is left out then, and its bottom-of-pipe writes land
+            // from the CPU (LostListWrites). Its next Reset, refused on any allocator, gets a new desktop list (SpareAllocators).
             if (HResult.Failed(hr))
             {
                 WarnCloseFailed(hr);
+                LostListWrites.CloseFailed(self, last: true);
             }
 
             return hr;
@@ -104,9 +107,10 @@ internal static unsafe class ResourceBarrierSlots
         }
     }
 
-    private static void WarnCloseFailed(int hr)
+    /// <summary>Warned once per run: later failures are not logged.</summary>
+    internal static void WarnCloseFailed(int hr)
     {
-        D3D12X.Warnings.Warn("close", $"[d3d12_xs] command list Close failed: {HResult.Format(hr)} (an invalid call was recorded; the list is replaced at its next Reset)");
+        D3D12X.Warnings.Warn("close", $"[d3d12_xs] command list Close failed: {HResult.Format(hr)} (an invalid call was recorded; its work is lost, a submission of it lands its bottom-of-pipe writes from the CPU, and the list is replaced at its next Reset; warned once)");
     }
 
     [HotPath]
