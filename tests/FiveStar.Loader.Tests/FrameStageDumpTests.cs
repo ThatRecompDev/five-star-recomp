@@ -7,6 +7,7 @@ using Xunit;
 namespace FiveStar.Loader.Tests;
 
 /// <summary>The <c>--dump-frame</c> stage dump: one readback per target and pass, in batches, mapped for viewing.</summary>
+[Collection(Support.RunEndState.Name)]
 public sealed class FrameStageDumpTests
 {
     private const int FloatRgba16 = 10;
@@ -61,6 +62,35 @@ public sealed class FrameStageDumpTests
         Assert.True(FrameStageDump.TryParseSeconds("350s", out long seconds));
         Assert.Equal(350L, seconds);
         Assert.False(FrameStageDump.TryParseSeconds("2100", out _));
+    }
+
+    [Fact]
+    public void A_target_is_named_by_the_draw_that_wrote_it_not_by_the_dispatches_run_while_it_stayed_bound()
+    {
+        const string Filter = "HairStrandVBuffer";
+        const string Hair = "sgd1_07a4ae2c_t40_PS_HairStrandVBuffer_8e7634e5_Wrapped + sgd1_01fd3e39_t32_VS_HairStrandGeometry_8e7634e5_Wrapped";
+        const string Simulation = "sgd1_0d4e17fe_t3c_smh_sim_1~CS_SolvePerVertConstraint_de9d2ad2_Wrapped";
+
+        const nint HairPipeline = 0x100;
+        const nint SimulationPipeline = 0x200;
+        const nint VBuffer = 0x1f40;
+        const nint Uav = 0x43a0;
+
+        var names = new Dictionary<nint, string> { [HairPipeline] = Hair, [SimulationPipeline] = Simulation };
+
+        // w496: the hair pass drew into its V-buffer, then the list ran the simulation's dispatches with it still bound.
+        var writers = new StageWriters();
+        writers.Wrote(VBuffer, HairPipeline);
+        nint lastPipeline = SimulationPipeline;
+
+        // Named by the last pipeline the list ran, the filter refused it (0 PNGs); by its writer, it passes.
+        Assert.False(FrameStageDump.Passes(names[lastPipeline], Filter));
+        Assert.True(FrameStageDump.Passes(names[writers.WriterOf(VBuffer, lastPipeline)], Filter));
+
+        // A UAV texture no draw wrote keeps the list's last pipeline; a reset list forgets its writers.
+        Assert.Equal(SimulationPipeline, writers.WriterOf(Uav, lastPipeline));
+        writers.Clear();
+        Assert.Equal(SimulationPipeline, writers.WriterOf(VBuffer, lastPipeline));
     }
 
     [Fact]

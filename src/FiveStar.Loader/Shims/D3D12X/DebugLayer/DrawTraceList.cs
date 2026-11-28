@@ -31,8 +31,11 @@ internal sealed class DrawTraceList
     /// <summary>The list recorded traced work since it was last submitted: its submission names the queue.</summary>
     public bool Traced { get; set; }
 
-    /// <summary>The pipeline of the last draw, dispatch or ExecuteIndirect recorded (<c>--dump-frame</c> names passes by it).</summary>
+    /// <summary>The pipeline of the last draw, dispatch or ExecuteIndirect recorded (<c>--dump-frame</c>'s name for a target no draw wrote).</summary>
     public nint LastPipeline { get; set; }
+
+    /// <summary>The pipeline that last drew into each target in the dumped frame (<c>--dump-frame</c> names passes by it).</summary>
+    public StageWriters Writers { get; } = new();
 
     /// <summary>Work was recorded since the render targets were last set: leaving them ends a pass that wrote them.</summary>
     public bool Worked { get; set; }

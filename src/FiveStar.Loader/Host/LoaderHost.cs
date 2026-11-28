@@ -149,8 +149,14 @@ internal sealed class LoaderHost
         _runtime.D3D12X.Presenter.Screens = sampler;
 
         bool scriptOnly = !_options.AllowRealInput;
-        var script = _runtime.Input.UseScript(path, System.Diagnostics.Stopwatch.StartNew(), () => capture?.RequestNext(), sampler.Request, screens, scriptOnly);
-        _log.Info($"  [input] {script.Presses.Count} scripted presses, {script.Marks.Count} captures and learns, {script.Screens.Count - 1} screens from {path} (followed while running); {screens.Count} learned screens in {screensFile}");
+        var outputs = new ScriptOutputs(entry => RequestCapture(capture, entry), RequestDump, sampler.Request);
+        var script = _runtime.Input.UseScript(path, System.Diagnostics.Stopwatch.StartNew(), outputs, screens, scriptOnly);
+        _log.Info($"  [input] {script.Presses.Count} scripted presses, {script.Marks.Count} captures, dumps, exits and learns, {script.Screens.Count - 1} screens from {path} (followed while running); {screens.Count} learned screens in {screensFile}");
+
+        if (!_options.D3D12TraceDraws && script.Marks.Any(mark => mark.Kind == ScriptedMarkKind.Dump))
+        {
+            _log.Warn("[input] the script's dump lines need --d3d12-trace-draws: without it they dump nothing");
+        }
 
         foreach (var clash in screens.Alike(script.Blocks))
         {
@@ -161,6 +167,32 @@ internal sealed class LoaderHost
         {
             _log.Info("  [input] script input only: the real keyboard, mouse buttons and cursor are left out (F9 hands them back, --allow-real-input keeps them)");
         }
+    }
+
+    /// <summary>A script capture line: the next present is read back; without a readback the line is done at once.</summary>
+    private static void RequestCapture(FrameCapture? capture, string entry)
+    {
+        if (capture is null)
+        {
+            RunEnd.Fired(entry);
+
+            return;
+        }
+
+        capture.RequestNext(entry);
+    }
+
+    /// <summary>A script dump line: the next present is the frame dump; without the draw trace the line is done at once.</summary>
+    private void RequestDump(string entry)
+    {
+        if (!_options.D3D12TraceDraws)
+        {
+            RunEnd.Fired(entry);
+
+            return;
+        }
+
+        Shims.D3D12X.DebugLayer.FrameStageDump.RequestNext(entry);
     }
 
     private void LoadAbiTable()
@@ -500,6 +532,7 @@ internal sealed class LoaderHost
         }
 
         ExpectTraceCaptures(captures);
+        RunEnd.ExpectScriptWork(captures);
         _log.Info($"  [exit-when-done] waiting for {captures.Names.Count} captures ({string.Join(", ", captures.Names)}), then {grace} presents");
     }
 

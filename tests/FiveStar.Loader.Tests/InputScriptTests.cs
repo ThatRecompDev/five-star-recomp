@@ -27,9 +27,32 @@ public sealed class InputScriptTests
     {
         var script = InputScript.Parse(["90 capture", "15 Space", "30 learn title"]);
 
-        Assert.Equal([new ScriptedMark(0, 30, "title"), new ScriptedMark(0, 90, null)], script.Marks);
+        Assert.Equal([new ScriptedMark(0, 30, ScriptedMarkKind.Learn, "title"), new ScriptedMark(0, 90, ScriptedMarkKind.Capture, null)], script.Marks);
         Assert.Single(script.Presses);
         Assert.True(script.Started(0, 20));
+    }
+
+    [Fact]
+    public void Dump_and_exit_lines_are_marks_of_their_screen_block()
+    {
+        var script = InputScript.Parse(["0 Space repeat 50 every 3", "screen move-around", "2 capture", "+1 dump", "5 EXIT"]);
+
+        Assert.Equal(
+            [
+                new ScriptedMark(1, 2, ScriptedMarkKind.Capture, null),
+                new ScriptedMark(1, 3, ScriptedMarkKind.Dump, null),
+                new ScriptedMark(1, 5, ScriptedMarkKind.Exit, null),
+            ],
+            script.Marks);
+        Assert.Equal([true, true, false], script.Marks.Select(mark => mark.IsWork));
+        Assert.Equal("input-script dump 1:3", script.Marks[1].EntryName);
+        Assert.Equal(50, script.Presses.Count);
+
+        // Not due before the screen showed; due 3 s after it did.
+        Assert.False(script.TryTime(1, 3, out _));
+        script.Begin(1, 100);
+        Assert.True(script.TryTime(1, 3, out double at));
+        Assert.Equal(103, at);
     }
 
     [Fact]

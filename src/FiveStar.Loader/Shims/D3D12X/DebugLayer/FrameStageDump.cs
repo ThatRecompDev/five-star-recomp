@@ -10,11 +10,13 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// <c>--dump-frame n --dump-frame-dir dir</c>: in the frame after present <c>n</c>, every render target, depth target and
 /// UAV texture at least <see cref="MinimumWidth"/> wide (480, <c>--dump-frame-min-width</c>) is read back where a pass stops writing it (the list binds other
 /// targets, moves it out of RENDER_TARGET, UNORDERED_ACCESS or DEPTH_WRITE, or closes), once per target and pass (the
-/// last pipeline the list ran; with <see cref="Filter"/> only passes whose name holds one of its texts), and written as
+/// pipeline whose draw last wrote the target, <see cref="StageWriters"/>, else the last pipeline the list ran; with
+/// <see cref="Filter"/> only passes whose name holds one of its texts), and written as
 /// <c>NN-pass-WxH-fmtF.png</c> through <see cref="StagePixels"/>, at most <see cref="Max"/> PNGs. When the readback
 /// buffers' cap refuses one, that frame takes nothing more and the dump goes on in a later frame (a batch, once the
 /// earlier batch was reported) from the targets and passes not taken yet. A UAV texture the game never moves out of
-/// UNORDERED_ACCESS is not seen. This class picks what is read and names it; <see cref="DrawTrace"/> records the copies.
+/// UNORDERED_ACCESS is not seen. An input script's <c>dump</c> line sets <c>n</c> to the next present
+/// (<see cref="RequestNext"/>). This class picks what is read and names it; <see cref="DrawTrace"/> records the copies.
 /// </summary>
 internal sealed class FrameStageDump
 {
@@ -40,8 +42,11 @@ internal sealed class FrameStageDump
     private const int R24G8Typeless = 44;
     private const int D24S8 = 45;
 
+    private static readonly ConcurrentQueue<string> Asked = new();
+
     private readonly ConcurrentDictionary<(nint Resource, string Pass), byte> _taken = new();
     private readonly ConcurrentDictionary<nint, nint> _lists = new();
+    private readonly List<string> _answering = [];
     private int _count;
     private int _batchLimit;
     private bool _open;
@@ -114,12 +119,47 @@ internal sealed class FrameStageDump
         if (!_refused || written >= Max)
         {
             _active = false;
-            FiveStar.Loader.Diagnostics.RunEnd.Fired(EntryName);
+            Done();
 
             return $"  [dump-frame] done after {Batch} batches: {written} PNGs in {Directory}";
         }
 
         return Open(written);
+    }
+
+    /// <summary>
+    /// An input script's <c>dump</c> line: the next present is the dumped one (<see cref="TakeAsked"/>), and
+    /// <paramref name="entry"/>, its run-end entry, fires when that dump ends; any thread.
+    /// </summary>
+    public static void RequestNext(string entry)
+    {
+        Asked.Enqueue(entry);
+    }
+
+    /// <summary>Whether a script line asked for a dump since the last call; its entry fires when this dump ends. The presenting thread.</summary>
+    public bool TakeAsked()
+    {
+        bool any = false;
+
+        while (Asked.TryDequeue(out string? entry))
+        {
+            _answering.Add(entry);
+            any = true;
+        }
+
+        return any;
+    }
+
+    private void Done()
+    {
+        FiveStar.Loader.Diagnostics.RunEnd.Fired(EntryName);
+
+        foreach (string entry in _answering)
+        {
+            FiveStar.Loader.Diagnostics.RunEnd.Fired(entry);
+        }
+
+        _answering.Clear();
     }
 
     private string Open(int written)
