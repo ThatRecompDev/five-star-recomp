@@ -268,7 +268,10 @@ that cache lacks it. `--warm-load-cached` loads each pipeline the disk cache hol
 that cache: its shards loaded 7 to 14 a second each, the same pipelines loaded again went at 190 a second, and 286
 pipelines warmed that way loaded in under a second each time from builds that had never run (a new executable, the
 same one with a new timestamp, two commits). Boots after a warm-up with it (w497, w498) had no pipeline built a
-minute late; w407, without it, had 929.
+minute late; w407, without it, had 929. The gain is on a cold driver cache: an RTX 5090 tester (#64) emptied it before
+each of three 8-minute boots and the warmed one had 15% lower median frame time; on an already warm driver cache the
+flag changes nothing measurable. The driver keeps little (about 35 MiB after a boot), and the warm-up builds a few
+pipelines of the used set that a given run never asks for.
 
 Slot 86 streams and slot 55 derives are not in the console cache; the journal brings them to the warm-up.
 
