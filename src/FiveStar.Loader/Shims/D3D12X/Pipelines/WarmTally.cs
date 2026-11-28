@@ -22,7 +22,7 @@ internal sealed class WarmTally
     public TimeSpan BuildTime => TimeSpan.FromTicks(Interlocked.Read(ref _buildTicks));
 
     public string Summary =>
-        $"{this[WarmOutcome.Built]} built ({BuildTime.TotalMinutes:F1} min of driver time), {this[WarmOutcome.Skipped]} skipped, " +
+        $"{this[WarmOutcome.Built]} built ({BuildTime.TotalMinutes:F1} min of driver time), {this[WarmOutcome.Loaded]} loaded from the cache, {this[WarmOutcome.Skipped]} skipped, " +
         $"{this[WarmOutcome.Untranslated]} without translation, {this[WarmOutcome.Refused]} refused, {this[WarmOutcome.Deferred]} left out for memory";
 
     public void Count(WarmOutcome outcome)

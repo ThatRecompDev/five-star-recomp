@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 using FiveStar.Loader.Host;
+using FiveStar.Loader.Shims.D3D12X.Pipelines;
 using Xunit;
 
 namespace FiveStar.Loader.Tests;
@@ -25,6 +26,20 @@ public sealed class WarmShardsTests
         Assert.Null(WarmShards.ParseShard("3/3"));
         Assert.Equal(3, WarmShards.ProcessesFor(63 * Gigabyte));
         Assert.Equal(1, WarmShards.ProcessesFor(16 * Gigabyte - 1));
+    }
+
+    [Fact]
+    public void Loading_cached_pipelines_is_an_option_the_shards_take_and_the_tally_counts()
+    {
+        var options = new CommandLineParser(["--warm-load-cached"]).Parse();
+        var child = WarmShards.ChildArguments(["--warm-pipelines", "shaders.rpf", "--warm-load-cached"], 0, 2, 2, 2, null);
+        var tally = new WarmTally();
+
+        tally.Count(WarmOutcome.Loaded);
+
+        Assert.True(options.WarmLoadCached);
+        Assert.Contains("--warm-load-cached", child);
+        Assert.Contains("1 loaded from the cache, 0 skipped", tally.Summary, StringComparison.Ordinal);
     }
 
     [Fact]

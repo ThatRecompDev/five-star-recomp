@@ -11,7 +11,11 @@ namespace FiveStar.Loader.Shims.D3D12X.Pipelines;
 /// <summary>
 /// Builds pipelines into the disk cache ahead of the game (<c>--warm-pipelines</c>): each target becomes the desktop
 /// stream the game's creation would make, is skipped when the cache has it (so a new run resumes) or when an earlier
-/// run saw the driver refuse it, and is otherwise built with no time limit on up to <c>jobs</c> threads.
+/// run saw the driver refuse it, and is otherwise built with no time limit on up to <c>jobs</c> threads. With
+/// <see cref="LoadsCached"/> a cached one is loaded instead of skipped: the driver keeps the machine code of what it
+/// compiled in a shader cache of its own per executable, and recompiles a cached pipeline on load for an executable it
+/// has not seen (the first loads of a run ran at 7 to 14 a second per process, the same pipelines loaded again by the
+/// same executable at 190 a second).
 /// </summary>
 internal sealed unsafe class PipelineWarmup
 {
@@ -37,7 +41,7 @@ internal sealed unsafe class PipelineWarmup
     private readonly HashSet<string> _refused;
     private readonly object _failures = new();
     private readonly WarmTally _tally = new();
-    private readonly BlockingCollection<(PipelineRecipe Recipe, string Key)> _heavy = [];
+    private readonly BlockingCollection<(PipelineRecipe Recipe, string Key, bool Load)> _heavy = [];
     private volatile bool _stopping;
 
     public PipelineWarmup(PipelineFactory factory, PipelineLibraryCache cache, string cacheFolder, LoaderLog log)
@@ -54,6 +58,9 @@ internal sealed unsafe class PipelineWarmup
     /// warm-up leaves them to its parent's last pass, so no two such compiles meet (counted as left out).
     /// </summary>
     public bool BuildsHeavy { get; init; } = true;
+
+    /// <summary>Whether a pipeline the cache holds is loaded rather than skipped (<c>--warm-load-cached</c>).</summary>
+    public bool LoadsCached { get; init; }
 
     /// <summary>What the run did so far.</summary>
     public WarmTally Tally => _tally;
@@ -104,7 +111,7 @@ internal sealed unsafe class PipelineWarmup
     /// </summary>
     private void BuildHeavy()
     {
-        foreach (var (recipe, key) in _heavy.GetConsumingEnumerable())
+        foreach (var (recipe, key, load) in _heavy.GetConsumingEnumerable())
         {
             if (_stopping || !WarmMemoryGuard.RoomForHeavy())
             {
@@ -113,7 +120,7 @@ internal sealed unsafe class PipelineWarmup
                 continue;
             }
 
-            Build(recipe, key);
+            Make(recipe, key, load);
         }
     }
 
@@ -150,8 +157,9 @@ internal sealed unsafe class PipelineWarmup
         }
 
         var key = recipe.Stream.Key;
+        bool cached = _cache.Contains(key);
 
-        if (_cache.Contains(key) || _refused.Contains(key) || !_seen.TryAdd(key, 0))
+        if ((cached && !LoadsCached) || _refused.Contains(key) || !_seen.TryAdd(key, 0))
         {
             recipe.Stream.Dispose();
             _tally.Count(WarmOutcome.Skipped);
@@ -170,12 +178,57 @@ internal sealed unsafe class PipelineWarmup
 
         if (recipe.Stream.ShaderBytes >= PipelineFactory.HeavyShaderBytes)
         {
-            _heavy.Add((recipe, key));
+            _heavy.Add((recipe, key, cached));
+
+            return;
+        }
+
+        Make(recipe, key, cached);
+    }
+
+    /// <summary>Loads a cached pipeline (<paramref name="load"/>) or builds one the cache lacks.</summary>
+    private void Make(PipelineRecipe recipe, string key, bool load)
+    {
+        if (load)
+        {
+            Load(recipe);
 
             return;
         }
 
         Build(recipe, key);
+    }
+
+    /// <summary>
+    /// Loads a pipeline from the cache and lets it go: the driver compiles its machine code into the shader cache of this
+    /// executable, which boots of the same build then read (<see cref="LoadsCached"/>).
+    /// </summary>
+    private void Load(PipelineRecipe recipe)
+    {
+        WarmMemoryGuard.WaitForRoom(() => _stopping);
+        var iid = DesktopDevice.PipelineStateIid;
+        nint pipeline = 0;
+
+        var started = Stopwatch.GetTimestamp();
+        int hr = _cache.Load(recipe.Stream, &iid, &pipeline);
+        var took = Stopwatch.GetElapsedTime(started);
+        recipe.Stream.Dispose();
+
+        if (took > SlowBuild)
+        {
+            _log.Info($"  {took.TotalSeconds:F0} s to load {recipe.Names} from the cache");
+        }
+
+        if (HResult.Failed(hr) || pipeline == 0)
+        {
+            _log.Warn($"warm-up: {recipe.Names} not loaded from the cache ({HResult.Format(hr)})");
+            _tally.Count(WarmOutcome.Skipped);
+
+            return;
+        }
+
+        DesktopDevice.Release(pipeline);
+        _tally.Count(WarmOutcome.Loaded);
     }
 
     private PipelineRecipe? Prepare(WarmTarget target)

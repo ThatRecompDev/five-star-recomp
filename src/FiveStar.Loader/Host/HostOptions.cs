@@ -95,6 +95,12 @@ internal sealed record HostOptions
     /// <summary>The warm-up builds only the pipelines earlier boots asked for (<c>pipelines-used.bin</c>).</summary>
     public bool WarmUsedOnly { get; set; }
 
+    /// <summary>
+    /// The warm-up loads each pipeline the disk cache already holds instead of skipping it, so the driver's own shader
+    /// cache of this executable holds its machine code (<c>--warm-load-cached</c>).
+    /// </summary>
+    public bool WarmLoadCached { get; set; }
+
     /// <summary>Every pipeline the cache lacks is built at creation, not on first use.</summary>
     public bool EagerPipelines { get; set; }
 
