@@ -308,8 +308,11 @@ internal sealed record HostOptions
     /// <summary>Mesh draws launched by an amplification stage of ours instead of clamped by a compute pass (<c>--mesh-launch</c>).</summary>
     public bool MeshLaunch { get; set; }
 
-    /// <summary>Enhanced barriers on the indirect-argument scratch instead of three transitions per ExecuteIndirect (<c>--clamp-enhanced-barriers</c>).</summary>
-    public bool ClampEnhancedBarriers { get; set; }
+    /// <summary>
+    /// Enhanced barriers on the indirect-argument scratch instead of three transitions per ExecuteIndirect, where the
+    /// device has them; on by default (<c>--no-clamp-enhanced-barriers</c> turns it off).
+    /// </summary>
+    public bool ClampEnhancedBarriers { get; set; } = true;
 
     /// <summary>Indirect records clamped in one prelude per list segment where nothing earlier in it wrote them (<c>--indirect-gather</c>).</summary>
     public bool IndirectGather { get; set; }

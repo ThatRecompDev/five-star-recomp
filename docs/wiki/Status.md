@@ -39,8 +39,9 @@ GTA VI does not run yet. Updated 28 November 2026.
   every checkout; before, a new checkout started cold, stalled at first-use compiles and tripped the game's own 30 s
   hang watchdog.
 - **`--clamp-enhanced-barriers` fixed (28 November):** on compute lists it named a vertex scope the runtime refuses,
-  so those lists failed Close and their work was lost (and the NVIDIA driver could crash after it). Clamp barriers
-  now cost 1-2 ms a frame here with the flag.
+  so those lists failed Close and their work was lost (and the NVIDIA driver could crash after it). Now on by
+  default: on an RTX 5090 it gave 12.5% more frames with the same picture (`--no-clamp-enhanced-barriers` turns it
+  off). The first run after a translator change rebuilds a few hundred pipelines, so it is slower once.
 - **AMD:** world geometry draws since #55.
 
 ## Known problems

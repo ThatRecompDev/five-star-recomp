@@ -927,6 +927,10 @@ internal sealed class CommandLineParser
                 _options.ClampEnhancedBarriers = true;
 
                 return true;
+            case "--no-clamp-enhanced-barriers":
+                _options.ClampEnhancedBarriers = false;
+
+                return true;
             case "--no-draws":
                 _options.NoDraws = true;
 

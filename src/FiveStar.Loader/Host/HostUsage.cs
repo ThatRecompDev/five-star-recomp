@@ -165,8 +165,8 @@ internal static class HostUsage
                                  budget; the picture is stale or wrong
           --mesh-launch          mesh draws launched by an amplification stage of ours (one record read where the game
                                  wrote it) instead of a clamp pass before each; mesh programs take a 4-byte payload
-          --clamp-enhanced-barriers  enhanced barriers on the indirect-argument scratch (one per clamp) instead of
-                                 three transitions per ExecuteIndirect, where the device has them; not with --mesh-launch
+          --no-clamp-enhanced-barriers  three legacy transitions per ExecuteIndirect on the indirect-argument scratch
+                                 instead of enhanced barriers (one per clamp, the default where the device has them)
           --typeless-depth       depth textures in a typed depth format made typeless, so the game's shader views read them
           --no-gpu-timeout       the game's command queues without the GPU timeout: long work stalls instead of removing the device
           --d3dkmt-watch         log failing graphics kernel calls (D3DKMT), MarkDeviceAsError and device states: who removes the device
