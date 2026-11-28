@@ -20,12 +20,18 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// the argument fetch, or to the amplification stage's read for records <see cref="MeshLaunch"/> launches. Pieces never
 /// overlap within a recording, so nothing orders a clamp after the previous execution or launch. Every barrier after the
 /// first names the scopes earlier ones ended in (<see cref="Earlier"/>), as the enhanced-barrier rules ask of a barrier
-/// on the same buffer in one ExecuteCommandLists scope; VERTEX_SHADING covers the amplification and mesh stages.
+/// on the same buffer in one ExecuteCommandLists scope; VERTEX_SHADING covers the amplification and mesh stages. A
+/// compute list names no graphics scope: the runtime refuses VERTEX_SHADING there at Close (E_INVALIDARG, issue #64),
+/// and no launch reads a compute list's scratch.
 /// </summary>
 internal static unsafe class ClampBarriers
 {
-    /// <summary>ID3D12GraphicsCommandList7::Barrier (d3d12.h).</summary>
+    /// <summary>ID3D12GraphicsCommandList7::Barrier and ID3D12CommandList::GetType (d3d12.h).</summary>
     private const int BarrierSlot = 80;
+    private const int GetTypeSlot = 8;
+
+    /// <summary>D3D12_COMMAND_LIST_TYPE_DIRECT.</summary>
+    private const int DirectType = 0;
 
     /// <summary>D3D12_BARRIER_TYPE_BUFFER.</summary>
     private const uint BufferType = 2;
@@ -104,7 +110,7 @@ internal static unsafe class ClampBarriers
 
         if (first)
         {
-            Write(list, scratch, IndirectSync | VertexSync | ComputeSync | CopySync, IndirectAccess | ShaderResourceAccess | UnorderedAccess | CopySourceAccess, ComputeSync, UnorderedAccess);
+            Write(list, scratch, Earlier(list) | ComputeSync | CopySync, EarlierAccess(list) | UnorderedAccess | CopySourceAccess, ComputeSync, UnorderedAccess);
         }
     }
 
@@ -139,12 +145,12 @@ internal static unsafe class ClampBarriers
 
         if (launched)
         {
-            Write(list, scratch, ComputeSync | Earlier, UnorderedAccess | EarlierAccess, VertexSync, ShaderResourceAccess);
+            Write(list, scratch, ComputeSync | Earlier(list), UnorderedAccess | EarlierAccess(list), VertexSync, ShaderResourceAccess);
 
             return;
         }
 
-        Write(list, scratch, ComputeSync | Earlier, UnorderedAccess | EarlierAccess, IndirectSync, IndirectAccess);
+        Write(list, scratch, ComputeSync | Earlier(list), UnorderedAccess | EarlierAccess(list), IndirectSync, IndirectAccess);
     }
 
     /// <summary>Before the mesh launch stage reads clamped records: legacy transitions move the piece to a shader read; enhanced ones did at <see cref="AfterClamp"/>.</summary>
@@ -188,7 +194,7 @@ internal static unsafe class ClampBarriers
             return;
         }
 
-        Write(list, scratch, ComputeSync | Earlier, UnorderedAccess | EarlierAccess, CopySync, CopySourceAccess);
+        Write(list, scratch, ComputeSync | Earlier(list), UnorderedAccess | EarlierAccess(list), CopySync, CopySourceAccess);
     }
 
     /// <summary>After that copy.</summary>
@@ -202,34 +208,38 @@ internal static unsafe class ClampBarriers
     }
 
     /// <summary>
-    /// The scopes an earlier barrier of the recording on the scratch may have ended in (an argument fetch, and with mesh
-    /// launches the stage's read): a later barrier's SyncBefore must contain them.
+    /// The scopes an earlier barrier of the recording on the scratch, or an earlier run on the queue, may have ended in
+    /// (an argument fetch, and with mesh launches on a direct list the stage's read): a later barrier's SyncBefore must
+    /// contain them.
     /// </summary>
-    private static uint Earlier
+    [HotPath]
+    private static uint Earlier(nint list)
     {
-        get
+        if (Launches(list))
         {
-            if (MeshLaunch.Enabled)
-            {
-                return IndirectSync | VertexSync;
-            }
-
-            return IndirectSync;
+            return IndirectSync | VertexSync;
         }
+
+        return IndirectSync;
     }
 
     /// <summary>The accesses of those scopes (each sync bit of a barrier needs an access it allows): the argument fetch, the stage's read.</summary>
-    private static uint EarlierAccess
+    [HotPath]
+    private static uint EarlierAccess(nint list)
     {
-        get
+        if (Launches(list))
         {
-            if (MeshLaunch.Enabled)
-            {
-                return IndirectAccess | ShaderResourceAccess;
-            }
-
-            return IndirectAccess;
+            return IndirectAccess | ShaderResourceAccess;
         }
+
+        return IndirectAccess;
+    }
+
+    /// <summary>Whether mesh launches may read the scratch of <paramref name="list"/>: with <c>--mesh-launch</c>, on a direct list.</summary>
+    [HotPath]
+    private static bool Launches(nint list)
+    {
+        return MeshLaunch.Enabled && ((delegate* unmanaged<nint, int>)ComObject.Slot(list, GetTypeSlot))(list) == DirectType;
     }
 
     /// <summary>One D3D12_BUFFER_BARRIER over the whole buffer (offset 0, size UINT64_MAX, as the API requires).</summary>

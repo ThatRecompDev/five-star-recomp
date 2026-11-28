@@ -407,7 +407,7 @@ G-buffer pipelines drew from culling output that skipped passes had left stale. 
 transitions per execution (COMMON to UNORDERED_ACCESS, to INDIRECT_ARGUMENT, back to COMMON); the first waits for the
 previous indirect execution though it read another piece, so a list's indirect draws never overlap. With
 `--clamp-enhanced-barriers` (`ClampBarriers`) it takes enhanced buffer barriers instead: one before the recording's
-first clamp in the buffer, one per clamp from its compute writes to the argument fetch (or, for records `--mesh-launch` launches, to the amplification stage's read). Each later barrier's SyncBefore holds the scopes earlier ones ended in, as the enhanced-barrier rules ask for one buffer within an ExecuteCommandLists.
+first clamp in the buffer, one per clamp from its compute writes to the argument fetch (or, for records `--mesh-launch` launches, to the amplification stage's read). Each later barrier's SyncBefore holds the scopes earlier ones ended in, as the enhanced-barrier rules ask for one buffer within an ExecuteCommandLists. A compute list's barriers name no VERTEX_SHADING: the runtime refuses it there at Close (E_INVALIDARG), and the boots that recorded it later faulted in the NVIDIA driver inside a Dispatch (#64, w406).
 
 A compute list names only compute states (VERTEX_AND_CONSTANT_BUFFER, UNORDERED_ACCESS, NON_PIXEL_SHADER_RESOURCE,
 INDIRECT_ARGUMENT, COPY_DEST, COPY_SOURCE, acceleration structure) and a copy list only the copy ones
