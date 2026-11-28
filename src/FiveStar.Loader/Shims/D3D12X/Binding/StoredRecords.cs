@@ -27,6 +27,7 @@ internal static class StoredRecords
     private const int ResourceOperand = 2;
     private const string LoadPrefix = "s_load_";
     private const string Copy = "s_mov_b32";
+    private const string TrapTemporaryPrefix = "ttmp";
 
     private static readonly string[] Stores = ["image_store", "image_atomic"];
 
@@ -81,13 +82,19 @@ internal static class StoredRecords
         return destination;
     }
 
+    /// <summary>The operand, or null for a trap temporary (not an SGPR) or anything the parser refuses, as TableReach reads them.</summary>
     private static Operand? Parse(string text)
     {
+        if (text.StartsWith(TrapTemporaryPrefix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
         try
         {
             return OperandParser.Parse(text);
         }
-        catch (UnsupportedProgramException)
+        catch (Exception exception) when (exception is UnsupportedProgramException or FormatException or OverflowException)
         {
             return null;
         }

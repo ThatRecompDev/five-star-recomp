@@ -26,6 +26,9 @@ public static class TableReach
     private const int ResourceOperand = 2;
     private const string SamplePrefix = "image_sample";
 
+    /// <summary>Trap temporaries as llvm-objdump prints them (<c>ttmp5</c>, <c>ttmp[4:5]</c>).</summary>
+    private const string TrapTemporaryPrefix = "ttmp";
+
     /// <summary>The reach of a load at an offset the program computes: the game's tables span 0x8000 bytes (its 0x7fe0 offset mask).</summary>
     public const uint DynamicReach = 0x8000;
 
@@ -153,23 +156,23 @@ public static class TableReach
         var pair = Parse(arguments[BaseOperand]);
         var offset = Parse(arguments[OffsetOperand]);
 
-        if (pair is null || offset is null || pair.Kind != OperandKind.Scalar || !zero.Contains(pair.High))
+        if (pair is null || pair.Kind != OperandKind.Scalar || !zero.Contains(pair.High))
         {
             return;
         }
 
         int? entry = Entry(pair.Low, origin, written);
 
-        if (entry is null || !(offset.IsImmediate || offset.Kind == OperandKind.Scalar))
+        if (entry is null || (offset is not null && !(offset.IsImmediate || offset.Kind == OperandKind.Scalar)))
         {
             return;
         }
 
         // An offset in an SGPR is an index the program computed (TL_PS_PBR_MATERIAL_STANDARD picks a probe's T# at
-        // s14 + 32 * index): it may reach anywhere in the table.
+        // s14 + 32 * index): it may reach anywhere in the table. So may an offset this scan cannot read.
         uint end = DynamicReach;
 
-        if (offset.IsImmediate)
+        if (offset is not null && offset.IsImmediate)
         {
             end = offset.Value + ((uint)(destination.High - destination.Low + 1) * DwordBytes);
         }
@@ -233,13 +236,22 @@ public static class TableReach
         return null;
     }
 
+    /// <summary>
+    /// The operand, or null for one this scan does not follow: a trap temporary (ttmp0 to ttmp15, the trap handler's
+    /// registers, not SGPRs; issue #64 logged the first-chance exception of ttmp5) or anything the parser refuses.
+    /// </summary>
     private static Operand? Parse(string text)
     {
+        if (text.StartsWith(TrapTemporaryPrefix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
         try
         {
             return OperandParser.Parse(text);
         }
-        catch (UnsupportedProgramException)
+        catch (Exception exception) when (exception is UnsupportedProgramException or FormatException or OverflowException)
         {
             return null;
         }
