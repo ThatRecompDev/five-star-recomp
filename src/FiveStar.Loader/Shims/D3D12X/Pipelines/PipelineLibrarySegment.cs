@@ -83,7 +83,8 @@ internal sealed unsafe class PipelineLibrarySegment : IDisposable
 
         lock (_gate)
         {
-            if (_library == 0)
+            // A mapped segment's library reads the blob: the load holds the view too, so a disposal meanwhile does not unmap it.
+            if (_library == 0 || (_view is not null && !_view.Enter()))
             {
                 return HResult.Pending;
             }
@@ -99,6 +100,7 @@ internal sealed unsafe class PipelineLibrarySegment : IDisposable
         finally
         {
             DesktopDevice.Release(library);
+            _view?.Exit();
         }
     }
 
