@@ -33,6 +33,14 @@ internal sealed unsafe class DrawProbes
     private const int FloatRgba16 = 10;
     private const int Float32 = 41;
     private const int Float16 = 54;
+
+    /// <summary>DXGI_FORMAT_R16G16_FLOAT (the velocity target) and R32G32_UINT (the hair's visibility buffer), two channels each.</summary>
+    private const int FloatRg16 = 34;
+    private const int Rg32Uint = 17;
+    private const int TwoChannels = 2;
+
+    /// <summary>The largest finite f16; a value this large in an f16 target came saturated or infinite.</summary>
+    private const double LargestHalf = 65504;
     private const long SkipsLogged = 100;
 
     /// <summary>The format a buffer probe (<see cref="RecordBuffer"/>) carries: no DXGI format.</summary>
@@ -375,7 +383,8 @@ internal sealed unsafe class DrawProbes
 
             string floats = FloatSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format)
                 + StencilSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format)
-                + UintSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format);
+                + UintSummary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format)
+                + Uint2Summary(source, (int)probe.Footprint.Footprint.RowPitch, probe.Width, (int)probe.Rows, probe.Format);
 
             if (summary is null)
             {
@@ -493,26 +502,21 @@ internal sealed unsafe class DrawProbes
     /// </summary>
     public static string FloatSummary(ReadOnlySpan<byte> source, int rowPitch, int width, int rows, int format)
     {
-        int channels = format switch
-        {
-            FloatRgba32 => Channels,
-            FloatRgba16 => Channels,
-            Float32 => 1,
-            Float16 => 1,
-            _ => 0,
-        };
+        int channels = FloatChannels(format);
 
         if (channels == 0 || width == 0 || rows == 0)
         {
             return string.Empty;
         }
 
-        int bytes = format is FloatRgba16 or Float16 ? sizeof(ushort) : sizeof(float);
+        int bytes = format is FloatRgba16 or FloatRg16 or Float16 ? sizeof(ushort) : sizeof(float);
+
         var sum = new double[channels];
         var max = new double[channels];
         var min = new double[channels];
         var zeros = new long[channels];
         var negativeZeros = new long[channels];
+        var saturated = new long[channels];
 
         var nans = new long[channels];
         Array.Fill(max, double.MinValue);
@@ -542,13 +546,100 @@ internal sealed unsafe class DrawProbes
                     nans[i % channels]++;
                 }
 
+                if (Math.Abs(value) >= LargestHalf)
+                {
+                    saturated[i % channels]++;
+                }
+
                 sum[i % channels] += value;
                 max[i % channels] = Math.Max(max[i % channels], value);
                 min[i % channels] = Math.Min(min[i % channels], value);
             }
         }
 
-        return $"; float mean ({Values(sum.Select(value => value / ((double)width * rows)))}), max ({Values(max)}), min ({Values(min)}); exactly 0.0 ({string.Join(", ", zeros)}){NegativeZeros(negativeZeros)} and NaN ({string.Join(", ", nans)}) of {width * (long)rows} pixels";
+        return $"; float mean ({Values(sum.Select(value => value / ((double)width * rows)))}), max ({Values(max)}), min ({Values(min)}); exactly 0.0 ({string.Join(", ", zeros)}){NegativeZeros(negativeZeros)}{Saturated(saturated)} and NaN ({string.Join(", ", nans)}) of {width * (long)rows} pixels";
+    }
+
+    /// <summary>The channels <see cref="FloatSummary"/> reads of a float format; 0 for any other.</summary>
+    private static int FloatChannels(int format)
+    {
+        return format switch
+        {
+            FloatRgba32 => Channels,
+            FloatRgba16 => Channels,
+            FloatRg16 => TwoChannels,
+            Float32 => 1,
+            Float16 => 1,
+            _ => 0,
+        };
+    }
+
+    /// <summary>", at least 65504 in size (n, ...)" when a channel holds a value an f16 cannot exceed (65504 or infinity); empty otherwise.</summary>
+    private static string Saturated(long[] counts)
+    {
+        if (!counts.Any(count => count > 0))
+        {
+            return string.Empty;
+        }
+
+        return $", at least 65504 in size ({string.Join(", ", counts)})";
+    }
+
+    /// <summary>
+    /// For an R32G32_UINT copy (the hair's visibility buffer): the pixels with either word non-zero, and each word's
+    /// smallest and largest non-zero value; empty for other formats.
+    /// </summary>
+    public static string Uint2Summary(ReadOnlySpan<byte> source, int rowPitch, int width, int rows, int format)
+    {
+        if (format != Rg32Uint || width == 0 || rows == 0)
+        {
+            return string.Empty;
+        }
+
+        long written = 0;
+        var max = new uint[TwoChannels];
+        var min = new uint[TwoChannels];
+        Array.Fill(min, uint.MaxValue);
+
+        for (int y = 0; y < rows; y++)
+        {
+            var row = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, uint>(source.Slice(y * rowPitch, width * TwoChannels * sizeof(uint)));
+
+            for (int x = 0; x < width; x++)
+            {
+                uint first = row[x * TwoChannels];
+                uint second = row[(x * TwoChannels) + 1];
+
+                if ((first | second) != 0)
+                {
+                    written++;
+                }
+
+                for (int channel = 0; channel < TwoChannels; channel++)
+                {
+                    uint word = row[(x * TwoChannels) + channel];
+
+                    if (word != 0)
+                    {
+                        max[channel] = Math.Max(max[channel], word);
+                        min[channel] = Math.Min(min[channel], word);
+                    }
+                }
+            }
+        }
+
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"; {written} of {width * (long)rows} pixels written, non-zero words {WordRange(min[0], max[0])}, {WordRange(min[1], max[1])}");
+    }
+
+    /// <summary>"0xmin-0xmax", or "none" when no word was non-zero.</summary>
+    private static string WordRange(uint min, uint max)
+    {
+        if (max == 0)
+        {
+            return "none";
+        }
+
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"0x{min:x}-0x{max:x}");
     }
 
     /// <summary>", -0.0 (n, ...)" when a channel holds -0.0; empty otherwise.</summary>
