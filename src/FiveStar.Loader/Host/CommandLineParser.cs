@@ -134,7 +134,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs" or "--gpu-timings":
                 return SetBreadcrumbs(option);
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-describe-views" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--log-draws" or "--capture-when-world" or "--d3d12-dump-targets" or "--dump-frame" or "--dump-frame-dir" or "--dump-frame-max" or "--dump-frame-filter" or "--dump-frame-min-width" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-describe-views" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--log-draws" or "--capture-when-world" or "--d3d12-dump-targets" or "--dump-frame" or "--dump-frame-dir" or "--dump-frame-max" or "--dump-frame-filter" or "--dump-frame-min-width" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes" or "--watch-address":
                 return SetTraceDraws(option);
             case "--capture-dir" or "--capture-presents" or "--pix-capture" or "--pix-capture-dir":
                 return SetCapture(option);
@@ -1185,6 +1185,13 @@ internal sealed class CommandLineParser
         if (option == "--probe-pipeline")
         {
             _options.ProbePipeline = Next();
+
+            return true;
+        }
+
+        if (option == "--watch-address")
+        {
+            _options.WatchAddress = Next();
 
             return true;
         }

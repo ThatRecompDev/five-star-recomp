@@ -6,6 +6,7 @@ using FiveStar.Loader.Diagnostics;
 using FiveStar.Loader.Native;
 using FiveStar.Loader.Shims.D3D12X.DebugLayer;
 using FiveStar.Loader.Shims.D3D12X.Present;
+using FiveStar.Loader.Shims.D3D12X.Resources;
 using FiveStar.Loader.Shims.D3D12X.States;
 
 namespace FiveStar.Loader.Shims.D3D12X;
@@ -83,6 +84,11 @@ internal static unsafe class TextureCopies
                 return;
             }
 
+            if (AddressWatch.Enabled)
+            {
+                AddressWatch.CopiedRegion(D3D12X.Objects, D3D12X.Textures, destination, x, y, z, source, box);
+            }
+
             var to = *destination;
             var from = *source;
             var states = D3D12X.ListStates.For(self);
@@ -123,6 +129,12 @@ internal static unsafe class TextureCopies
             var states = D3D12X.ListStates.For(self);
             var to = new TextureCopyLocation { Resource = destination };
             var from = new TextureCopyLocation { Resource = source };
+
+            if (AddressWatch.Enabled)
+            {
+                AddressWatch.CopiedWhole(D3D12X.Objects, D3D12X.Textures, destination, &from);
+            }
+
             var target = Side(states, ref to, ResourceStates.CopyDest);
             var origin = Side(states, ref from, ResourceStates.CopySource);
 
