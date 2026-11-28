@@ -116,7 +116,7 @@ internal static unsafe class WarmPipelinesCommand
         var standIns = new StandInPipelines(PipelineSlots.CreationBudget, builds, builds, warnings);
         var factory = new PipelineFactory(device2, root, library, new ProgramSignatures(folders.Programs!), warnings, null, standIns, cache) { OnDemand = onDemand, LinkInline = true };
         var shard = options.WarmShard ?? (0, 1);
-        var warmup = new PipelineWarmup(factory, cache, folders.Cache!, log) { BuildsHeavy = shard.Count == 1 };
+        var warmup = new PipelineWarmup(factory, cache, folders.Cache!, log) { BuildsHeavy = shard.Count == 1, LoadsCached = options.WarmLoadCached };
 
         // The pipelines earlier boots asked for, in first-use order, then (unless --warm-used-only) the console cache's.
         var used = PipelineJournal.Read(folders.Cache!);

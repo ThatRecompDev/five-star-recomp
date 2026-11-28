@@ -196,10 +196,8 @@ internal sealed class CommandLineParser
                 _options.EagerPipelines = true;
 
                 return true;
-            case "--warm-used-only":
-                _options.WarmUsedOnly = true;
-
-                return true;
+            case "--warm-used-only" or "--warm-load-cached":
+                return SetWarmFlag(option);
             case "--program-cache" or "--shader-overrides":
                 return SetProgramFolder(option);
             case "--no-on-demand":
@@ -393,6 +391,21 @@ internal sealed class CommandLineParser
         }
 
         _options.DxcBackend = backend == "dxc";
+
+        return true;
+    }
+
+    /// <summary>--warm-used-only or --warm-load-cached.</summary>
+    private bool SetWarmFlag(string option)
+    {
+        if (option == "--warm-used-only")
+        {
+            _options.WarmUsedOnly = true;
+        }
+        else
+        {
+            _options.WarmLoadCached = true;
+        }
 
         return true;
     }

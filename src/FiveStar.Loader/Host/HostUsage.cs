@@ -122,6 +122,8 @@ internal static class HostUsage
                                  then every pipeline of the console pipeline cache, into the disk cache (with
                                  --shader-dir, --translated-dir), resuming where a run stopped
           --warm-used-only       warm-up: only the pipelines earlier boots asked for
+          --warm-load-cached     warm-up: load the pipelines the cache holds too, so the driver's shader cache of this
+                                 executable has them (boots of the same build then load them at once)
           --warm-jobs <n>        pipelines the warm-up builds at once (default 4; split over the processes)
           --warm-processes <n>   warm-up processes, each building every n-th pipeline into the same cache, pipelines of
                                  4 MiB of DXIL or more left to a last pass (default one per 16 GB of RAM, 1 to 4)
