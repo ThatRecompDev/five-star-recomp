@@ -134,7 +134,7 @@ internal sealed class CommandLineParser
                 return SetTraceQueues();
             case "--d3d12-breadcrumbs" or "--gpu-timings":
                 return SetBreadcrumbs(option);
-            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--log-draws" or "--capture-when-world" or "--d3d12-dump-targets" or "--dump-frame" or "--dump-frame-dir" or "--dump-frame-max" or "--dump-frame-filter" or "--dump-frame-min-width" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
+            case "--d3d12-trace-draws" or "--d3d12-trace-pipeline" or "--d3d12-trace-records" or "--d3d12-describe-views" or "--d3d12-watch-target" or "--d3d12-watch-limit" or "--d3d12-watch-rendered" or "--log-draws" or "--capture-when-world" or "--d3d12-dump-targets" or "--dump-frame" or "--dump-frame-dir" or "--dump-frame-max" or "--dump-frame-filter" or "--dump-frame-min-width" or "--probe-pipeline" or "--census-passes" or "--hold-passes" or "--stub-passes":
                 return SetTraceDraws(option);
             case "--capture-dir" or "--capture-presents" or "--pix-capture" or "--pix-capture-dir":
                 return SetCapture(option);
@@ -1211,6 +1211,11 @@ internal sealed class CommandLineParser
             _options.D3D12TraceRecords = Shims.D3D12X.DebugLayer.TraceRecords.Parse(Next());
         }
 
+        if (option == "--d3d12-describe-views")
+        {
+            _options.D3D12DescribeViews = ParseIndices(Next());
+        }
+
         SetWatchTarget(option);
 
         if (option == "--log-draws")
@@ -1226,6 +1231,28 @@ internal sealed class CommandLineParser
         SetDumps(option);
 
         return true;
+    }
+
+    private const string HexPrefix = "0x";
+
+    /// <summary>Comma-separated desktop heap indices (decimal or 0x hex) of <c>--d3d12-describe-views</c>.</summary>
+    private static uint[] ParseIndices(string text)
+    {
+        return [.. text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(ParseIndex)];
+    }
+
+    private static uint ParseIndex(string text)
+    {
+        bool hex = text.StartsWith(HexPrefix, StringComparison.OrdinalIgnoreCase);
+        var style = hex ? System.Globalization.NumberStyles.HexNumber : System.Globalization.NumberStyles.None;
+        string digits = hex ? text[HexPrefix.Length..] : text;
+
+        if (!uint.TryParse(digits, style, System.Globalization.CultureInfo.InvariantCulture, out uint index))
+        {
+            throw new CommandLineException($"--d3d12-describe-views: {text} is not a heap index");
+        }
+
+        return index;
     }
 
     /// <summary><c>--dump-frame</c>: a present number, <c>world[+n]</c> or <c>Ns</c> (seconds after the loader started).</summary>

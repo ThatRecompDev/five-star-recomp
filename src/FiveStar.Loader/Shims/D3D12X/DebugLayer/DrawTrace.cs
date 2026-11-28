@@ -658,6 +658,22 @@ internal sealed unsafe class DrawTrace
         return $"0x{twin.Twin:x} format {twin.Format} of 0x{twin.Depth:x}";
     }
 
+    /// <summary>
+    /// <c>--d3d12-describe-views</c>: desktop heap indices whose views are named at each captured present, as the trace saw
+    /// them written (a bindless program's texture index found by a shader override or probe resolves to its resource,
+    /// size and format).
+    /// </summary>
+    public static IReadOnlyList<uint> DescribedViews { get; set; } = [];
+
+    /// <summary>Logs the view at each of <see cref="DescribedViews"/>.</summary>
+    private void DescribeViews(long present)
+    {
+        foreach (uint index in DescribedViews)
+        {
+            _log.Info($"  [draws] present {present}: desktop {index}: {ViewAt(index)}");
+        }
+    }
+
     /// <summary>The view this trace saw written at desktop heap index <paramref name="index"/> (resource, size and format).</summary>
     private string ViewAt(uint index)
     {
@@ -1252,6 +1268,8 @@ internal sealed unsafe class DrawTrace
             _probes.Release(Resets);
             Volatile.Write(ref _windowEnd, Interlocked.Read(ref _draws) + WindowDraws);
             _census.Report(present, PipelineName, resource => _targetDescriptions.GetValueOrDefault(resource, "?"), standIn => _d3d12.Pipelines?.StandIns.State(standIn) ?? "unknown");
+
+            DescribeViews(present);
         }
 
         // Targets are dumped during the one frame after a captured present.

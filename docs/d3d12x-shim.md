@@ -854,6 +854,9 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
   the same index, to tell a record the window lacks from one the game never wrote. An entry `offset@byte` also shows
   the dword at that byte of the V#'s buffer: `0x380@0x11c` is the loop count of `MSNC_VS_LinearDepthSkin_f1f2249c`,
   dword 0x11c of the constant buffer whose V# is record 28 of its table.
+- `--d3d12-describe-views <index,...>` (implies the draw trace) names, at each captured present, the view the trace saw
+  written at each of these desktop heap indices (resource, size, format): a bindless program's texture index, found by a
+  shader override or a probe, resolves to the texture it sampled.
 - `--d3d12-watch-target WxH:format` follows the render targets of that shape (`2560x1440:10` is the lit HDR): in the
   frame after each captured present, every draw or ExecuteIndirect that renders into one, and each traced dispatch or
   compute ExecuteIndirect (which may write it through a UAV), reads it back after itself: each pipeline's first write to
