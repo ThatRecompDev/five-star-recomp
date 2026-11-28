@@ -10,7 +10,8 @@ namespace FiveStar.Loader.Shims.Input;
 /// [repeat &lt;n&gt; every &lt;s&gt;]</c>, '#' starting a comment. Keys are the names of the input config; a scripted key
 /// reaches the game like a held desktop key, so the keyboard and the keyboard-and-mouse gamepad both see it (Space is
 /// A, Escape is Menu). <c>capture</c> in place of a key reads back the next present (with <c>--capture-dir</c>);
-/// <c>learn &lt;name&gt;</c> stores the next present's signature as screen <c>name</c>; <c>cursor &lt;dx&gt; &lt;dy&gt;</c>
+/// <c>dump</c> makes the next present the <c>--dump-frame</c> frame; <c>exit</c> ends the run once the captures and
+/// dumps already started are written (<see cref="FiveStar.Loader.Diagnostics.ScriptWork"/>); <c>learn &lt;name&gt;</c> stores the next present's signature as screen <c>name</c>; <c>cursor &lt;dx&gt; &lt;dy&gt;</c>
 /// moves the cursor that many pixels a second for the hold time (the gamepad's right stick, full at 1000). A time
 /// written <c>+&lt;s&gt;</c> is that many seconds after the previous line's time.
 /// <para>
@@ -37,6 +38,8 @@ internal sealed class InputScript
     private const string RepeatWord = "repeat";
     private const string EveryWord = "every";
     private const string CaptureWord = "capture";
+    private const string DumpWord = "dump";
+    private const string ExitWord = "exit";
     private const string LearnWord = "learn";
     private const string CursorWord = "cursor";
     private const string ScreenWord = "screen";
@@ -87,7 +90,7 @@ internal sealed class InputScript
     /// <summary>Every cursor motion.</summary>
     public IReadOnlyList<ScriptedMotion> Motions { get; }
 
-    /// <summary>The <c>capture</c> and <c>learn</c> lines, in block and start order.</summary>
+    /// <summary>The <c>capture</c>, <c>dump</c>, <c>exit</c> and <c>learn</c> lines, in block and start order.</summary>
     public IReadOnlyList<ScriptedMark> Marks { get; }
 
     /// <summary>What each block waits for; block 0 begins at loader start.</summary>
@@ -309,11 +312,19 @@ internal sealed class InputScript
 
         if (word.Equals(CaptureWord, StringComparison.OrdinalIgnoreCase))
         {
-            marks.Add(new ScriptedMark(block, Number(fields[0]), null));
+            marks.Add(new ScriptedMark(block, Number(fields[0]), ScriptedMarkKind.Capture, null));
+        }
+        else if (word.Equals(DumpWord, StringComparison.OrdinalIgnoreCase))
+        {
+            marks.Add(new ScriptedMark(block, Number(fields[0]), ScriptedMarkKind.Dump, null));
+        }
+        else if (word.Equals(ExitWord, StringComparison.OrdinalIgnoreCase))
+        {
+            marks.Add(new ScriptedMark(block, Number(fields[0]), ScriptedMarkKind.Exit, null));
         }
         else if (word.Equals(LearnWord, StringComparison.OrdinalIgnoreCase))
         {
-            marks.Add(new ScriptedMark(block, Number(fields[0]), LearnName(fields)));
+            marks.Add(new ScriptedMark(block, Number(fields[0]), ScriptedMarkKind.Learn, LearnName(fields)));
         }
         else if (word.Equals(CursorWord, StringComparison.OrdinalIgnoreCase))
         {

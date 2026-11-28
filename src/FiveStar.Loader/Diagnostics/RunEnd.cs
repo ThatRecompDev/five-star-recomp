@@ -4,20 +4,26 @@
 namespace FiveStar.Loader.Diagnostics;
 
 /// <summary>
-/// Ends a boot from the present path once it has what it was asked for: <c>--exit-after-present N</c> after present N,
-/// <c>--exit-when-done</c> when every one-shot capture fired (<see cref="CaptureCompletion"/>). The presenting thread
-/// only signals <see cref="Requested"/>; the runner then ends the process as <c>--run-timeout</c> does.
+/// Ends a boot once it has what it was asked for: <c>--exit-after-present N</c> after present N,
+/// <c>--exit-when-done</c> when every one-shot capture fired (<see cref="CaptureCompletion"/>, the input script's capture
+/// and dump lines among them), an input script's <c>exit</c> line once the lines it started are written
+/// (<see cref="ScriptWork"/>). The present path and the script only signal <see cref="Requested"/>; the runner then ends
+/// the process as <c>--run-timeout</c> does.
 /// </summary>
 internal static class RunEnd
 {
     private static readonly ManualResetEventSlim Signal = new(false);
     private static string? _reason;
+    private static long _lastPresent;
 
     /// <summary>The present after which the boot ends (<c>--exit-after-present</c>); 0 for none.</summary>
     public static long AfterPresentLimit { get; set; }
 
     /// <summary>The captures waited for (<c>--exit-when-done</c>); null when not asked.</summary>
     public static CaptureCompletion? Captures { get; set; }
+
+    /// <summary>The input script's capture and dump lines not written yet, and its exit line.</summary>
+    public static ScriptWork Script { get; private set; } = new(CaptureCompletion.DefaultFallbackPresents);
 
     /// <summary>Where the ending line goes.</summary>
     public static LoaderLog? Log { get; set; }
@@ -47,12 +53,63 @@ internal static class RunEnd
     public static void Fired(string name)
     {
         Captures?.Fired(name);
+        Script.Fired(name);
+    }
+
+    /// <summary>A script capture or dump line whose time has not come; <c>--exit-when-done</c> waits for it.</summary>
+    public static void ExpectScript(string name)
+    {
+        Script.Expect(name);
+        Captures?.Expect(name, CaptureCompletion.Held);
+    }
+
+    /// <summary>A reload dropped an expected script line.</summary>
+    public static void WithdrawScript(string name)
+    {
+        if (Script.Withdraw(name))
+        {
+            Captures?.Withdraw(name);
+        }
+    }
+
+    /// <summary>A script capture or dump line asked for the next present.</summary>
+    public static void StartScript(string name)
+    {
+        Script.Started(name);
+        Captures?.Expect(name, CaptureCompletion.Held);
+        Captures?.Schedule(name, Volatile.Read(ref _lastPresent) + 1);
+    }
+
+    /// <summary>The script's exit line came at <paramref name="seconds"/>: the boot ends once the lines it started are written.</summary>
+    public static void ExitScript(double seconds)
+    {
+        Script.Exit(seconds);
+        End(Script.Due(Volatile.Read(ref _lastPresent)));
+    }
+
+    /// <summary>
+    /// <c>--exit-when-done</c>: expects the script lines not written yet, those started scheduled at the next present
+    /// (the script runs before <see cref="Captures"/> is set).
+    /// </summary>
+    public static void ExpectScriptWork(CaptureCompletion captures)
+    {
+        foreach (var (name, started) in Script.Open())
+        {
+            captures.Expect(name, CaptureCompletion.Held);
+
+            if (started)
+            {
+                captures.Schedule(name, Volatile.Read(ref _lastPresent) + 1);
+            }
+        }
     }
 
     /// <summary>After present <paramref name="present"/>, on the presenting thread.</summary>
     public static void AfterPresent(long present)
     {
-        if (Signal.IsSet || (AfterPresentLimit == 0 && Captures is null))
+        Volatile.Write(ref _lastPresent, present);
+
+        if (Signal.IsSet)
         {
             return;
         }
@@ -64,14 +121,7 @@ internal static class RunEnd
             reason = $"[exit-after-present] present {present} reached; ending";
         }
 
-        if (reason is null)
-        {
-            return;
-        }
-
-        Volatile.Write(ref _reason, reason);
-        Log?.Info(reason);
-        Signal.Set();
+        End(reason ?? Script.Due(present));
     }
 
     /// <summary>Forgets the settings and the request (tests).</summary>
@@ -79,7 +129,21 @@ internal static class RunEnd
     {
         AfterPresentLimit = 0;
         Captures = null;
+        Script = new ScriptWork(CaptureCompletion.DefaultFallbackPresents);
+        Volatile.Write(ref _lastPresent, 0);
         Volatile.Write(ref _reason, null);
         Signal.Reset();
+    }
+
+    /// <summary>Logs <paramref name="reason"/> and signals the runner, once; null does nothing.</summary>
+    private static void End(string? reason)
+    {
+        if (reason is null || Interlocked.CompareExchange(ref _reason, reason, null) is not null)
+        {
+            return;
+        }
+
+        Log?.Info(reason);
+        Signal.Set();
     }
 }

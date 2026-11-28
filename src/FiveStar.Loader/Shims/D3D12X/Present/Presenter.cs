@@ -278,7 +278,7 @@ internal sealed unsafe class Presenter : IDisposable
         if (plane)
         {
             Capture.Save(_objects.DesktopDevice, source.Resource, source.State, $"present-{_presents}");
-            RunEnd.Fired(FrameCapture.EntryName(_presents));
+            Capture.Written(_presents);
         }
 
         if (targets)

@@ -23,6 +23,8 @@ internal sealed class FrameCapture : IDisposable
     private readonly HashSet<long> _presents;
     private readonly TextureReadback _readback = new();
     private readonly LoaderLog _log;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _asked = new();
+    private readonly List<string> _answering = [];
     private int _requested;
     private long _requestedPresent;
 
@@ -53,9 +55,40 @@ internal sealed class FrameCapture : IDisposable
         {
             Interlocked.CompareExchange(ref _requestedPresent, present, NoPresent);
             Volatile.Write(ref _requested, 0);
+            TakeAsked();
         }
 
         return _presents.Contains(present) || present == Volatile.Read(ref _requestedPresent);
+    }
+
+    /// <summary>
+    /// <paramref name="present"/> is written: fires its <c>--exit-when-done</c> entry and, when it answers a request,
+    /// the requesting script lines'; the presenting thread.
+    /// </summary>
+    public void Written(long present)
+    {
+        RunEnd.Fired(EntryName(present));
+
+        if (present != Volatile.Read(ref _requestedPresent))
+        {
+            return;
+        }
+
+        foreach (string entry in _answering)
+        {
+            RunEnd.Fired(entry);
+        }
+
+        _answering.Clear();
+    }
+
+    /// <summary>The script lines that asked for the present just requested.</summary>
+    private void TakeAsked()
+    {
+        while (_asked.TryDequeue(out string? entry))
+        {
+            _answering.Add(entry);
+        }
     }
 
     /// <summary>Captures <paramref name="present"/> as well (the world trigger); the presenting thread, as <see cref="Wants"/>.</summary>
@@ -64,9 +97,13 @@ internal sealed class FrameCapture : IDisposable
         _presents.Add(present);
     }
 
-    /// <summary>Captures the next present as well (an input script's <c>capture</c> line); any thread.</summary>
-    public void RequestNext()
+    /// <summary>
+    /// Captures the next present as well (an input script's <c>capture</c> line, whose run-end entry
+    /// <paramref name="entry"/> fires once it is written); any thread.
+    /// </summary>
+    public void RequestNext(string entry)
     {
+        _asked.Enqueue(entry);
         Volatile.Write(ref _requestedPresent, NoPresent);
         Volatile.Write(ref _requested, 1);
     }

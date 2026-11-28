@@ -8,11 +8,16 @@ namespace FiveStar.Loader.Diagnostics;
 /// entry has fired and <see cref="Grace"/> more presents went by, or, when some never fire, <see cref="FallbackPresents"/>
 /// presents after the last present any entry was scheduled for (none scheduled: no fallback). Entries can be added
 /// while the boot runs (the world trigger schedules its captures then); a name fired before it is expected is ignored.
+/// An entry expected at <see cref="Held"/> (an input script line whose time has not come) holds the fallback off until
+/// it is scheduled.
 /// </summary>
 internal sealed class CaptureCompletion
 {
     /// <summary>Presents waited after the last capture by default.</summary>
     public const int DefaultGrace = 30;
+
+    /// <summary>The present of an entry that comes at a time, not a present: no fallback while it is not scheduled.</summary>
+    public const long Held = -1;
 
     /// <summary>Presents after the last scheduled target at which a boot whose entries did not all fire ends anyway.</summary>
     public const long DefaultFallbackPresents = 600;
@@ -71,6 +76,18 @@ internal sealed class CaptureCompletion
         }
     }
 
+    /// <summary>Forgets <paramref name="name"/>, which will not fire (a reload dropped the script line).</summary>
+    public void Withdraw(string name)
+    {
+        lock (_gate)
+        {
+            if (_entries.Remove(name))
+            {
+                _order.Remove(name);
+            }
+        }
+    }
+
     /// <summary><paramref name="name"/> fired: its output is written.</summary>
     public void Fired(string name)
     {
@@ -111,6 +128,11 @@ internal sealed class CaptureCompletion
                     return $"[exit-when-done] all requested captures done at present {_doneAt}; ending";
                 }
 
+                return null;
+            }
+
+            if (pending.Any(name => _entries[name].Present == Held))
+            {
                 return null;
             }
 

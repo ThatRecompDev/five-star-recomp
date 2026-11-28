@@ -1245,6 +1245,21 @@ internal sealed unsafe class DrawTrace
         _log.Info($"  [dump-frame] {seconds} s after start at present {present}: dumping the frame after present {dumped}");
     }
 
+    /// <summary>An input script's <c>dump</c> line: the frame dump is set to the next present, and that present is captured.</summary>
+    private void TriggerOnScript(long present)
+    {
+        if (!_stages.TakeAsked())
+        {
+            return;
+        }
+
+        long dumped = present + 1;
+        FrameStageDump.Present = dumped;
+        _capture.Add(dumped);
+        RunEnd.Schedule(FrameStageDump.EntryName, dumped);
+        _log.Info($"  [dump-frame] input script at present {present}: dumping the frame after present {dumped}");
+    }
+
     /// <summary>The loader process's start time.</summary>
     private static DateTime ProcessStart()
     {
@@ -1264,6 +1279,7 @@ internal sealed unsafe class DrawTrace
     {
         TriggerOnWorld(present);
         TriggerOnTime(present);
+        TriggerOnScript(present);
         bool wanted = _capture.Wants(present);
         Volatile.Write(ref _filterOpen, wanted);
         Interlocked.Exchange(ref _filtered, 0);

@@ -9,7 +9,8 @@ namespace FiveStar.Loader.Shims.Input;
 /// <summary>
 /// Follows the <c>--input-script</c> file while the game runs. Every <see cref="Interval"/> it reloads the file when
 /// its write time changed (a file that does not parse keeps the old script, warned once per change; begun blocks stay
-/// begun), starts the <c>capture</c> and <c>learn</c> lines whose time has come, and while a <c>screen</c> or
+/// begun), starts the <c>capture</c>, <c>dump</c>, <c>exit</c> and <c>learn</c> lines whose time has come (the capture and
+/// dump lines not due yet are expected by <see cref="RunEnd"/>), and while a <c>screen</c> or
 /// <c>change</c> block waits asks for the next present's signature. A block begins when the <see cref="BlockMatcher"/>
 /// sees its screen or its change, when its timeout passes (warned), or when the teach key (<see cref="TeachKey"/>) is
 /// pressed while a screen block waits: the screen showing then is learned under the block's name. Marks already due when
@@ -28,7 +29,8 @@ internal sealed class InputScriptWatcher : IDisposable
     private readonly string _path;
     private readonly ScriptedDesktopInput _input;
     private readonly Stopwatch _clock;
-    private readonly Action _capture;
+    private readonly Action<string> _capture;
+    private readonly Action<string> _dump;
     private readonly Action _sample;
     private readonly ScreenStore _screens;
     private readonly LoaderLog _log;
@@ -49,23 +51,24 @@ internal sealed class InputScriptWatcher : IDisposable
     /// <param name="script">The script as loaded at start.</param>
     /// <param name="input">The scripted desktop source the presses go to.</param>
     /// <param name="clock">The script's clock.</param>
-    /// <param name="capture">Requests a readback of the next present.</param>
-    /// <param name="sample">Requests the next present's signature, delivered to <see cref="Seen"/>.</param>
+    /// <param name="outputs">The readbacks, dumps and signatures (delivered to <see cref="Seen"/>) the lines ask for.</param>
     /// <param name="screens">The learned screens.</param>
     /// <param name="log">Reloads, marks and screens are logged.</param>
-    public InputScriptWatcher(string path, InputScript script, ScriptedDesktopInput input, Stopwatch clock, Action capture, Action sample, ScreenStore screens, LoaderLog log)
+    public InputScriptWatcher(string path, InputScript script, ScriptedDesktopInput input, Stopwatch clock, ScriptOutputs outputs, ScreenStore screens, LoaderLog log)
     {
         _path = path;
         _script = script;
         _input = input;
         _clock = clock;
-        _capture = capture;
+        _capture = outputs.Capture;
+        _dump = outputs.Dump;
 
-        _sample = sample;
+        _sample = outputs.Sample;
         _screens = screens;
         _log = log;
 
         _marksDone = new bool[script.Marks.Count];
+        ExpectWork(null, null);
         _written = File.GetLastWriteTimeUtc(path);
         _timer = new Timer(_ => Tick(), null, Interval, Interval);
     }
@@ -137,17 +140,21 @@ internal sealed class InputScriptWatcher : IDisposable
             return;
         }
 
-        script.Continue(_script);
+        var older = _script;
+        var olderDone = _marksDone;
+        script.Continue(older);
         _script = script;
         _input.Replace(script);
         _marksDone = new bool[script.Marks.Count];
 
         for (int i = 0; i < _marksDone.Length; i++)
         {
-            _marksDone[i] = script.TryTime(script.Marks[i].Block, script.Marks[i].Start, out double at) && at <= seconds;
+            bool due = script.TryTime(script.Marks[i].Block, script.Marks[i].Start, out double at) && at <= seconds;
+            _marksDone[i] = due || script.Marks[i].Block < script.CurrentBlock;
         }
 
-        _log.Info($"  [input] script reloaded at {seconds:F1} s: {script.Presses.Count} presses, {script.Marks.Count} captures and learns, {script.Screens.Count - 1} screens");
+        ExpectWork(older, olderDone);
+        _log.Info($"  [input] script reloaded at {seconds:F1} s: {script.Presses.Count} presses, {script.Marks.Count} captures, dumps, exits and learns, {script.Screens.Count - 1} screens");
     }
 
     private void StartMarks(double seconds)
@@ -162,16 +169,51 @@ internal sealed class InputScriptWatcher : IDisposable
             }
 
             _marksDone[i] = true;
+            StartMark(marks[i], seconds);
+        }
+    }
 
-            if (marks[i].Learn is null)
-            {
-                _capture();
+    private void StartMark(ScriptedMark mark, double seconds)
+    {
+        switch (mark.Kind)
+        {
+            case ScriptedMarkKind.Capture:
+                RunEnd.StartScript(mark.EntryName);
+                _capture(mark.EntryName);
                 _log.Info($"  [input] script: capture at {seconds:F1} s");
-            }
-            else
-            {
-                _learning.Add(marks[i].Learn!);
+                break;
+            case ScriptedMarkKind.Dump:
+                RunEnd.StartScript(mark.EntryName);
+                _dump(mark.EntryName);
+                _log.Info($"  [input] script: dump at {seconds:F1} s");
+                break;
+            case ScriptedMarkKind.Exit:
+                _log.Info($"  [input] script: exit at {seconds:F1} s, once the captures and dumps started are written");
+                RunEnd.ExitScript(seconds);
+                break;
+            default:
+                _learning.Add(mark.Learn!);
                 _sample();
+                break;
+        }
+    }
+
+    /// <summary>The capture and dump lines not due yet are what <c>--exit-when-done</c> waits for; those of <paramref name="older"/> are dropped.</summary>
+    private void ExpectWork(InputScript? older, bool[]? olderDone)
+    {
+        for (int i = 0; older is not null && i < older.Marks.Count; i++)
+        {
+            if (older.Marks[i].IsWork && !olderDone![i])
+            {
+                RunEnd.WithdrawScript(older.Marks[i].EntryName);
+            }
+        }
+
+        for (int i = 0; i < _script.Marks.Count; i++)
+        {
+            if (_script.Marks[i].IsWork && !_marksDone[i])
+            {
+                RunEnd.ExpectScript(_script.Marks[i].EntryName);
             }
         }
     }
@@ -260,9 +302,32 @@ internal sealed class InputScriptWatcher : IDisposable
     private void Begin(int block, string name, double seconds, string how)
     {
         _script.Begin(block, seconds);
+        DropMarks(block);
         _matcher.Began();
         _teaching = false;
         _log.Info($"  [input] {Kind(_script.Blocks[block])} {name} at {seconds:F1} s ({how}): block {block} begins");
+    }
+
+    /// <summary>The marks of the blocks before <paramref name="block"/> that did not start never will: run end stops waiting for them.</summary>
+    private void DropMarks(int block)
+    {
+        var marks = _script.Marks;
+
+        for (int i = 0; i < marks.Count; i++)
+        {
+            // A mark due before the block began still starts at the next tick.
+            if (_marksDone[i] || marks[i].Block >= block || _script.TryTime(marks[i].Block, marks[i].Start, out _))
+            {
+                continue;
+            }
+
+            _marksDone[i] = true;
+
+            if (marks[i].IsWork)
+            {
+                RunEnd.WithdrawScript(marks[i].EntryName);
+            }
+        }
     }
 
     /// <summary>Warns when the screen just taught is the picture of another screen of the script.</summary>

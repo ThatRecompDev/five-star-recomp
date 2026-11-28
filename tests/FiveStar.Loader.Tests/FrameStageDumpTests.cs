@@ -7,6 +7,7 @@ using Xunit;
 namespace FiveStar.Loader.Tests;
 
 /// <summary>The <c>--dump-frame</c> stage dump: one readback per target and pass, in batches, mapped for viewing.</summary>
+[Collection(Support.RunEndState.Name)]
 public sealed class FrameStageDumpTests
 {
     private const int FloatRgba16 = 10;
