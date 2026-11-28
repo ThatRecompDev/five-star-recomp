@@ -141,9 +141,10 @@ internal static unsafe class IndirectClamp
     /// <paramref name="count"/>, when given) into the list's scratch; returns the scratch and its offset to execute
     /// instead, or false when the arguments run as they are. Replaces the list's compute root signature and pipeline:
     /// the caller sets its own again. Ends the list's open clamp batch first (<see cref="IndirectBatch.End"/>), so its
-    /// piece is in the state this clamp's barriers expect.
+    /// piece is in the state this clamp's barriers expect. <paramref name="launched"/>: the mesh launch stage reads the
+    /// clamped records (<see cref="LaunchClamped"/>), not an ExecuteIndirect.
     /// </summary>
-    public static bool Record(XboxObject* self, nint signature, uint maxCount, nint arguments, ulong argumentOffset, nint count, ulong countOffset, out nint scratch, out ulong scratchOffset)
+    public static bool Record(XboxObject* self, nint signature, uint maxCount, nint arguments, ulong argumentOffset, nint count, ulong countOffset, out nint scratch, out ulong scratchOffset, bool launched = false)
     {
         scratch = 0;
         scratchOffset = 0;
@@ -197,7 +198,7 @@ internal static unsafe class IndirectClamp
         uint* constants = stackalloc uint[] { (uint)kind, stride, maxCount, counted };
         ((delegate* unmanaged<nint, uint, uint, uint*, uint, void>)ComObject.Slot(list, SetConstantsSlot))(list, ConstantsParameter, Constants, constants, 0);
         ((delegate* unmanaged<nint, uint, uint, uint, void>)ComObject.Slot(list, DispatchSlot))(list, (maxCount + GroupThreads - 1) / GroupThreads, 1, 1);
-        ClampBarriers.AfterClamp(list, scratch);
+        ClampBarriers.AfterClamp(list, scratch, launched);
         Interlocked.Increment(ref _clamped);
         GpuTimings.Work((nint)self, list, kind == DispatchKind, ListActivity.Of(self)->Pipeline);
 
@@ -301,12 +302,6 @@ internal static unsafe class IndirectClamp
         ClampBarriers.AfterExecute(self->Inner, scratch);
     }
 
-    /// <summary>D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT.</summary>
-    private const int IndirectArgumentState = 0x200;
-
-    /// <summary>D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE: the clamped copy as the mesh launch stage reads it.</summary>
-    private const int ShaderReadState = 0x40;
-
     /// <summary>Bytes of a list's mesh launch budget buffer: its counter, and room.</summary>
     private const ulong LaunchBudgetBytes = 256;
 
@@ -368,7 +363,7 @@ internal static unsafe class IndirectClamp
     }
 
     /// <summary>
-    /// After <see cref="Record"/> clamped <paramref name="records"/> mesh records of <paramref name="stride"/> bytes into
+    /// After <see cref="Record"/> (launched) clamped <paramref name="records"/> mesh records of <paramref name="stride"/> bytes into
     /// <paramref name="scratch"/> at <paramref name="offset"/>, with the pipeline's mesh launch stage bound: each clamped
     /// record is launched (records past a count buffer's count were zeroed), and the scratch is left as <see cref="Done"/>
     /// expects it.
@@ -378,7 +373,7 @@ internal static unsafe class IndirectClamp
         ulong budget = LaunchBudget(self);
         nint list = self->Inner;
         ulong first = DesktopCalls.GpuAddress(scratch) + offset;
-        BarrierWriter.Transition(list, scratch, IndirectArgumentState, ShaderReadState);
+        ClampBarriers.BeforeLaunch(list, scratch);
 
         // The stage does not charge a clamped record; its budget argument only has to be a writable buffer.
         for (uint record = 0; record < records; record++)
@@ -386,7 +381,7 @@ internal static unsafe class IndirectClamp
             MeshLaunch.Record(list, MeshLaunch.ClampedRecord, first + ((ulong)record * stride), budget);
         }
 
-        BarrierWriter.Transition(list, scratch, ShaderReadState, IndirectArgumentState);
+        ClampBarriers.AfterLaunch(list, scratch);
     }
 
     /// <summary>The next aligned piece of <paramref name="bytes"/> in the list's scratch, growing it when full.</summary>

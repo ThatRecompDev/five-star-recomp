@@ -17,8 +17,10 @@ namespace FiveStar.Loader.Shims.D3D12X;
 /// <c>--clamp-enhanced-barriers</c>, where the device has enhanced barriers (D3D12_OPTIONS12), the scratch takes enhanced
 /// buffer barriers only (a buffer has no layout, so its legacy state does not matter): one before the recording's first
 /// clamp in the buffer (an earlier run on the queue read and copied it), and one per clamp from its compute writes to
-/// the argument fetch. Pieces never overlap within a recording, so nothing orders a clamp after the previous execution.
-/// Not with <c>--mesh-launch</c>, whose launches read the scratch through legacy transitions.
+/// the argument fetch, or to the amplification stage's read for records <see cref="MeshLaunch"/> launches. Pieces never
+/// overlap within a recording, so nothing orders a clamp after the previous execution or launch. Every barrier after the
+/// first names the scopes earlier ones ended in (<see cref="Earlier"/>), as the enhanced-barrier rules ask of a barrier
+/// on the same buffer in one ExecuteCommandLists scope; VERTEX_SHADING covers the amplification and mesh stages.
 /// </summary>
 internal static unsafe class ClampBarriers
 {
@@ -28,19 +30,22 @@ internal static unsafe class ClampBarriers
     /// <summary>D3D12_BARRIER_TYPE_BUFFER.</summary>
     private const uint BufferType = 2;
 
-    /// <summary>D3D12_BARRIER_SYNC: COMPUTE_SHADING, COPY, EXECUTE_INDIRECT.</summary>
+    /// <summary>D3D12_BARRIER_SYNC: VERTEX_SHADING (vertex to mesh stages), COMPUTE_SHADING, COPY, EXECUTE_INDIRECT.</summary>
+    private const uint VertexSync = 0x8;
     private const uint ComputeSync = 0x80;
     private const uint CopySync = 0x200;
     private const uint IndirectSync = 0x800;
 
-    /// <summary>D3D12_BARRIER_ACCESS: UNORDERED_ACCESS, INDIRECT_ARGUMENT, COPY_SOURCE.</summary>
+    /// <summary>D3D12_BARRIER_ACCESS: UNORDERED_ACCESS, SHADER_RESOURCE, INDIRECT_ARGUMENT, COPY_SOURCE.</summary>
     private const uint UnorderedAccess = 0x10;
+    private const uint ShaderResourceAccess = 0x80;
     private const uint IndirectAccess = 0x200;
     private const uint CopySourceAccess = 0x800;
 
-    /// <summary>D3D12_RESOURCE_STATE_COMMON, _UNORDERED_ACCESS, _INDIRECT_ARGUMENT and _COPY_SOURCE.</summary>
+    /// <summary>D3D12_RESOURCE_STATE_COMMON, _UNORDERED_ACCESS, _NON_PIXEL_SHADER_RESOURCE, _INDIRECT_ARGUMENT and _COPY_SOURCE.</summary>
     private const int CommonState = 0;
     private const int UnorderedAccessState = 0x8;
+    private const int ShaderReadState = 0x40;
     private const int IndirectArgumentState = 0x200;
 
     /// <summary>D3D12_OPTIONS12: MSPrimitivesPipelineStatisticIncludesCulledPrimitives, EnhancedBarriersSupported, RelaxedFormatCastingSupported.</summary>
@@ -50,7 +55,7 @@ internal static unsafe class ClampBarriers
     /// <summary>Whether <c>--clamp-enhanced-barriers</c> asks for enhanced barriers.</summary>
     public static bool Requested { get; set; }
 
-    /// <summary>Whether the scratch takes enhanced barriers (asked for, the device has them, no mesh launch).</summary>
+    /// <summary>Whether the scratch takes enhanced barriers (asked for and the device has them).</summary>
     public static bool Enhanced { get; internal set; }
 
     /// <summary>The form in use, for the log.</summary>
@@ -70,7 +75,7 @@ internal static unsafe class ClampBarriers
     /// <summary>When the clamp's program is made on <paramref name="device"/>: whether the scratch takes enhanced barriers.</summary>
     public static void Attach(nint device)
     {
-        Enhanced = Requested && !MeshLaunch.Enabled && Supported(device);
+        Enhanced = Requested && Supported(device);
     }
 
     /// <summary>Whether <paramref name="device"/> reports enhanced barriers.</summary>
@@ -99,7 +104,7 @@ internal static unsafe class ClampBarriers
 
         if (first)
         {
-            Write(list, scratch, IndirectSync | ComputeSync | CopySync, IndirectAccess | UnorderedAccess | CopySourceAccess, ComputeSync, UnorderedAccess);
+            Write(list, scratch, IndirectSync | VertexSync | ComputeSync | CopySync, IndirectAccess | ShaderResourceAccess | UnorderedAccess | CopySourceAccess, ComputeSync, UnorderedAccess);
         }
     }
 
@@ -118,9 +123,12 @@ internal static unsafe class ClampBarriers
         Write(list, scratch, ComputeSync, UnorderedAccess, ComputeSync, UnorderedAccess);
     }
 
-    /// <summary>After the clamp, before the execution fetches its records.</summary>
+    /// <summary>
+    /// After the clamp, before the execution fetches its records or, when <paramref name="launched"/>, the mesh launch
+    /// stage reads them (<see cref="BeforeLaunch"/>).
+    /// </summary>
     [HotPath]
-    public static void AfterClamp(nint list, nint scratch)
+    public static void AfterClamp(nint list, nint scratch, bool launched = false)
     {
         if (!Enhanced)
         {
@@ -129,7 +137,34 @@ internal static unsafe class ClampBarriers
             return;
         }
 
-        Write(list, scratch, ComputeSync, UnorderedAccess, IndirectSync, IndirectAccess);
+        if (launched)
+        {
+            Write(list, scratch, ComputeSync | Earlier, UnorderedAccess | EarlierAccess, VertexSync, ShaderResourceAccess);
+
+            return;
+        }
+
+        Write(list, scratch, ComputeSync | Earlier, UnorderedAccess | EarlierAccess, IndirectSync, IndirectAccess);
+    }
+
+    /// <summary>Before the mesh launch stage reads clamped records: legacy transitions move the piece to a shader read; enhanced ones did at <see cref="AfterClamp"/>.</summary>
+    [HotPath]
+    public static void BeforeLaunch(nint list, nint scratch)
+    {
+        if (!Enhanced)
+        {
+            BarrierWriter.Transition(list, scratch, IndirectArgumentState, ShaderReadState);
+        }
+    }
+
+    /// <summary>After those launches: legacy transitions go back to what <see cref="AfterExecute"/> expects.</summary>
+    [HotPath]
+    public static void AfterLaunch(nint list, nint scratch)
+    {
+        if (!Enhanced)
+        {
+            BarrierWriter.Transition(list, scratch, ShaderReadState, IndirectArgumentState);
+        }
     }
 
     /// <summary>After the execution that read the piece: legacy transitions leave the buffer in COMMON for the next clamp.</summary>
@@ -153,7 +188,7 @@ internal static unsafe class ClampBarriers
             return;
         }
 
-        Write(list, scratch, ComputeSync, UnorderedAccess, CopySync, CopySourceAccess);
+        Write(list, scratch, ComputeSync | Earlier, UnorderedAccess | EarlierAccess, CopySync, CopySourceAccess);
     }
 
     /// <summary>After that copy.</summary>
@@ -163,6 +198,37 @@ internal static unsafe class ClampBarriers
         if (!Enhanced)
         {
             BarrierWriter.Transition(list, scratch, TransitionBarrier.CopySourceState, CommonState);
+        }
+    }
+
+    /// <summary>
+    /// The scopes an earlier barrier of the recording on the scratch may have ended in (an argument fetch, and with mesh
+    /// launches the stage's read): a later barrier's SyncBefore must contain them.
+    /// </summary>
+    private static uint Earlier
+    {
+        get
+        {
+            if (MeshLaunch.Enabled)
+            {
+                return IndirectSync | VertexSync;
+            }
+
+            return IndirectSync;
+        }
+    }
+
+    /// <summary>The accesses of those scopes (each sync bit of a barrier needs an access it allows): the argument fetch, the stage's read.</summary>
+    private static uint EarlierAccess
+    {
+        get
+        {
+            if (MeshLaunch.Enabled)
+            {
+                return IndirectAccess | ShaderResourceAccess;
+            }
+
+            return IndirectAccess;
         }
     }
 
