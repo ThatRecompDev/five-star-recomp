@@ -703,7 +703,7 @@ internal static unsafe class CommandListBindingMethods
             }
         }
 
-        if (!IndirectClamp.Record(self, call.Signature, call.MaxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset))
+        if (!IndirectClamp.Record(self, call.Signature, call.MaxCount, argumentBuffer, argumentOffset, countBuffer, countOffset, out nint scratch, out ulong scratchOffset, launched: true))
         {
             MeshLaunch.Drop();
 
