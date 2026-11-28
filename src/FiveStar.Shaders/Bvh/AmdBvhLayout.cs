@@ -24,9 +24,13 @@ public static class AmdBvhLayout
 
     public const int Children = 4;
 
-    /// <summary>Node types: triangle node holding V0, V1, V2 (type 0) and box32 (type 5).</summary>
+    /// <summary>Node types: triangle node holding V0, V1, V2 (type 0), box16 (type 4) and box32 (type 5).</summary>
     public const uint TriangleType = 0;
+    public const uint Box16Type = 4;
     public const uint Box32Type = 5;
+
+    /// <summary>Bits 2..0 of a node pointer hold the node type.</summary>
+    public const uint NodeTypeMask = 7;
 
     // Box32: four child pointers, then per child min xyz and max xyz as f32.
     private const int BoxBoundsOffset = 16;
