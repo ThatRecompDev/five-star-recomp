@@ -262,14 +262,13 @@ first boot of a new mode:
 `fivestar-loader --warm-pipelines <shaders.rpf> --warm-used-only --shader-dir <fssm> --program-cache <dir> --pipeline-cache <dir> --mesh-launch --typed-image-views --skip-pipelines <the boot's list> --warm-jobs 2 --min-free-memory 6 --max-commit 100 --log warm.log`
 (with `fivestar run --warm`, put the same options after `--`).
 
-**The driver's own cache.** The driver keeps the machine code it compiles in a shader cache per executable, and
-recompiles a pipeline it loads from the disk cache when that cache lacks it; every build is a new executable (its
-version names the commit). Boots of a new build loaded 10 to 15 cached pipelines a second (w407: 929 waited a minute
-or more, 150 still queued after 7 minutes; w408 the same from the folder w407 had used, with the next build), boots
-that ran one build again about 70 (w461). `--warm-load-cached` loads each pipeline the disk cache holds instead of
-skipping it: its shards loaded 7 to 14 a second each, and the same pipelines loaded again by the same executable went
-at 190 a second. So the lanes mirror each build into one folder (`D:\Temp\lane-world\loader`) and warm from there
-with `--warm-load-cached` before booting it.
+**The driver's own cache.** The driver keeps the machine code it compiles in a shader cache of its own, which appears
+to be shared by every executable and keyed on the shaders: a pipeline loaded from the disk cache is compiled again when
+that cache lacks it. `--warm-load-cached` loads each pipeline the disk cache holds instead of skipping it, which warms
+that cache: its shards loaded 7 to 14 a second each, the same pipelines loaded again went at 190 a second, and 286
+pipelines warmed that way loaded in under a second each time from builds that had never run (a new executable, the
+same one with a new timestamp, two commits). Boots after a warm-up with it (w497, w498) had no pipeline built a
+minute late; w407, without it, had 929.
 
 Slot 86 streams and slot 55 derives are not in the console cache; the journal brings them to the warm-up.
 
