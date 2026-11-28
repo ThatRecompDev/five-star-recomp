@@ -69,6 +69,27 @@ public sealed class TableReachTests
     }
 
     [Fact]
+    public void Trap_temporaries_and_unreadable_operands_are_passed_over_and_an_unreadable_offset_reaches_the_whole_table()
+    {
+        // Issue #64: a program moving ttmp5 stopped the reach of a VelocityFill and TAA2 boot with a first-chance exception.
+        string[] program =
+        [
+            "s_mov_b32 ttmp5, s3",
+            "s_mov_b32 s20, ttmp5",
+            "s_mov_b32 s9, 0",
+            "s_load_dwordx4 s[0:3], s[8:9], 0x40",
+            "s_load_dwordx4 s[4:7], s[8:9], src_unknown",
+            "s_mov_b32 s11, 0",
+            "s_load_dword s12, s[10:11], 0x99999999999999999999",
+            "s_endpgm",
+        ];
+
+        var reach = TableReach.Find(Instructions(program));
+
+        Assert.Equal(new Dictionary<int, uint> { [8] = TableReach.DynamicReach, [10] = TableReach.DynamicReach }, reach);
+    }
+
+    [Fact]
     public void The_records_a_program_samples_through_are_its_samples_t_sharp_loads()
     {
         // TL_PS_PBR_MATERIAL_STANDARD samples the T#s at +0xe80 and +0x860 of the table in s8; a T# loaded at a computed

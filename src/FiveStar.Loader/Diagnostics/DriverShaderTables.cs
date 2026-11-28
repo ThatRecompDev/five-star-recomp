@@ -48,7 +48,7 @@ internal static unsafe class DriverShaderTables
     private static string _last = string.Empty;
     private static Func<nint>? _device;
     private static long _created;
-    private static readonly ulong[] _found = new ulong[Tables];
+    private static ulong _holder;
     private static nint _searched;
     private static long _loaded;
 
@@ -130,40 +130,10 @@ internal static unsafe class DriverShaderTables
     }
 
     /// <summary>
-    /// The bytes the larger of <paramref name="device"/>'s tables wants now; 0 when the tables are not found (another
-    /// driver). The tables are looked for once per device and their addresses kept.
+    /// The bytes the larger of <paramref name="device"/>'s tables wants now; 0 when no table is found (another
+    /// driver).
     /// </summary>
     public static long LargestTableBytes(nint device)
-    {
-        if (device == 0)
-        {
-            return 0;
-        }
-
-        if (device != _searched)
-        {
-            _found[0] = Table(device, 0);
-            _found[1] = Table(device, 1);
-            _searched = device;
-        }
-
-        ulong largest = 0;
-
-        foreach (ulong table in _found)
-        {
-            if (table == 0 || !Read(table + EntriesOffset, out ulong entries))
-            {
-                return 0;
-            }
-
-            largest = Math.Max(largest, (uint)entries * EntryBytes);
-        }
-
-        return (long)largest;
-    }
-
-    /// <summary>The address of table <paramref name="index"/> of <paramref name="device"/>; 0 when it is not found.</summary>
-    public static ulong Table(nint device, int index)
     {
         nint module;
 
@@ -172,12 +142,51 @@ internal static unsafe class DriverShaderTables
             module = Kernel32.GetModuleHandleW(name);
         }
 
-        if (device == 0 || module == 0 || !Find(device, (ulong)module + DeviceVtable, out ulong holder) || !Read(holder + FirstTableOffset + ((ulong)index * sizeof(ulong)), out ulong table))
+        return LargestTableBytes(device, (ulong)module);
+    }
+
+    /// <summary>
+    /// As <see cref="LargestTableBytes(nint)"/> with the driver at <paramref name="module"/>. The table holder is looked
+    /// for until found and then kept per device, and its tables are read at every call: table 1 may not exist yet at the
+    /// first check, and keeping that miss read every later check as "not found" (issue #64: table 1 at 492 of 512 MiB,
+    /// no guard line), so a table that is missing counts as empty.
+    /// </summary>
+    internal static long LargestTableBytes(nint device, ulong module)
+    {
+        if (device == 0 || module == 0)
         {
             return 0;
         }
 
-        return table;
+        if (device != _searched)
+        {
+            if (!Find(device, module + DeviceVtable, out ulong holder))
+            {
+                return 0;
+            }
+
+            _holder = holder;
+            _searched = device;
+        }
+
+        ulong largest = 0;
+
+        for (int i = 0; i < Tables; i++)
+        {
+            if (Read(_holder + FirstTableOffset + ((ulong)i * sizeof(ulong)), out ulong table) && table >= LowestPointer && Read(table + EntriesOffset, out ulong entries))
+            {
+                largest = Math.Max(largest, (uint)entries * EntryBytes);
+            }
+        }
+
+        return (long)largest;
+    }
+
+    /// <summary>Forgets the device searched (tests).</summary>
+    internal static void Forget()
+    {
+        _searched = 0;
+        _holder = 0;
     }
 
     /// <summary>The watched device's tables now, for a removal report; empty when not watched or not found.</summary>
