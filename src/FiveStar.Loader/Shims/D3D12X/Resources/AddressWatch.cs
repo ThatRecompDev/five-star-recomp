@@ -9,7 +9,8 @@ using FiveStar.Loader.Shims.D3D12X.States;
 namespace FiveStar.Loader.Shims.D3D12X.Resources;
 
 /// <summary>
-/// <c>--watch-address &lt;address&gt;[:bytes]</c>: what reaches one range of console memory a texture is made over. Logged:
+/// <c>--watch-address &lt;address&gt;[:bytes]</c>: what reaches a range of console memory a texture is made over (or each
+/// texture of a shape, <c>texture:WxH:format</c>). Logged:
 /// each mark of written memory over it (a DirectStorage request, a page mapped) with whether the texture there takes a
 /// refresh from it (not when GPU-written or copied into), each GPU copy into a texture there, and every
 /// <see cref="SampleEvery"/> presents the bytes the game holds there: how many 8-byte blocks are BC1 blocks of pure
@@ -45,22 +46,23 @@ internal static unsafe class AddressWatch
     /// <summary>The most bytes of a copy's source sampled.</summary>
     private const ulong MaxSampled = 1UL << 22;
 
+    /// <summary>The most textures of one shape watched.</summary>
+    private const int MaxRanges = 8;
+
+    private static readonly Lock Gate = new();
+
     private static long _events;
+    private static WatchedRange[] _ranges = [];
 
-    /// <summary>The watched range's start; 0 when off.</summary>
-    public static ulong Address { get; set; }
+    public static bool Enabled => Volatile.Read(ref _ranges).Length != 0;
 
-    /// <summary>The watched range's length.</summary>
-    public static ulong Bytes { get; set; } = DefaultBytes;
-
-    public static bool Enabled => Address != 0;
-
-    /// <summary>A texture's shape the watch takes the range of when one is made (<c>texture:WxH:format</c>); null for none.</summary>
+    /// <summary>A texture's shape the watch takes the ranges of as they are made (<c>texture:WxH:format</c>); null for none.</summary>
     public static (uint Width, uint Height, int Format)? Shape { get; set; }
 
     /// <summary>
-    /// <c>address[:bytes]</c> in hex (with or without 0x; bytes default to 1 MiB), or <c>texture:WxH:format</c>: the range
-    /// of the first texture made in that shape (a texture's address moves from boot to boot).
+    /// <c>address[:bytes]</c> in hex (with or without 0x; bytes default to 1 MiB), or <c>texture:WxH:format</c>: the
+    /// ranges of the textures made in that shape, up to <see cref="MaxRanges"/> (a texture's address moves from boot to
+    /// boot, and the game may make several: three 5808x5808 BC1 atlases).
     /// </summary>
     public static void Configure(string text)
     {
@@ -74,27 +76,48 @@ internal static unsafe class AddressWatch
             return;
         }
 
-        Address = Hex(parts[0]);
+        ulong bytes = DefaultBytes;
 
         if (parts.Length > 1)
         {
-            Bytes = Hex(parts[1]);
+            bytes = Hex(parts[1]);
         }
+
+        Volatile.Write(ref _ranges, [new WatchedRange(Hex(parts[0]), bytes)]);
     }
 
-    /// <summary>A texture was made: when it has <see cref="Shape"/> and nothing is watched yet, its range is.</summary>
+    /// <summary>A texture was made: when it has <see cref="Shape"/>, its range is watched too.</summary>
     public static void Made(ulong address, ulong bytes, ulong width, uint height, int format)
     {
         var shape = Shape;
 
-        if (Enabled || shape is null || shape.Value.Width != width || shape.Value.Height != height || shape.Value.Format != format)
+        if (shape is null || shape.Value.Width != width || shape.Value.Height != height || shape.Value.Format != format)
         {
             return;
         }
 
-        Bytes = bytes;
-        Address = address;
-        ShimContext.Log?.Info($"  [watch] texture {width}x{height} format {format} made at 0x{address:x} + 0x{bytes:x}: watched");
+        int index;
+
+        lock (Gate)
+        {
+            var ranges = _ranges;
+
+            if (ranges.Length >= MaxRanges || Array.Exists(ranges, range => range.Address == address))
+            {
+                return;
+            }
+
+            index = ranges.Length;
+            Volatile.Write(ref _ranges, [.. ranges, new WatchedRange(address, bytes)]);
+        }
+
+        ShimContext.Log?.Info($"  [watch] texture {width}x{height} format {format} made at 0x{address:x} + 0x{bytes:x}: watched as range {index}");
+    }
+
+    /// <summary>The index of the watched range starting at <paramref name="address"/>, or -1.</summary>
+    private static int RangeAt(ulong address)
+    {
+        return Array.FindIndex(Volatile.Read(ref _ranges), range => range.Address == address);
     }
 
     private static ulong Hex(string text)
@@ -109,10 +132,18 @@ internal static unsafe class AddressWatch
         return ulong.Parse(digits, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
     }
 
-    /// <summary>Whether [<paramref name="address"/>, + <paramref name="bytes"/>) touches the watched range.</summary>
+    /// <summary>Whether [<paramref name="address"/>, + <paramref name="bytes"/>) touches a watched range.</summary>
     public static bool Touches(ulong address, ulong bytes)
     {
-        return Enabled && address < Address + Bytes && Address < address + bytes;
+        foreach (var range in Volatile.Read(ref _ranges))
+        {
+            if (address < range.Address + range.Bytes && range.Address < address + bytes)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Logs an event over the watched range (the first ones, then every <see cref="LogEvery"/>-th).</summary>
@@ -132,7 +163,9 @@ internal static unsafe class AddressWatch
     /// </summary>
     public static void CopiedRegion(XboxObjects objects, GpuTextures textures, TextureCopyLocation* destination, uint x, uint y, uint z, TextureCopyLocation* source, CopyBox* box)
     {
-        if (!Watches(objects, destination->Resource))
+        int index = Watched(objects, destination->Resource);
+
+        if (index < 0)
         {
             return;
         }
@@ -144,23 +177,33 @@ internal static unsafe class AddressWatch
             region = $", box ({box->Left},{box->Top})-({box->Right},{box->Bottom})";
         }
 
-        Note($"a GPU copy into the texture at ({x},{y},{z}) subresource {destination->Subresource}{region}, from {Origin(objects, textures, source)}", Address, Bytes);
+        var range = Volatile.Read(ref _ranges)[index];
+        Note($"a GPU copy into range {index} at ({x},{y},{z}) subresource {destination->Subresource}{region}, from {Origin(objects, textures, source)}", range.Address, range.Bytes);
     }
 
-    /// <summary>A CopyResourceX (slot 86) into the texture at the watched address, as <see cref="CopiedRegion"/>.</summary>
+    /// <summary>A CopyResourceX (slot 86) into the texture at a watched address, as <see cref="CopiedRegion"/>.</summary>
     public static void CopiedWhole(XboxObjects objects, GpuTextures textures, nint destination, TextureCopyLocation* source)
     {
-        if (Watches(objects, destination))
+        int index = Watched(objects, destination);
+
+        if (index >= 0)
         {
-            Note($"a GPU copy of the whole texture (CopyResource), from {Origin(objects, textures, source)}", Address, Bytes);
+            var range = Volatile.Read(ref _ranges)[index];
+            Note($"a GPU copy of the whole texture in range {index} (CopyResource), from {Origin(objects, textures, source)}", range.Address, range.Bytes);
         }
     }
 
-    private static bool Watches(XboxObjects objects, nint resource)
+    /// <summary>The watched range <paramref name="resource"/> starts, or -1.</summary>
+    private static int Watched(XboxObjects objects, nint resource)
     {
         var target = objects.AsResource(resource);
 
-        return target != null && target->GameAddress == Address;
+        if (target == null)
+        {
+            return -1;
+        }
+
+        return RangeAt(target->GameAddress);
     }
 
     /// <summary>The source of a watched copy: a buffer's footprint and bytes, or a texture with its state and bytes.</summary>
@@ -235,27 +278,36 @@ internal static unsafe class AddressWatch
         }
     }
 
-    /// <summary>The blocks of the game's bytes at the watched range, as counts, when <paramref name="frame"/> is due.</summary>
+    /// <summary>The blocks of the game's bytes at each watched range, as counts, when <paramref name="frame"/> is due.</summary>
     public static void Sample(GameMemorySource source, LoaderLog log, long frame)
     {
-        if (!Enabled || frame % SampleEvery != 0)
+        if (frame % SampleEvery != 0)
         {
             return;
         }
 
-        byte* copy = (byte*)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)Bytes);
+        var ranges = Volatile.Read(ref _ranges);
 
-        try
+        for (int index = 0; index < ranges.Length; index++)
         {
-            long pages = source.Gather(Address, Bytes, copy);
-            var (magenta, zero, other) = Count(copy, Bytes);
-            log.Info($"  [watch] present {frame}: 0x{Address:x} + 0x{Bytes:x} ({pages} pages mapped; {source.Describe(Address)}): {magenta} magenta BC1 blocks, {zero} zero blocks, {other} other blocks");
-        }
-        finally
-        {
-            System.Runtime.InteropServices.NativeMemory.Free(copy);
+            var (address, bytes) = ranges[index];
+            byte* copy = (byte*)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)bytes);
+
+            try
+            {
+                long pages = source.Gather(address, bytes, copy);
+                var (magenta, zero, other) = Count(copy, bytes);
+                log.Info($"  [watch] present {frame}: range {index} 0x{address:x} + 0x{bytes:x} ({pages} pages mapped; {source.Describe(address)}): {magenta} magenta BC1 blocks, {zero} zero blocks, {other} other blocks");
+            }
+            finally
+            {
+                System.Runtime.InteropServices.NativeMemory.Free(copy);
+            }
         }
     }
+
+    /// <summary>One watched range of console memory.</summary>
+    private readonly record struct WatchedRange(ulong Address, ulong Bytes);
 
     /// <summary>The 8-byte blocks of <paramref name="bytes"/> that are pure magenta BC1, zero, or neither.</summary>
     internal static (long Magenta, long Zero, long Other) Count(byte* bytes, ulong length)

@@ -239,6 +239,11 @@ internal static class HostComposition
         {
             Shims.D3D12X.Resources.AddressWatch.Configure(options.WatchAddress);
         }
+
+        if (options.LogSkips is not null)
+        {
+            Shims.D3D12X.Pipelines.SkipLog.Configure(options.LogSkips);
+        }
     }
 
     /// <summary>

@@ -859,8 +859,8 @@ Two readback aids (`DrawTrace`, `FrameCapture`; debug only, they allocate and wa
 - `--d3d12-describe-views <index,...>` (implies the draw trace) names, at each captured present, the view the trace saw
   written at each of these desktop heap indices (resource, size, format): a bindless program's texture index, found by a
   shader override or a probe, resolves to the texture it sampled.
-- `--watch-address <hex>[:bytes]` (or `texture:WxH:format`, the range of the first texture made in that shape, since
-  addresses move from boot to boot) logs what reaches that console range: each DirectStorage write or page mapped over
+- `--watch-address <hex>[:bytes]` (or `texture:WxH:format`, the ranges of the textures made in that shape, up to 8,
+  since addresses move from boot to boot) logs what reaches those console ranges: each DirectStorage write or page mapped over
   it, and whether the texture there takes it (a texture GPU-written or copied into is not refreshed from memory), each
   GPU texture copy into the texture at its start with what it reads (a buffer's footprint and the blocks of its bytes,
   or a texture, its state and the blocks of its memory), and every 300 presents the game's bytes there as pure magenta BC1 blocks (both

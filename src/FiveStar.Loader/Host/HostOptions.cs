@@ -498,6 +498,9 @@ internal sealed record HostOptions
     /// <summary>The console range whose writes, copies and bytes are logged (<c>--watch-address</c>); null when off.</summary>
     public string? WatchAddress { get; set; }
 
+    /// <summary>Name parts of stand-ins whose first use and skipped work are logged one by one (<c>--log-skips</c>); null when off.</summary>
+    public string? LogSkips { get; set; }
+
     /// <summary>Desktop heap indices whose views the trace names at each captured present (<c>--d3d12-describe-views</c>).</summary>
     public IReadOnlyList<uint> D3D12DescribeViews { get; set; } = [];
 

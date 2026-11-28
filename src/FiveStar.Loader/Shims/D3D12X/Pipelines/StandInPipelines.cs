@@ -508,6 +508,7 @@ internal sealed unsafe class StandInPipelines
         if (firstUse)
         {
             Promote(pipeline);
+            SkipLog.FirstUse(Name(pipeline));
         }
 
         if (pending && Volatile.Read(ref standIn->Deferred) == 1 && Interlocked.Exchange(ref standIn->Deferred, 0) == 1)
@@ -738,6 +739,11 @@ internal sealed unsafe class StandInPipelines
         if (count == 1 && _skippedByName.Count <= SkipsLogged)
         {
             _warnings.Warn($"skipped-{name}", $"[d3d12_xs] work of pipeline {name} skipped: it is a stand-in until the driver is done");
+        }
+
+        if (SkipLog.Enabled)
+        {
+            SkipLog.Skipped(name, count);
         }
     }
 
