@@ -47,6 +47,11 @@ internal sealed class ControlFlowTranslator
         var reachable = Reachable(leaders);
         _entryConstants = BlockConstants.AtEntry(_state.Instructions, leaders, _successors, reachable);
         TranslateBlocks(leaders, reachable);
+
+        if (_state.Instructions.Count > 0)
+        {
+            _operands.LoadReadBeforeWritten(_state.Instructions[0].Address, _successors);
+        }
     }
 
     /// <summary>Block leaders: the entry, branch targets and the instruction after a branch or an early s_endpgm.</summary>
@@ -245,6 +250,7 @@ internal sealed class ControlFlowTranslator
                 CloseBlock(current, terminated, instruction.Address);
                 current = instruction.Address;
                 _state.Forms.Begin(instruction.Address);
+                _state.Accesses.Begin(instruction.Address);
 
                 _state.Body = [];
                 terminated = false;

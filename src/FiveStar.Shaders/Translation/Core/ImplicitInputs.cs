@@ -14,6 +14,9 @@ namespace FiveStar.Shaders.Translation.Core;
 internal sealed class ImplicitInputs
 {
     private const string NotPreloaded = "0u /* not preloaded */";
+
+    /// <summary>How every value without a defined input starts (the declarations' own value).</summary>
+    private const string Undefined = "0u";
     private const string Components = "xyzw";
 
     // Merged ES/GS and NGG layouts: s0..s7 are system SGPRs, user data starts at s8; s3 holds the wave info;
@@ -63,22 +66,54 @@ internal sealed class ImplicitInputs
         _state = state;
     }
 
+    /// <summary>The registers the prologue loads.</summary>
+    public HashSet<RegisterKey> Loaded { get; } = [];
+
     /// <summary>Adds the prologue assignment of a register read before it was written.</summary>
     public void Load(RegisterKey key)
     {
+        Add(key, Value(key));
+    }
+
+    /// <summary>
+    /// Adds the prologue assignment of a register some path reads before writing when it has a defined initial value
+    /// (user data, a system value); one without (the declaration's 0) or that this model does not provide is left out,
+    /// as before (RegisterAccesses).
+    /// </summary>
+    public void LoadDefined(RegisterKey key)
+    {
         string value;
 
-        if (key.Kind == RegisterKey.Scalar)
+        try
         {
-            value = ScalarInput(key.Index);
+            value = Value(key);
         }
-        else
+        catch (UnsupportedProgramException)
         {
-            value = VectorInput(key.Index);
+            return;
         }
 
+        if (!value.StartsWith(Undefined, StringComparison.Ordinal))
+        {
+            Add(key, value);
+        }
+    }
+
+    private void Add(RegisterKey key, string value)
+    {
+        Loaded.Add(key);
         _state.Touch(key);
         _state.Prologue.Add($"  {key.Name} = {value};");
+    }
+
+    private string Value(RegisterKey key)
+    {
+        if (key.Kind == RegisterKey.Scalar)
+        {
+            return ScalarInput(key.Index);
+        }
+
+        return VectorInput(key.Index);
     }
 
     private string ScalarInput(int sgpr)

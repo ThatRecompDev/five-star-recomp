@@ -72,6 +72,8 @@ internal sealed partial class OperandAccess
             _state.Forms.Read(key, mask: false);
         }
 
+        _state.Accesses.Read(key);
+
         if (!_state.Written.Contains(key))
         {
             _inputs.Load(key);
@@ -80,6 +82,23 @@ internal sealed partial class OperandAccess
         _state.Variables.Add(key);
 
         return key.Name;
+    }
+
+    /// <summary>
+    /// Loads in the prologue the registers with a defined initial value that a path from the entry reads before writing
+    /// them and no read before any write in translation order loaded (<see cref="RegisterAccesses"/>).
+    /// </summary>
+    public void LoadReadBeforeWritten(long entry, IReadOnlyDictionary<long, List<long>> successors)
+    {
+        var missing = _state.Accesses.ReadBeforeWritten(entry, successors)
+            .Where(key => !_inputs.Loaded.Contains(key))
+            .Order()
+            .ToList();
+
+        foreach (var key in missing)
+        {
+            _inputs.LoadDefined(key);
+        }
     }
 
     /// <summary>The float value of an operand with its neg/abs modifiers.</summary>
