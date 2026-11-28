@@ -36,12 +36,17 @@ internal static class ShaderTableGuard
     public const int EstimateDenominator = 2;
 
     private const double MiB = 1024.0 * 1024.0;
+    private const int FromDriver = 1;
+    private const int Estimated = 2;
 
     private static StandInPipelines? _standIns;
     private static Func<nint>? _device;
     private static LoaderLog? _log;
     private static bool _warned;
     private static int _holding;
+
+    /// <summary>Where the size comes from: 0 before the first check, then <see cref="FromDriver"/> or <see cref="Estimated"/>.</summary>
+    private static int _source;
 
     /// <summary>Whether the guard works (<c>--no-shader-table-guard</c> clears it).</summary>
     public static bool Enabled { get; set; } = true;
@@ -90,6 +95,14 @@ internal static class ShaderTableGuard
             }
         }
 
+        // Which source the guard works from, at the first check and when it changes, so a boot that never warns says why.
+        int read = table != 0 ? FromDriver : Estimated;
+
+        if (Interlocked.Exchange(ref _source, read) != read)
+        {
+            _log?.Info($"  [d3d12_xs] shader-table guard: the larger table is at about {size:F0} of 512 MiB ({source}); it warns from {WarnMiB} MiB on");
+        }
+
         // An estimate alone only warns: pipelines are held or given up on a table read from the driver, or when the
         // background work was refused (the case in which boots lost the device, issue #64).
         bool acts = table != 0 || BackgroundProcessing.Refused;
@@ -127,5 +140,6 @@ internal static class ShaderTableGuard
     {
         _warned = false;
         Volatile.Write(ref _holding, 0);
+        Volatile.Write(ref _source, 0);
     }
 }
