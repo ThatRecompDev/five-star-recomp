@@ -10,7 +10,8 @@ namespace FiveStar.Loader.Shims.D3D12X.DebugLayer;
 /// <c>--dump-frame n --dump-frame-dir dir</c>: in the frame after present <c>n</c>, every render target, depth target and
 /// UAV texture at least <see cref="MinimumWidth"/> wide (480, <c>--dump-frame-min-width</c>) is read back where a pass stops writing it (the list binds other
 /// targets, moves it out of RENDER_TARGET, UNORDERED_ACCESS or DEPTH_WRITE, or closes), once per target and pass (the
-/// last pipeline the list ran; with <see cref="Filter"/> only passes whose name holds one of its texts), and written as
+/// pipeline whose draw last wrote the target, <see cref="StageWriters"/>, else the last pipeline the list ran; with
+/// <see cref="Filter"/> only passes whose name holds one of its texts), and written as
 /// <c>NN-pass-WxH-fmtF.png</c> through <see cref="StagePixels"/>, at most <see cref="Max"/> PNGs. When the readback
 /// buffers' cap refuses one, that frame takes nothing more and the dump goes on in a later frame (a batch, once the
 /// earlier batch was reported) from the targets and passes not taken yet. A UAV texture the game never moves out of

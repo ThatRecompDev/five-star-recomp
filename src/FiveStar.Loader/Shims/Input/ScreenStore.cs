@@ -14,7 +14,7 @@ namespace FiveStar.Loader.Shims.Input;
 internal sealed class ScreenStore
 {
     /// <summary>Changed cells (of 1296) a frame may have and still show a learned screen, unless its line says otherwise.</summary>
-    public const int DefaultMaxChanged = 40;
+    public const int DefaultMaxChanged = FiveStar.Formats.Images.ScreenCells.DefaultMaxChanged;
 
     private const char CommentMark = '#';
     private const int NameField = 0;

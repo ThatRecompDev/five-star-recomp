@@ -339,7 +339,7 @@ internal static unsafe class CommandListBindingMethods
     {
         try
         {
-            if (PipelinePending(self, draw: true))
+            if (PipelinePending(self, draw: true, writesTargets: true))
             {
                 return;
             }
@@ -382,7 +382,7 @@ internal static unsafe class CommandListBindingMethods
     {
         try
         {
-            if (PipelinePending(self, draw: true))
+            if (PipelinePending(self, draw: true, writesTargets: true))
             {
                 return;
             }
@@ -915,10 +915,11 @@ internal static unsafe class CommandListBindingMethods
 
     /// <summary>
     /// True while the list's pipeline is a stand-in the driver has not built: its draw or dispatch is skipped and
-    /// counted; otherwise it is counted as recorded.
+    /// counted; otherwise it is counted as recorded. <paramref name="writesTargets"/>: it draws into the bound targets
+    /// (a draw or a draw-kind ExecuteIndirect), for <c>--dump-frame</c>'s pass names.
     /// </summary>
     [HotPath]
-    private static bool PipelinePending(XboxObject* self, bool draw)
+    private static bool PipelinePending(XboxObject* self, bool draw, bool writesTargets)
     {
         var standIns = ShimContext.Runtime.D3D12X.Pipelines?.StandIns;
         var activity = ListActivity.Of(self);
@@ -928,13 +929,13 @@ internal static unsafe class CommandListBindingMethods
         {
             standIns?.Recorded(activity->Skipped);
             activity->Skipped = 0;
-            trace?.Census(self, RectangleListState.Of(self)->Pipeline, skipped: false);
+            trace?.Census(self, RectangleListState.Of(self)->Pipeline, skipped: false, writesTargets);
 
             // --hold-passes / --stub-passes: recorded work of a held or stubbed pass is skipped all the same.
             return PassControls.Rules.Enabled && PassControls.Intercept(self, RectangleListState.Of(self)->Pipeline, draw);
         }
 
-        trace?.Census(self, activity->StandIn, skipped: true);
+        trace?.Census(self, activity->StandIn, skipped: true, writesTargets);
 
         if (PassControls.Rules.Enabled && standIns is not null)
         {
@@ -976,7 +977,7 @@ internal static unsafe class CommandListBindingMethods
             return true;
         }
 
-        if (!PipelinePending(self, draw: false))
+        if (!PipelinePending(self, draw: false, writesTargets: !producer))
         {
             return false;
         }

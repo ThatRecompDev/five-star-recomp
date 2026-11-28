@@ -1040,12 +1040,16 @@ internal sealed unsafe class DrawTrace
         if (_lists.TryGetValue((nint)list, out var state))
         {
             state.Resets++;
+            state.Writers.Clear();
         }
     }
 
-    /// <summary>A draw, dispatch or ExecuteIndirect of <paramref name="pipeline"/> (a stand-in when skipped), for the census.</summary>
+    /// <summary>
+    /// A draw, dispatch or ExecuteIndirect of <paramref name="pipeline"/> (a stand-in when skipped), for the census;
+    /// <paramref name="writesTargets"/> for a draw (direct or indirect), which writes the bound targets.
+    /// </summary>
     [HotPath]
-    public void Census(XboxObject* list, nint pipeline, bool skipped)
+    public void Census(XboxObject* list, nint pipeline, bool skipped, bool writesTargets)
     {
         nint target = 0;
 
@@ -1059,17 +1063,33 @@ internal sealed unsafe class DrawTrace
 
         if (!skipped && _stages.IsOpen)
         {
-            StageWork(list, pipeline);
+            StageWork(list, pipeline, writesTargets);
         }
     }
 
-    /// <summary>In the dumped frame: the list's pass is named by <paramref name="pipeline"/>, and its desktop list is noted for barriers.</summary>
-    private void StageWork(XboxObject* list, nint pipeline)
+    /// <summary>
+    /// In the dumped frame: a draw names the bound targets' pass by <paramref name="pipeline"/> (<see cref="StageWriters"/>),
+    /// any work names the list's last pass, and the desktop list is noted for barriers.
+    /// </summary>
+    private void StageWork(XboxObject* list, nint pipeline, bool writesTargets)
     {
         var state = List(list);
         state.LastPipeline = pipeline;
         state.Worked = true;
         _stages.Seen((nint)list, list->Inner);
+
+        if (!writesTargets)
+        {
+            return;
+        }
+
+        foreach (nint handle in state.Targets.Append(state.DepthStencil))
+        {
+            if (handle != 0 && _targetViews.TryGetValue(handle, out var target))
+            {
+                state.Writers.Wrote(target.Resource, pipeline);
+            }
+        }
     }
 
     /// <summary>
@@ -1136,7 +1156,7 @@ internal sealed unsafe class DrawTrace
         using var desktop = new ID3D12Resource(resource);
         var description = desktop.Description;
         bool depth = (description.Flags & ResourceFlags.AllowDepthStencil) != 0;
-        string pass = QueueProgress.PipelineName(state.LastPipeline);
+        string pass = QueueProgress.PipelineName(state.Writers.WriterOf(resource, state.LastPipeline));
 
         if (description.Dimension != ResourceDimension.Texture2D)
         {
