@@ -16,6 +16,11 @@ internal static class HostUsage
           --run                  run the main executable's entry point; reports faults in mapped code with the
                                  last calls through shims and stubs
           --run-timeout <s>      with --run: after s seconds report the main thread's stack and exit (code 3)
+          --exit-when-done [n]   with --run: end (as --run-timeout does, code 3) n presents (30) after every capture
+                                 asked for is written (--capture-presents, --capture-dispatch, --dump-frame,
+                                 --pix-capture, --capture-when-world); entries that never fire are given up 600
+                                 presents after the last scheduled present, and named
+          --exit-after-present <n>  with --run: end after present n (code 3)
           --cpu <host|intel>     intel: report SSE4a, CLZERO, MONITORX/MWAITX and CLWB as missing and check their
                                  emulation through the exception handler (self-test code, not the game's)
           --trace-system         with --run: the call trace also records System32 imports

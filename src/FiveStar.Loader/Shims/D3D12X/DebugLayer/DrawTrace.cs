@@ -1175,6 +1175,9 @@ internal sealed unsafe class DrawTrace
     /// </summary>
     public static bool CaptureWhenWorld { get; set; }
 
+    /// <summary>The <c>--exit-when-done</c> entry of the world trigger, until it schedules its captures.</summary>
+    public const string WorldEntryName = "capture-when-world";
+
     /// <summary>Starts the world captures at the first present of the world (<see cref="CaptureWhenWorld"/>).</summary>
     private void TriggerOnWorld(long present)
     {
@@ -1196,7 +1199,10 @@ internal sealed unsafe class DrawTrace
         foreach (long frame in WorldFrames(present))
         {
             _capture.Add(frame);
+            RunEnd.Expect(FrameCapture.EntryName(frame), frame);
         }
+
+        RunEnd.Fired(WorldEntryName);
 
         _log.Info($"  [capture] the world at present {present} ({work} draws and dispatches in it): capturing presents {string.Join(", ", WorldFrames(present))}");
     }
@@ -1215,6 +1221,7 @@ internal sealed unsafe class DrawTrace
         long dumped = present + FrameStageDump.WorldOffset;
         FrameStageDump.Present = dumped;
         _capture.Add(dumped);
+        RunEnd.Schedule(FrameStageDump.EntryName, dumped);
         _log.Info($"  [dump-frame] the world at present {present} ({work} draws and dispatches in it): dumping the frame after present {dumped}");
     }
 
@@ -1234,6 +1241,7 @@ internal sealed unsafe class DrawTrace
         long dumped = present + 1;
         FrameStageDump.Present = dumped;
         _capture.Add(dumped);
+        RunEnd.Schedule(FrameStageDump.EntryName, dumped);
         _log.Info($"  [dump-frame] {seconds} s after start at present {present}: dumping the frame after present {dumped}");
     }
 

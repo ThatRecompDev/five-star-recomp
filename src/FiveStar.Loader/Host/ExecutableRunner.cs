@@ -11,13 +11,18 @@ namespace FiveStar.Loader.Host;
 /// <summary>
 /// Runs a mapped executable's entry point (the CRT startup, which runs the static initializers and then main) on a
 /// thread whose stack is the size the image asks for. The CRT normally ends the process through exit(). With a time
-/// limit, a run that has not ended by then has its main thread suspended and reported, and the loader exits.
+/// limit, a run that has not ended by then has its main thread suspended and reported, and the loader exits. A run the
+/// present path asks to end (<see cref="RunEnd"/>: <c>--exit-when-done</c>, <c>--exit-after-present</c>) ends the same
+/// way, with the same exit code, but without the hang report: nothing is stuck.
 /// </summary>
 internal sealed unsafe class ExecutableRunner
 {
     public const int TimedOut = 3;
 
     private const string ThreadName = "mapped main";
+
+    /// <summary>How often the wait for the entry point looks at <see cref="RunEnd.Requested"/>.</summary>
+    private static readonly TimeSpan Slice = TimeSpan.FromMilliseconds(250);
 
     // winnt.h: THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION.
     private const uint ThreadAccess = 0x0002 | 0x0008 | 0x0040;
@@ -48,13 +53,16 @@ internal sealed unsafe class ExecutableRunner
         _log.Info($"== running {image.Name} entry RVA 0x{image.Pe.EntryPointRva:x} on a thread with a 0x{stack:x}-byte stack");
         thread.Start();
 
-        if (limit is null)
+        if (!Join(thread, limit))
         {
-            thread.Join();
-        }
-        else if (!thread.Join(limit.Value))
-        {
-            ReportHung(limit.Value);
+            if (RunEnd.IsRequested)
+            {
+                _log.Info($"run ended on request: {RunEnd.Reason}");
+
+                return TimedOut;
+            }
+
+            ReportHung(limit!.Value);
 
             return TimedOut;
         }
@@ -62,6 +70,22 @@ internal sealed unsafe class ExecutableRunner
         _log.Info($"entry point returned {result}");
 
         return result;
+    }
+
+    /// <summary>Waits for <paramref name="thread"/>; false when <paramref name="limit"/> passed or the run was asked to end first.</summary>
+    private static bool Join(Thread thread, TimeSpan? limit)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+
+        while (!thread.Join(Slice))
+        {
+            if (RunEnd.IsRequested || (limit is not null && clock.Elapsed >= limit.Value))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>SizeOfStackReserve from the mapped optional header.</summary>

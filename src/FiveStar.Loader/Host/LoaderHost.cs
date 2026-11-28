@@ -453,25 +453,73 @@ internal sealed class LoaderHost
 
         Shims.D3D12X.SystemMemoryReserve.Bytes = _options.ReservedSystemMemory;
 
-        if (_options.WatchTransient)
-        {
-            TransientPoolWatch.Start(_log);
-        }
-
-        if (_options.WatchHang)
-        {
-            GameHangWatch.Start(_runtime.Images, SampledCounters, _runtime.D3D12X.Fences.DescribeWait, _log);
-        }
-
-        if (_options.WatchMovies)
-        {
-            GameMovieWatch.Start(_log);
-        }
-
+        StartGameWatches();
         StartAudioCapture();
+        ArmRunEnd();
         _runtime.D3D12X.WaitForProgramIndex();
 
         return new ExecutableRunner(_runtime.Faults, _log).Run(main, _options.RunTimeout);
+    }
+
+    /// <summary>
+    /// <c>--exit-after-present</c> and <c>--exit-when-done</c>: the one-shot captures the command line asked for, each
+    /// with the present it is scheduled for (0: none, a dispatch count or a world trigger not yet seen).
+    /// </summary>
+    private void ArmRunEnd()
+    {
+        RunEnd.Log = _log;
+        RunEnd.AfterPresentLimit = _options.ExitAfterPresent;
+
+        if (_options.ExitWhenDone is not int grace)
+        {
+            return;
+        }
+
+        var captures = new CaptureCompletion(grace, CaptureCompletion.DefaultFallbackPresents);
+        RunEnd.Captures = captures;
+
+        foreach (long present in _runtime.D3D12X.Presenter.Capture?.Presents.Order() ?? Enumerable.Empty<long>())
+        {
+            captures.Expect(FrameCapture.EntryName(present), present);
+        }
+
+        // PIX captures only when the capturer loaded: otherwise none ever fires.
+        var pix = _runtime.D3D12X.Presenter.Pix;
+
+        if (pix is not null && pix.Loaded)
+        {
+            foreach (long present in pix.Presents.Order())
+            {
+                captures.Expect(PixGpuCapture.EntryName(present), present);
+            }
+        }
+
+        foreach (var spec in _options.CaptureDispatch)
+        {
+            captures.Expect(Shims.D3D12X.DebugLayer.DispatchCaptures.EntryName(spec), spec.FromPresent);
+        }
+
+        ExpectTraceCaptures(captures);
+        _log.Info($"  [exit-when-done] waiting for {captures.Names.Count} captures ({string.Join(", ", captures.Names)}), then {grace} presents");
+    }
+
+    /// <summary>The draw trace's one-shot outputs: the frame dump and the world trigger.</summary>
+    private void ExpectTraceCaptures(CaptureCompletion captures)
+    {
+        if (!_options.D3D12TraceDraws)
+        {
+            return;
+        }
+
+        if (_options.DumpFrame > 0 || _options.DumpFrameWorldOffset >= 0 || _options.DumpFrameSeconds >= 0)
+        {
+            captures.Expect(Shims.D3D12X.DebugLayer.FrameStageDump.EntryName, _options.DumpFrame);
+        }
+
+        if (_options.CaptureWhenWorld)
+        {
+            captures.Expect(Shims.D3D12X.DebugLayer.DrawTrace.WorldEntryName, 0);
+        }
     }
 
     /// <summary>The memory map (<c>--memory-map</c>) and the memory limits (<c>--min-free-memory</c>, <c>--max-commit</c>).</summary>
@@ -500,6 +548,25 @@ internal sealed class LoaderHost
 
         DeviceLoss.Armed = true;
         ThreadSnapshot.Stuck = id => _log.Warn($"[sample] stack capture stuck on thread {id}: no answer in {ThreadSnapshot.TimeoutMilliseconds} ms; skipped, its worker abandoned");
+    }
+
+    /// <summary><c>--watch-transient</c>, <c>--watch-hang</c> and <c>--watch-movies</c>.</summary>
+    private void StartGameWatches()
+    {
+        if (_options.WatchTransient)
+        {
+            TransientPoolWatch.Start(_log);
+        }
+
+        if (_options.WatchHang)
+        {
+            GameHangWatch.Start(_runtime.Images, SampledCounters, _runtime.D3D12X.Fences.DescribeWait, _log);
+        }
+
+        if (_options.WatchMovies)
+        {
+            GameMovieWatch.Start(_log);
+        }
     }
 
     /// <summary><c>--watch-pool-pages</c> and <c>--watch-4g-lines</c>.</summary>

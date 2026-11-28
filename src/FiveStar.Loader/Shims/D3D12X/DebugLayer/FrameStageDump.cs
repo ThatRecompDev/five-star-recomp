@@ -63,6 +63,9 @@ internal sealed class FrameStageDump
     /// </summary>
     public static long AfterSeconds { get; set; } = -1;
 
+    /// <summary>The <c>--exit-when-done</c> entry of the dump.</summary>
+    public const string EntryName = "dump-frame";
+
     /// <summary>Where the PNGs go (<c>--dump-frame-dir</c>).</summary>
     public static string Directory { get; set; } = "frame-dump";
 
@@ -111,6 +114,7 @@ internal sealed class FrameStageDump
         if (!_refused || written >= Max)
         {
             _active = false;
+            FiveStar.Loader.Diagnostics.RunEnd.Fired(EntryName);
 
             return $"  [dump-frame] done after {Batch} batches: {written} PNGs in {Directory}";
         }

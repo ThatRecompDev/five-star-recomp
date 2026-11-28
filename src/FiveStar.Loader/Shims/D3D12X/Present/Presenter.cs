@@ -278,6 +278,7 @@ internal sealed unsafe class Presenter : IDisposable
         if (plane)
         {
             Capture.Save(_objects.DesktopDevice, source.Resource, source.State, $"present-{_presents}");
+            RunEnd.Fired(FrameCapture.EntryName(_presents));
         }
 
         if (targets)
@@ -316,6 +317,7 @@ internal sealed unsafe class Presenter : IDisposable
         Pipelines.PipelineEviction.AfterPresent(_presents);
         Pipelines.ShaderTableGuard.AfterPresent(_presents);
         Pix?.AfterPresent(_presents);
+        RunEnd.AfterPresent(_presents);
 
         if (_presents <= EarlyPresents)
         {

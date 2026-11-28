@@ -369,6 +369,7 @@ the first program is made (`[d3d12_xs] programs made on demand with ...`).
 |---|---|
 | `--load <dll>` | map an image (repeatable) |
 | `--run`, `--run-timeout <s>` | run the main executable's entry point (below) |
+| `--exit-when-done [n]`, `--exit-after-present <n>` | end the run as `--run-timeout` does (exit code 3, the same last lines, no hang report) once it has what it was asked for: n presents (default 30) after every one-shot capture is written (each `--capture-presents` present, each `--capture-dispatch` entry, `--dump-frame` in any form, each `--pix-capture` present, `--capture-when-world`' frames; `RunEnd`, `CaptureCompletion`), logging `[exit-when-done] all requested captures done at present N; ending`. An entry that never fires (a dispatch that never runs) is given up 600 presents after the last present any entry was scheduled for, and the line names it; with no scheduled present only `--run-timeout` ends such a run. `--exit-after-present n` ends after present n |
 | `--call <export>` / `--call all` | call an export that was disassembled first (`--list-safe-calls` lists them); others are refused |
 | `--main <name>` | the image that plays the process executable |
 | `--patch-peb` | also point `PEB.ImageBaseAddress` at the main image (restored at exit) |
