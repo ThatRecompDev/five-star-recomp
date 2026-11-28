@@ -25,6 +25,35 @@ internal static class SkippedPipelines
     /// </summary>
     public static bool All { get; set; }
 
+    /// <summary>
+    /// The end of a text that holds a mesh program only in its superstep form (<c>LinearDepthSkin@superstep</c>): such a
+    /// text matches no pipeline name, so the pipeline is made as any other; its program is refused when it is made
+    /// (<see cref="ProgramProducer.Prepare"/>) if the adapter would run it as the superstep form, the emulation of a 64-lane
+    /// console wave on narrower hardware waves, and the pipeline stays a stand-in with its draws skipped.
+    /// </summary>
+    public const string SuperstepSuffix = "@superstep";
+
+    /// <summary>The text that holds the superstep form of program <paramref name="name"/>; null for none.</summary>
+    public static string? SuperstepText(string name)
+    {
+        return SuperstepText(name, Texts);
+    }
+
+    /// <summary>The one of <paramref name="texts"/> that holds the superstep form of program <paramref name="name"/>; null for none.</summary>
+    public static string? SuperstepText(string name, IReadOnlyList<string> texts)
+    {
+        foreach (var text in texts)
+        {
+            if (text.EndsWith(SuperstepSuffix, StringComparison.Ordinal) && text.Length > SuperstepSuffix.Length
+                && name.Contains(text[..^SuperstepSuffix.Length], StringComparison.Ordinal))
+            {
+                return text;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>The texts of a comma-separated list, blanks dropped.</summary>
     public static IReadOnlyList<string> Parse(string list)
     {

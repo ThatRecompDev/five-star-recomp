@@ -24,6 +24,26 @@ public sealed class SkippedPipelinesTests
         Assert.Null(SkippedPipelines.Match(skin, SkippedPipelines.Parse("lineardepthskin")));
     }
 
+    /// <summary>X@superstep names no pipeline at creation; it names the programs whose superstep form is then held.</summary>
+    [Fact]
+    public void A_superstep_text_names_programs_not_pipelines()
+    {
+        var texts = SkippedPipelines.Parse("LinearDepthSkin@superstep,bvh_");
+        const string program = "sgd1_046d1655_t41_MSNC_VS_LinearDepthSkin_1b4b70ba_Wrapped";
+        const string pipeline = "sgd1_0b5ae808_t32_PS_LinearDepth_1b4b70ba_Wrapped + " + program;
+
+        Assert.Null(SkippedPipelines.Match(pipeline, texts));
+        Assert.Equal("LinearDepthSkin@superstep", SkippedPipelines.SuperstepText(program, texts));
+        Assert.Null(SkippedPipelines.SuperstepText("sgd1_04a7a7b5_t41_MS_VS_TransformD_c5fd36bb_Wrapped", texts));
+        Assert.Null(SkippedPipelines.SuperstepText(program, SkippedPipelines.Parse("@superstep,LinearDepthSkin")));
+
+        // The producer holds the mesh program's superstep form (the profile ShaderStages names, the variant's source), not its native one (w404 held none with "ms_").
+        var mesh = FiveStar.Shaders.Translation.ShaderStages.ProfileName(FiveStar.Shaders.Translation.ShaderStage.Mesh);
+        Assert.NotNull(ProgramProducer.Held(program, mesh, program + FiveStar.Shaders.Compilation.CorpusTranslator.GroupWaveSuffix, texts));
+        Assert.Null(ProgramProducer.Held(program, mesh, program + ".hlsl", texts));
+        Assert.Null(ProgramProducer.Held(program, "ps", program + FiveStar.Shaders.Compilation.CorpusTranslator.GroupWaveSuffix, texts));
+    }
+
     [Fact]
     public void A_skipped_pipeline_is_not_waited_for()
     {
