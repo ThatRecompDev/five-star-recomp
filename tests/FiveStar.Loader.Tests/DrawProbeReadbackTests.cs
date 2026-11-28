@@ -35,6 +35,15 @@ public sealed unsafe class DrawProbeReadbackTests
         Assert.Equal("; float mean (3), max (6), min (0); exactly 0.0 (1) and NaN (0) of 4 pixels", DrawProbes.FloatSummary(halves, 4, 2, 2, 54));
         Assert.Equal(string.Empty, DrawProbes.FloatSummary(texel, 16, 1, 1, Bgra8Unorm));
 
+        // R16G16_FLOAT (the velocity target): two channels, a saturated 65504 and an infinity counted apart.
+        byte[] velocity = [.. new[] { (Half)1, (Half)(-2), Half.MaxValue, Half.NegativeInfinity }.SelectMany(value => BitConverter.GetBytes(value))];
+        Assert.Contains("max (6.55E+04, -2), min (1, -Infinity); exactly 0.0 (0, 0), at least 65504 in size (1, 1) and NaN (0, 0) of 2 pixels", DrawProbes.FloatSummary(velocity, 8, 2, 1, 34), StringComparison.Ordinal);
+
+        // R32G32_UINT (the hair's visibility buffer): pixels with either word set and each word's non-zero range.
+        byte[] visibility = [.. new uint[] { 0, 0, 5, 0, 0x10, 0x200 }.SelectMany(BitConverter.GetBytes)];
+        Assert.Equal("; 2 of 3 pixels written, non-zero words 0x5-0x10, 0x200-0x200", DrawProbes.Uint2Summary(visibility, 24, 3, 1, 17));
+        Assert.Equal(string.Empty, DrawProbes.Uint2Summary(visibility, 24, 3, 1, 42));
+
         // Plane 0 of R32G8X24_TYPELESS (TL_PS's depth) is read as R32_FLOAT; a colour format stays itself.
         Assert.Equal(41, DrawProbes.CopyFormat(19));
         Assert.Equal(10, DrawProbes.CopyFormat(10));

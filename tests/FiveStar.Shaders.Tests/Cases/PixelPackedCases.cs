@@ -14,6 +14,7 @@ public static class PixelPackedCases
         [
             PackedHalfMath(),
             FmaMix(),
+            FmaMixStrandDecode(),
             Sdwa(),
             SdwaCompareExec(),
         ];
@@ -70,6 +71,30 @@ public static class PixelPackedCases
             Program,
             [FloatBits.Of(low), FloatBits.Of(high), 0xDEAD0000 | FloatBits.Half(low), 0x0000BEEF | (FloatBits.Half(low) << 16), FloatBits.Of(single)],
             [.. sources, 0xDEAD0000, 0x0000BEEF]);
+    }
+
+    // The forms VS_HairStrandGeometry_8e7634e5 decodes its quantized strand positions with: an f32 source negated, one
+    // SGPR read as both of its f16 halves (scale high, offset low, the offset negated), the 1.0 constant as f32, and a
+    // word select converted to float.
+    private static PixelCase FmaMixStrandDecode()
+    {
+        const string Program = """
+            v_mov_b32 v7, s1
+            v_mov_b32 v8, s2
+            v_mov_b32 v9, s3
+            v_fma_mix_f32 v20, -v7, s0, -s0 op_sel:[0,1,0] op_sel_hi:[0,1,1]
+            v_fma_mix_f32 v21, v7, 1.0, s0 op_sel_hi:[0,0,1]
+            v_fma_mix_f32 v22, v8, s0, v7 op_sel:[0,1,0] op_sel_hi:[0,1,0]
+            v_fma_mix_f32 v23, v7, s0, s0 op_sel:[0,1,0] op_sel_hi:[0,1,1]
+            v_fma_mix_f32 v24, s0, s2, 0 op_sel_hi:[1,0,0]
+            v_cvt_f32_u32_sdwa v25, v9 dst_sel:DWORD dst_unused:UNUSED_PAD src0_sel:WORD_0
+            """;
+
+        return PixelCase.Uniform(
+            "fma_mix_strand",
+            Program,
+            [FloatBits.Of(-6.25), FloatBits.Of(3.25), FloatBits.Of(4.0), FloatBits.Of(6.25), FloatBits.Of(0.125), FloatBits.Of(4660.0)],
+            FloatBits.Pack(H(0.25), H(2.0)), FloatBits.Of(3.0), FloatBits.Of(0.5), 0xABCD1234);
     }
 
     // Byte / word source selects, sext, dst_sel with PAD / PRESERVE / SEXT.
