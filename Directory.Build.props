@@ -14,6 +14,9 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <Deterministic>true</Deterministic>
+    <!-- The same source gives the same bytes in any checkout: the program cache is keyed on FiveStar.Shaders.dll's hash,
+         and an embedded checkout path would give every folder its own cold cache. -->
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)'))=/_/</PathMap>
     <InvariantGlobalization>true</InvariantGlobalization>
     <UseArtifactsOutput>true</UseArtifactsOutput>
     <ArtifactsPath>$(MSBuildThisFileDirectory)artifacts</ArtifactsPath>
