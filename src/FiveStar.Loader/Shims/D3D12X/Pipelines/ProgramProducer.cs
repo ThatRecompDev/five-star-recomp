@@ -32,6 +32,9 @@ internal sealed class ProgramProducer
     private const string NoProbe = "probe: not a mesh program the probe can take";
     private const string DxilReplacement = "override: a DXIL replacement has no source to link or trim";
 
+    /// <summary>The profile name of mesh programs (ShaderStages.ProfileName).</summary>
+    private const string MeshProfile = "ms";
+
     // A compile failure with a source or validation diagnostic repeats; a crash or exhausted memory may not.
     private const string SourceError = ": error: ";
     private const string ValidationError = "error: validation errors";
@@ -192,6 +195,11 @@ internal sealed class ProgramProducer
 
         var (hlsl, source) = picked.Value;
 
+        if (Held(name, profile, source) is string held)
+        {
+            return new ProgramForm(name, null, held);
+        }
+
         if (DebugLayer.PoolStoreTrace.Enabled)
         {
             hlsl = DebugLayer.PoolStoreTrace.Header(name) + hlsl;
@@ -211,6 +219,36 @@ internal sealed class ProgramProducer
         var slow = hlsl.Length > _compiler.Options.LargeSourceLength || _slow.Contains(source);
 
         return new ProgramForm(name, new CompileRequest(Path.Combine(_folder, source), hlsl, profile, slow), null);
+    }
+
+    /// <summary>
+    /// Why a mesh program is held (<c>--skip-pipelines X@superstep</c>, <see cref="SkippedPipelines.SuperstepText(string)"/>) when the
+    /// adapter would run its superstep form (<paramref name="source"/> is the wave32 variant's); null when it is not. Not
+    /// kept as a failure: the folder serves boots without the hold too.
+    /// </summary>
+    private static string? Held(string name, string profile, string source)
+    {
+        var held = Held(name, profile, source, SkippedPipelines.Texts);
+
+        if (held is not null)
+        {
+            ShimContext.Log?.Warn($"[d3d12_xs] program {name} {held}: its pipelines stay stand-ins and their draws are skipped");
+        }
+
+        return held;
+    }
+
+    /// <summary>As <see cref="Held(string, string, string)"/> under <paramref name="texts"/>, without the log.</summary>
+    internal static string? Held(string name, string profile, string source, IReadOnlyList<string> texts)
+    {
+        var text = SkippedPipelines.SuperstepText(name, texts);
+
+        if (text is null || profile != MeshProfile || !source.EndsWith(CorpusTranslator.GroupWaveSuffix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return $"held: --skip-pipelines {text}, the superstep form on this adapter";
     }
 
     /// <summary>The translation's form the adapter runs (native or wave32 variant) and its source file; null when none loads.</summary>

@@ -28,6 +28,9 @@ internal sealed class OnDemandPrograms : IProgramLibrary
     private readonly FiveStar.Shaders.Compilation.ShaderOverrides? _overrides;
     private readonly ConcurrentDictionary<string, ProgramJob> _jobs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, int> _failures = new(StringComparer.Ordinal);
+
+    /// <summary>Programs a <c>--skip-pipelines X@superstep</c> text names that this boot decided are not held.</summary>
+    private readonly ConcurrentDictionary<string, byte> _decided = new(StringComparer.Ordinal);
     private int _made;
     private int _found;
     private int _ready;
@@ -118,6 +121,11 @@ internal sealed class OnDemandPrograms : IProgramLibrary
     {
         if (_overrides is null || !_overrides.Has(name))
         {
+            if (!(_translated?.Has(name) ?? false) && _compiled.Has(name) && !Compiled(name))
+            {
+                return null;
+            }
+
             return _translated?.Load(name) ?? _compiled.Load(name);
         }
 
@@ -173,12 +181,21 @@ internal sealed class OnDemandPrograms : IProgramLibrary
             return [replaced];
         }
 
-        if (names.Count == 0 || names.Any(name => (_translated?.Has(name) ?? false) || _compiled.Has(name)))
+        if (names.Count == 0 || names.Any(name => (_translated?.Has(name) ?? false) || Compiled(name)))
         {
             return null;
         }
 
         return names;
+    }
+
+    /// <summary>
+    /// Whether the folder holds the program's DXIL for this boot: one a <c>--skip-pipelines X@superstep</c> text names
+    /// only once the job that made it decided this boot that it is not held (its file may be a boot's without the hold).
+    /// </summary>
+    private bool Compiled(string name)
+    {
+        return _compiled.Has(name) && (SkippedPipelines.SuperstepText(name) is null || _decided.ContainsKey(name));
     }
 
     /// <summary>
@@ -274,27 +291,19 @@ internal sealed class OnDemandPrograms : IProgramLibrary
 
         Guarded(job, () =>
         {
-            if (_producer.Exists(job.Name))
+            // A program --skip-pipelines X@superstep names is decided here each boot from its translation (the folder
+            // and the compile host know nothing of the hold); an unchanged form is restored from the content store.
+            bool decides = SkippedPipelines.SuperstepText(job.Name) is not null;
+
+            if (Settled(job, decides))
             {
-                Interlocked.Increment(ref _found);
-                Finish(job, null);
-
-                return;
-            }
-
-            var kept = _producer.KeptFailure(job.Name);
-
-            if (kept is not null)
-            {
-                Finish(job, kept);
-
                 return;
             }
 
             // On a game thread (a small program made at its first use), never through the compile host: its requests
             // wait behind the host's other work up to two minutes, and the game's main thread waited there while the host
             // linked a foliage producer (boots w69c and w69d stayed on the black loading screen with a warm cache).
-            var hosted = inline ? HostedMake.Here : _producer.MakeInHost(job.Name);
+            var hosted = inline || decides ? HostedMake.Here : _producer.MakeInHost(job.Name);
 
             if (hosted.Hosted && hosted.Dxc is null)
             {
@@ -312,6 +321,11 @@ internal sealed class OnDemandPrograms : IProgramLibrary
                 return;
             }
 
+            if (decides)
+            {
+                _decided[job.Name] = 0;
+            }
+
             bool dxcOnly = hosted.Dxc is not null || hosted.DxcOnly;
 
             if (form.Heavy)
@@ -323,6 +337,32 @@ internal sealed class OnDemandPrograms : IProgramLibrary
 
             Compile(job, form, dxcOnly);
         });
+    }
+
+    /// <summary>
+    /// Finishes the job when the folder settles it: its DXIL is there (unless the boot <paramref name="decides"/> the program
+    /// itself) or its failure was kept; false when it is to be made.
+    /// </summary>
+    private bool Settled(ProgramJob job, bool decides)
+    {
+        if (!decides && _producer.Exists(job.Name))
+        {
+            Interlocked.Increment(ref _found);
+            Finish(job, null);
+
+            return true;
+        }
+
+        var kept = _producer.KeptFailure(job.Name);
+
+        if (kept is null)
+        {
+            return false;
+        }
+
+        Finish(job, kept);
+
+        return true;
     }
 
     /// <summary>A program the compile host made (null) or refused.</summary>

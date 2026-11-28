@@ -135,7 +135,8 @@ internal static class HostUsage
                                  (Never..Always) and no stencil test (a check of what culls a pass's pixels)
           --no-class-depth-bounds  the tiled lighting keeps its depth EQUAL class test (by default a depth-bounds test)
           --skip-pipelines <text,...>  pipelines whose programs' names hold a text stay stand-ins: never built or
-                                 loaded, their draws skipped (to get past one that hangs the GPU)
+                                 loaded, their draws skipped (to get past one that hangs the GPU); a text ending
+                                 in @superstep holds only the mesh programs it names that would run as supersteps
           --no-draws             no pipeline is built and every draw and dispatch is skipped (black picture): the frame
                                  time is then the game's own CPU and our shims outside the draws
           --mirror-table-records reach|full|<n>  records every descriptor-table bind mirrors (default 64): full
