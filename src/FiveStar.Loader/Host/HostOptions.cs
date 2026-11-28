@@ -483,6 +483,9 @@ internal sealed record HostOptions
     /// <summary>Window-record byte offsets the trace reads from user SGPR pointers, each with an optional buffer dword (<c>--d3d12-trace-records</c>).</summary>
     public IReadOnlyList<Shims.D3D12X.DebugLayer.TraceRecord> D3D12TraceRecords { get; set; } = [];
 
+    /// <summary>Desktop heap indices whose views the trace names at each captured present (<c>--d3d12-describe-views</c>).</summary>
+    public IReadOnlyList<uint> D3D12DescribeViews { get; set; } = [];
+
     /// <summary>Render targets of this shape read back after each pass that writes them, after captured presents (<c>--d3d12-watch-target WxH:format</c>).</summary>
     public Shims.D3D12X.DebugLayer.TargetShape? D3D12WatchTarget { get; set; }
 

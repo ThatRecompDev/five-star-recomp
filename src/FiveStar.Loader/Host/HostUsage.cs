@@ -237,6 +237,8 @@ internal static class HostUsage
                                  offset@sgprN+byte: at that byte past user SGPR N, e.g. 0xac0@sgpr14+0xc; a trailing
                                  >sgprM follows the dword as a record number in the table SGPR M points to and shows
                                  the view there, read back with --d3d12-probe-traced, e.g. 0xac0@sgpr14+0xc>sgpr15)
+          --d3d12-describe-views <index,...>  at each captured present, the view the trace saw written at these
+                                 desktop heap indices (decimal or 0x hex): resource, size, format
           --d3d12-watch-target WxH:format  with the draw trace, every pass that renders into a target of this shape
                                  (and each traced dispatch) reads it back after captured presents, e.g. 2560x1440:10
           --d3d12-watch-limit <n>  watched-target readbacks per frame (16); each pipeline's first write to a target only
