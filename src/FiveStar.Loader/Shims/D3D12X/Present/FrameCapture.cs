@@ -33,6 +33,15 @@ internal sealed class FrameCapture : IDisposable
         _log = log;
     }
 
+    /// <summary>The present numbers captured so far asked for (startup: before the presenting thread runs).</summary>
+    public IReadOnlyCollection<long> Presents => _presents;
+
+    /// <summary>The <c>--exit-when-done</c> entry of the capture of <paramref name="present"/>.</summary>
+    public static string EntryName(long present)
+    {
+        return $"capture-presents {present}";
+    }
+
     /// <summary>Where PNG files go; null logs summaries only.</summary>
     public string? Directory { get; }
 

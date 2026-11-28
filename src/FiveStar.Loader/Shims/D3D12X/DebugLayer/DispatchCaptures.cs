@@ -40,6 +40,7 @@ internal static unsafe class DispatchCaptures
     private static readonly ConcurrentDictionary<int, int> Seen = new();
     private static readonly ConcurrentDictionary<nint, DispatchCaptureJob> Open = new();
     private static readonly ConcurrentDictionary<nint, long> Resets = new();
+    private static readonly ConcurrentDictionary<CapturePlan, string> EntryNames = new();
     private static readonly List<DispatchCaptureJob> Pending = [];
     private static readonly List<DispatchCaptureJob> Written = [];
     private static readonly object Gate = new();
@@ -102,6 +103,17 @@ internal static unsafe class DispatchCaptures
         }
 
         return new CaptureSpec(text[..at], occurrence, fromPresent);
+    }
+
+    /// <summary>The <c>--exit-when-done</c> entry of <paramref name="spec"/>, as the command line wrote it.</summary>
+    public static string EntryName(CaptureSpec spec)
+    {
+        if (spec.FromPresent != 0)
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"capture-dispatch {spec.Text}@p{spec.FromPresent}:{spec.Occurrence}");
+        }
+
+        return string.Create(CultureInfo.InvariantCulture, $"capture-dispatch {spec.Text}@{spec.Occurrence}");
     }
 
     /// <summary>A compute program was given to a pipeline: its DXIL is kept when an entry names it.</summary>
@@ -236,7 +248,10 @@ internal static unsafe class DispatchCaptures
             {
                 ShimContext.Log?.Info($"[capture] {name}: dispatch {spec.Occurrence} from present {spec.FromPresent}, at present {Pipelines.StandInUse.Frame}");
 
-                return CapturePlanner.Plan(list, name);
+                var plan = CapturePlanner.Plan(list, name);
+                EntryNames[plan] = EntryName(spec);
+
+                return plan;
             }
         }
 
@@ -348,6 +363,11 @@ internal static unsafe class DispatchCaptures
         lock (Gate)
         {
             Written.Add(job);
+        }
+
+        if (EntryNames.TryRemove(job.Plan, out string? entry))
+        {
+            FiveStar.Loader.Diagnostics.RunEnd.Fired(entry);
         }
     }
 

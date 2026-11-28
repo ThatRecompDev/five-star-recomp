@@ -182,6 +182,12 @@ internal sealed record HostOptions
     /// <summary>How long --run lets the entry point run before reporting the main thread and exiting; null waits.</summary>
     public TimeSpan? RunTimeout { get; set; }
 
+    /// <summary><c>--exit-when-done [grace]</c>: the presents waited after every requested capture is written; null when not asked.</summary>
+    public int? ExitWhenDone { get; set; }
+
+    /// <summary><c>--exit-after-present N</c>: the present after which the run ends; 0 for none.</summary>
+    public long ExitAfterPresent { get; set; }
+
     /// <summary>
     /// <c>--cpu intel</c>: report the AMD-only instructions as missing and run the emulation self-test through the
     /// exception handler, as on an Intel CPU; the game's own instructions still run natively where the CPU has them.

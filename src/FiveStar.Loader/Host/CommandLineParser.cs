@@ -110,8 +110,8 @@ internal sealed class CommandLineParser
                 return SetClassifyOutput();
             case "--run":
                 return SetRunMain();
-            case "--run-timeout":
-                return SetRunTimeout();
+            case "--run-timeout" or "--exit-when-done" or "--exit-after-present":
+                return SetRunEnd(option);
             case "--input-script":
                 return SetInputScript();
             case "--allow-real-input" or "--script-input-only":
@@ -587,9 +587,33 @@ internal sealed class CommandLineParser
         return true;
     }
 
-    private bool SetRunTimeout()
+    /// <summary><c>--run-timeout s</c>, <c>--exit-when-done [grace]</c> and <c>--exit-after-present N</c>.</summary>
+    private bool SetRunEnd(string option)
     {
-        _options.RunTimeout = TimeSpan.FromSeconds(double.Parse(Next(), CultureInfo.InvariantCulture));
+        if (option == "--run-timeout")
+        {
+            _options.RunTimeout = TimeSpan.FromSeconds(double.Parse(Next(), CultureInfo.InvariantCulture));
+        }
+        else if (option == "--exit-after-present")
+        {
+            if (!long.TryParse(Next(), NumberStyles.None, CultureInfo.InvariantCulture, out long present) || present == 0)
+            {
+                throw new CommandLineException("--exit-after-present takes a positive present number");
+            }
+
+            _options.ExitAfterPresent = present;
+        }
+        else
+        {
+            _options.ExitWhenDone = Diagnostics.CaptureCompletion.DefaultGrace;
+
+            // The grace is optional: a number right after the option.
+            if (_index + 1 < _args.Length && int.TryParse(_args[_index + 1], NumberStyles.None, CultureInfo.InvariantCulture, out int grace))
+            {
+                _options.ExitWhenDone = grace;
+                _index++;
+            }
+        }
 
         return true;
     }

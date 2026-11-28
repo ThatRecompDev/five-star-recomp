@@ -45,6 +45,15 @@ internal sealed unsafe class PixGpuCapture
     /// <summary>Whether the capturer is loaded and has both exports.</summary>
     public bool Loaded => _begin != null && _end != null;
 
+    /// <summary>The presents to capture.</summary>
+    public IReadOnlyCollection<long> Presents => _presents;
+
+    /// <summary>The <c>--exit-when-done</c> entry of the capture of <paramref name="present"/>.</summary>
+    public static string EntryName(long present)
+    {
+        return $"pix-capture {present}";
+    }
+
     /// <summary>The newest WinPixGpuCapturer.dll under <paramref name="programFiles"/>\Microsoft PIX; null when none.</summary>
     public static string? FindCapturer(string programFiles)
     {
@@ -145,6 +154,7 @@ internal sealed unsafe class PixGpuCapture
         {
             _log.Warn($"[pix] PIXBeginCapture2({path}) failed: {HResult.Format(hr)}");
             Release();
+            RunEnd.Fired(EntryName(present));
 
             return;
         }
@@ -158,6 +168,7 @@ internal sealed unsafe class PixGpuCapture
         int hr = _end(0);
         string path = Marshal.PtrToStringUni(_fileName) ?? string.Empty;
         _log.Info($"  [pix] PIXEndCapture -> {HResult.Format(hr)}; capture of present {_open} in {path}");
+        RunEnd.Fired(EntryName(_open));
         _open = 0;
         Release();
     }
