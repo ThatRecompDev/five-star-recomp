@@ -80,6 +80,10 @@ public sealed unsafe class NanScanTests
             NanScan.Dwords = NanScan.ParseDwords("0x1a0:4");
             Assert.Equal("; floats at +0x1a0: 1.5, 0, 0, -2", NanScan.Values(bytes));
 
+            // A non-finite value also shows its bits: integers such as 0xffffffff read as NaN.
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(0x1a4), uint.MaxValue);
+            Assert.Equal("; floats at +0x1a0: 1.5, NaN (0xffffffff), 0, -2", NanScan.Values(bytes));
+
             NanScan.Dwords = NanScan.ParseDwords("512:4");
             Assert.Equal(string.Empty, NanScan.Values(bytes));
             Assert.Throws<ArgumentException>(() => NanScan.ParseDwords("0x1a0"));
