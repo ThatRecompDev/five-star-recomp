@@ -98,7 +98,9 @@ emitted guarded instead: `uint flowN` holds the number of the node to run, and t
 topological order, each as `if (flowN == k) { ...; flowN = <successor>; }`, so one pass runs one path; loops nested in
 it stay structured. A two-phase mesh shader keeps its phase loops and `[loop] while (pc < PC_YIELD) switch (pc)`, with
 one case per region (the entry and each resume point after a barrier) holding the structured code up to the next barrier
-or the end; WARP's shader compiler crashes when the `while` is left out.
+or the end; WARP's shader compiler crashes when the `while` is left out. The loop sits inside `if (pc < PC_YIELD)`:
+without it dxc makes each phase one loop whose header takes a back-edge from every case and one from the barrier tail
+through one latch, and NVIDIA GPUs hang on that shape (#9).
 
 An irreducible graph (a cycle entered at more than one block) is first made reducible by entry guards
 (`EntryGuards`, LLVM's FixIrreducible): each such cycle gets one header, a chain of tests on a selector

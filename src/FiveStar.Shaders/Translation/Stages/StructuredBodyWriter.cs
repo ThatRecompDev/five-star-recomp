@@ -11,6 +11,9 @@ namespace FiveStar.Shaders.Translation.Stages;
 /// <c>pc</c> over the program entry and the resume points after its barriers, and each case is the structured region
 /// up to the next barrier or the end. The switch stays inside <c>[loop] while (pc &lt; PC_YIELD)</c> as in the dispatch
 /// form although every case ends at a yield or the end: WARP's shader compiler crashes on the phase loop without it.
+/// An <c>if (pc &lt; PC_YIELD)</c> encloses that loop. Without it dxc gives each phase one loop whose header is reached
+/// by two back-edges every round (from every switch case and from the barrier tail) through one latch, and that shape
+/// hangs NVIDIA GPUs (RTX 3070 and 4090, issue #9); the guard sends the cases forward to the round tail instead.
 /// Throws <see cref="StructuringFailedException"/> when the graph cannot be structured.
 /// </summary>
 internal sealed class StructuredBodyWriter
@@ -55,7 +58,7 @@ internal sealed class StructuredBodyWriter
     public List<string> Phase(bool dropOutputs)
     {
         var graph = new FlowGraph(_state.Blocks);
-        var lines = new List<string> { "  [loop] while (pc < PC_YIELD) {", "    switch (pc) {" };
+        var lines = new List<string> { "  if (pc < PC_YIELD) {", "  [loop] while (pc < PC_YIELD) {", "    switch (pc) {" };
         Func<string, bool> keep = dropOutputs ? line => !MeshDeclarations.WritesOutput(line) : _ => true;
 
         foreach (var entry in RegionEntries(graph))
@@ -68,6 +71,7 @@ internal sealed class StructuredBodyWriter
 
         lines.Add("    default: pc = PC_END; break;");
         lines.Add("    }");
+        lines.Add("  }");
         lines.Add("  }");
 
         return lines;
